@@ -6,7 +6,11 @@ import com.mongodb.client.model.Filters;
 import com.mongodb.client.result.UpdateResult;
 import com.tazzzo.catalog.domain.ProductDocuments;
 import com.tazzzo.catalog.events.EventPayload;
+import com.mongodb.MongoClientSettings;
 import com.tazzzo.catalog.tx.CasConflictException;
+import com.tazzzo.catalog.tx.ImmutableFieldException;
+import org.bson.BsonDocument;
+import org.bson.BsonValue;
 import org.bson.Document;
 import org.bson.conversions.Bson;
 import org.springframework.stereotype.Component;
@@ -19,6 +23,21 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class WritePath {
+
+    /**
+     * D-1b — fields the contract declares immutable after creation. Guarded here, at the single
+     * write path, rather than in each service: no service writes these today, and this rail keeps
+     * it that way. It is PREVENTIVE, not the fix for D-1 itself — the demonstrated bypass is a
+     * direct MongoDB write that never reaches this class, and is closed operationally (D-1a,
+     * Atlas roles). What this stops is a FUTURE service reopening the class of problem, in the
+     * same spirit as C-4 making the audit event a compile-time requirement.
+     *
+     * NOTE for CAT-ID: `identity` is guarded as a subtree, so the canonical_key backfill cannot
+     * write identity.canonical_key through casUpdateWithEvent. That backfill will need an
+     * explicit, audited exception — deliberately not pre-granted here.
+     */
+    private static final java.util.Set<String> IMMUTABLE_ROOTS =
+            java.util.Set.of("_id", "product_type", "identity");
 
     private final MongoDatabase db;
 
@@ -34,6 +53,9 @@ public class WritePath {
     /** CAS update guarded by expectedVersion; the update MUST $inc version itself. */
     public long casUpdateWithEvent(ClientSession session, String collection, String id,
                                    long expectedVersion, Bson update, EventPayload event) {
+        // BEFORE appendEvent: a rejected update must not leave an audit event behind, even
+        // though the surrounding transaction would roll it back.
+        assertNoImmutableFieldWrites(update);
         appendEvent(session, event);
         UpdateResult r = db.getCollection(collection).updateOne(session,
                 Filters.and(Filters.eq("_id", id), Filters.eq("version", (int) expectedVersion)), update);
@@ -52,6 +74,33 @@ public class WritePath {
 
     public MongoDatabase database() {
         return db;
+    }
+
+    /**
+     * D-1b. Walks the update operators and refuses any that reach an immutable root — including
+     * dotted paths (identity.type) and $rename TARGETS, not just its sources.
+     */
+    private void assertNoImmutableFieldWrites(Bson update) {
+        BsonDocument doc = update.toBsonDocument(BsonDocument.class,
+                MongoClientSettings.getDefaultCodecRegistry());
+        for (java.util.Map.Entry<String, BsonValue> op : doc.entrySet()) {
+            if (!op.getValue().isDocument()) continue;
+            BsonDocument fields = op.getValue().asDocument();
+            for (java.util.Map.Entry<String, BsonValue> f : fields.entrySet()) {
+                reject(op.getKey(), f.getKey());
+                if ("$rename".equals(op.getKey()) && f.getValue().isString()) {
+                    reject(op.getKey(), f.getValue().asString().getValue()); // rename TARGET
+                }
+            }
+        }
+    }
+
+    private void reject(String operator, String path) {
+        String root = path.contains(".") ? path.substring(0, path.indexOf('.')) : path;
+        if (IMMUTABLE_ROOTS.contains(root)) {
+            throw new ImmutableFieldException(
+                    "field is immutable after creation: " + path + " (via " + operator + ")");
+        }
     }
 
     private void appendEvent(ClientSession session, EventPayload event) {

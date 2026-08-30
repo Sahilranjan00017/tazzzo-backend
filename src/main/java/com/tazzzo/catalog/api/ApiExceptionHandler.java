@@ -73,6 +73,12 @@ public class ApiExceptionHandler {
         return envelope(HttpStatus.UNPROCESSABLE_ENTITY, "BUNDLE_COMPONENT", ex.getMessage(), req);
     }
 
+    @ExceptionHandler(com.tazzzo.catalog.tx.ImmutableFieldException.class)
+    public ResponseEntity<ErrorBody> immutableField(com.tazzzo.catalog.tx.ImmutableFieldException ex,
+                                                    HttpServletRequest req) {
+        return envelope(HttpStatus.UNPROCESSABLE_ENTITY, "IMMUTABLE_FIELD", ex.getMessage(), req);
+    }
+
     @ExceptionHandler(com.tazzzo.catalog.tx.VariantPackException.class)
     public ResponseEntity<ErrorBody> variantPack(com.tazzzo.catalog.tx.VariantPackException ex,
                                                  HttpServletRequest req) {
