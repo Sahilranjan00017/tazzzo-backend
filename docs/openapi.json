@@ -4,10 +4,6 @@
     "title" : "OpenAPI definition",
     "version" : "v0"
   },
-  "servers" : [ {
-    "url" : "http://localhost:63531",
-    "description" : "Generated server url"
-  } ],
   "paths" : {
     "/api/v1/taxonomy/releases" : {
       "post" : {
@@ -1168,6 +1164,9 @@
             "items" : {
               "$ref" : "#/components/schemas/BundleComponentDto"
             }
+          },
+          "packOf" : {
+            "$ref" : "#/components/schemas/PackOfDto"
           }
         }
       },
@@ -1179,6 +1178,18 @@
           },
           "market" : {
             "type" : "string"
+          }
+        }
+      },
+      "PackOfDto" : {
+        "type" : "object",
+        "properties" : {
+          "componentProductId" : {
+            "type" : "string"
+          },
+          "qty" : {
+            "type" : "integer",
+            "format" : "int32"
           }
         }
       },

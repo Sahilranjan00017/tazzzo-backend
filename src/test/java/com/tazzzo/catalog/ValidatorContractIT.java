@@ -174,11 +174,26 @@ class ValidatorContractIT extends AbstractMongoIT {
                 Filters.and(Filters.eq("_id", "TZP-100001"), Filters.eq("version", 1)),
                 Updates.set("title", "Ghost")).getModifiedCount();
         assertThat(stale).isZero();
-        // BYPASS: direct product_type mutation accepted (validator cannot enforce immutability)
+        // F-5 TIGHTENED THIS: a naked flip to variant_pack is now REJECTED, because the
+        // variant_pack branch of oneOf requires pack_of. Before F-5 this update succeeded and
+        // silently produced a multipack indistinguishable from a single.
+        assertRejectedFor("oneOf", () -> products().updateOne(Filters.eq("_id", "TZP-100002"),
+                Updates.set("product_type", "variant_pack")));
+        // BYPASS (still real, now narrower): immutability is STILL unenforceable — a flip that
+        // also supplies a conforming shape is accepted. The validator binds SHAPE, never
+        // IMMUTABILITY; only the service tier can own that. F-5 raised the cost of the bypass,
+        // it did not close it.
         long bypass = products().updateOne(Filters.eq("_id", "TZP-100002"),
-                Updates.set("product_type", "variant_pack")).getModifiedCount();
+                Updates.combine(Updates.set("product_type", "variant_pack"),
+                        Updates.set("pack_of", new Document("component_product_id", "TZP-100001")
+                                .append("qty", 6)))).getModifiedCount();
         assertThat(bypass).as("the bypass must actually modify the doc to prove the hole").isEqualTo(1);
-        // but shape still binds on update: flipping to a contentless bundle rejected
+        // and note what the validator did NOT check: the component need not exist or be active.
+        // Component liveness is a service-tier invariant (VariantPackService), by design.
+        assertThat(products().find(Filters.eq("_id", "TZP-100002")).first()
+                .get("pack_of", Document.class).getString("component_product_id"))
+                .isEqualTo("TZP-100001");
+        // shape still binds on update: flipping to a contentless bundle rejected
         assertRejectedFor("oneOf", () -> products().updateOne(Filters.eq("_id", "TZP-100004"),
                 Updates.set("product_type", "bundle")));
     }

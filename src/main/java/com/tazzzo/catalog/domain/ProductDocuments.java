@@ -53,6 +53,10 @@ public final class ProductDocuments {
             }
             doc.append("bundle_contents", contents);
         }
+        if ("variant_pack".equals(d.productType()) && d.packOf() != null) {
+            doc.append("pack_of", new Document("component_product_id", d.packOf().componentProductId())
+                    .append("qty", d.packOf().qty()));
+        }
         return doc;
     }
 

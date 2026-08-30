@@ -17,12 +17,15 @@ public final class ApiDtos {
 
     public record BundleComponentDto(String componentProductId, int qty, String verticalIdSnapshot) { }
 
+    public record PackOfDto(String componentProductId, int qty) { }
+
     public record CreateProductRequest(String id, String productType, String identityType,
                                        String internalKey, List<GtinDto> gtins, String brandCode,
                                        String title, String verticalId, String releaseId,
                                        String classificationStatus, Map<String, Object> attributes,
                                        List<String> evidenceRefs,
-                                       List<BundleComponentDto> bundleContents) { }
+                                       List<BundleComponentDto> bundleContents,
+                                       PackOfDto packOf) { }
 
     public record PatchProductRequest(String title) { }
 

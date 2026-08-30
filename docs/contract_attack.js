@@ -42,6 +42,9 @@ const productsValidator = { $jsonSchema: { bsonType:"object", additionalProperti
     bundle_contents:{bsonType:["array","null"], maxItems:100, items:{bsonType:"object", additionalProperties:false,
       required:["component_product_id","qty"], properties:{component_product_id:{bsonType:"string",pattern:"^TZP-"},
       qty:{bsonType:"int",minimum:1}, vertical_id_snapshot:{bsonType:"string"}, title_snapshot:{bsonType:"string"}, gtin_snapshot:{bsonType:["string","null"]}}}},
+    pack_of:{bsonType:["object","null"], additionalProperties:false,
+      required:["component_product_id","qty"], properties:{component_product_id:{bsonType:"string",pattern:"^TZP-"},
+      qty:{bsonType:"int",minimum:2}}}, // F-5: multipack link; qty>=2 (a pack of 1 is a single)
     browse_verticals:{bsonType:["array","null"], maxItems:120, items:{bsonType:"string"}},
     variant_group_id:{bsonType:["string","null"]},
     formulation_version:{bsonType:["int","null"]},
@@ -50,8 +53,10 @@ const productsValidator = { $jsonSchema: { bsonType:"object", additionalProperti
     version:{bsonType:"int", minimum:1},
     created_at:{bsonType:"date"}, updated_at:{bsonType:["date","null"]}},
   oneOf:[
-    { properties:{ product_type:{enum:["single","variant_pack"]}, classification:{properties:{vertical_id:{bsonType:"string"}}}, bundle_contents:{bsonType:"null"} } },
-    { properties:{ product_type:{enum:["bundle"]}, classification:{properties:{vertical_id:{bsonType:"null"}}}, bundle_contents:{bsonType:"array", minItems:2} } } ] } };
+    { properties:{ product_type:{enum:["single"]}, classification:{properties:{vertical_id:{bsonType:"string"}}}, bundle_contents:{bsonType:"null"}, pack_of:{bsonType:"null"} } },
+    { required:["pack_of"],
+      properties:{ product_type:{enum:["variant_pack"]}, classification:{properties:{vertical_id:{bsonType:"string"}}}, bundle_contents:{bsonType:"null"}, pack_of:{bsonType:"object"} } },
+    { properties:{ product_type:{enum:["bundle"]}, classification:{properties:{vertical_id:{bsonType:"null"}}}, bundle_contents:{bsonType:"array", minItems:2}, pack_of:{bsonType:"null"} } } ] } };
 
 db2.createCollection("products", {validator: productsValidator, validationLevel:"strict", validationAction:"error"});
 db2.createCollection("gtin_registry");   // _id = gtin
@@ -95,6 +100,10 @@ expect("I-10","bundle with 1 component rejected (minItems)", ()=>{ const d=valid
 expect("I-11","undeclared top-level field rejected (additionalProperties:false)", ()=>db2.products.insertOne(validSingle("TZP-200009",{sneaky_new_column:"nope"})), true, "additionalProperties");
 expect("I-12","confidence > 1 rejected", ()=>{ const d=validSingle("TZP-200010"); d.classification.confidence=1.5; db2.products.insertOne(d); }, true);
 expect("I-13","lifecycle 'merging' is a VALID enum state (M3 fix present)", ()=>db2.products.insertOne(validSingle("TZP-200011",{lifecycle:"merging"})), false);
+expect("I-15","F-5: variant_pack WITHOUT pack_of rejected (oneOf)", ()=>db2.products.insertOne(validSingle("TZP-200013",{product_type:"variant_pack"})), true, "oneOf");
+expect("I-16","F-5: single WITH pack_of rejected (oneOf) — pack_of belongs only to variant_pack", ()=>db2.products.insertOne(validSingle("TZP-200014",{pack_of:{component_product_id:"TZP-100001", qty:NumberInt(6)}})), true, "oneOf");
+expect("I-17","F-5: variant_pack with pack_of.qty=1 rejected (minimum:2 — a pack of 1 is a single)", ()=>db2.products.insertOne(validSingle("TZP-200015",{product_type:"variant_pack", pack_of:{component_product_id:"TZP-100001", qty:NumberInt(1)}})), true, "pack_of");
+expect("I-18","F-5: valid variant_pack (pack_of, qty>=2) ACCEPTED", ()=>db2.products.insertOne(validSingle("TZP-200016",{product_type:"variant_pack", pack_of:{component_product_id:"TZP-100001", qty:NumberInt(6)}})), false);
 expect("I-14","gtins beyond maxItems(12) rejected", ()=>{ const g=[]; for(let i=0;i<13;i++) g.push({value:"890"+i, market:"IN", valid_from:new Date(), valid_to:null}); db2.products.insertOne(validSingle("TZP-200012",{gtins:g})); }, true);
 
 // ===== identity mint race (unique _id as gate)
@@ -104,7 +113,8 @@ expect("R-2","identity key mint: second insert E11000 -> collision path", ()=>db
 // ===== update-path checks
 expect("U-1","CAS update with correct version succeeds", ()=>{ const r=db2.products.updateOne({_id:"TZP-100001", version:NumberInt(1)},{$set:{title:"Updated"},$inc:{version:NumberInt(1)}}); if(r.modifiedCount!==1) throw new Error("no match"); }, false);
 expect("U-2","stale CAS version matches nothing (lost-update impossible)", ()=>{ const r=db2.products.updateOne({_id:"TZP-100001", version:NumberInt(1)},{$set:{title:"Ghost"},$inc:{version:NumberInt(1)}}); if(r.modifiedCount!==1) throw new Error("stale CAS matched 0 docs"); }, true);
-expect("U-3","BYPASS TEST: direct product_type mutation is ACCEPTED by Mongo (validator can't enforce immutability) — honest-register item confirmed, auditor required", ()=>{ const r=db2.products.updateOne({_id:"TZP-100002"},{$set:{product_type:"variant_pack"}}); if(r.modifiedCount!==1) throw new Error("no"); }, false);
+expect("U-3","F-5 TIGHTENED: naked flip single->variant_pack now REJECTED (variant_pack branch requires pack_of)", ()=>db2.products.updateOne({_id:"TZP-100002"},{$set:{product_type:"variant_pack"}}), true, "oneOf");
+expect("U-3b","BYPASS TEST (still real, narrower): a flip that ALSO supplies a conforming pack_of is ACCEPTED — the validator binds SHAPE, never IMMUTABILITY. Note the component need not exist or be active: liveness is a service-tier invariant (VariantPackService). Honest-register item, auditor required", ()=>{ const r=db2.products.updateOne({_id:"TZP-100002"},{$set:{product_type:"variant_pack", pack_of:{component_product_id:"TZP-100001", qty:NumberInt(6)}}}); if(r.modifiedCount!==1) throw new Error("no"); }, false);
 expect("U-4","but shape rule still binds on update: flipping a single to bundle WITHOUT contents rejected", ()=>{ const r=db2.products.updateOne({_id:"TZP-100004"},{$set:{product_type:"bundle"}}); if(r.modifiedCount!==1) throw new Error("rejected"); }, true);
 
 print("\n===== RESULTS =====");

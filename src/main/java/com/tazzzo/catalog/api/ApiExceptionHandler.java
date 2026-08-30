@@ -73,6 +73,12 @@ public class ApiExceptionHandler {
         return envelope(HttpStatus.UNPROCESSABLE_ENTITY, "BUNDLE_COMPONENT", ex.getMessage(), req);
     }
 
+    @ExceptionHandler(com.tazzzo.catalog.tx.VariantPackException.class)
+    public ResponseEntity<ErrorBody> variantPack(com.tazzzo.catalog.tx.VariantPackException ex,
+                                                 HttpServletRequest req) {
+        return envelope(HttpStatus.UNPROCESSABLE_ENTITY, "VARIANT_PACK_INVALID", ex.getMessage(), req);
+    }
+
     @ExceptionHandler(com.tazzzo.catalog.tx.EvidenceImmutableException.class)
     public ResponseEntity<ErrorBody> evidenceImmutable(RuntimeException ex, HttpServletRequest req) {
         return envelope(HttpStatus.CONFLICT, "EVIDENCE_IMMUTABLE", ex.getMessage(), req);

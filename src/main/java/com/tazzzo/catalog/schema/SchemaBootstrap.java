@@ -122,6 +122,10 @@ public class SchemaBootstrap {
               "properties":{"component_product_id":{"bsonType":"string","pattern":"^TZP-"},
                 "qty":{"bsonType":"int","minimum":1},"vertical_id_snapshot":{"bsonType":"string"},
                 "title_snapshot":{"bsonType":"string"},"gtin_snapshot":{"bsonType":["string","null"]}}}},
+            "pack_of": {"bsonType":["object","null"],"additionalProperties":false,
+              "required":["component_product_id","qty"],
+              "properties":{"component_product_id":{"bsonType":"string","pattern":"^TZP-"},
+                "qty":{"bsonType":"int","minimum":2}}},
             "browse_verticals": {"bsonType":["array","null"],"maxItems":120,"items":{"bsonType":"string"}},
             "variant_group_id": {"bsonType":["string","null"]},
             "formulation_version": {"bsonType":["int","null"]},
@@ -131,12 +135,19 @@ public class SchemaBootstrap {
             "created_at": {"bsonType":"date"},
             "updated_at": {"bsonType":["date","null"]}},
           "oneOf": [
-            { "properties": { "product_type": {"enum":["single","variant_pack"]},
+            { "properties": { "product_type": {"enum":["single"]},
                 "classification": {"properties":{"vertical_id":{"bsonType":"string"}}},
-                "bundle_contents": {"bsonType":"null"} } },
+                "bundle_contents": {"bsonType":"null"},
+                "pack_of": {"bsonType":"null"} } },
+            { "required": ["pack_of"],
+              "properties": { "product_type": {"enum":["variant_pack"]},
+                "classification": {"properties":{"vertical_id":{"bsonType":"string"}}},
+                "bundle_contents": {"bsonType":"null"},
+                "pack_of": {"bsonType":"object"} } },
             { "properties": { "product_type": {"enum":["bundle"]},
                 "classification": {"properties":{"vertical_id":{"bsonType":"null"}}},
-                "bundle_contents": {"bsonType":"array","minItems":2} } } ] }
+                "bundle_contents": {"bsonType":"array","minItems":2},
+                "pack_of": {"bsonType":"null"} } } ] }
         """;
         return Document.parse(json);
     }

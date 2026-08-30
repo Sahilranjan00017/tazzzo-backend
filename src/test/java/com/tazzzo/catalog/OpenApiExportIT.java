@@ -32,6 +32,14 @@ class OpenApiExportIT extends AbstractApiIT {
                 "/api/v1/attributes", "/api/v1/attribute-schemas/{id}/fields"}) {
             assertThat(spec.at("/paths").has(path)).as("spec contains " + path).isTrue();
         }
+        // The generated spec carries a "servers" block whose URL contains the RANDOM test
+        // port, so every run rewrote docs/openapi.json with a different value and the frozen
+        // contract diffed as changed when nothing had. The block is meaningless in a handoff
+        // artifact (it points at a dead localhost port), so it is stripped: the export stays
+        // generated-never-hand-written, but is now deterministic and diffable.
+        if (spec.isObject()) {
+            ((com.fasterxml.jackson.databind.node.ObjectNode) spec).remove("servers");
+        }
         Path out = Path.of("docs/openapi.json");
         Files.createDirectories(out.getParent());
         Files.writeString(out, new ObjectMapper().writerWithDefaultPrettyPrinter()

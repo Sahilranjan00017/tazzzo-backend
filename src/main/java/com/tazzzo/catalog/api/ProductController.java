@@ -3,6 +3,7 @@ package com.tazzzo.catalog.api;
 import com.tazzzo.catalog.api.ApiDtos.*;
 import com.tazzzo.catalog.domain.BundleComponent;
 import com.tazzzo.catalog.domain.GtinBinding;
+import com.tazzzo.catalog.domain.PackOf;
 import com.tazzzo.catalog.domain.ProductDraft;
 import com.tazzzo.catalog.schema.TaxonomyService;
 import com.tazzzo.catalog.tx.*;
@@ -28,6 +29,7 @@ public class ProductController {
     private final PublishService publishService;
     private final GtinBindService gtinBindService;
     private final BundleService bundleService;
+    private final VariantPackService variantPackService;
     private final MergeService mergeService;
     private final ProductUpdateService productUpdateService;
     private final TaxonomyService taxonomyService;
@@ -36,7 +38,8 @@ public class ProductController {
 
     public ProductController(MintService mintService, ClassifyService classifyService,
                              PublishService publishService, GtinBindService gtinBindService,
-                             BundleService bundleService, MergeService mergeService,
+                             BundleService bundleService, VariantPackService variantPackService,
+                             MergeService mergeService,
                              TaxonomyService taxonomyService, ProductUpdateService productUpdateService,
                              ProductQueryService productQueryService,
                              ProductLifecycleService lifecycle) {
@@ -45,6 +48,7 @@ public class ProductController {
         this.publishService = publishService;
         this.gtinBindService = gtinBindService;
         this.bundleService = bundleService;
+        this.variantPackService = variantPackService;
         this.mergeService = mergeService;
         this.taxonomyService = taxonomyService;
         this.productUpdateService = productUpdateService;
@@ -60,6 +64,8 @@ public class ProductController {
         ProductDraft draft = toDraft(body);
         if ("bundle".equals(body.productType())) {
             bundleService.writeBundle(draft);
+        } else if ("variant_pack".equals(body.productType())) {
+            variantPackService.writeVariantPack(draft);   // F-5: no longer falls through to mint
         } else {
             mintService.mint(draft);
         }
@@ -147,10 +153,12 @@ public class ProductController {
                 : b.bundleContents().stream()
                     .map(c -> new BundleComponent(c.componentProductId(), c.qty(), c.verticalIdSnapshot()))
                     .toList();
+        PackOf packOf = b.packOf() == null ? null
+                : new PackOf(b.packOf().componentProductId(), b.packOf().qty());
         return new ProductDraft(b.id(), b.productType(), b.identityType(), b.internalKey(), gtins,
                 b.brandCode(), b.title(), b.verticalId(), b.releaseId(), b.classificationStatus(),
                 b.attributes() == null ? Map.of() : b.attributes(),
-                b.evidenceRefs() == null ? List.of() : b.evidenceRefs(), components);
+                b.evidenceRefs() == null ? List.of() : b.evidenceRefs(), components, packOf);
     }
 
     private ProductResponse read(String id) {
