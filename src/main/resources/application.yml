@@ -1,0 +1,28 @@
+spring:
+  task:
+    scheduling:
+      pool:
+        size: 4          # M2: four workers, four threads — no head-of-line blocking
+  application:
+    name: tazzzo-catalog-service
+  data:
+    mongodb:
+      uri: ${MONGODB_URI:mongodb://localhost:27017/tazzzo?replicaSet=rs0}
+      database: ${MONGODB_DATABASE:tazzzo}
+tazzzo:
+  schema:
+    bootstrap-on-startup: true      # create collections, validators, indexes (idempotent)
+    load-taxonomy-seed: true        # load frozen taxonomy v0.9.0 (insert-only, idempotent)
+  scheduler:
+    enabled: ${TAZZZO_SCHEDULER_ENABLED:true}   # operational layer; workers are idempotent
+    merge-finalizer-ms: 30000
+    taint-ms: 30000
+    stamp-ms: 30000
+    rollup-ms: 3600000
+    rollup-lag-seconds: 120                     # never aggregate events younger than this
+    taint-batch-size: 100
+    stamp-batch-size: 100
+  auth:
+    # NO DEFAULTS BY DESIGN: an unset token disables that role entirely (fail-closed).
+    cms-token: ${TAZZZO_CMS_TOKEN:}
+    read-token: ${TAZZZO_READ_TOKEN:}

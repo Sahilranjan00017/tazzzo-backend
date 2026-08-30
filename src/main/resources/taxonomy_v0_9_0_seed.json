@@ -1,0 +1,9798 @@
+{
+"version": "0.9.0",
+"nodes": [
+{
+"_id": "TZS-000001",
+"node_type": "super_category",
+"name": "Staples",
+"parent_id": null,
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZC-000001",
+"node_type": "category",
+"name": "Rice & Grains",
+"parent_id": "TZS-000001",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000001",
+"node_type": "sub_category",
+"name": "Basmati Rice",
+"parent_id": "TZC-000001",
+"attribute_schema_id": "rice",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000001",
+"node_type": "vertical",
+"name": "Basmati Rice",
+"parent_id": "TZG-000001",
+"attribute_schema_id": "rice",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000002",
+"node_type": "vertical",
+"name": "Biryani Basmati Rice",
+"parent_id": "TZG-000001",
+"attribute_schema_id": "rice",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000003",
+"node_type": "vertical",
+"name": "Broken / Mogra Basmati Rice",
+"parent_id": "TZG-000001",
+"attribute_schema_id": "rice",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZG-000002",
+"node_type": "sub_category",
+"name": "Non-Basmati Rice",
+"parent_id": "TZC-000001",
+"attribute_schema_id": "rice",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000004",
+"node_type": "vertical",
+"name": "Sona Masoori Rice",
+"parent_id": "TZG-000002",
+"attribute_schema_id": "rice",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000005",
+"node_type": "vertical",
+"name": "Ponni Rice",
+"parent_id": "TZG-000002",
+"attribute_schema_id": "rice",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000006",
+"node_type": "vertical",
+"name": "Kolam Rice",
+"parent_id": "TZG-000002",
+"attribute_schema_id": "rice",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000007",
+"node_type": "vertical",
+"name": "Idli Rice",
+"parent_id": "TZG-000002",
+"attribute_schema_id": "rice",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000008",
+"node_type": "vertical",
+"name": "Dosa Rice",
+"parent_id": "TZG-000002",
+"attribute_schema_id": "rice",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000009",
+"node_type": "vertical",
+"name": "Jeera Samba Rice",
+"parent_id": "TZG-000002",
+"attribute_schema_id": "rice",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000010",
+"node_type": "vertical",
+"name": "Matta / Kerala Red Rice",
+"parent_id": "TZG-000002",
+"attribute_schema_id": "rice",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000011",
+"node_type": "vertical",
+"name": "Boiled / Parboiled Rice",
+"parent_id": "TZG-000002",
+"attribute_schema_id": "rice",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000012",
+"node_type": "vertical",
+"name": "Raw Rice",
+"parent_id": "TZG-000002",
+"attribute_schema_id": "rice",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000013",
+"node_type": "vertical",
+"name": "Steam Rice",
+"parent_id": "TZG-000002",
+"attribute_schema_id": "rice",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "RESTORED",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000014",
+"node_type": "vertical",
+"name": "Economy / Broken Rice",
+"parent_id": "TZG-000002",
+"attribute_schema_id": "rice",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000015",
+"node_type": "vertical",
+"name": "Other Rice",
+"parent_id": "TZG-000002",
+"attribute_schema_id": "rice",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZG-000003",
+"node_type": "sub_category",
+"name": "Specialty & Healthy Rice",
+"parent_id": "TZC-000001",
+"attribute_schema_id": "rice",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000016",
+"node_type": "vertical",
+"name": "Brown Rice",
+"parent_id": "TZG-000003",
+"attribute_schema_id": "rice",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000017",
+"node_type": "vertical",
+"name": "Red Rice",
+"parent_id": "TZG-000003",
+"attribute_schema_id": "rice",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000018",
+"node_type": "vertical",
+"name": "Black Rice",
+"parent_id": "TZG-000003",
+"attribute_schema_id": "rice",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000019",
+"node_type": "vertical",
+"name": "International / Specialty Rice",
+"parent_id": "TZG-000003",
+"attribute_schema_id": "rice",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZG-000004",
+"node_type": "sub_category",
+"name": "Millets & Other Grains",
+"parent_id": "TZC-000001",
+"attribute_schema_id": "grain",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000020",
+"node_type": "vertical",
+"name": "Millets",
+"parent_id": "TZG-000004",
+"attribute_schema_id": "grain",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "NEW",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000021",
+"node_type": "vertical",
+"name": "Quinoa",
+"parent_id": "TZG-000004",
+"attribute_schema_id": "grain",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "NEW",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000022",
+"node_type": "vertical",
+"name": "Dalia / Broken Wheat",
+"parent_id": "TZG-000004",
+"attribute_schema_id": "grain",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "NEW",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000023",
+"node_type": "vertical",
+"name": "Poha / Flattened Rice",
+"parent_id": "TZG-000004",
+"attribute_schema_id": "grain",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "NEW",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000024",
+"node_type": "vertical",
+"name": "Sabudana",
+"parent_id": "TZG-000004",
+"attribute_schema_id": "grain",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "NEW",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000025",
+"node_type": "vertical",
+"name": "Barley",
+"parent_id": "TZG-000004",
+"attribute_schema_id": "grain",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "NEW",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZC-000002",
+"node_type": "category",
+"name": "Atta & Flours",
+"parent_id": "TZS-000001",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000005",
+"node_type": "sub_category",
+"name": "Wheat Flours",
+"parent_id": "TZC-000002",
+"attribute_schema_id": "flour",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000026",
+"node_type": "vertical",
+"name": "Atta & Wheat Flour",
+"parent_id": "TZG-000005",
+"attribute_schema_id": "flour",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000027",
+"node_type": "vertical",
+"name": "Maida & Refined Flour",
+"parent_id": "TZG-000005",
+"attribute_schema_id": "flour",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZG-000006",
+"node_type": "sub_category",
+"name": "Sooji & Rava",
+"parent_id": "TZC-000002",
+"attribute_schema_id": "flour",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000028",
+"node_type": "vertical",
+"name": "Sooji / Rava",
+"parent_id": "TZG-000006",
+"attribute_schema_id": "flour",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "NEW",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZG-000007",
+"node_type": "sub_category",
+"name": "Other Flours",
+"parent_id": "TZC-000002",
+"attribute_schema_id": "flour",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000029",
+"node_type": "vertical",
+"name": "Besan",
+"parent_id": "TZG-000007",
+"attribute_schema_id": "flour",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000030",
+"node_type": "vertical",
+"name": "Sattu",
+"parent_id": "TZG-000007",
+"attribute_schema_id": "flour",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000031",
+"node_type": "vertical",
+"name": "Rice Flour",
+"parent_id": "TZG-000007",
+"attribute_schema_id": "flour",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "NEW",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000032",
+"node_type": "vertical",
+"name": "Ragi & Millet Flours",
+"parent_id": "TZG-000007",
+"attribute_schema_id": "flour",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "NEW",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000033",
+"node_type": "vertical",
+"name": "Specialty Flours",
+"parent_id": "TZG-000007",
+"attribute_schema_id": "flour",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "RENAMED",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZC-000003",
+"node_type": "category",
+"name": "Dals & Pulses",
+"parent_id": "TZS-000001",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000008",
+"node_type": "sub_category",
+"name": "Dals (Split)",
+"parent_id": "TZC-000003",
+"attribute_schema_id": "pulse",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000034",
+"node_type": "vertical",
+"name": "Toor Dal",
+"parent_id": "TZG-000008",
+"attribute_schema_id": "pulse",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000035",
+"node_type": "vertical",
+"name": "Moong Dal",
+"parent_id": "TZG-000008",
+"attribute_schema_id": "pulse",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000036",
+"node_type": "vertical",
+"name": "Chana Dal",
+"parent_id": "TZG-000008",
+"attribute_schema_id": "pulse",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000037",
+"node_type": "vertical",
+"name": "Urad Dal",
+"parent_id": "TZG-000008",
+"attribute_schema_id": "pulse",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000038",
+"node_type": "vertical",
+"name": "Masoor Dal",
+"parent_id": "TZG-000008",
+"attribute_schema_id": "pulse",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000039",
+"node_type": "vertical",
+"name": "Other Dals",
+"parent_id": "TZG-000008",
+"attribute_schema_id": "pulse",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "RENAMED",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZG-000009",
+"node_type": "sub_category",
+"name": "Whole Pulses & Beans",
+"parent_id": "TZC-000003",
+"attribute_schema_id": "pulse",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000040",
+"node_type": "vertical",
+"name": "Kabuli Chana / Chhole",
+"parent_id": "TZG-000009",
+"attribute_schema_id": "pulse",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "NEW",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000041",
+"node_type": "vertical",
+"name": "Kala Chana",
+"parent_id": "TZG-000009",
+"attribute_schema_id": "pulse",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "NEW",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000042",
+"node_type": "vertical",
+"name": "Rajma",
+"parent_id": "TZG-000009",
+"attribute_schema_id": "pulse",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "NEW",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000043",
+"node_type": "vertical",
+"name": "Whole Moong",
+"parent_id": "TZG-000009",
+"attribute_schema_id": "pulse",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "NEW",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000044",
+"node_type": "vertical",
+"name": "Other Whole Pulses",
+"parent_id": "TZG-000009",
+"attribute_schema_id": "pulse",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "NEW",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZG-000010",
+"node_type": "sub_category",
+"name": "Soya Products",
+"parent_id": "TZC-000003",
+"attribute_schema_id": "pulse",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000045",
+"node_type": "vertical",
+"name": "Soya Chunks & Granules",
+"parent_id": "TZG-000010",
+"attribute_schema_id": "pulse",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "NEW",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZC-000004",
+"node_type": "category",
+"name": "Edible Oils & Ghee",
+"parent_id": "TZS-000001",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000011",
+"node_type": "sub_category",
+"name": "Edible Oils",
+"parent_id": "TZC-000004",
+"attribute_schema_id": "oil",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000046",
+"node_type": "vertical",
+"name": "Mustard Oil",
+"parent_id": "TZG-000011",
+"attribute_schema_id": "oil",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000047",
+"node_type": "vertical",
+"name": "Sunflower Oil",
+"parent_id": "TZG-000011",
+"attribute_schema_id": "oil",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000048",
+"node_type": "vertical",
+"name": "Groundnut Oil",
+"parent_id": "TZG-000011",
+"attribute_schema_id": "oil",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000049",
+"node_type": "vertical",
+"name": "Coconut Oil",
+"parent_id": "TZG-000011",
+"attribute_schema_id": "oil",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000050",
+"node_type": "vertical",
+"name": "Sesame Oil",
+"parent_id": "TZG-000011",
+"attribute_schema_id": "oil",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000051",
+"node_type": "vertical",
+"name": "Rice Bran Oil",
+"parent_id": "TZG-000011",
+"attribute_schema_id": "oil",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000052",
+"node_type": "vertical",
+"name": "Soybean Oil",
+"parent_id": "TZG-000011",
+"attribute_schema_id": "oil",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000053",
+"node_type": "vertical",
+"name": "Olive Oil",
+"parent_id": "TZG-000011",
+"attribute_schema_id": "oil",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000054",
+"node_type": "vertical",
+"name": "Other / Blended Oils",
+"parent_id": "TZG-000011",
+"attribute_schema_id": "oil",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZG-000012",
+"node_type": "sub_category",
+"name": "Ghee & Vanaspati",
+"parent_id": "TZC-000004",
+"attribute_schema_id": "ghee",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000055",
+"node_type": "vertical",
+"name": "Ghee",
+"parent_id": "TZG-000012",
+"attribute_schema_id": "ghee",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "RESTORED",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000056",
+"node_type": "vertical",
+"name": "Vanaspati & Cooking Fat",
+"parent_id": "TZG-000012",
+"attribute_schema_id": "ghee",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "RESTORED",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZC-000005",
+"node_type": "category",
+"name": "Salt, Sugar & Sweeteners",
+"parent_id": "TZS-000001",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000013",
+"node_type": "sub_category",
+"name": "Salt",
+"parent_id": "TZC-000005",
+"attribute_schema_id": "sweetener_salt",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000057",
+"node_type": "vertical",
+"name": "Salt",
+"parent_id": "TZG-000013",
+"attribute_schema_id": "sweetener_salt",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZG-000014",
+"node_type": "sub_category",
+"name": "Sugar",
+"parent_id": "TZC-000005",
+"attribute_schema_id": "sweetener_salt",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000058",
+"node_type": "vertical",
+"name": "Sugar",
+"parent_id": "TZG-000014",
+"attribute_schema_id": "sweetener_salt",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZG-000015",
+"node_type": "sub_category",
+"name": "Jaggery & Natural Sweeteners",
+"parent_id": "TZC-000005",
+"attribute_schema_id": "sweetener_salt",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000059",
+"node_type": "vertical",
+"name": "Jaggery",
+"parent_id": "TZG-000015",
+"attribute_schema_id": "sweetener_salt",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "SPLIT",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000060",
+"node_type": "vertical",
+"name": "Natural & Diet Sweeteners",
+"parent_id": "TZG-000015",
+"attribute_schema_id": "sweetener_salt",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "SPLIT",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZC-000006",
+"node_type": "category",
+"name": "Spices & Masalas",
+"parent_id": "TZS-000001",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000016",
+"node_type": "sub_category",
+"name": "Whole Spices",
+"parent_id": "TZC-000006",
+"attribute_schema_id": "spice",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000061",
+"node_type": "vertical",
+"name": "Whole Spices",
+"parent_id": "TZG-000016",
+"attribute_schema_id": "spice",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000062",
+"node_type": "vertical",
+"name": "Hing (Asafoetida)",
+"parent_id": "TZG-000016",
+"attribute_schema_id": "spice",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "NEW",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZG-000017",
+"node_type": "sub_category",
+"name": "Powdered Spices",
+"parent_id": "TZC-000006",
+"attribute_schema_id": "spice",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000063",
+"node_type": "vertical",
+"name": "Powdered Spices",
+"parent_id": "TZG-000017",
+"attribute_schema_id": "spice",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZG-000018",
+"node_type": "sub_category",
+"name": "Blended & Ready Masalas",
+"parent_id": "TZC-000006",
+"attribute_schema_id": "spice",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000064",
+"node_type": "vertical",
+"name": "Blended Masalas",
+"parent_id": "TZG-000018",
+"attribute_schema_id": "spice",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "NEW",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000065",
+"node_type": "vertical",
+"name": "Ready Masala Mixes",
+"parent_id": "TZG-000018",
+"attribute_schema_id": "spice",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "NEW",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZC-000007",
+"node_type": "category",
+"name": "Baking & Cooking Essentials",
+"parent_id": "TZS-000001",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000019",
+"node_type": "sub_category",
+"name": "Baking Essentials",
+"parent_id": "TZC-000007",
+"attribute_schema_id": "baking",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000066",
+"node_type": "vertical",
+"name": "Baking & Dessert Essentials",
+"parent_id": "TZG-000019",
+"attribute_schema_id": "baking",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZG-000020",
+"node_type": "sub_category",
+"name": "Cooking Aids",
+"parent_id": "TZC-000007",
+"attribute_schema_id": "baking",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000067",
+"node_type": "vertical",
+"name": "Vinegar",
+"parent_id": "TZG-000020",
+"attribute_schema_id": "baking",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "NEW",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000068",
+"node_type": "vertical",
+"name": "Baking Soda & Cooking Soda",
+"parent_id": "TZG-000020",
+"attribute_schema_id": "baking",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "NEW",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZV-000069",
+"node_type": "vertical",
+"name": "Food Colours & Essence",
+"parent_id": "TZG-000020",
+"attribute_schema_id": "baking",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "NEW",
+"branch_status": "V1 CONDITIONAL LOCK (validated 96%)"
+},
+{
+"_id": "TZS-000002",
+"node_type": "super_category",
+"name": "Food",
+"parent_id": null,
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZC-000008",
+"node_type": "category",
+"name": "Bakery",
+"parent_id": "TZS-000002",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000021",
+"node_type": "sub_category",
+"name": "Breads & Buns",
+"parent_id": "TZC-000008",
+"attribute_schema_id": "bakery",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000070",
+"node_type": "vertical",
+"name": "Bread",
+"parent_id": "TZG-000021",
+"attribute_schema_id": "bakery",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZV-000071",
+"node_type": "vertical",
+"name": "Pav & Buns",
+"parent_id": "TZG-000021",
+"attribute_schema_id": "bakery",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "RESTORED",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZV-000072",
+"node_type": "vertical",
+"name": "Garlic Bread",
+"parent_id": "TZG-000021",
+"attribute_schema_id": "bakery",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "RESTORED",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZG-000022",
+"node_type": "sub_category",
+"name": "Bakery Snacks",
+"parent_id": "TZC-000008",
+"attribute_schema_id": "bakery",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000073",
+"node_type": "vertical",
+"name": "Rusk & Khari",
+"parent_id": "TZG-000022",
+"attribute_schema_id": "bakery",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "RESTORED",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZG-000023",
+"node_type": "sub_category",
+"name": "Fresh Bakery",
+"parent_id": "TZC-000008",
+"attribute_schema_id": "bakery",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000074",
+"node_type": "vertical",
+"name": "Fresh Bakery",
+"parent_id": "TZG-000023",
+"attribute_schema_id": "bakery",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZC-000009",
+"node_type": "category",
+"name": "Beverages",
+"parent_id": "TZS-000002",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000024",
+"node_type": "sub_category",
+"name": "Tea",
+"parent_id": "TZC-000009",
+"attribute_schema_id": "beverage",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000075",
+"node_type": "vertical",
+"name": "Tea",
+"parent_id": "TZG-000024",
+"attribute_schema_id": "beverage",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZV-000076",
+"node_type": "vertical",
+"name": "Green Tea",
+"parent_id": "TZG-000024",
+"attribute_schema_id": "beverage",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZV-000077",
+"node_type": "vertical",
+"name": "Herbal Tea",
+"parent_id": "TZG-000024",
+"attribute_schema_id": "beverage",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "RESTORED",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZG-000025",
+"node_type": "sub_category",
+"name": "Coffee",
+"parent_id": "TZC-000009",
+"attribute_schema_id": "beverage",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000078",
+"node_type": "vertical",
+"name": "Instant Coffee",
+"parent_id": "TZG-000025",
+"attribute_schema_id": "beverage",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZV-000079",
+"node_type": "vertical",
+"name": "Ground / Filter Coffee",
+"parent_id": "TZG-000025",
+"attribute_schema_id": "beverage",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZV-000080",
+"node_type": "vertical",
+"name": "Coffee Premixes",
+"parent_id": "TZG-000025",
+"attribute_schema_id": "beverage",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZG-000026",
+"node_type": "sub_category",
+"name": "Juices & Drinks",
+"parent_id": "TZC-000009",
+"attribute_schema_id": "beverage",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000081",
+"node_type": "vertical",
+"name": "Juice & Fruit Drinks",
+"parent_id": "TZG-000026",
+"attribute_schema_id": "beverage",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZV-000082",
+"node_type": "vertical",
+"name": "Soft Drinks & Carbonated",
+"parent_id": "TZG-000026",
+"attribute_schema_id": "beverage",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "NEW",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZV-000083",
+"node_type": "vertical",
+"name": "Nutrition & Functional Drinks",
+"parent_id": "TZG-000026",
+"attribute_schema_id": "beverage",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZV-000084",
+"node_type": "vertical",
+"name": "Health Drinks",
+"parent_id": "TZG-000026",
+"attribute_schema_id": "beverage",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "RESTORED",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZV-000085",
+"node_type": "vertical",
+"name": "Traditional Beverages",
+"parent_id": "TZG-000026",
+"attribute_schema_id": "beverage",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZV-000086",
+"node_type": "vertical",
+"name": "Drink Mixes & Concentrates",
+"parent_id": "TZG-000026",
+"attribute_schema_id": "beverage",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "NEW",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZG-000027",
+"node_type": "sub_category",
+"name": "Water",
+"parent_id": "TZC-000009",
+"attribute_schema_id": "beverage",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000087",
+"node_type": "vertical",
+"name": "Packaged Water",
+"parent_id": "TZG-000027",
+"attribute_schema_id": "beverage",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZC-000010",
+"node_type": "category",
+"name": "Biscuits, Snacks & Namkeen",
+"parent_id": "TZS-000002",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000028",
+"node_type": "sub_category",
+"name": "Biscuits & Cookies",
+"parent_id": "TZC-000010",
+"attribute_schema_id": "biscuit",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000088",
+"node_type": "vertical",
+"name": "Biscuits",
+"parent_id": "TZG-000028",
+"attribute_schema_id": "biscuit",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZV-000089",
+"node_type": "vertical",
+"name": "Cookies",
+"parent_id": "TZG-000028",
+"attribute_schema_id": "biscuit",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZG-000029",
+"node_type": "sub_category",
+"name": "Chips & Crisps",
+"parent_id": "TZC-000010",
+"attribute_schema_id": "snack",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000090",
+"node_type": "vertical",
+"name": "Chips & Crisps",
+"parent_id": "TZG-000029",
+"attribute_schema_id": "snack",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZV-000091",
+"node_type": "vertical",
+"name": "Popcorn",
+"parent_id": "TZG-000029",
+"attribute_schema_id": "snack",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "NEW",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZG-000030",
+"node_type": "sub_category",
+"name": "Namkeen & Savoury",
+"parent_id": "TZC-000010",
+"attribute_schema_id": "snack",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000092",
+"node_type": "vertical",
+"name": "Namkeen & Savoury Snacks",
+"parent_id": "TZG-000030",
+"attribute_schema_id": "snack",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZG-000031",
+"node_type": "sub_category",
+"name": "Healthy Snacks",
+"parent_id": "TZC-000010",
+"attribute_schema_id": "snack",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000093",
+"node_type": "vertical",
+"name": "Healthy Snacks",
+"parent_id": "TZG-000031",
+"attribute_schema_id": "snack",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZV-000094",
+"node_type": "vertical",
+"name": "Roasted Makhana",
+"parent_id": "TZG-000031",
+"attribute_schema_id": "snack",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "RENAMED",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZC-000011",
+"node_type": "category",
+"name": "Breakfast & Cereals",
+"parent_id": "TZS-000002",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000032",
+"node_type": "sub_category",
+"name": "Cereals & Flakes",
+"parent_id": "TZC-000011",
+"attribute_schema_id": "breakfast",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000095",
+"node_type": "vertical",
+"name": "Breakfast Cereals",
+"parent_id": "TZG-000032",
+"attribute_schema_id": "breakfast",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZV-000096",
+"node_type": "vertical",
+"name": "Muesli & Granola",
+"parent_id": "TZG-000032",
+"attribute_schema_id": "breakfast",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "NEW",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZG-000033",
+"node_type": "sub_category",
+"name": "Oats & Porridge",
+"parent_id": "TZC-000011",
+"attribute_schema_id": "breakfast",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000097",
+"node_type": "vertical",
+"name": "Oats",
+"parent_id": "TZG-000033",
+"attribute_schema_id": "breakfast",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZG-000034",
+"node_type": "sub_category",
+"name": "Breakfast Mixes",
+"parent_id": "TZC-000011",
+"attribute_schema_id": "breakfast",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000098",
+"node_type": "vertical",
+"name": "Breakfast Mixes",
+"parent_id": "TZG-000034",
+"attribute_schema_id": "breakfast",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZV-000099",
+"node_type": "vertical",
+"name": "Breakfast Grains & Essentials",
+"parent_id": "TZG-000034",
+"attribute_schema_id": "breakfast",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "ARRIVED",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZC-000012",
+"node_type": "category",
+"name": "Chocolates & Confectionery",
+"parent_id": "TZS-000002",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000035",
+"node_type": "sub_category",
+"name": "Chocolates",
+"parent_id": "TZC-000012",
+"attribute_schema_id": "chocolate",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000100",
+"node_type": "vertical",
+"name": "Chocolates",
+"parent_id": "TZG-000035",
+"attribute_schema_id": "chocolate",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZG-000036",
+"node_type": "sub_category",
+"name": "Candies & Mints",
+"parent_id": "TZC-000012",
+"attribute_schema_id": "chocolate",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000101",
+"node_type": "vertical",
+"name": "Candies, Toffees & Mints",
+"parent_id": "TZG-000036",
+"attribute_schema_id": "chocolate",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZV-000102",
+"node_type": "vertical",
+"name": "Chewing Gums & Mouth Fresheners",
+"parent_id": "TZG-000036",
+"attribute_schema_id": "chocolate",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "NEW",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZC-000013",
+"node_type": "category",
+"name": "Dry Fruits, Nuts & Seeds",
+"parent_id": "TZS-000002",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000037",
+"node_type": "sub_category",
+"name": "Nuts & Dried Fruits",
+"parent_id": "TZC-000013",
+"attribute_schema_id": "dryfruit",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000103",
+"node_type": "vertical",
+"name": "Nuts",
+"parent_id": "TZG-000037",
+"attribute_schema_id": "dryfruit",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "RENAMED",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZV-000104",
+"node_type": "vertical",
+"name": "Dried Fruits",
+"parent_id": "TZG-000037",
+"attribute_schema_id": "dryfruit",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZV-000105",
+"node_type": "vertical",
+"name": "Dates",
+"parent_id": "TZG-000037",
+"attribute_schema_id": "dryfruit",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "NEW",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZG-000038",
+"node_type": "sub_category",
+"name": "Seeds",
+"parent_id": "TZC-000013",
+"attribute_schema_id": "dryfruit",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000106",
+"node_type": "vertical",
+"name": "Seeds",
+"parent_id": "TZG-000038",
+"attribute_schema_id": "dryfruit",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZC-000014",
+"node_type": "category",
+"name": "Pasta, Noodles & Vermicelli",
+"parent_id": "TZS-000002",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000039",
+"node_type": "sub_category",
+"name": "Noodles",
+"parent_id": "TZC-000014",
+"attribute_schema_id": "noodle",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000107",
+"node_type": "vertical",
+"name": "Instant Noodles",
+"parent_id": "TZG-000039",
+"attribute_schema_id": "noodle",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "NEW",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZV-000108",
+"node_type": "vertical",
+"name": "Rice Noodles",
+"parent_id": "TZG-000039",
+"attribute_schema_id": "noodle",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZG-000040",
+"node_type": "sub_category",
+"name": "Pasta",
+"parent_id": "TZC-000014",
+"attribute_schema_id": "noodle",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000109",
+"node_type": "vertical",
+"name": "Pasta",
+"parent_id": "TZG-000040",
+"attribute_schema_id": "noodle",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZG-000041",
+"node_type": "sub_category",
+"name": "Vermicelli",
+"parent_id": "TZC-000014",
+"attribute_schema_id": "noodle",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000110",
+"node_type": "vertical",
+"name": "Vermicelli",
+"parent_id": "TZG-000041",
+"attribute_schema_id": "noodle",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "NEW",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZC-000015",
+"node_type": "category",
+"name": "Sauces, Spreads & Condiments",
+"parent_id": "TZS-000002",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000042",
+"node_type": "sub_category",
+"name": "Ketchup & Sauces",
+"parent_id": "TZC-000015",
+"attribute_schema_id": "sauce",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000111",
+"node_type": "vertical",
+"name": "Tomato Ketchup",
+"parent_id": "TZG-000042",
+"attribute_schema_id": "sauce",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZV-000112",
+"node_type": "vertical",
+"name": "Cooking Sauces",
+"parent_id": "TZG-000042",
+"attribute_schema_id": "sauce",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZV-000113",
+"node_type": "vertical",
+"name": "Soy Sauce",
+"parent_id": "TZG-000042",
+"attribute_schema_id": "sauce",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZV-000114",
+"node_type": "vertical",
+"name": "Pasta Sauce",
+"parent_id": "TZG-000042",
+"attribute_schema_id": "sauce",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZG-000043",
+"node_type": "sub_category",
+"name": "Spreads & Dips",
+"parent_id": "TZC-000015",
+"attribute_schema_id": "sauce",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000115",
+"node_type": "vertical",
+"name": "Spreads",
+"parent_id": "TZG-000043",
+"attribute_schema_id": "sauce",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "SPLIT",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZV-000116",
+"node_type": "vertical",
+"name": "Dips",
+"parent_id": "TZG-000043",
+"attribute_schema_id": "sauce",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZV-000117",
+"node_type": "vertical",
+"name": "Mayonnaise",
+"parent_id": "TZG-000043",
+"attribute_schema_id": "sauce",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "NEW",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZV-000118",
+"node_type": "vertical",
+"name": "Peanut Butter",
+"parent_id": "TZG-000043",
+"attribute_schema_id": "sauce",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "NEW",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZV-000119",
+"node_type": "vertical",
+"name": "Honey",
+"parent_id": "TZG-000043",
+"attribute_schema_id": "sauce",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "SPLIT",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZC-000016",
+"node_type": "category",
+"name": "Pickles, Chutneys & Preserves",
+"parent_id": "TZS-000002",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000044",
+"node_type": "sub_category",
+"name": "Pickles",
+"parent_id": "TZC-000016",
+"attribute_schema_id": "preserve",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000120",
+"node_type": "vertical",
+"name": "Pickles",
+"parent_id": "TZG-000044",
+"attribute_schema_id": "preserve",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZG-000045",
+"node_type": "sub_category",
+"name": "Chutneys",
+"parent_id": "TZC-000016",
+"attribute_schema_id": "preserve",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000121",
+"node_type": "vertical",
+"name": "Chutneys",
+"parent_id": "TZG-000045",
+"attribute_schema_id": "preserve",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZG-000046",
+"node_type": "sub_category",
+"name": "Jams & Preserves",
+"parent_id": "TZC-000016",
+"attribute_schema_id": "preserve",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000122",
+"node_type": "vertical",
+"name": "Jams & Preserves",
+"parent_id": "TZG-000046",
+"attribute_schema_id": "preserve",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "SPLIT",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZC-000017",
+"node_type": "category",
+"name": "Frozen & Ready Foods",
+"parent_id": "TZS-000002",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000047",
+"node_type": "sub_category",
+"name": "Frozen",
+"parent_id": "TZC-000017",
+"attribute_schema_id": "frozen_ready",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000123",
+"node_type": "vertical",
+"name": "Frozen Vegetables",
+"parent_id": "TZG-000047",
+"attribute_schema_id": "frozen_ready",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZV-000124",
+"node_type": "vertical",
+"name": "Frozen Snacks & Meals",
+"parent_id": "TZG-000047",
+"attribute_schema_id": "frozen_ready",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZG-000048",
+"node_type": "sub_category",
+"name": "Instant & Ready",
+"parent_id": "TZC-000017",
+"attribute_schema_id": "frozen_ready",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000125",
+"node_type": "vertical",
+"name": "Instant & Ready Foods",
+"parent_id": "TZG-000048",
+"attribute_schema_id": "frozen_ready",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZV-000126",
+"node_type": "vertical",
+"name": "Ready-to-Eat Meals",
+"parent_id": "TZG-000048",
+"attribute_schema_id": "frozen_ready",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZV-000127",
+"node_type": "vertical",
+"name": "Soups",
+"parent_id": "TZG-000048",
+"attribute_schema_id": "frozen_ready",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "NEW",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZC-000018",
+"node_type": "category",
+"name": "Sweets & Desserts",
+"parent_id": "TZS-000002",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000049",
+"node_type": "sub_category",
+"name": "Dessert Mixes",
+"parent_id": "TZC-000018",
+"attribute_schema_id": "dessert",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000128",
+"node_type": "vertical",
+"name": "Dessert Mixes",
+"parent_id": "TZG-000049",
+"attribute_schema_id": "dessert",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZG-000050",
+"node_type": "sub_category",
+"name": "Packaged Sweets",
+"parent_id": "TZC-000018",
+"attribute_schema_id": "dessert",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000129",
+"node_type": "vertical",
+"name": "Packaged Indian Sweets",
+"parent_id": "TZG-000050",
+"attribute_schema_id": "dessert",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZG-000051",
+"node_type": "sub_category",
+"name": "Toppings",
+"parent_id": "TZC-000018",
+"attribute_schema_id": "dessert",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000130",
+"node_type": "vertical",
+"name": "Dessert Toppings",
+"parent_id": "TZG-000051",
+"attribute_schema_id": "dessert",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "RENAMED",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZC-000019",
+"node_type": "category",
+"name": "Traditional Foods",
+"parent_id": "TZS-000002",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000052",
+"node_type": "sub_category",
+"name": "Papad & Fryums",
+"parent_id": "TZC-000019",
+"attribute_schema_id": "snack",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000131",
+"node_type": "vertical",
+"name": "Papad & Fryums",
+"parent_id": "TZG-000052",
+"attribute_schema_id": "snack",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZC-000020",
+"node_type": "category",
+"name": "Baby Food",
+"parent_id": "TZS-000002",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000053",
+"node_type": "sub_category",
+"name": "Toddler Foods",
+"parent_id": "TZC-000020",
+"attribute_schema_id": "baby_food",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000132",
+"node_type": "vertical",
+"name": "Toddler Foods & Snacks",
+"parent_id": "TZG-000053",
+"attribute_schema_id": "baby_food",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "V1 CONDITIONAL LOCK (validated 98%)"
+},
+{
+"_id": "TZS-000003",
+"node_type": "super_category",
+"name": "Personal Care",
+"parent_id": null,
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZC-000021",
+"node_type": "category",
+"name": "Bath & Body",
+"parent_id": "TZS-000003",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000054",
+"node_type": "sub_category",
+"name": "Bath & Shower",
+"parent_id": "TZC-000021",
+"attribute_schema_id": "bath",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000133",
+"node_type": "vertical",
+"name": "Bath Soap",
+"parent_id": "TZG-000054",
+"attribute_schema_id": "bath",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000134",
+"node_type": "vertical",
+"name": "Body Wash & Shower Gel",
+"parent_id": "TZG-000054",
+"attribute_schema_id": "bath",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000135",
+"node_type": "vertical",
+"name": "Bath Salt",
+"parent_id": "TZG-000054",
+"attribute_schema_id": "bath",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000136",
+"node_type": "vertical",
+"name": "Body Scrub",
+"parent_id": "TZG-000054",
+"attribute_schema_id": "bath",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZG-000055",
+"node_type": "sub_category",
+"name": "Hand Hygiene",
+"parent_id": "TZC-000021",
+"attribute_schema_id": "bath",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000137",
+"node_type": "vertical",
+"name": "Hand Wash",
+"parent_id": "TZG-000055",
+"attribute_schema_id": "bath",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000138",
+"node_type": "vertical",
+"name": "Hand Sanitizer",
+"parent_id": "TZG-000055",
+"attribute_schema_id": "bath",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZC-000022",
+"node_type": "category",
+"name": "Hair Care",
+"parent_id": "TZS-000003",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000056",
+"node_type": "sub_category",
+"name": "Shampoo & Conditioner",
+"parent_id": "TZC-000022",
+"attribute_schema_id": "hair",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000139",
+"node_type": "vertical",
+"name": "Shampoo",
+"parent_id": "TZG-000056",
+"attribute_schema_id": "hair",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000140",
+"node_type": "vertical",
+"name": "Conditioner & Hair Treatment",
+"parent_id": "TZG-000056",
+"attribute_schema_id": "hair",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZG-000057",
+"node_type": "sub_category",
+"name": "Hair Oils",
+"parent_id": "TZC-000022",
+"attribute_schema_id": "hair",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000141",
+"node_type": "vertical",
+"name": "Hair Oil",
+"parent_id": "TZG-000057",
+"attribute_schema_id": "hair",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZG-000058",
+"node_type": "sub_category",
+"name": "Styling & Treatment",
+"parent_id": "TZC-000022",
+"attribute_schema_id": "hair",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000142",
+"node_type": "vertical",
+"name": "Hair Colour",
+"parent_id": "TZG-000058",
+"attribute_schema_id": "hair",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000143",
+"node_type": "vertical",
+"name": "Hair Gel & Wax",
+"parent_id": "TZG-000058",
+"attribute_schema_id": "hair",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000144",
+"node_type": "vertical",
+"name": "Hair Serum",
+"parent_id": "TZG-000058",
+"attribute_schema_id": "hair",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000145",
+"node_type": "vertical",
+"name": "Anti-Hairfall Treatment",
+"parent_id": "TZG-000058",
+"attribute_schema_id": "hair",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZC-000023",
+"node_type": "category",
+"name": "Oral Care",
+"parent_id": "TZS-000003",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000059",
+"node_type": "sub_category",
+"name": "Daily Oral Care",
+"parent_id": "TZC-000023",
+"attribute_schema_id": "oral",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000146",
+"node_type": "vertical",
+"name": "Toothpaste",
+"parent_id": "TZG-000059",
+"attribute_schema_id": "oral",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000147",
+"node_type": "vertical",
+"name": "Toothbrush",
+"parent_id": "TZG-000059",
+"attribute_schema_id": "oral",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000148",
+"node_type": "vertical",
+"name": "Mouthwash",
+"parent_id": "TZG-000059",
+"attribute_schema_id": "oral",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZG-000060",
+"node_type": "sub_category",
+"name": "Oral Accessories",
+"parent_id": "TZC-000023",
+"attribute_schema_id": "oral",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000149",
+"node_type": "vertical",
+"name": "Dental Floss & Accessories",
+"parent_id": "TZG-000060",
+"attribute_schema_id": "oral",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZC-000024",
+"node_type": "category",
+"name": "Skin Care",
+"parent_id": "TZS-000003",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000061",
+"node_type": "sub_category",
+"name": "Face Care",
+"parent_id": "TZC-000024",
+"attribute_schema_id": "skin",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000150",
+"node_type": "vertical",
+"name": "Face Wash & Cleanser",
+"parent_id": "TZG-000061",
+"attribute_schema_id": "skin",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000151",
+"node_type": "vertical",
+"name": "Face Moisturiser",
+"parent_id": "TZG-000061",
+"attribute_schema_id": "skin",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000152",
+"node_type": "vertical",
+"name": "Face Serum",
+"parent_id": "TZG-000061",
+"attribute_schema_id": "skin",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000153",
+"node_type": "vertical",
+"name": "Face Mask",
+"parent_id": "TZG-000061",
+"attribute_schema_id": "skin",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000154",
+"node_type": "vertical",
+"name": "Face Scrub",
+"parent_id": "TZG-000061",
+"attribute_schema_id": "skin",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000155",
+"node_type": "vertical",
+"name": "Toner & Micellar Water",
+"parent_id": "TZG-000061",
+"attribute_schema_id": "skin",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000156",
+"node_type": "vertical",
+"name": "Sunscreen",
+"parent_id": "TZG-000061",
+"attribute_schema_id": "skin",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000157",
+"node_type": "vertical",
+"name": "Lip Balm",
+"parent_id": "TZG-000061",
+"attribute_schema_id": "skin",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZG-000062",
+"node_type": "sub_category",
+"name": "Body Care",
+"parent_id": "TZC-000024",
+"attribute_schema_id": "skin",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000158",
+"node_type": "vertical",
+"name": "Body Oil",
+"parent_id": "TZG-000062",
+"attribute_schema_id": "skin",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000159",
+"node_type": "vertical",
+"name": "Petroleum Jelly",
+"parent_id": "TZG-000062",
+"attribute_schema_id": "skin",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000160",
+"node_type": "vertical",
+"name": "Talcum Powder",
+"parent_id": "TZG-000062",
+"attribute_schema_id": "skin",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000161",
+"node_type": "vertical",
+"name": "Foot Care",
+"parent_id": "TZG-000062",
+"attribute_schema_id": "skin",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "RESTORED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZC-000025",
+"node_type": "category",
+"name": "Men's Grooming",
+"parent_id": "TZS-000003",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000063",
+"node_type": "sub_category",
+"name": "Shaving",
+"parent_id": "TZC-000025",
+"attribute_schema_id": "shave",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000162",
+"node_type": "vertical",
+"name": "Razors & Blades",
+"parent_id": "TZG-000063",
+"attribute_schema_id": "shave",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000163",
+"node_type": "vertical",
+"name": "Shaving Foam & Cream",
+"parent_id": "TZG-000063",
+"attribute_schema_id": "shave",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000164",
+"node_type": "vertical",
+"name": "After Shave",
+"parent_id": "TZG-000063",
+"attribute_schema_id": "shave",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZG-000064",
+"node_type": "sub_category",
+"name": "Beard Care",
+"parent_id": "TZC-000025",
+"attribute_schema_id": "shave",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000165",
+"node_type": "vertical",
+"name": "Beard Oil",
+"parent_id": "TZG-000064",
+"attribute_schema_id": "shave",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000166",
+"node_type": "vertical",
+"name": "Beard Wash & Wax",
+"parent_id": "TZG-000064",
+"attribute_schema_id": "shave",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000167",
+"node_type": "vertical",
+"name": "Men's Hair Colour",
+"parent_id": "TZG-000064",
+"attribute_schema_id": "shave",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000168",
+"node_type": "vertical",
+"name": "Trimmer",
+"parent_id": "TZG-000064",
+"attribute_schema_id": "shave",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZC-000026",
+"node_type": "category",
+"name": "Feminine Hygiene",
+"parent_id": "TZS-000003",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000065",
+"node_type": "sub_category",
+"name": "Period Care",
+"parent_id": "TZC-000026",
+"attribute_schema_id": "fem_hygiene",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000169",
+"node_type": "vertical",
+"name": "Sanitary Pads & Period Care",
+"parent_id": "TZG-000065",
+"attribute_schema_id": "fem_hygiene",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "RENAMED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZG-000066",
+"node_type": "sub_category",
+"name": "Intimate Care",
+"parent_id": "TZC-000026",
+"attribute_schema_id": "fem_hygiene",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000170",
+"node_type": "vertical",
+"name": "Intimate Wash",
+"parent_id": "TZG-000066",
+"attribute_schema_id": "fem_hygiene",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000171",
+"node_type": "vertical",
+"name": "Intimate Wipes",
+"parent_id": "TZG-000066",
+"attribute_schema_id": "fem_hygiene",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZC-000027",
+"node_type": "category",
+"name": "Fragrances",
+"parent_id": "TZS-000003",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000067",
+"node_type": "sub_category",
+"name": "Deodorants & Perfumes",
+"parent_id": "TZC-000027",
+"attribute_schema_id": "fragrance",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000172",
+"node_type": "vertical",
+"name": "Deodorant",
+"parent_id": "TZG-000067",
+"attribute_schema_id": "fragrance",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000173",
+"node_type": "vertical",
+"name": "Perfumes & Body Mists",
+"parent_id": "TZG-000067",
+"attribute_schema_id": "fragrance",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "NEW",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZC-000028",
+"node_type": "category",
+"name": "Baby Care",
+"parent_id": "TZS-000003",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000068",
+"node_type": "sub_category",
+"name": "Diapers & Wipes",
+"parent_id": "TZC-000028",
+"attribute_schema_id": "baby_care",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000174",
+"node_type": "vertical",
+"name": "Baby Diapers",
+"parent_id": "TZG-000068",
+"attribute_schema_id": "baby_care",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000175",
+"node_type": "vertical",
+"name": "Baby Wipes",
+"parent_id": "TZG-000068",
+"attribute_schema_id": "baby_care",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "NEW",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZG-000069",
+"node_type": "sub_category",
+"name": "Baby Bath & Skin",
+"parent_id": "TZC-000028",
+"attribute_schema_id": "baby_care",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000176",
+"node_type": "vertical",
+"name": "Baby Personal Care",
+"parent_id": "TZG-000069",
+"attribute_schema_id": "baby_care",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000177",
+"node_type": "vertical",
+"name": "Baby Hygiene",
+"parent_id": "TZG-000069",
+"attribute_schema_id": "baby_care",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZG-000070",
+"node_type": "sub_category",
+"name": "Feeding & Nursing",
+"parent_id": "TZC-000028",
+"attribute_schema_id": "baby_care",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000178",
+"node_type": "vertical",
+"name": "Feeding Bottles & Sippers",
+"parent_id": "TZG-000070",
+"attribute_schema_id": "baby_care",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000179",
+"node_type": "vertical",
+"name": "Feeding Accessories",
+"parent_id": "TZG-000070",
+"attribute_schema_id": "baby_care",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000180",
+"node_type": "vertical",
+"name": "Bottle Care",
+"parent_id": "TZG-000070",
+"attribute_schema_id": "baby_care",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000181",
+"node_type": "vertical",
+"name": "Nursing Pads",
+"parent_id": "TZG-000070",
+"attribute_schema_id": "baby_care",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZC-000029",
+"node_type": "category",
+"name": "Makeup",
+"parent_id": "TZS-000003",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000071",
+"node_type": "sub_category",
+"name": "Makeup",
+"parent_id": "TZC-000029",
+"attribute_schema_id": "makeup",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000182",
+"node_type": "vertical",
+"name": "Makeup",
+"parent_id": "TZG-000071",
+"attribute_schema_id": "makeup",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZC-000030",
+"node_type": "category",
+"name": "Hygiene Essentials",
+"parent_id": "TZS-000003",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000072",
+"node_type": "sub_category",
+"name": "Personal Hygiene",
+"parent_id": "TZC-000030",
+"attribute_schema_id": "bath",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000183",
+"node_type": "vertical",
+"name": "Personal Hygiene Consumables",
+"parent_id": "TZG-000072",
+"attribute_schema_id": "bath",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000184",
+"node_type": "vertical",
+"name": "Travel Hygiene Kits",
+"parent_id": "TZG-000072",
+"attribute_schema_id": "bath",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZS-000004",
+"node_type": "super_category",
+"name": "Home Care",
+"parent_id": null,
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZC-000031",
+"node_type": "category",
+"name": "Laundry & Fabric Care",
+"parent_id": "TZS-000004",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000073",
+"node_type": "sub_category",
+"name": "Laundry",
+"parent_id": "TZC-000031",
+"attribute_schema_id": "laundry",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000185",
+"node_type": "vertical",
+"name": "Laundry Detergent",
+"parent_id": "TZG-000073",
+"attribute_schema_id": "laundry",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000186",
+"node_type": "vertical",
+"name": "Fabric Care",
+"parent_id": "TZG-000073",
+"attribute_schema_id": "laundry",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZC-000032",
+"node_type": "category",
+"name": "Dishwashing",
+"parent_id": "TZS-000004",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000074",
+"node_type": "sub_category",
+"name": "Dishwash",
+"parent_id": "TZC-000032",
+"attribute_schema_id": "dish",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000187",
+"node_type": "vertical",
+"name": "Dishwash Bar & Liquid",
+"parent_id": "TZG-000074",
+"attribute_schema_id": "dish",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "RENAMED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZG-000075",
+"node_type": "sub_category",
+"name": "Dish Accessories",
+"parent_id": "TZC-000032",
+"attribute_schema_id": "dish",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000188",
+"node_type": "vertical",
+"name": "Scrubbers & Sponges",
+"parent_id": "TZG-000075",
+"attribute_schema_id": "dish",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "RESTORED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000189",
+"node_type": "vertical",
+"name": "Kitchen Cleaning Brushes",
+"parent_id": "TZG-000075",
+"attribute_schema_id": "dish",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZC-000033",
+"node_type": "category",
+"name": "Surface & Bathroom Cleaning",
+"parent_id": "TZS-000004",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000076",
+"node_type": "sub_category",
+"name": "Cleaners",
+"parent_id": "TZC-000033",
+"attribute_schema_id": "surface",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000190",
+"node_type": "vertical",
+"name": "Surface & Bathroom Cleaner",
+"parent_id": "TZG-000076",
+"attribute_schema_id": "surface",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000191",
+"node_type": "vertical",
+"name": "Floor Cleaner",
+"parent_id": "TZG-000076",
+"attribute_schema_id": "surface",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "NEW",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000192",
+"node_type": "vertical",
+"name": "Toilet Cleaner",
+"parent_id": "TZG-000076",
+"attribute_schema_id": "surface",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "NEW",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZC-000034",
+"node_type": "category",
+"name": "Air Care & Pest Control",
+"parent_id": "TZS-000004",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000077",
+"node_type": "sub_category",
+"name": "Air Care",
+"parent_id": "TZC-000034",
+"attribute_schema_id": "aircare",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000193",
+"node_type": "vertical",
+"name": "Air Freshener",
+"parent_id": "TZG-000077",
+"attribute_schema_id": "aircare",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZG-000078",
+"node_type": "sub_category",
+"name": "Pest Control",
+"parent_id": "TZC-000034",
+"attribute_schema_id": "aircare",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000194",
+"node_type": "vertical",
+"name": "Pest Control",
+"parent_id": "TZG-000078",
+"attribute_schema_id": "aircare",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000195",
+"node_type": "vertical",
+"name": "Moth Balls",
+"parent_id": "TZG-000078",
+"attribute_schema_id": "aircare",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZC-000035",
+"node_type": "category",
+"name": "Cleaning Tools",
+"parent_id": "TZS-000004",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000079",
+"node_type": "sub_category",
+"name": "Tools",
+"parent_id": "TZC-000035",
+"attribute_schema_id": "tools",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000196",
+"node_type": "vertical",
+"name": "Cleaning Tools",
+"parent_id": "TZG-000079",
+"attribute_schema_id": "tools",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000197",
+"node_type": "vertical",
+"name": "Microfiber Cloths",
+"parent_id": "TZG-000079",
+"attribute_schema_id": "tools",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "RESTORED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000198",
+"node_type": "vertical",
+"name": "Drain & Sink Accessories",
+"parent_id": "TZG-000079",
+"attribute_schema_id": "tools",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZC-000036",
+"node_type": "category",
+"name": "Paper & Disposables",
+"parent_id": "TZS-000004",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000080",
+"node_type": "sub_category",
+"name": "Tissues & Paper",
+"parent_id": "TZC-000036",
+"attribute_schema_id": "paper",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000199",
+"node_type": "vertical",
+"name": "Facial Tissue",
+"parent_id": "TZG-000080",
+"attribute_schema_id": "paper",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000200",
+"node_type": "vertical",
+"name": "Toilet Tissue",
+"parent_id": "TZG-000080",
+"attribute_schema_id": "paper",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000201",
+"node_type": "vertical",
+"name": "Kitchen Towel",
+"parent_id": "TZG-000080",
+"attribute_schema_id": "paper",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000202",
+"node_type": "vertical",
+"name": "Paper Napkins",
+"parent_id": "TZG-000080",
+"attribute_schema_id": "paper",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZG-000081",
+"node_type": "sub_category",
+"name": "Foils & Wraps",
+"parent_id": "TZC-000036",
+"attribute_schema_id": "paper",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000203",
+"node_type": "vertical",
+"name": "Aluminium Foil",
+"parent_id": "TZG-000081",
+"attribute_schema_id": "paper",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000204",
+"node_type": "vertical",
+"name": "Cling Film",
+"parent_id": "TZG-000081",
+"attribute_schema_id": "paper",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000205",
+"node_type": "vertical",
+"name": "Baking Paper",
+"parent_id": "TZG-000081",
+"attribute_schema_id": "paper",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZG-000082",
+"node_type": "sub_category",
+"name": "Table Disposables",
+"parent_id": "TZC-000036",
+"attribute_schema_id": "paper",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000206",
+"node_type": "vertical",
+"name": "Straws",
+"parent_id": "TZG-000082",
+"attribute_schema_id": "paper",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000207",
+"node_type": "vertical",
+"name": "Skewers & Toothpicks",
+"parent_id": "TZG-000082",
+"attribute_schema_id": "paper",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000208",
+"node_type": "vertical",
+"name": "Disposable Plates & Cups",
+"parent_id": "TZG-000082",
+"attribute_schema_id": "paper",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "NEW",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZC-000037",
+"node_type": "category",
+"name": "Storage & Organisation",
+"parent_id": "TZS-000004",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000083",
+"node_type": "sub_category",
+"name": "Food Storage",
+"parent_id": "TZC-000037",
+"attribute_schema_id": "storage",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000209",
+"node_type": "vertical",
+"name": "Food Storage Container",
+"parent_id": "TZG-000083",
+"attribute_schema_id": "storage",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000210",
+"node_type": "vertical",
+"name": "Fridge Storage Box",
+"parent_id": "TZG-000083",
+"attribute_schema_id": "storage",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000211",
+"node_type": "vertical",
+"name": "Spice Container",
+"parent_id": "TZG-000083",
+"attribute_schema_id": "storage",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000212",
+"node_type": "vertical",
+"name": "Lunch Box",
+"parent_id": "TZG-000083",
+"attribute_schema_id": "storage",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000213",
+"node_type": "vertical",
+"name": "Water Bottle",
+"parent_id": "TZG-000083",
+"attribute_schema_id": "storage",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZG-000084",
+"node_type": "sub_category",
+"name": "Bags",
+"parent_id": "TZC-000037",
+"attribute_schema_id": "storage",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000214",
+"node_type": "vertical",
+"name": "Garbage Bags",
+"parent_id": "TZG-000084",
+"attribute_schema_id": "storage",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "SPLIT",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000215",
+"node_type": "vertical",
+"name": "Zip & Storage Bags",
+"parent_id": "TZG-000084",
+"attribute_schema_id": "storage",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000216",
+"node_type": "vertical",
+"name": "Vacuum Storage Bags",
+"parent_id": "TZG-000084",
+"attribute_schema_id": "storage",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZC-000038",
+"node_type": "category",
+"name": "Home Maintenance",
+"parent_id": "TZS-000004",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000085",
+"node_type": "sub_category",
+"name": "Repairs & Power",
+"parent_id": "TZC-000038",
+"attribute_schema_id": "maintenance",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000217",
+"node_type": "vertical",
+"name": "Adhesives & Glue",
+"parent_id": "TZG-000085",
+"attribute_schema_id": "maintenance",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000218",
+"node_type": "vertical",
+"name": "Battery",
+"parent_id": "TZG-000085",
+"attribute_schema_id": "maintenance",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000219",
+"node_type": "vertical",
+"name": "Light Bulb",
+"parent_id": "TZG-000085",
+"attribute_schema_id": "maintenance",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZG-000086",
+"node_type": "sub_category",
+"name": "Polishes",
+"parent_id": "TZC-000038",
+"attribute_schema_id": "maintenance",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000220",
+"node_type": "vertical",
+"name": "Polishes",
+"parent_id": "TZG-000086",
+"attribute_schema_id": "maintenance",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZG-000087",
+"node_type": "sub_category",
+"name": "Fire & Light",
+"parent_id": "TZC-000038",
+"attribute_schema_id": "maintenance",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000221",
+"node_type": "vertical",
+"name": "Matchbox",
+"parent_id": "TZG-000087",
+"attribute_schema_id": "maintenance",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000222",
+"node_type": "vertical",
+"name": "Lighters",
+"parent_id": "TZG-000087",
+"attribute_schema_id": "maintenance",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZG-000088",
+"node_type": "sub_category",
+"name": "Kitchen Essentials",
+"parent_id": "TZC-000038",
+"attribute_schema_id": "maintenance",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000223",
+"node_type": "vertical",
+"name": "Apron & Kitchen Gloves",
+"parent_id": "TZG-000088",
+"attribute_schema_id": "maintenance",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000224",
+"node_type": "vertical",
+"name": "Kitchen Twine",
+"parent_id": "TZG-000088",
+"attribute_schema_id": "maintenance",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZS-000005",
+"node_type": "super_category",
+"name": "Household & Lifestyle",
+"parent_id": null,
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZC-000039",
+"node_type": "category",
+"name": "Pooja & Religious Needs",
+"parent_id": "TZS-000005",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000089",
+"node_type": "sub_category",
+"name": "Daily Pooja",
+"parent_id": "TZC-000039",
+"attribute_schema_id": "pooja",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000225",
+"node_type": "vertical",
+"name": "Agarbatti",
+"parent_id": "TZG-000089",
+"attribute_schema_id": "pooja",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000226",
+"node_type": "vertical",
+"name": "Dhoop",
+"parent_id": "TZG-000089",
+"attribute_schema_id": "pooja",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000227",
+"node_type": "vertical",
+"name": "Camphor",
+"parent_id": "TZG-000089",
+"attribute_schema_id": "pooja",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000228",
+"node_type": "vertical",
+"name": "Cotton Wicks",
+"parent_id": "TZG-000089",
+"attribute_schema_id": "pooja",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000229",
+"node_type": "vertical",
+"name": "Diyas",
+"parent_id": "TZG-000089",
+"attribute_schema_id": "pooja",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000230",
+"node_type": "vertical",
+"name": "Pooja Oil & Ghee",
+"parent_id": "TZG-000089",
+"attribute_schema_id": "pooja",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000231",
+"node_type": "vertical",
+"name": "Pooja Sambrani & Havan",
+"parent_id": "TZG-000089",
+"attribute_schema_id": "pooja",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZG-000090",
+"node_type": "sub_category",
+"name": "Pooja Materials",
+"parent_id": "TZC-000039",
+"attribute_schema_id": "pooja",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000232",
+"node_type": "vertical",
+"name": "Kumkum, Sandalwood & Rangoli",
+"parent_id": "TZG-000090",
+"attribute_schema_id": "pooja",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000233",
+"node_type": "vertical",
+"name": "Pooja Kits & Thali",
+"parent_id": "TZG-000090",
+"attribute_schema_id": "pooja",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZC-000040",
+"node_type": "category",
+"name": "Stationery & School",
+"parent_id": "TZS-000005",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000091",
+"node_type": "sub_category",
+"name": "Writing",
+"parent_id": "TZC-000040",
+"attribute_schema_id": "stationery",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000234",
+"node_type": "vertical",
+"name": "Pens",
+"parent_id": "TZG-000091",
+"attribute_schema_id": "stationery",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000235",
+"node_type": "vertical",
+"name": "Pencils",
+"parent_id": "TZG-000091",
+"attribute_schema_id": "stationery",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000236",
+"node_type": "vertical",
+"name": "Markers & Highlighters",
+"parent_id": "TZG-000091",
+"attribute_schema_id": "stationery",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000237",
+"node_type": "vertical",
+"name": "School Accessories",
+"parent_id": "TZG-000091",
+"attribute_schema_id": "stationery",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZG-000092",
+"node_type": "sub_category",
+"name": "Paper & Books",
+"parent_id": "TZC-000040",
+"attribute_schema_id": "stationery",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000238",
+"node_type": "vertical",
+"name": "Notebooks & Pads",
+"parent_id": "TZG-000092",
+"attribute_schema_id": "stationery",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000239",
+"node_type": "vertical",
+"name": "Copier & Printer Paper",
+"parent_id": "TZG-000092",
+"attribute_schema_id": "stationery",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000240",
+"node_type": "vertical",
+"name": "Sticky Notes",
+"parent_id": "TZG-000092",
+"attribute_schema_id": "stationery",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZG-000093",
+"node_type": "sub_category",
+"name": "Art & Craft",
+"parent_id": "TZC-000040",
+"attribute_schema_id": "stationery",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000241",
+"node_type": "vertical",
+"name": "Colours & Crayons",
+"parent_id": "TZG-000093",
+"attribute_schema_id": "stationery",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000242",
+"node_type": "vertical",
+"name": "Glue & Craft Supplies",
+"parent_id": "TZG-000093",
+"attribute_schema_id": "stationery",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZS-000006",
+"node_type": "super_category",
+"name": "Meat, Seafood & Eggs",
+"parent_id": null,
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZC-000041",
+"node_type": "category",
+"name": "Eggs",
+"parent_id": "TZS-000006",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000094",
+"node_type": "sub_category",
+"name": "Eggs",
+"parent_id": "TZC-000041",
+"attribute_schema_id": "egg",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000243",
+"node_type": "vertical",
+"name": "Eggs",
+"parent_id": "TZG-000094",
+"attribute_schema_id": "egg",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "ARRIVED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZC-000042",
+"node_type": "category",
+"name": "Chicken",
+"parent_id": "TZS-000006",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000095",
+"node_type": "sub_category",
+"name": "Fresh Chicken",
+"parent_id": "TZC-000042",
+"attribute_schema_id": "meat",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000244",
+"node_type": "vertical",
+"name": "Whole Chicken",
+"parent_id": "TZG-000095",
+"attribute_schema_id": "meat",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000245",
+"node_type": "vertical",
+"name": "Curry Cut Chicken",
+"parent_id": "TZG-000095",
+"attribute_schema_id": "meat",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000246",
+"node_type": "vertical",
+"name": "Chicken Breast",
+"parent_id": "TZG-000095",
+"attribute_schema_id": "meat",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000247",
+"node_type": "vertical",
+"name": "Chicken Leg",
+"parent_id": "TZG-000095",
+"attribute_schema_id": "meat",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000248",
+"node_type": "vertical",
+"name": "Chicken Wings",
+"parent_id": "TZG-000095",
+"attribute_schema_id": "meat",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000249",
+"node_type": "vertical",
+"name": "Chicken Mince / Keema",
+"parent_id": "TZG-000095",
+"attribute_schema_id": "meat",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "RENAMED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000250",
+"node_type": "vertical",
+"name": "Chicken Liver",
+"parent_id": "TZG-000095",
+"attribute_schema_id": "meat",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZC-000043",
+"node_type": "category",
+"name": "Mutton",
+"parent_id": "TZS-000006",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000096",
+"node_type": "sub_category",
+"name": "Fresh Mutton",
+"parent_id": "TZC-000043",
+"attribute_schema_id": "meat",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000251",
+"node_type": "vertical",
+"name": "Mutton Curry Cut",
+"parent_id": "TZG-000096",
+"attribute_schema_id": "meat",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000252",
+"node_type": "vertical",
+"name": "Mutton Chops",
+"parent_id": "TZG-000096",
+"attribute_schema_id": "meat",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000253",
+"node_type": "vertical",
+"name": "Mutton Mince / Keema",
+"parent_id": "TZG-000096",
+"attribute_schema_id": "meat",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000254",
+"node_type": "vertical",
+"name": "Mutton Liver",
+"parent_id": "TZG-000096",
+"attribute_schema_id": "meat",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000255",
+"node_type": "vertical",
+"name": "Mutton Ribs",
+"parent_id": "TZG-000096",
+"attribute_schema_id": "meat",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZC-000044",
+"node_type": "category",
+"name": "Fish & Seafood",
+"parent_id": "TZS-000006",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000097",
+"node_type": "sub_category",
+"name": "Fresh Fish",
+"parent_id": "TZC-000044",
+"attribute_schema_id": "fish",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000256",
+"node_type": "vertical",
+"name": "Rohu",
+"parent_id": "TZG-000097",
+"attribute_schema_id": "fish",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000257",
+"node_type": "vertical",
+"name": "Katla",
+"parent_id": "TZG-000097",
+"attribute_schema_id": "fish",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000258",
+"node_type": "vertical",
+"name": "Pomfret",
+"parent_id": "TZG-000097",
+"attribute_schema_id": "fish",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000259",
+"node_type": "vertical",
+"name": "Mackerel",
+"parent_id": "TZG-000097",
+"attribute_schema_id": "fish",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000260",
+"node_type": "vertical",
+"name": "Sardine",
+"parent_id": "TZG-000097",
+"attribute_schema_id": "fish",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000261",
+"node_type": "vertical",
+"name": "Seer Fish",
+"parent_id": "TZG-000097",
+"attribute_schema_id": "fish",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000262",
+"node_type": "vertical",
+"name": "Salmon",
+"parent_id": "TZG-000097",
+"attribute_schema_id": "fish",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000263",
+"node_type": "vertical",
+"name": "Tilapia",
+"parent_id": "TZG-000097",
+"attribute_schema_id": "fish",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000264",
+"node_type": "vertical",
+"name": "Fish Curry Cut & Fillets",
+"parent_id": "TZG-000097",
+"attribute_schema_id": "fish",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000265",
+"node_type": "vertical",
+"name": "Other Fish",
+"parent_id": "TZG-000097",
+"attribute_schema_id": "fish",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "NEW",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZG-000098",
+"node_type": "sub_category",
+"name": "Shellfish",
+"parent_id": "TZC-000044",
+"attribute_schema_id": "fish",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000266",
+"node_type": "vertical",
+"name": "Prawns",
+"parent_id": "TZG-000098",
+"attribute_schema_id": "fish",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000267",
+"node_type": "vertical",
+"name": "Crab",
+"parent_id": "TZG-000098",
+"attribute_schema_id": "fish",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZG-000099",
+"node_type": "sub_category",
+"name": "Frozen Seafood",
+"parent_id": "TZC-000044",
+"attribute_schema_id": "fish",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000268",
+"node_type": "vertical",
+"name": "Frozen Fish & Seafood",
+"parent_id": "TZG-000099",
+"attribute_schema_id": "fish",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "RENAMED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZC-000045",
+"node_type": "category",
+"name": "Processed & Frozen Meat",
+"parent_id": "TZS-000006",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000100",
+"node_type": "sub_category",
+"name": "Processed",
+"parent_id": "TZC-000045",
+"attribute_schema_id": "meat",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000269",
+"node_type": "vertical",
+"name": "Chicken Sausage",
+"parent_id": "TZG-000100",
+"attribute_schema_id": "meat",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000270",
+"node_type": "vertical",
+"name": "Chicken Ham & Salami",
+"parent_id": "TZG-000100",
+"attribute_schema_id": "meat",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000271",
+"node_type": "vertical",
+"name": "Bacon",
+"parent_id": "TZG-000100",
+"attribute_schema_id": "meat",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000272",
+"node_type": "vertical",
+"name": "Chicken Nuggets",
+"parent_id": "TZG-000100",
+"attribute_schema_id": "meat",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZV-000273",
+"node_type": "vertical",
+"name": "Frozen Kebabs & Meat Snacks",
+"parent_id": "TZG-000100",
+"attribute_schema_id": "meat",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 50-SKU validation pending"
+},
+{
+"_id": "TZS-000007",
+"node_type": "super_category",
+"name": "Health & Wellness",
+"parent_id": null,
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZC-000046",
+"node_type": "category",
+"name": "Nutrition & Supplements",
+"parent_id": "TZS-000007",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000101",
+"node_type": "sub_category",
+"name": "Protein & Fitness",
+"parent_id": "TZC-000046",
+"attribute_schema_id": "supplement",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000274",
+"node_type": "vertical",
+"name": "Protein Powder",
+"parent_id": "TZG-000101",
+"attribute_schema_id": "supplement",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "RESTORED",
+"branch_status": "PROPOSED \u2014 restorations + validation pending"
+},
+{
+"_id": "TZV-000275",
+"node_type": "vertical",
+"name": "Protein Bars",
+"parent_id": "TZG-000101",
+"attribute_schema_id": "supplement",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "RESTORED",
+"branch_status": "PROPOSED \u2014 restorations + validation pending"
+},
+{
+"_id": "TZV-000276",
+"node_type": "vertical",
+"name": "Meal Replacement",
+"parent_id": "TZG-000101",
+"attribute_schema_id": "supplement",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "RESTORED",
+"branch_status": "PROPOSED \u2014 restorations + validation pending"
+},
+{
+"_id": "TZG-000102",
+"node_type": "sub_category",
+"name": "Vitamins & Minerals",
+"parent_id": "TZC-000046",
+"attribute_schema_id": "supplement",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000277",
+"node_type": "vertical",
+"name": "Vitamins & Minerals",
+"parent_id": "TZG-000102",
+"attribute_schema_id": "supplement",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 restorations + validation pending"
+},
+{
+"_id": "TZV-000278",
+"node_type": "vertical",
+"name": "Omega-3 & Fish Oil",
+"parent_id": "TZG-000102",
+"attribute_schema_id": "supplement",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "RESTORED",
+"branch_status": "PROPOSED \u2014 restorations + validation pending"
+},
+{
+"_id": "TZV-000279",
+"node_type": "vertical",
+"name": "Probiotics",
+"parent_id": "TZG-000102",
+"attribute_schema_id": "supplement",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "RESTORED",
+"branch_status": "PROPOSED \u2014 restorations + validation pending"
+},
+{
+"_id": "TZG-000103",
+"node_type": "sub_category",
+"name": "Hydration",
+"parent_id": "TZC-000046",
+"attribute_schema_id": "supplement",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000280",
+"node_type": "vertical",
+"name": "Electrolytes & ORS",
+"parent_id": "TZG-000103",
+"attribute_schema_id": "supplement",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 restorations + validation pending"
+},
+{
+"_id": "TZC-000047",
+"node_type": "category",
+"name": "Ayurveda & Herbal",
+"parent_id": "TZS-000007",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000104",
+"node_type": "sub_category",
+"name": "Herbal Wellness",
+"parent_id": "TZC-000047",
+"attribute_schema_id": "ayurveda",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000281",
+"node_type": "vertical",
+"name": "Chyawanprash",
+"parent_id": "TZG-000104",
+"attribute_schema_id": "ayurveda",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "RESTORED",
+"branch_status": "PROPOSED \u2014 restorations + validation pending"
+},
+{
+"_id": "TZV-000282",
+"node_type": "vertical",
+"name": "Herbal Immunity & Ashwagandha",
+"parent_id": "TZG-000104",
+"attribute_schema_id": "ayurveda",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 restorations + validation pending"
+},
+{
+"_id": "TZV-000283",
+"node_type": "vertical",
+"name": "Herbal Digestives",
+"parent_id": "TZG-000104",
+"attribute_schema_id": "ayurveda",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 restorations + validation pending"
+},
+{
+"_id": "TZV-000284",
+"node_type": "vertical",
+"name": "Herbal Cough & Cold Care",
+"parent_id": "TZG-000104",
+"attribute_schema_id": "ayurveda",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "RESTORED",
+"branch_status": "PROPOSED \u2014 restorations + validation pending"
+},
+{
+"_id": "TZV-000285",
+"node_type": "vertical",
+"name": "Pain Relief Balms",
+"parent_id": "TZG-000104",
+"attribute_schema_id": "ayurveda",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 restorations + validation pending"
+},
+{
+"_id": "TZC-000048",
+"node_type": "category",
+"name": "First Aid",
+"parent_id": "TZS-000007",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000105",
+"node_type": "sub_category",
+"name": "Wound Care",
+"parent_id": "TZC-000048",
+"attribute_schema_id": "firstaid",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000286",
+"node_type": "vertical",
+"name": "Bandages & Dressings",
+"parent_id": "TZG-000105",
+"attribute_schema_id": "firstaid",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 restorations + validation pending"
+},
+{
+"_id": "TZV-000287",
+"node_type": "vertical",
+"name": "Antiseptic Liquid",
+"parent_id": "TZG-000105",
+"attribute_schema_id": "firstaid",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 restorations + validation pending"
+},
+{
+"_id": "TZV-000288",
+"node_type": "vertical",
+"name": "First Aid Kit",
+"parent_id": "TZG-000105",
+"attribute_schema_id": "firstaid",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 restorations + validation pending"
+},
+{
+"_id": "TZG-000106",
+"node_type": "sub_category",
+"name": "Therapy & Devices",
+"parent_id": "TZC-000048",
+"attribute_schema_id": "firstaid",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000289",
+"node_type": "vertical",
+"name": "Hot & Cold Therapy",
+"parent_id": "TZG-000106",
+"attribute_schema_id": "firstaid",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "MERGED",
+"branch_status": "PROPOSED \u2014 restorations + validation pending"
+},
+{
+"_id": "TZV-000290",
+"node_type": "vertical",
+"name": "Thermometer",
+"parent_id": "TZG-000106",
+"attribute_schema_id": "firstaid",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "KEEP",
+"branch_status": "PROPOSED \u2014 restorations + validation pending"
+},
+{
+"_id": "TZC-000049",
+"node_type": "category",
+"name": "Sexual Wellness",
+"parent_id": "TZS-000007",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000107",
+"node_type": "sub_category",
+"name": "Sexual Wellness",
+"parent_id": "TZC-000049",
+"attribute_schema_id": "sexual_wellness",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000291",
+"node_type": "vertical",
+"name": "Condoms",
+"parent_id": "TZG-000107",
+"attribute_schema_id": "sexual_wellness",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "NEW",
+"branch_status": "PROPOSED \u2014 restorations + validation pending"
+},
+{
+"_id": "TZV-000292",
+"node_type": "vertical",
+"name": "Lubricants",
+"parent_id": "TZG-000107",
+"attribute_schema_id": "sexual_wellness",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "NEW",
+"branch_status": "PROPOSED \u2014 restorations + validation pending"
+},
+{
+"_id": "TZC-000050",
+"node_type": "category",
+"name": "Everyday Wellness",
+"parent_id": "TZS-000007",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZG-000108",
+"node_type": "sub_category",
+"name": "Sleep & Stress",
+"parent_id": "TZC-000050",
+"attribute_schema_id": "supplement",
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-000293",
+"node_type": "vertical",
+"name": "Sleep Support",
+"parent_id": "TZG-000108",
+"attribute_schema_id": "supplement",
+"status": "active",
+"created_in_version": "0.9.0",
+"origin": "RESTORED",
+"branch_status": "PROPOSED \u2014 restorations + validation pending"
+},
+{
+"_id": "TZV-UNCLASSIFIED",
+"node_type": "vertical",
+"name": "Unclassified (holding)",
+"parent_id": null,
+"attribute_schema_id": null,
+"status": "active",
+"created_in_version": "0.9.0"
+},
+{
+"_id": "TZV-SCOPE-BLOCKED",
+"node_type": "vertical",
+"name": "Scope Blocked (holding)",
+"parent_id": null,
+"attribute_schema_id": null,
+"status": "active",
+"created_in_version": "0.9.0"
+}
+],
+"aliases": [
+{
+"alias_norm": "sonamasuri",
+"lang": "xx",
+"region": "all",
+"node_id": "TZV-000004",
+"status": "active"
+},
+{
+"alias_norm": "sona masuri",
+"lang": "xx",
+"region": "all",
+"node_id": "TZV-000004",
+"status": "active"
+},
+{
+"alias_norm": "lapsi",
+"lang": "xx",
+"region": "all",
+"node_id": "TZV-000022",
+"status": "active"
+},
+{
+"alias_norm": "daliya",
+"lang": "xx",
+"region": "all",
+"node_id": "TZV-000022",
+"status": "active"
+},
+{
+"alias_norm": "chivda",
+"lang": "xx",
+"region": "all",
+"node_id": "TZV-000023",
+"status": "active"
+},
+{
+"alias_norm": "aval",
+"lang": "xx",
+"region": "all",
+"node_id": "TZV-000023",
+"status": "active"
+},
+{
+"alias_norm": "avalakki",
+"lang": "xx",
+"region": "all",
+"node_id": "TZV-000023",
+"status": "active"
+},
+{
+"alias_norm": "whole wheat flour",
+"lang": "xx",
+"region": "all",
+"node_id": "TZV-000026",
+"status": "active"
+},
+{
+"alias_norm": "chakki atta",
+"lang": "xx",
+"region": "all",
+"node_id": "TZV-000026",
+"status": "active"
+},
+{
+"alias_norm": "semolina",
+"lang": "xx",
+"region": "all",
+"node_id": "TZV-000028",
+"status": "active"
+},
+{
+"alias_norm": "idli rava",
+"lang": "xx",
+"region": "all",
+"node_id": "TZV-000028",
+"status": "active"
+},
+{
+"alias_norm": "arhar dal",
+"lang": "xx",
+"region": "all",
+"node_id": "TZV-000034",
+"status": "active"
+},
+{
+"alias_norm": "chickpeas",
+"lang": "xx",
+"region": "all",
+"node_id": "TZV-000040",
+"status": "active"
+},
+{
+"alias_norm": "chole",
+"lang": "xx",
+"region": "all",
+"node_id": "TZV-000040",
+"status": "active"
+},
+{
+"alias_norm": "clarified butter",
+"lang": "xx",
+"region": "all",
+"node_id": "TZV-000055",
+"status": "active"
+},
+{
+"alias_norm": "gur",
+"lang": "xx",
+"region": "all",
+"node_id": "TZV-000059",
+"status": "active"
+},
+{
+"alias_norm": "gud",
+"lang": "xx",
+"region": "all",
+"node_id": "TZV-000059",
+"status": "active"
+},
+{
+"alias_norm": "sabut masale",
+"lang": "xx",
+"region": "all",
+"node_id": "TZV-000061",
+"status": "active"
+},
+{
+"alias_norm": "heeng",
+"lang": "xx",
+"region": "all",
+"node_id": "TZV-000062",
+"status": "active"
+},
+{
+"alias_norm": "foxnuts",
+"lang": "xx",
+"region": "all",
+"node_id": "TZV-000094",
+"status": "active"
+},
+{
+"alias_norm": "lotus seeds",
+"lang": "xx",
+"region": "all",
+"node_id": "TZV-000094",
+"status": "active"
+},
+{
+"alias_norm": "appalam",
+"lang": "xx",
+"region": "all",
+"node_id": "TZV-000131",
+"status": "active"
+},
+{
+"alias_norm": "sanitary napkins",
+"lang": "xx",
+"region": "all",
+"node_id": "TZV-000169",
+"status": "active"
+},
+{
+"alias_norm": "ande",
+"lang": "xx",
+"region": "all",
+"node_id": "TZV-000243",
+"status": "active"
+},
+{
+"alias_norm": "chicken keema",
+"lang": "xx",
+"region": "all",
+"node_id": "TZV-000249",
+"status": "active"
+}
+],
+"attribute_definitions": [
+{
+"key": "brand",
+"type": "string",
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "pack_size",
+"type": "number",
+"paired_unit": "pack_unit",
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "pack_unit",
+"type": "enum_open",
+"known_values": [
+"kg",
+"g",
+"L",
+"ml",
+"pieces"
+],
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "pack_quantity",
+"type": "number",
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "flavour",
+"type": "enum_open",
+"known_values": [],
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "colour",
+"type": "enum_open",
+"known_values": [],
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "material",
+"type": "enum_open",
+"known_values": [],
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "form",
+"type": "enum_open",
+"known_values": [
+"whole",
+"split",
+"powder",
+"bags",
+"brown",
+"liquid",
+"bar",
+"gel"
+],
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "variant",
+"type": "string",
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "gender",
+"type": "enum_open",
+"known_values": [
+"men",
+"women",
+"unisex"
+],
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "age_group",
+"type": "enum_open",
+"known_values": [
+"baby",
+"kids",
+"adult",
+"senior"
+],
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "organic_certified",
+"type": "boolean",
+"governance": "claim",
+"version": 1,
+"status": "active"
+},
+{
+"key": "dietary",
+"type": "enum_open",
+"known_values": [
+"veg",
+"non_veg",
+"vegan",
+"jain"
+],
+"governance": "claim",
+"version": 1,
+"status": "active"
+},
+{
+"key": "storage_state",
+"type": "enum_open",
+"known_values": [
+"ambient",
+"chilled",
+"frozen"
+],
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "origin",
+"type": "string",
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "low_gi",
+"type": "boolean",
+"governance": "claim",
+"version": 1,
+"status": "active"
+},
+{
+"key": "protein_g",
+"type": "number",
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "variety_grade",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "grain_length",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "aged",
+"type": "boolean",
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "processing",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "origin_region",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "grain_type",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "gluten_free",
+"type": "boolean",
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "grain_source",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "chakki_ground",
+"type": "boolean",
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "multigrain",
+"type": "boolean",
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "polished",
+"type": "boolean",
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "roasted",
+"type": "boolean",
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "extraction",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "blended",
+"type": "boolean",
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "fortified",
+"type": "boolean",
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "pack_type",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "milk_source",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "a2_claim",
+"type": "boolean",
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "type_variant",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "spice_name",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "blend_type",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "product_type_detail",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "bread_type",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "whole_wheat",
+"type": "boolean",
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "caffeinated",
+"type": "boolean",
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "carbonated",
+"type": "boolean",
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "sugar_free",
+"type": "boolean",
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "serving_form",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "biscuit_type",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "snack_base",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "baked_fried",
+"type": "boolean",
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "spice_level",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "seasoned",
+"type": "boolean",
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "cereal_type",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "added_sugar",
+"type": "boolean",
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "cocoa_percent",
+"type": "number",
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "choc_type",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "nut_type",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "fruit_type",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "seed_type",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "noodle_base",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "instant",
+"type": "boolean",
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "cook_time",
+"type": "number",
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "cuisine",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "eggless",
+"type": "boolean",
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "base_ingredient",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "dish",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "veg_nonveg",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "prep_method",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "dessert_type",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "sweet_type",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "stage",
+"type": "number",
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "age_months",
+"type": "number",
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "concern",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "skin_type",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "spf",
+"type": "number",
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "herbal_ayurvedic",
+"type": "boolean",
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "hair_type",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "blade_count",
+"type": "number",
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "absorbency",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "size_variant",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "rash_safe",
+"type": "boolean",
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "fragrance_family",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "diaper_size",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "count",
+"type": "number",
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "makeup_category",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "shade",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "machine_type",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "concentration",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "fragrance_name",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "surface_type",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "format",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "room",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "capacity",
+"type": "number",
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "reusable",
+"type": "boolean",
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "ply",
+"type": "number",
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "microwave_safe",
+"type": "boolean",
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "festival",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "stationery_type",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "ruled_unruled",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "cut",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "meat_form",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "weight_g",
+"type": "number",
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "halal_claim",
+"type": "enum_open",
+"governance": "claim",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "species",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "cleaned",
+"type": "boolean",
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "egg_type",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "active_ingredients",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "dosage_form",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "serving_count",
+"type": "number",
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+},
+{
+"key": "certification",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "primary_herb",
+"type": "enum_open",
+"governance": "descriptive",
+"known_values": [],
+"version": 1,
+"status": "active"
+},
+{
+"key": "sterile",
+"type": "boolean",
+"governance": "descriptive",
+"version": 1,
+"status": "active"
+}
+],
+"attribute_schemas": [
+{
+"schema_id": "rice",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": true
+},
+{
+"key": "pack_unit",
+"required": true
+},
+{
+"key": "variety_grade",
+"required": false
+},
+{
+"key": "grain_length",
+"required": false
+},
+{
+"key": "aged",
+"required": false
+},
+{
+"key": "processing",
+"required": false
+},
+{
+"key": "origin_region",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "grain",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": true
+},
+{
+"key": "pack_unit",
+"required": true
+},
+{
+"key": "grain_type",
+"required": false
+},
+{
+"key": "gluten_free",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "flour",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": true
+},
+{
+"key": "pack_unit",
+"required": true
+},
+{
+"key": "grain_source",
+"required": false
+},
+{
+"key": "chakki_ground",
+"required": false
+},
+{
+"key": "multigrain",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "pulse",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": true
+},
+{
+"key": "pack_unit",
+"required": true
+},
+{
+"key": "polished",
+"required": false
+},
+{
+"key": "roasted",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "oil",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": true
+},
+{
+"key": "pack_unit",
+"required": true
+},
+{
+"key": "extraction",
+"required": false
+},
+{
+"key": "blended",
+"required": false
+},
+{
+"key": "fortified",
+"required": false
+},
+{
+"key": "pack_type",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "ghee",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": true
+},
+{
+"key": "pack_unit",
+"required": true
+},
+{
+"key": "milk_source",
+"required": false
+},
+{
+"key": "a2_claim",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "sweetener_salt",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": true
+},
+{
+"key": "pack_unit",
+"required": true
+},
+{
+"key": "type_variant",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "spice",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": true
+},
+{
+"key": "pack_unit",
+"required": true
+},
+{
+"key": "spice_name",
+"required": false
+},
+{
+"key": "blend_type",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "baking",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": true
+},
+{
+"key": "pack_unit",
+"required": true
+},
+{
+"key": "product_type_detail",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "bakery",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": true
+},
+{
+"key": "pack_unit",
+"required": true
+},
+{
+"key": "bread_type",
+"required": false
+},
+{
+"key": "whole_wheat",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "beverage",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": true
+},
+{
+"key": "pack_unit",
+"required": true
+},
+{
+"key": "caffeinated",
+"required": false
+},
+{
+"key": "carbonated",
+"required": false
+},
+{
+"key": "sugar_free",
+"required": false
+},
+{
+"key": "serving_form",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "biscuit",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": true
+},
+{
+"key": "pack_unit",
+"required": true
+},
+{
+"key": "biscuit_type",
+"required": false
+},
+{
+"key": "sugar_free",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "snack",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": true
+},
+{
+"key": "pack_unit",
+"required": true
+},
+{
+"key": "snack_base",
+"required": false
+},
+{
+"key": "baked_fried",
+"required": false
+},
+{
+"key": "spice_level",
+"required": false
+},
+{
+"key": "seasoned",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "breakfast",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": true
+},
+{
+"key": "pack_unit",
+"required": true
+},
+{
+"key": "cereal_type",
+"required": false
+},
+{
+"key": "added_sugar",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "chocolate",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": true
+},
+{
+"key": "pack_unit",
+"required": true
+},
+{
+"key": "cocoa_percent",
+"required": false
+},
+{
+"key": "choc_type",
+"required": false
+},
+{
+"key": "sugar_free",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "dryfruit",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": true
+},
+{
+"key": "pack_unit",
+"required": true
+},
+{
+"key": "nut_type",
+"required": false
+},
+{
+"key": "fruit_type",
+"required": false
+},
+{
+"key": "seed_type",
+"required": false
+},
+{
+"key": "roasted",
+"required": false
+},
+{
+"key": "seasoned",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "noodle",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": true
+},
+{
+"key": "pack_unit",
+"required": true
+},
+{
+"key": "noodle_base",
+"required": false
+},
+{
+"key": "instant",
+"required": false
+},
+{
+"key": "cook_time",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "sauce",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": true
+},
+{
+"key": "pack_unit",
+"required": true
+},
+{
+"key": "cuisine",
+"required": false
+},
+{
+"key": "spice_level",
+"required": false
+},
+{
+"key": "eggless",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "preserve",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": true
+},
+{
+"key": "pack_unit",
+"required": true
+},
+{
+"key": "base_ingredient",
+"required": false
+},
+{
+"key": "sugar_free",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "frozen_ready",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": true
+},
+{
+"key": "pack_unit",
+"required": true
+},
+{
+"key": "dish",
+"required": false
+},
+{
+"key": "veg_nonveg",
+"required": false
+},
+{
+"key": "prep_method",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "dessert",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": true
+},
+{
+"key": "pack_unit",
+"required": true
+},
+{
+"key": "dessert_type",
+"required": false
+},
+{
+"key": "sweet_type",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "baby_food",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": true
+},
+{
+"key": "pack_unit",
+"required": true
+},
+{
+"key": "stage",
+"required": false
+},
+{
+"key": "age_months",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "bath",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": true
+},
+{
+"key": "pack_unit",
+"required": true
+},
+{
+"key": "concern",
+"required": false
+},
+{
+"key": "skin_type",
+"required": false
+},
+{
+"key": "spf",
+"required": false
+},
+{
+"key": "herbal_ayurvedic",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "hair",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": true
+},
+{
+"key": "pack_unit",
+"required": true
+},
+{
+"key": "concern",
+"required": false
+},
+{
+"key": "hair_type",
+"required": false
+},
+{
+"key": "herbal_ayurvedic",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "skin",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": true
+},
+{
+"key": "pack_unit",
+"required": true
+},
+{
+"key": "concern",
+"required": false
+},
+{
+"key": "skin_type",
+"required": false
+},
+{
+"key": "spf",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "oral",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": true
+},
+{
+"key": "pack_unit",
+"required": true
+},
+{
+"key": "concern",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "shave",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": true
+},
+{
+"key": "pack_unit",
+"required": true
+},
+{
+"key": "blade_count",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "fem_hygiene",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": true
+},
+{
+"key": "pack_unit",
+"required": true
+},
+{
+"key": "absorbency",
+"required": false
+},
+{
+"key": "size_variant",
+"required": false
+},
+{
+"key": "rash_safe",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "fragrance",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": true
+},
+{
+"key": "pack_unit",
+"required": true
+},
+{
+"key": "fragrance_family",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "baby_care",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": true
+},
+{
+"key": "pack_unit",
+"required": true
+},
+{
+"key": "diaper_size",
+"required": false
+},
+{
+"key": "count",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "makeup",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": true
+},
+{
+"key": "pack_unit",
+"required": true
+},
+{
+"key": "makeup_category",
+"required": false
+},
+{
+"key": "shade",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "laundry",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": true
+},
+{
+"key": "pack_unit",
+"required": true
+},
+{
+"key": "machine_type",
+"required": false
+},
+{
+"key": "concentration",
+"required": false
+},
+{
+"key": "fragrance_name",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "dish",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": true
+},
+{
+"key": "pack_unit",
+"required": true
+},
+{
+"key": "fragrance_name",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "surface",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": true
+},
+{
+"key": "pack_unit",
+"required": true
+},
+{
+"key": "surface_type",
+"required": false
+},
+{
+"key": "fragrance_name",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "aircare",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": true
+},
+{
+"key": "pack_unit",
+"required": true
+},
+{
+"key": "format",
+"required": false
+},
+{
+"key": "room",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "tools",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": true
+},
+{
+"key": "pack_unit",
+"required": true
+},
+{
+"key": "capacity",
+"required": false
+},
+{
+"key": "count",
+"required": false
+},
+{
+"key": "reusable",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "paper",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": true
+},
+{
+"key": "pack_unit",
+"required": true
+},
+{
+"key": "count",
+"required": false
+},
+{
+"key": "ply",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "storage",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": true
+},
+{
+"key": "pack_unit",
+"required": true
+},
+{
+"key": "capacity",
+"required": false
+},
+{
+"key": "microwave_safe",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "maintenance",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": true
+},
+{
+"key": "pack_unit",
+"required": true
+},
+{
+"key": "count",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "pooja",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": true
+},
+{
+"key": "pack_unit",
+"required": true
+},
+{
+"key": "count",
+"required": false
+},
+{
+"key": "festival",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "stationery",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": true
+},
+{
+"key": "pack_unit",
+"required": true
+},
+{
+"key": "stationery_type",
+"required": false
+},
+{
+"key": "count",
+"required": false
+},
+{
+"key": "ruled_unruled",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "meat",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": false
+},
+{
+"key": "pack_unit",
+"required": false
+},
+{
+"key": "cut",
+"required": false
+},
+{
+"key": "meat_form",
+"required": false
+},
+{
+"key": "weight_g",
+"required": false
+},
+{
+"key": "halal_claim",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "fish",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": false
+},
+{
+"key": "pack_unit",
+"required": false
+},
+{
+"key": "species",
+"required": false
+},
+{
+"key": "cut",
+"required": false
+},
+{
+"key": "cleaned",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "egg",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": false
+},
+{
+"key": "pack_unit",
+"required": false
+},
+{
+"key": "egg_type",
+"required": false
+},
+{
+"key": "count",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "supplement",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": true
+},
+{
+"key": "pack_unit",
+"required": true
+},
+{
+"key": "active_ingredients",
+"required": false
+},
+{
+"key": "dosage_form",
+"required": false
+},
+{
+"key": "serving_count",
+"required": false
+},
+{
+"key": "certification",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "ayurveda",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": true
+},
+{
+"key": "pack_unit",
+"required": true
+},
+{
+"key": "primary_herb",
+"required": false
+},
+{
+"key": "dosage_form",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "firstaid",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": true
+},
+{
+"key": "pack_unit",
+"required": true
+},
+{
+"key": "sterile",
+"required": false
+},
+{
+"key": "size_variant",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+},
+{
+"schema_id": "sexual_wellness",
+"version": 1,
+"scope": "sub_category",
+"fields": [
+{
+"key": "pack_size",
+"required": true
+},
+{
+"key": "pack_unit",
+"required": true
+},
+{
+"key": "count",
+"required": false
+},
+{
+"key": "brand",
+"required": false
+},
+{
+"key": "pack_quantity",
+"required": false
+},
+{
+"key": "flavour",
+"required": false
+},
+{
+"key": "colour",
+"required": false
+},
+{
+"key": "material",
+"required": false
+},
+{
+"key": "form",
+"required": false
+},
+{
+"key": "variant",
+"required": false
+},
+{
+"key": "gender",
+"required": false
+},
+{
+"key": "age_group",
+"required": false
+},
+{
+"key": "organic_certified",
+"required": false
+},
+{
+"key": "dietary",
+"required": false
+},
+{
+"key": "storage_state",
+"required": false
+},
+{
+"key": "origin",
+"required": false
+},
+{
+"key": "low_gi",
+"required": false
+},
+{
+"key": "protein_g",
+"required": false
+}
+]
+}
+]
+}

@@ -1,0 +1,1552 @@
+{
+  "openapi" : "3.0.1",
+  "info" : {
+    "title" : "OpenAPI definition",
+    "version" : "v0"
+  },
+  "servers" : [ {
+    "url" : "http://localhost:63531",
+    "description" : "Generated server url"
+  } ],
+  "paths" : {
+    "/api/v1/taxonomy/releases" : {
+      "post" : {
+        "tags" : [ "taxonomy-controller" ],
+        "operationId" : "openRelease",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/OpenReleaseRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/IdResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/taxonomy/releases/{id}/publish" : {
+      "post" : {
+        "tags" : [ "taxonomy-controller" ],
+        "operationId" : "publishRelease",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/IdResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/taxonomy/nodes/{id}/split" : {
+      "post" : {
+        "tags" : [ "taxonomy-controller" ],
+        "operationId" : "split",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/SplitNodeRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "array",
+                  "items" : {
+                    "$ref" : "#/components/schemas/NodeResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/taxonomy/nodes/{id}/revive" : {
+      "post" : {
+        "tags" : [ "taxonomy-controller" ],
+        "operationId" : "revive",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/RenameNodeRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/NodeResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/taxonomy/nodes/{id}/rename" : {
+      "post" : {
+        "tags" : [ "taxonomy-controller" ],
+        "operationId" : "rename",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/RenameNodeRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/NodeResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/taxonomy/nodes/{id}/move" : {
+      "post" : {
+        "tags" : [ "taxonomy-controller" ],
+        "operationId" : "move",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/MoveNodeRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/NodeResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/taxonomy/nodes/{id}/merge" : {
+      "post" : {
+        "tags" : [ "taxonomy-controller" ],
+        "operationId" : "merge",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/MergeNodeRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/NodeResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/taxonomy/nodes/{id}/deprecate" : {
+      "post" : {
+        "tags" : [ "taxonomy-controller" ],
+        "operationId" : "deprecate",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/RenameNodeRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/NodeResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/products" : {
+      "post" : {
+        "tags" : [ "product-controller" ],
+        "operationId" : "create",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/CreateProductRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProductResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/products/{id}/revive" : {
+      "post" : {
+        "tags" : [ "product-controller" ],
+        "operationId" : "revive_1",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "If-Match",
+          "in" : "header",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ReviveRequest"
+              }
+            }
+          }
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProductResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/products/{id}/retire" : {
+      "post" : {
+        "tags" : [ "product-controller" ],
+        "operationId" : "retire",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "If-Match",
+          "in" : "header",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/RetireRequest"
+              }
+            }
+          }
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProductResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/products/{id}/publish" : {
+      "post" : {
+        "tags" : [ "product-controller" ],
+        "operationId" : "publish",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/PublishClaimRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProductResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/products/{id}/merge/{survivorId}" : {
+      "post" : {
+        "tags" : [ "product-controller" ],
+        "operationId" : "merge_1",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "survivorId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AcceptedResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/products/{id}/gtins" : {
+      "post" : {
+        "tags" : [ "product-controller" ],
+        "operationId" : "bindGtin",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/GtinBindRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProductResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/products/{id}/classify" : {
+      "post" : {
+        "tags" : [ "product-controller" ],
+        "operationId" : "classify",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ClassifyRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProductResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/products/{id}/archive" : {
+      "post" : {
+        "tags" : [ "product-controller" ],
+        "operationId" : "archive",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "If-Match",
+          "in" : "header",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProductResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/products/{id}/activate" : {
+      "post" : {
+        "tags" : [ "product-controller" ],
+        "operationId" : "activate",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "If-Match",
+          "in" : "header",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProductResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/evidence" : {
+      "post" : {
+        "tags" : [ "evidence-controller" ],
+        "operationId" : "create_1",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/CreateEvidenceRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/EvidenceResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/evidence/{id}/retract" : {
+      "post" : {
+        "tags" : [ "evidence-controller" ],
+        "operationId" : "retract",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/RetractEvidenceRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RetractAcceptedResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/attributes" : {
+      "post" : {
+        "tags" : [ "attribute-controller" ],
+        "operationId" : "create_2",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/CreateAttributeRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/IdResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/attributes/{key}/values" : {
+      "post" : {
+        "tags" : [ "attribute-controller" ],
+        "operationId" : "addValue",
+        "parameters" : [ {
+          "name" : "key",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/AddEnumValueRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/IdResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/attribute-schemas/{id}/fields" : {
+      "post" : {
+        "tags" : [ "attribute-controller" ],
+        "operationId" : "addField",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/AddSchemaFieldRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/IdResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/products/{id}" : {
+      "get" : {
+        "tags" : [ "product-controller" ],
+        "operationId" : "get",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProductResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch" : {
+        "tags" : [ "product-controller" ],
+        "operationId" : "patch",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "If-Match",
+          "in" : "header",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/PatchProductRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProductResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/taxonomy/releases/{id}" : {
+      "get" : {
+        "tags" : [ "taxonomy-controller" ],
+        "operationId" : "getRelease",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ReleaseResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/taxonomy/nodes/{id}" : {
+      "get" : {
+        "tags" : [ "taxonomy-controller" ],
+        "operationId" : "node",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/NodeResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/taxonomy/nodes/{id}/path" : {
+      "get" : {
+        "tags" : [ "taxonomy-controller" ],
+        "operationId" : "path",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/PathResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/evidence/{id}" : {
+      "get" : {
+        "tags" : [ "evidence-controller" ],
+        "operationId" : "get_1",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/EvidenceResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/attributes/{key}" : {
+      "get" : {
+        "tags" : [ "attribute-controller" ],
+        "operationId" : "getAttribute",
+        "parameters" : [ {
+          "name" : "key",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AttributeResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/attribute-schemas/{id}" : {
+      "get" : {
+        "tags" : [ "attribute-controller" ],
+        "operationId" : "getSchema",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SchemaResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components" : {
+    "schemas" : {
+      "OpenReleaseRequest" : {
+        "type" : "object",
+        "properties" : {
+          "releaseId" : {
+            "type" : "string"
+          },
+          "basedOn" : {
+            "type" : "string"
+          }
+        }
+      },
+      "IdResponse" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string"
+          },
+          "version" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }
+      },
+      "SplitNodeRequest" : {
+        "type" : "object",
+        "properties" : {
+          "childNames" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "expectedVersion" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }
+      },
+      "NodeResponse" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string"
+          },
+          "nodeType" : {
+            "type" : "string"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "parentId" : {
+            "type" : "string"
+          },
+          "status" : {
+            "type" : "string"
+          },
+          "attributeSchemaId" : {
+            "type" : "string"
+          },
+          "version" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }
+      },
+      "RenameNodeRequest" : {
+        "type" : "object",
+        "properties" : {
+          "name" : {
+            "type" : "string"
+          },
+          "expectedVersion" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }
+      },
+      "MoveNodeRequest" : {
+        "type" : "object",
+        "properties" : {
+          "newParentId" : {
+            "type" : "string"
+          },
+          "expectedVersion" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }
+      },
+      "MergeNodeRequest" : {
+        "type" : "object",
+        "properties" : {
+          "survivorId" : {
+            "type" : "string"
+          },
+          "expectedVersion" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "schemaReconciliationApproved" : {
+            "type" : "boolean"
+          }
+        }
+      },
+      "BundleComponentDto" : {
+        "type" : "object",
+        "properties" : {
+          "componentProductId" : {
+            "type" : "string"
+          },
+          "qty" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "verticalIdSnapshot" : {
+            "type" : "string"
+          }
+        }
+      },
+      "CreateProductRequest" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string"
+          },
+          "productType" : {
+            "type" : "string"
+          },
+          "identityType" : {
+            "type" : "string"
+          },
+          "internalKey" : {
+            "type" : "string"
+          },
+          "gtins" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/GtinDto"
+            }
+          },
+          "brandCode" : {
+            "type" : "string"
+          },
+          "title" : {
+            "type" : "string"
+          },
+          "verticalId" : {
+            "type" : "string"
+          },
+          "releaseId" : {
+            "type" : "string"
+          },
+          "classificationStatus" : {
+            "type" : "string"
+          },
+          "attributes" : {
+            "type" : "object",
+            "additionalProperties" : {
+              "type" : "object"
+            }
+          },
+          "evidenceRefs" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "bundleContents" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/BundleComponentDto"
+            }
+          }
+        }
+      },
+      "GtinDto" : {
+        "type" : "object",
+        "properties" : {
+          "value" : {
+            "type" : "string"
+          },
+          "market" : {
+            "type" : "string"
+          }
+        }
+      },
+      "ProductResponse" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string"
+          },
+          "productType" : {
+            "type" : "string"
+          },
+          "lifecycle" : {
+            "type" : "string"
+          },
+          "brandCode" : {
+            "type" : "string"
+          },
+          "title" : {
+            "type" : "string"
+          },
+          "classification" : {
+            "type" : "object",
+            "additionalProperties" : {
+              "type" : "object"
+            }
+          },
+          "attributes" : {
+            "type" : "object",
+            "additionalProperties" : {
+              "type" : "object"
+            }
+          },
+          "version" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "taxonomyPath" : {
+            "type" : "string"
+          }
+        }
+      },
+      "ReviveRequest" : {
+        "type" : "object",
+        "properties" : {
+          "formulationVersion" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }
+      },
+      "RetireRequest" : {
+        "type" : "object",
+        "properties" : {
+          "reason" : {
+            "type" : "string"
+          }
+        }
+      },
+      "PublishClaimRequest" : {
+        "type" : "object",
+        "properties" : {
+          "attributeKey" : {
+            "type" : "string"
+          },
+          "evidenceRefs" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          }
+        }
+      },
+      "AcceptedResponse" : {
+        "type" : "object",
+        "properties" : {
+          "status" : {
+            "type" : "string"
+          },
+          "detail" : {
+            "type" : "string"
+          }
+        }
+      },
+      "GtinBindRequest" : {
+        "type" : "object",
+        "properties" : {
+          "gtin" : {
+            "type" : "string"
+          },
+          "market" : {
+            "type" : "string"
+          }
+        }
+      },
+      "ClassifyRequest" : {
+        "type" : "object",
+        "properties" : {
+          "verticalId" : {
+            "type" : "string"
+          },
+          "releaseId" : {
+            "type" : "string"
+          },
+          "status" : {
+            "type" : "string"
+          },
+          "confidence" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "evidenceRefs" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          }
+        }
+      },
+      "CreateEvidenceRequest" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string"
+          },
+          "evidenceType" : {
+            "type" : "string"
+          },
+          "source" : {
+            "type" : "string"
+          },
+          "sourceVersion" : {
+            "type" : "string"
+          },
+          "payloadRef" : {
+            "$ref" : "#/components/schemas/PayloadRefDto"
+          },
+          "excerpt" : {
+            "type" : "string"
+          },
+          "url" : {
+            "type" : "string"
+          },
+          "observedAt" : {
+            "type" : "string"
+          },
+          "payload" : {
+            "type" : "string"
+          }
+        }
+      },
+      "PayloadRefDto" : {
+        "type" : "object",
+        "properties" : {
+          "store" : {
+            "type" : "string"
+          },
+          "objectId" : {
+            "type" : "string"
+          },
+          "sha256" : {
+            "type" : "string"
+          }
+        }
+      },
+      "EvidenceResponse" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string"
+          },
+          "evidenceType" : {
+            "type" : "string"
+          },
+          "source" : {
+            "type" : "string"
+          },
+          "sourceVersion" : {
+            "type" : "string"
+          },
+          "payloadRef" : {
+            "$ref" : "#/components/schemas/PayloadRefDto"
+          },
+          "excerpt" : {
+            "type" : "string"
+          },
+          "url" : {
+            "type" : "string"
+          },
+          "validity" : {
+            "type" : "string"
+          },
+          "payloadState" : {
+            "type" : "string"
+          },
+          "observedAt" : {
+            "type" : "string"
+          }
+        }
+      },
+      "RetractEvidenceRequest" : {
+        "type" : "object",
+        "properties" : {
+          "to" : {
+            "type" : "string"
+          },
+          "reason" : {
+            "type" : "string"
+          }
+        }
+      },
+      "RetractAcceptedResponse" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string"
+          },
+          "validity" : {
+            "type" : "string"
+          },
+          "cascade" : {
+            "type" : "string"
+          }
+        }
+      },
+      "CreateAttributeRequest" : {
+        "type" : "object",
+        "properties" : {
+          "key" : {
+            "type" : "string"
+          },
+          "type" : {
+            "type" : "string"
+          },
+          "governance" : {
+            "type" : "string"
+          },
+          "knownValues" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          }
+        }
+      },
+      "AddEnumValueRequest" : {
+        "type" : "object",
+        "properties" : {
+          "value" : {
+            "type" : "string"
+          }
+        }
+      },
+      "AddSchemaFieldRequest" : {
+        "type" : "object",
+        "properties" : {
+          "key" : {
+            "type" : "string"
+          },
+          "required" : {
+            "type" : "boolean"
+          },
+          "allowBreaking" : {
+            "type" : "boolean"
+          }
+        }
+      },
+      "PatchProductRequest" : {
+        "type" : "object",
+        "properties" : {
+          "title" : {
+            "type" : "string"
+          }
+        }
+      },
+      "ReleaseResponse" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string"
+          },
+          "status" : {
+            "type" : "string"
+          },
+          "basedOn" : {
+            "type" : "string"
+          }
+        }
+      },
+      "PathResponse" : {
+        "type" : "object",
+        "properties" : {
+          "verticalId" : {
+            "type" : "string"
+          },
+          "path" : {
+            "type" : "string"
+          },
+          "nodes" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/NodeResponse"
+            }
+          }
+        }
+      },
+      "AttributeResponse" : {
+        "type" : "object",
+        "properties" : {
+          "key" : {
+            "type" : "string"
+          },
+          "version" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "type" : {
+            "type" : "string"
+          },
+          "governance" : {
+            "type" : "string"
+          },
+          "knownValues" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "status" : {
+            "type" : "string"
+          }
+        }
+      },
+      "SchemaFieldResponse" : {
+        "type" : "object",
+        "properties" : {
+          "key" : {
+            "type" : "string"
+          },
+          "required" : {
+            "type" : "boolean"
+          }
+        }
+      },
+      "SchemaResponse" : {
+        "type" : "object",
+        "properties" : {
+          "schemaId" : {
+            "type" : "string"
+          },
+          "version" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "scope" : {
+            "type" : "string"
+          },
+          "fields" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/SchemaFieldResponse"
+            }
+          },
+          "status" : {
+            "type" : "string"
+          }
+        }
+      }
+    }
+  }
+}
