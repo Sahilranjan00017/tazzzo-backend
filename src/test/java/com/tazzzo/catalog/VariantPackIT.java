@@ -35,6 +35,7 @@ class VariantPackIT extends AbstractMongoIT {
     @Autowired BundleService bundleService;
 
     static final String NOODLES = "TZV-000001"; // any real seeded vertical; rice schema
+    static final int COMPONENT_G = 70;          // one component pack; totals are qty * this
 
     @BeforeAll
     void loadTaxonomy() {
@@ -49,10 +50,16 @@ class VariantPackIT extends AbstractMongoIT {
         bundleService.activate(id);
     }
 
+    /**
+     * U-4-h (RATIFIED 2026-08-30, reading B): a variant_pack carries the TOTAL measure the
+     * customer receives — not the component's measure. 8 x 70g is pack_size=560, matching how
+     * the one real multipack in the validated Food set is titled ("Maggi ... 560g"). pack_of
+     * carries the structure; pack_size means the same thing on every product type.
+     */
     private ProductDraft pack(String id, String key, String componentId, int qty) {
         return new ProductDraft(id, "variant_pack", "internal", key, null, "BR-TEST",
                 "Pack " + id, NOODLES, "0.9.0", "provisional",
-                Map.of("pack_size", 70, "pack_unit", "g"), List.of(), null,
+                Map.of("pack_size", COMPONENT_G * qty, "pack_unit", "g"), List.of(), null,
                 new PackOf(componentId, qty));
     }
 
@@ -72,6 +79,12 @@ class VariantPackIT extends AbstractMongoIT {
         // the multipack and its component are two distinct catalogue products
         assertThat(db.getCollection("products").countDocuments(eq("_id", "TZP-VP-C1"))).isEqualTo(1);
         assertThat(p.getString("_id")).isNotEqualTo("TZP-VP-C1");
+
+        // U-4-h: the pack carries the TOTAL (8 x 70g = 560g), not the component's 70g.
+        // Asserted rather than merely written by the fixture, so the frozen rule is pinned.
+        Document component = db.getCollection("products").find(eq("_id", "TZP-VP-C1")).first();
+        assertThat(p.get("attributes", Document.class).getInteger("pack_size")).isEqualTo(560);
+        assertThat(component.get("attributes", Document.class).getInteger("pack_size")).isEqualTo(70);
     }
 
     @Test
