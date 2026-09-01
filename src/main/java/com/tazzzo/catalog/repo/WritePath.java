@@ -65,6 +65,35 @@ public class WritePath {
         return r.getModifiedCount();
     }
 
+    /**
+     * CAT-ID-6 / WP-6 — the ONLY way identity.canonical_key is ever written after mint.
+     *
+     * This is deliberately NOT an exception to the D-1b rail. casUpdateWithEvent accepts an
+     * arbitrary Bson update, which is exactly why it must keep refusing `identity` for every
+     * caller, forever. This door is impoverished instead:
+     *   - it takes NO update document, so it cannot express anything but the canonical key;
+     *   - it is WRITE-ONCE: the filter requires canonical_key to be currently null, so a second
+     *     run is a no-op rather than an overwrite (returns false, which is not an error);
+     *   - it still appends an audit event (C-4), so no identity write is silent;
+     *   - no controller path reaches it — the backfill worker is its only caller.
+     *
+     * Write-once is the load-bearing property: the backfill cannot corrupt identity even if run
+     * twice, run concurrently, or run against a partially migrated corpus.
+     *
+     * @return true if this call set the key; false if it was already set (no-op).
+     */
+    public boolean setCanonicalKeyOnce(ClientSession session, String productId,
+                                       String key, String keyVersion, EventPayload event) {
+        appendEvent(session, event);
+        UpdateResult r = db.getCollection("products").updateOne(session,
+                Filters.and(Filters.eq("_id", productId),
+                        Filters.or(Filters.eq("identity.canonical_key", null),
+                                Filters.exists("identity.canonical_key", false))),
+                new Document("$set", new Document("identity.canonical_key", key)
+                        .append("identity.canonical_key_version", keyVersion)));
+        return r.getModifiedCount() == 1;
+    }
+
     /** Non-product auxiliary state (registries, queues, links) — still event-carrying. */
     public void auxWrite(ClientSession session, String collection, EventPayload event,
                          java.util.function.Consumer<com.mongodb.client.MongoCollection<Document>> write) {

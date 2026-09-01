@@ -22,7 +22,7 @@ import java.util.List;
 public class SchemaBootstrap {
 
     public static final List<String> COLLECTIONS = List.of(
-            "products", "gtin_registry", "identity_keys", "brands",
+            "products", "gtin_registry", "identity_keys", "canonical_keys", "brands",
             "product_events", "classification_history", "evidence", "evidence_links",
             "work_queue", "offers_current", "catalogue_releases",
             "batches", "campaigns", "campaign_membership", "aliases", "variant_groups",
@@ -55,6 +55,7 @@ public class SchemaBootstrap {
                 Indexes.ascending("variant_group_id"), new IndexOptions().sparse(true));
         db.getCollection("offers_current").createIndex(
                 Indexes.ascending("product_id", "source", "seller", "channel"), new IndexOptions().unique(true));
+        db.getCollection("canonical_keys").createIndex(Indexes.ascending("product_id"));
         db.getCollection("evidence_links").createIndex(Indexes.ascending("evidence_id", "active"));
         db.getCollection("evidence_links").createIndex(Indexes.ascending("product_id", "link_type"));
         db.getCollection("classification_history").createIndex(
@@ -97,7 +98,9 @@ public class SchemaBootstrap {
             "product_type": {"enum":["single","variant_pack","bundle"]},
             "lifecycle": {"enum":["draft","active","merging","discontinued","archived","merged"]},
             "identity": {"bsonType":"object","additionalProperties":false,"required":["type"],
-              "properties":{"type":{"enum":["gtin","internal"]},"internal_key":{"bsonType":["string","null"]}}},
+              "properties":{"type":{"enum":["gtin","internal"]},"internal_key":{"bsonType":["string","null"]},
+                "canonical_key":{"bsonType":["string","null"]},
+                "canonical_key_version":{"bsonType":["string","null"]}}},
             "gtins": {"bsonType":"array","maxItems":12,"items":{"bsonType":"object","additionalProperties":false,
               "required":["value"],"properties":{"value":{"bsonType":"string"},"market":{"bsonType":"string"},
               "valid_from":{"bsonType":"date"},"valid_to":{"bsonType":["date","null"]}}}},

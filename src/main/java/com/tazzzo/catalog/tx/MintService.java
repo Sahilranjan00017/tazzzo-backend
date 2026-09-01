@@ -7,6 +7,9 @@ import com.tazzzo.catalog.domain.ProductDraft;
 import com.tazzzo.catalog.events.EventPayload;
 import com.tazzzo.catalog.repo.WritePath;
 import com.tazzzo.catalog.schema.AttributeGovernanceService;
+import com.tazzzo.catalog.schema.CanonicalKeyService;
+
+import java.util.Optional;
 import org.bson.Document;
 import org.springframework.stereotype.Service;
 
@@ -24,11 +27,14 @@ public class MintService {
     private final Tx tx;
     private final WritePath writePath;
     private final AttributeGovernanceService governance;
+    private final CanonicalKeyService canonicalKeys;
 
-    public MintService(Tx tx, WritePath writePath, AttributeGovernanceService governance) {
+    public MintService(Tx tx, WritePath writePath, AttributeGovernanceService governance,
+                       CanonicalKeyService canonicalKeys) {
         this.tx = tx;
         this.writePath = writePath;
         this.governance = governance;
+        this.canonicalKeys = canonicalKeys;
     }
 
     public String mint(ProductDraft d) {
@@ -57,7 +63,37 @@ public class MintService {
                 }
                 throw e;
             }
-            writePath.insertWithEvent(session, "products", ProductDocuments.fromDraft(d), minted);
+            // CAT-ID: identity is derived by Catalogue AFTER governance, so only governed,
+            // schema-valid attributes can enter a key. Absence is never a failure (Gate 2).
+            Optional<String> canonicalKey = canonicalKeys.derive(
+                    d.verticalId(), d.brandCode(), d.productType(),
+                    d.attributes() == null ? Map.of() : d.attributes(), d.packOf());
+            Document productDoc = ProductDocuments.fromDraft(d);
+            if (canonicalKey.isPresent()) {
+                ProductDocuments.applyCanonicalKey(productDoc, canonicalKey.get(),
+                        CanonicalKeyService.KEY_VERSION);
+                try {
+                    writePath.auxWrite(session, "canonical_keys", minted, c -> c.insertOne(session,
+                            new Document("_id", canonicalKey.get()).append("product_id", d.id())
+                                    .append("version", CanonicalKeyService.KEY_VERSION)
+                                    .append("status", "active").append("created_at", new Date())));
+                } catch (MongoWriteException e) {
+                    if (e.getError().getCode() == 11000) {
+                        throw new IdentityCollisionException(
+                                "canonical identity already minted: " + canonicalKey.get());
+                    }
+                    throw e;
+                }
+            } else {
+                writePath.auxWrite(session, "work_queue", minted, c -> c.replaceOne(session,
+                        new Document("_id", "identity_incomplete:" + d.id()),
+                        new Document("_id", "identity_incomplete:" + d.id())
+                                .append("type", "identity_incomplete").append("product_id", d.id())
+                                .append("vertical_id", d.verticalId()).append("status", "pending")
+                                .append("created_at", new Date()),
+                        new com.mongodb.client.model.ReplaceOptions().upsert(true)));
+            }
+            writePath.insertWithEvent(session, "products", productDoc, minted);
             writePath.auxWrite(session, "classification_history", minted, c -> c.insertOne(session,
                     new Document("product_id", d.id())
                             .append("vertical_id", d.verticalId())

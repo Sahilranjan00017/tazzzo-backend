@@ -60,6 +60,17 @@ public final class ProductDocuments {
         return doc;
     }
 
+    /**
+     * CAT-ID-1: stamps the Catalogue-derived identity onto the product document. Derivation is
+     * Catalogue's, never the caller's — the draft carries no canonical_key field, so a client
+     * cannot propose one.
+     */
+    public static void applyCanonicalKey(Document productDoc, String key, String keyVersion) {
+        productDoc.get("identity", Document.class)
+                .append("canonical_key", key)
+                .append("canonical_key_version", keyVersion);
+    }
+
     public static Document eventDoc(String type, String productId, Map<String, Object> detail) {
         return new Document("type", type)
                 .append("product_id", productId)

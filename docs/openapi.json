@@ -279,6 +279,30 @@
       }
     },
     "/api/v1/products" : {
+      "get" : {
+        "tags" : [ "product-controller" ],
+        "operationId" : "getByCanonicalKey",
+        "parameters" : [ {
+          "name" : "canonicalKey",
+          "in" : "query",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProductResponse"
+                }
+              }
+            }
+          }
+        }
+      },
       "post" : {
         "tags" : [ "product-controller" ],
         "operationId" : "create",

@@ -56,8 +56,12 @@ class TransactionAtomicityIT extends AbstractMongoIT {
                 null, "BR-TEST", "Holding", MintService.UNCLASSIFIED, "1.0.0", "review",
                 Map.of(), List.of(), null);
         mintService.mint(holding);
+        // An UNCLASSIFIED mint legitimately enqueues TWO obligations: classification_review
+        // (holding vertical) and identity_incomplete (CAT-ID: unratified vertical => no key).
+        // Assert the intended item explicitly rather than relying on document order.
         Document item = db.getCollection("work_queue")
-                .find(eq("product_id", "TZP-A3")).first();
+                .find(com.mongodb.client.model.Filters.and(eq("product_id", "TZP-A3"),
+                        eq("type", "classification_review"))).first();
         assertThat(item).isNotNull();
         assertThat(item.getString("type")).isEqualTo("classification_review");
     }

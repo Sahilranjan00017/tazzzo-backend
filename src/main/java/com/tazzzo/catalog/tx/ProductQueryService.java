@@ -26,6 +26,18 @@ public class ProductQueryService {
         return p;
     }
 
+    /**
+     * CAT-ID-4 — identity resolution by canonical key. This is the lookup that lets a second
+     * source find a product it never created, WITHOUT any crawler-side memory: the key is
+     * recomputed from the observation and resolved against Catalogue truth.
+     */
+    public Document findByCanonicalKey(String canonicalKey) {
+        Document row = db.getCollection("canonical_keys")
+                .find(Filters.eq("_id", canonicalKey)).first();
+        if (row == null) throw new ProductNotFoundException(canonicalKey);
+        return requireProduct(row.getString("product_id"));
+    }
+
     public Document findRelease(String releaseId) {
         return db.getCollection("catalogue_releases").find(Filters.eq("_id", releaseId)).first();
     }

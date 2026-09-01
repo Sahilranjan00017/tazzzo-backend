@@ -72,6 +72,12 @@ public class ProductController {
         return ResponseEntity.status(HttpStatus.CREATED).body(read(body.id()));
     }
 
+    /** CAT-ID-4 — identity resolution by canonical key (404 when unbound). */
+    @GetMapping(params = "canonicalKey")
+    public ProductResponse getByCanonicalKey(@RequestParam String canonicalKey) {
+        return toResponse(productQueryService.findByCanonicalKey(canonicalKey));
+    }
+
     @GetMapping("/{id}")
     public ProductResponse get(@PathVariable String id) {
         return read(id);
@@ -162,7 +168,11 @@ public class ProductController {
     }
 
     private ProductResponse read(String id) {
-        Document p = productQueryService.requireProduct(id);
+        return toResponse(productQueryService.requireProduct(id));
+    }
+
+    /** CAT-ID-4: shared so a canonical-key lookup returns exactly the same shape as GET /{id}. */
+    private ProductResponse toResponse(Document p) {
         Document c = p.get("classification", Document.class);
         String verticalId = c == null ? null : c.getString("vertical_id");
         String path = verticalId == null ? null : taxonomyService.renderPath(verticalId);

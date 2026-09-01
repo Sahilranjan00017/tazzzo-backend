@@ -1,5 +1,6 @@
 package com.tazzzo.catalog.ops;
 
+import com.tazzzo.catalog.tx.CanonicalKeyBackfillService;
 import com.tazzzo.catalog.tx.MergeService;
 import com.tazzzo.catalog.tx.RollupService;
 import com.tazzzo.catalog.tx.TaintService;
@@ -40,6 +41,7 @@ public class CatalogSchedulers {
     private final TaintService taintService;
     private final RollupService rollupService;
     private final TaxonomyChangeService taxonomyChangeService;
+    private final CanonicalKeyBackfillService canonicalKeyBackfillService;
 
     @Value("${tazzzo.scheduler.taint-batch-size:100}")
     private int taintBatchSize;
@@ -48,11 +50,13 @@ public class CatalogSchedulers {
     private int stampBatchSize;
 
     public CatalogSchedulers(MergeService mergeService, TaintService taintService,
-                             RollupService rollupService, TaxonomyChangeService taxonomyChangeService) {
+                             RollupService rollupService, TaxonomyChangeService taxonomyChangeService,
+                             CanonicalKeyBackfillService canonicalKeyBackfillService) {
         this.mergeService = mergeService;
         this.taintService = taintService;
         this.rollupService = rollupService;
         this.taxonomyChangeService = taxonomyChangeService;
+        this.canonicalKeyBackfillService = canonicalKeyBackfillService;
     }
 
     /** Completes merges: repoints offers/bundles, flips lifecycles, closes the outbox. */
@@ -71,6 +75,12 @@ public class CatalogSchedulers {
     @Scheduled(fixedDelayString = "${tazzzo.scheduler.stamp-ms:30000}")
     public void stampFanOut() {
         guard("stamp-fanout", () -> taxonomyChangeService.runStampWorker(stampBatchSize));
+    }
+
+    /** WP-6: backfills canonical keys for products minted before CAT-ID. Write-once. */
+    @Scheduled(fixedDelayString = "${tazzzo.scheduler.ck-backfill-ms:30000}")
+    public void canonicalKeyBackfill() {
+        guard("ck-backfill", () -> canonicalKeyBackfillService.runBackfillWorker(stampBatchSize));
     }
 
     /** Aggregates price events, then purges ONLY those durably marked rolled. */
