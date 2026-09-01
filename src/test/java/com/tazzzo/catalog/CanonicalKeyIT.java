@@ -3,7 +3,9 @@ package com.tazzzo.catalog;
 import com.tazzzo.catalog.domain.PackOf;
 import com.tazzzo.catalog.domain.ProductDraft;
 import com.tazzzo.catalog.schema.CanonicalKeyService;
+import com.tazzzo.catalog.schema.CanonicalKey;
 import com.tazzzo.catalog.schema.DiscriminatingAttributeRegistry;
+import com.tazzzo.catalog.schema.Ratification;
 import com.tazzzo.catalog.schema.TaxonomyLoader;
 import com.tazzzo.catalog.tx.CanonicalKeyBackfillService;
 import com.tazzzo.catalog.tx.IdentityCollisionException;
@@ -48,7 +50,7 @@ class CanonicalKeyIT extends AbstractMongoIT {
         // C-3 REVERSED: nothing is keyable until WP-0 ratifies it. This class exercises
         // derivation, so it ratifies its own vertical explicitly — standing in for a WP-0
         // ratification rather than relying on a permissive default.
-        registry.ratify(V, List.of("pack"));
+        registry.ratify(new Ratification(V, "wp0-test-1.0.0", List.of("pack"), Map.of()));
     }
 
     @AfterAll
@@ -63,6 +65,12 @@ class CanonicalKeyIT extends AbstractMongoIT {
                 V, "0.9.0", "provisional", attrs, List.of(), null);
     }
 
+    /** derive() now returns the key WITH its ratification version; these tests assert the key. */
+    private Optional<String> key(String vertical, String brand, Map<String, Object> attrs) {
+        return canonicalKeyService.derive(vertical, brand, "single", attrs, null)
+                .map(CanonicalKey::key);
+    }
+
     private String keyOf(String id) {
         return db.getCollection("products").find(eq("_id", id)).first()
                 .get("identity", Document.class).getString("canonical_key");
@@ -72,30 +80,22 @@ class CanonicalKeyIT extends AbstractMongoIT {
 
     @Test
     void u4_equivalent_quantities_converge_to_one_key() {
-        Optional<String> a = canonicalKeyService.derive(V, "BR-X", "single",
-                Map.of("pack_size", 5, "pack_unit", "kg"), null);
-        Optional<String> b = canonicalKeyService.derive(V, "BR-X", "single",
-                Map.of("pack_size", 5000, "pack_unit", "g"), null);
-        Optional<String> c = canonicalKeyService.derive(V, "BR-X", "single",
-                Map.of("pack_size", 0.5, "pack_unit", "kg"), null);
+        Optional<String> a = key(V, "BR-X", Map.of("pack_size", 5, "pack_unit", "kg"));
+        Optional<String> b = key(V, "BR-X", Map.of("pack_size", 5000, "pack_unit", "g"));
+        Optional<String> c = key(V, "BR-X", Map.of("pack_size", 0.5, "pack_unit", "kg"));
         assertThat(a).contains("BR-X|" + V + "|pack=5000g");
         assertThat(b).isEqualTo(a);                       // 5 kg == 5000 g, byte-identical
         assertThat(c).contains("BR-X|" + V + "|pack=500g"); // 0.5 kg == 500 g
-        assertThat(canonicalKeyService.derive(V, "BR-X", "single",
-                Map.of("pack_size", 1.5, "pack_unit", "L"), null))
+        assertThat(key(V, "BR-X", Map.of("pack_size", 1.5, "pack_unit", "L")))
                 .contains("BR-X|" + V + "|pack=1500ml");    // 1.5 L == 1500 ml
     }
 
     @Test
     void u4_mass_and_volume_never_interconvert_and_sizes_separate() {
-        assertThat(canonicalKeyService.derive(V, "BR-X", "single",
-                Map.of("pack_size", 1000, "pack_unit", "g"), null))
-                .isNotEqualTo(canonicalKeyService.derive(V, "BR-X", "single",
-                        Map.of("pack_size", 1000, "pack_unit", "ml"), null));
-        assertThat(canonicalKeyService.derive(V, "BR-X", "single",
-                Map.of("pack_size", 5, "pack_unit", "kg"), null))
-                .isNotEqualTo(canonicalKeyService.derive(V, "BR-X", "single",
-                        Map.of("pack_size", 10, "pack_unit", "kg"), null));
+        assertThat(key(V, "BR-X", Map.of("pack_size", 1000, "pack_unit", "g")))
+                .isNotEqualTo(key(V, "BR-X", Map.of("pack_size", 1000, "pack_unit", "ml")));
+        assertThat(key(V, "BR-X", Map.of("pack_size", 5, "pack_unit", "kg")))
+                .isNotEqualTo(key(V, "BR-X", Map.of("pack_size", 10, "pack_unit", "kg")));
     }
 
     // ---------- Gate 2: null key, never a partial key, never a mint failure ----------
@@ -103,22 +103,18 @@ class CanonicalKeyIT extends AbstractMongoIT {
     @Test
     void gate2_unrepresentable_inputs_yield_no_key() {
         // U-4-a: dozen is NOT aliased to pieces
-        assertThat(canonicalKeyService.derive(V, "BR-X", "single",
-                Map.of("pack_size", 1, "pack_unit", "dozen"), null)).isEmpty();
+        assertThat(key(V, "BR-X", Map.of("pack_size", 1, "pack_unit", "dozen"))).isEmpty();
         // U-4-c: a value needing more than 3 dp is refused, not approximated
-        assertThat(canonicalKeyService.derive(V, "BR-X", "single",
-                Map.of("pack_size", 0.3333333, "pack_unit", "kg"), null)).isEmpty();
+        assertThat(key(V, "BR-X", Map.of("pack_size", 0.3333333, "pack_unit", "kg"))).isEmpty();
         // fractional count is not representable
-        assertThat(canonicalKeyService.derive(V, "BR-X", "single",
-                Map.of("pack_size", 2.5, "pack_unit", "pieces"), null)).isEmpty();
+        assertThat(key(V, "BR-X", Map.of("pack_size", 2.5, "pack_unit", "pieces"))).isEmpty();
         // brand absence is an honest unknown, never a wildcard
-        assertThat(canonicalKeyService.derive(V, "", "single",
-                Map.of("pack_size", 5, "pack_unit", "kg"), null)).isEmpty();
+        assertThat(key(V, "", Map.of("pack_size", 5, "pack_unit", "kg"))).isEmpty();
         // missing / non-numeric quantity
-        assertThat(canonicalKeyService.derive(V, "BR-X", "single", Map.of(), null)).isEmpty();
+        assertThat(key(V, "BR-X", Map.of())).isEmpty();
         // unkeyable holding verticals
-        assertThat(canonicalKeyService.derive("TZV-UNCLASSIFIED", "BR-X", "single",
-                Map.of("pack_size", 5, "pack_unit", "kg"), null)).isEmpty();
+        assertThat(key("TZV-UNCLASSIFIED", "BR-X", Map.of("pack_size", 5, "pack_unit", "kg")))
+                .isEmpty();
     }
 
     @Test
@@ -143,8 +139,8 @@ class CanonicalKeyIT extends AbstractMongoIT {
                 Map.of("pack_size", 5, "pack_unit", "kg")));
 
         // SRC-B: key recomputed FROM ITS OWN PAYLOAD ALONE (5000 g, phrased differently).
-        String recomputed = canonicalKeyService.derive(V, "BR-INDIAGATE", "single",
-                Map.of("pack_size", 5000, "pack_unit", "g"), null).orElseThrow();
+        String recomputed = key(V, "BR-INDIAGATE", Map.of("pack_size", 5000, "pack_unit", "g"))
+                .orElseThrow();
         Document found = productQueryService.findByCanonicalKey(recomputed);
 
         assertThat(found.getString("_id")).isEqualTo("TZP-CK-SRCA");

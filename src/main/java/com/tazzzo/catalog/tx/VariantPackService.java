@@ -7,6 +7,7 @@ import com.tazzzo.catalog.domain.ProductDraft;
 import com.tazzzo.catalog.events.EventPayload;
 import com.tazzzo.catalog.repo.WritePath;
 import com.tazzzo.catalog.schema.AttributeGovernanceService;
+import com.tazzzo.catalog.schema.CanonicalKey;
 import com.tazzzo.catalog.schema.CanonicalKeyService;
 
 import com.mongodb.MongoWriteException;
@@ -76,22 +77,22 @@ public class VariantPackService {
                     Map.of("component", packOf.componentProductId(), "qty", packOf.qty()));
             // CAT-ID + U-4-h: the pack's key is self-derived from its OWN total plus packof=N,
             // so 6x250ml (pack=1500ml|packof=6) never collides with a 1500ml single.
-            Optional<String> canonicalKey = canonicalKeys.derive(draft.verticalId(),
+            Optional<CanonicalKey> canonicalKey = canonicalKeys.derive(draft.verticalId(),
                     draft.brandCode(), draft.productType(),
                     draft.attributes() == null ? Map.of() : draft.attributes(), packOf);
             Document productDoc = ProductDocuments.fromDraft(draft);
             if (canonicalKey.isPresent()) {
-                ProductDocuments.applyCanonicalKey(productDoc, canonicalKey.get(),
-                        CanonicalKeyService.KEY_VERSION);
+                CanonicalKey ck = canonicalKey.get();
+                ProductDocuments.applyCanonicalKey(productDoc, ck.key(), ck.version());
                 try {
                     writePath.auxWrite(session, "canonical_keys", packed, coll -> coll.insertOne(session,
-                            new Document("_id", canonicalKey.get()).append("product_id", draft.id())
-                                    .append("version", CanonicalKeyService.KEY_VERSION)
+                            new Document("_id", canonicalKey.get().key()).append("product_id", draft.id())
+                                    .append("version", canonicalKey.get().version())
                                     .append("status", "active").append("created_at", new Date())));
                 } catch (MongoWriteException e) {
                     if (e.getError().getCode() == 11000) {
                         throw new IdentityCollisionException(
-                                "canonical identity already minted: " + canonicalKey.get());
+                                "canonical identity already minted: " + canonicalKey.get().key());
                     }
                     throw e;
                 }

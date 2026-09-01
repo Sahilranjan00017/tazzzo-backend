@@ -7,6 +7,7 @@ import com.tazzzo.catalog.domain.ProductDraft;
 import com.tazzzo.catalog.events.EventPayload;
 import com.tazzzo.catalog.repo.WritePath;
 import com.tazzzo.catalog.schema.AttributeGovernanceService;
+import com.tazzzo.catalog.schema.CanonicalKey;
 import com.tazzzo.catalog.schema.CanonicalKeyService;
 
 import java.util.Optional;
@@ -65,22 +66,22 @@ public class MintService {
             }
             // CAT-ID: identity is derived by Catalogue AFTER governance, so only governed,
             // schema-valid attributes can enter a key. Absence is never a failure (Gate 2).
-            Optional<String> canonicalKey = canonicalKeys.derive(
+            Optional<CanonicalKey> canonicalKey = canonicalKeys.derive(
                     d.verticalId(), d.brandCode(), d.productType(),
                     d.attributes() == null ? Map.of() : d.attributes(), d.packOf());
             Document productDoc = ProductDocuments.fromDraft(d);
             if (canonicalKey.isPresent()) {
-                ProductDocuments.applyCanonicalKey(productDoc, canonicalKey.get(),
-                        CanonicalKeyService.KEY_VERSION);
+                CanonicalKey ck = canonicalKey.get();
+                ProductDocuments.applyCanonicalKey(productDoc, ck.key(), ck.version());
                 try {
                     writePath.auxWrite(session, "canonical_keys", minted, c -> c.insertOne(session,
-                            new Document("_id", canonicalKey.get()).append("product_id", d.id())
-                                    .append("version", CanonicalKeyService.KEY_VERSION)
+                            new Document("_id", canonicalKey.get().key()).append("product_id", d.id())
+                                    .append("version", canonicalKey.get().version())
                                     .append("status", "active").append("created_at", new Date())));
                 } catch (MongoWriteException e) {
                     if (e.getError().getCode() == 11000) {
                         throw new IdentityCollisionException(
-                                "canonical identity already minted: " + canonicalKey.get());
+                                "canonical identity already minted: " + canonicalKey.get().key());
                     }
                     throw e;
                 }

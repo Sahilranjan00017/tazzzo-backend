@@ -22,7 +22,8 @@ import java.util.List;
 public class SchemaBootstrap {
 
     public static final List<String> COLLECTIONS = List.of(
-            "products", "gtin_registry", "identity_keys", "canonical_keys", "brands",
+            "products", "gtin_registry", "identity_keys", "canonical_keys",
+            "discriminating_attributes", "brands",
             "product_events", "classification_history", "evidence", "evidence_links",
             "work_queue", "offers_current", "catalogue_releases",
             "batches", "campaigns", "campaign_membership", "aliases", "variant_groups",

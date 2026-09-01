@@ -2,6 +2,7 @@ package com.tazzzo.catalog;
 
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoDatabase;
+import com.tazzzo.catalog.schema.DiscriminatingAttributeRegistry;
 import com.tazzzo.catalog.schema.SchemaBootstrap;
 import com.tazzzo.catalog.schema.TaxonomyLoader;
 import org.springframework.beans.factory.annotation.Value;
@@ -28,6 +29,7 @@ public class CatalogApplication {
     @Bean
     public ApplicationRunner schemaBootstrapRunner(SchemaBootstrap bootstrap,
                                                    TaxonomyLoader taxonomyLoader,
+                                                   DiscriminatingAttributeRegistry discriminators,
                                                    MongoDatabase db,
                                                    @Value("${tazzzo.schema.bootstrap-on-startup:false}") boolean enabled,
                                                    @Value("${tazzzo.schema.load-taxonomy-seed:false}") boolean loadSeed) {
@@ -35,6 +37,13 @@ public class CatalogApplication {
             if (enabled) {
                 bootstrap.bootstrap(db);
             }
+            // W-F2/E-2: WP-0 ratifications load at bootstrap, so a ratification takes effect on
+            // restart rather than instantly. Deliberate: a governed, taxonomy-grade event must
+            // not half-apply across instances. Zero rows loaded is the correct state until WP-0
+            // ratifies its first vertical.
+            int ratifications = discriminators.load(db);
+            LoggerFactory.getLogger(CatalogApplication.class).info(
+                    "identity ratifications loaded: {}", ratifications);
             if (loadSeed) {
                 // insert-only: safe on every restart, never clobbers changed nodes
                 TaxonomyLoader.LoadResult r = taxonomyLoader.load(db);

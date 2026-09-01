@@ -8,6 +8,7 @@ import com.mongodb.client.model.Updates;
 import com.tazzzo.catalog.domain.PackOf;
 import com.tazzzo.catalog.events.EventPayload;
 import com.tazzzo.catalog.repo.WritePath;
+import com.tazzzo.catalog.schema.CanonicalKey;
 import com.tazzzo.catalog.schema.CanonicalKeyService;
 import org.bson.Document;
 import org.bson.conversions.Bson;
@@ -113,7 +114,7 @@ public class CanonicalKeyBackfillService {
         PackOf packOf = packOfDoc == null ? null
                 : new PackOf(packOfDoc.getString("component_product_id"), packOfDoc.getInteger("qty"));
 
-        Optional<String> key = canonicalKeys.derive(verticalId, p.getString("brand_code"),
+        Optional<CanonicalKey> key = canonicalKeys.derive(verticalId, p.getString("brand_code"),
                 p.getString("product_type"), attrs == null ? Map.of() : attrs, packOf);
 
         if (key.isEmpty()) {
@@ -125,20 +126,21 @@ public class CanonicalKeyBackfillService {
         try {
             tx.run(session -> {
                 EventPayload e = new EventPayload("CK_BACKFILLED", productId,
-                        Map.of("key", key.get()));
+                        Map.of("key", key.get().key()));
                 writePath.auxWrite(session, "canonical_keys", e, c -> c.insertOne(session,
-                        new Document("_id", key.get()).append("product_id", productId)
-                                .append("version", CanonicalKeyService.KEY_VERSION)
+                        new Document("_id", key.get().key()).append("product_id", productId)
+                                .append("version", key.get().version())
                                 .append("status", "active").append("created_at", new Date())));
-                writePath.setCanonicalKeyOnce(session, productId, key.get(),
-                        CanonicalKeyService.KEY_VERSION, e);
+                // E-3: the backfill stamps the SAME per-vertical ratification version.
+                writePath.setCanonicalKeyOnce(session, productId, key.get().key(),
+                        key.get().version(), e);
             });
         } catch (MongoWriteException e) {
             if (e.getError().getCode() == 11000) {
                 // FINDING, not an error: two existing products derive one key.
-                queue(productId, "ck_backfill_collision:" + key.get(),
+                queue(productId, "ck_backfill_collision:" + key.get().key(),
                         new Document("type", "ck_backfill_collision").append("product_id", productId)
-                                .append("canonical_key", key.get()).append("vertical_id", verticalId));
+                                .append("canonical_key", key.get().key()).append("vertical_id", verticalId));
                 return;
             }
             throw e;
