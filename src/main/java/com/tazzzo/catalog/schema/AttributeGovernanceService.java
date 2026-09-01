@@ -66,6 +66,15 @@ public class AttributeGovernanceService {
                     .append("status", "pending"));
         }
 
+        // U-4-f: quantity is no longer required for catalogue acceptance, so its absence must
+        // not vanish silently. Same shape as validation_gap above — Law 4, fail-closed to a
+        // queue. Identity is handled separately: no pack term => no canonical key.
+        if (!attributes.containsKey("pack_size") || !attributes.containsKey("pack_unit")) {
+            workItems.add(new Document("_id", "attribute_incomplete:" + verticalId)
+                    .append("type", "attribute_incomplete").append("vertical_id", verticalId)
+                    .append("missing", "pack_size/pack_unit").append("status", "pending"));
+        }
+
         for (Map.Entry<String, Object> e : attributes.entrySet()) {
             Document def = com.tazzzo.catalog.tx.AttributeAuthoringService.latestActiveIn(
                     db, null, "attribute_definitions", Filters.eq("key", e.getKey()));

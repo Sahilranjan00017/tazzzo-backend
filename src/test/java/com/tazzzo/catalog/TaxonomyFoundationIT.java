@@ -82,13 +82,27 @@ class TaxonomyFoundationIT extends AbstractMongoIT {
                 .as("nothing written on governance rejection").isNull();
     }
 
+    /**
+     * U-4-f (RATIFIED 2026-09-01) inverted this test. It previously asserted that minting without
+     * pack_size threw — pack was required in 45 of 48 seeded schemas. Quantity is no longer
+     * required for catalogue ACCEPTANCE: a SKU whose quantity the source never stated (loose atta
+     * at a counter) is catalogued, left unidentified, and queued. meat/fish/egg already behaved
+     * this way, which is what made the 45-schema requirement an inconsistency.
+     *
+     * The required-attribute MECHANISM is untouched and still proven, by an AUTHORED required
+     * field rather than a seeded one: AttributeAuthoringIT
+     * #required_field_needs_explicit_breaking_acknowledgment_then_stamps_products makes
+     * origin_state required and asserts a later mint without it throws.
+     */
     @Test
-    void required_attribute_enforced() {
-        assertThatThrownBy(() -> mintService.mint(new ProductDraft("TZP-F3", "single", "internal",
+    void quantity_is_not_required_for_catalogue_acceptance() {
+        mintService.mint(new ProductDraft("TZP-F3", "single", "internal",
                 "found|3", null, "BR-TEST", "No pack", BASMATI, "0.9.0", "provisional",
-                Map.of("variety_grade", "1121"), List.of(), null)))
-                .isInstanceOf(AttributeViolationException.class)
-                .hasMessageContaining("pack_size");
+                Map.of("variety_grade", "1121"), List.of(), null));
+        Document p = db.getCollection("products").find(eq("_id", "TZP-F3")).first();
+        assertThat(p).as("catalogue acceptance is not identity resolution").isNotNull();
+        assertThat(p.get("identity", Document.class).getString("canonical_key"))
+                .as("no quantity, no pack term, no key — and nothing inferred").isNull();
     }
 
     @Test

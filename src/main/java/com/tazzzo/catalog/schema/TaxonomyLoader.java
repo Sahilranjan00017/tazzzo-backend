@@ -58,6 +58,27 @@ public class TaxonomyLoader {
                     new UpdateOptions().upsert(true));
             schemas++;
         }
+        // U-4-f (RATIFIED 2026-09-01) — a stated commercial quantity is NOT required to catalogue
+        // a SKU. Missing quantity is a data-completeness and identity problem, never a
+        // product-creation failure: the product mints, no pack term is produced, canonical
+        // identity stays unresolved, and the gap is queued (attribute_incomplete).
+        //
+        // It lives HERE, at the end of load(), because load() is the only writer of
+        // attribute_schemas and uses $setOnInsert. Applied in SchemaBootstrap it ran BEFORE the
+        // schemas existed and silently did nothing on a fresh database; applied by editing
+        // taxonomy_v0_9_0_seed.json it would have done nothing on an EXISTING one. Running it
+        // after the write covers both, and leaves the frozen v0.9.0 artifact untouched.
+        //
+        // meat/fish/egg already required nothing — which is what made the 45-schema requirement
+        // an inconsistency rather than a catalogue rule. Narrowed to pack only: required-ness
+        // remains the right tool for data genuinely necessary to form a product record.
+        db.getCollection("attribute_schemas").updateMany(
+                com.mongodb.client.model.Filters.in("fields.key", "pack_size", "pack_unit"),
+                new Document("$set", new Document("fields.$[q].required", false)),
+                new com.mongodb.client.model.UpdateOptions().arrayFilters(java.util.List.of(
+                        new Document("q.key",
+                                new Document("$in", java.util.List.of("pack_size", "pack_unit"))))));
+
         return new LoadResult(nodes, aliases, defs, schemas);
     }
 
