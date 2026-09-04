@@ -21,9 +21,18 @@ import java.util.Map;
  *    claim-tier attributes require >=1 evidence ref (A2''' publish gate guards later flips).
  *  - unknown enum VALUE on an enum_open definition -> accepted + attribute_unknown_value
  *    work item (H-11): values grow as data, never as rejections.
- *  - vertical NOT in taxonomy_nodes (pre-release drafts, holding verticals) -> LENIENT:
- *    global-registry checks only + validation_gap work item. Fail-closed to a queue, never
- *    silent (Law 4).
+ *  - NO RESOLVABLE SCHEMA -> LENIENT: global-registry checks only + validation_gap work
+ *    item. Fail-closed to a queue, never silent (Law 4).
+ *
+ * F-1: the lenient arm keys on the SCHEMA, not on the vertical. It previously read
+ * `else if (vertical == null)`, which enumerated only two of the three reachable cases. A
+ * holding vertical (TZV-UNCLASSIFIED, TZV-SCOPE-BLOCKED) is a REAL node with
+ * attribute_schema_id null, so vertical != null AND schema == null and NEITHER arm ran:
+ * an unregistered attribute key hit `def == null -> continue` below and was stored with no
+ * work item. Contract disposition, not inferred from this code: CR-11 says the holding
+ * vertical is real and the pipeline never stalls (so not a rejection); Law 4 and DB
+ * Readiness scenario 20 say an unruled attachment fails closed into a queue (so not
+ * silence). No schema is invented for the holding nodes — CR-11 forbids a pseudo-vertical.
  */
 @Component
 public class AttributeGovernanceService {
@@ -60,7 +69,7 @@ public class AttributeGovernanceService {
                             "required attribute '" + f.getString("key") + "' missing (schema " + schemaId + ")");
                 }
             }
-        } else if (vertical == null) {
+        } else {
             workItems.add(new Document("_id", "validation_gap:" + verticalId)
                     .append("type", "validation_gap").append("vertical_id", verticalId)
                     .append("status", "pending"));
