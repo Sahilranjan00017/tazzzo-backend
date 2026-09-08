@@ -346,6 +346,78 @@ class ConsumerProjectionIT extends AbstractMongoIT {
                 .hasMessageContaining("duplicate display_order");
     }
 
+    // ---------- RP-6d: STORED SHAPE, not just field presence ----------
+
+    @Test
+    void a_policy_with_no_attributes_array_is_a_configuration_failure() {
+        rawPolicy(new Document("vertical_id", V).append("projection_version", "v3"));
+        Document p = product("TZP-S1", Map.of("aged", true));
+
+        assertThatThrownBy(() -> projection.project(p))
+                .as("missing and empty are different authored states; normalising one into the"
+                        + " other is the silent repair RP-6d removed")
+                .isInstanceOf(ConsumerProjectionPolicyException.class)
+                .hasMessageContaining("no attributes array");
+    }
+
+    @Test
+    void attributes_that_is_not_an_array_is_a_configuration_failure() {
+        rawPolicy(new Document("vertical_id", V).append("projection_version", "v3")
+                .append("attributes", "not-an-array"));
+        Document p = product("TZP-S2", Map.of("aged", true));
+
+        assertThatThrownBy(() -> projection.project(p))
+                .isInstanceOf(ConsumerProjectionPolicyException.class)
+                .hasMessageContaining("not an array");
+    }
+
+    @Test
+    void a_non_document_attributes_member_is_a_configuration_failure() {
+        rawPolicy(new Document("vertical_id", V).append("projection_version", "v3")
+                .append("attributes", List.of("not-a-document")));
+        Document p = product("TZP-S3", Map.of("aged", true));
+
+        assertThatThrownBy(() -> projection.project(p))
+                .isInstanceOf(ConsumerProjectionPolicyException.class)
+                .hasMessageContaining("not a document");
+    }
+
+    @Test
+    void a_non_string_projection_version_is_a_configuration_failure_not_a_cast_error() {
+        rawPolicy(new Document("vertical_id", V).append("projection_version", 123)
+                .append("attributes", List.of(entry("aged", 1, "Aged"))));
+        Document p = product("TZP-S4", Map.of("aged", true));
+
+        assertThatThrownBy(() -> projection.project(p))
+                .as("a wrong BSON type must arrive as the DEDICATED failure, not a driver cast")
+                .isInstanceOf(ConsumerProjectionPolicyException.class)
+                .hasMessageContaining("projection_version is not a string");
+    }
+
+    @Test
+    void a_non_integer_display_order_is_a_configuration_failure() {
+        rawPolicy(new Document("vertical_id", V).append("projection_version", "v3")
+                .append("attributes", List.of(new Document("attribute_key", "aged")
+                        .append("display_order", "first").append("display_label", "Aged"))));
+        Document p = product("TZP-S5", Map.of("aged", true));
+
+        assertThatThrownBy(() -> projection.project(p))
+                .isInstanceOf(ConsumerProjectionPolicyException.class)
+                .hasMessageContaining("display_order is not an integer");
+    }
+
+    @Test
+    void a_non_string_display_label_is_a_configuration_failure() {
+        rawPolicy(new Document("vertical_id", V).append("projection_version", "v3")
+                .append("attributes", List.of(new Document("attribute_key", "aged")
+                        .append("display_order", 1).append("display_label", 7))));
+        Document p = product("TZP-S6", Map.of("aged", true));
+
+        assertThatThrownBy(() -> projection.project(p))
+                .isInstanceOf(ConsumerProjectionPolicyException.class)
+                .hasMessageContaining("display_label is not a string");
+    }
+
     // ---------- RP-2: the STORED VALUE must match its declared type ----------
 
     @Test
