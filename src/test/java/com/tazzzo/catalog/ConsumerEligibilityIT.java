@@ -162,6 +162,35 @@ class ConsumerEligibilityIT extends AbstractMongoIT {
         assertThat(viaQuery).containsExactlyInAnyOrder("TZP-H1", "TZP-H5");
     }
 
+    // ---------- REL-MEM-1 / R-A: the release id has NO membership effect ----------
+
+    /**
+     * The most dangerous available regression: a future reader sees a field called
+     * {@code classification.release_id} and filters on it, silently reverting R-A and making
+     * membership historical instead of current. This test fails if that happens.
+     */
+    @Test
+    void classification_release_id_has_no_membership_effect() {
+        Document older = base("TZP-R1", "single", V_RICE, "active", "confirmed");
+        older.get("classification", Document.class).append("release_id", "rel-0.9");
+        insert(older);
+
+        Document newer = base("TZP-R2", "single", V_RICE, "active", "confirmed");
+        newer.get("classification", Document.class).append("release_id", "rel-2.0");
+        insert(newer);
+
+        assertThat(selected())
+                .as("R-A: the resolved release scopes the TAXONOMY, never product membership")
+                .containsExactlyInAnyOrder("TZP-R1", "TZP-R2");
+        assertThat(selectedWithin(List.of(V_RICE)))
+                .containsExactlyInAnyOrder("TZP-R1", "TZP-R2");
+
+        db.getCollection("products").find().forEach(d ->
+                assertThat(ConsumerEligibility.isEligible(d))
+                        .as("in-memory form must agree: " + d.getString("_id"))
+                        .isTrue());
+    }
+
     @Test
     void isEligible_is_null_safe() {
         assertThat(ConsumerEligibility.isEligible(null)).isFalse();

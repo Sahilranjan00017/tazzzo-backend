@@ -12,14 +12,20 @@ import java.util.stream.Stream;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Architecture guard for the shared consumer-eligibility predicate (LAUNCH-CENSUS §2,
- * LIST-ELIG-1). Same posture as {@link NoBypassArchitectureIT}: the rule is structural, so it
- * cannot be satisfied by intention.
+ * Architecture/REGRESSION guard for the shared consumer-eligibility predicate (LAUNCH-CENSUS §2,
+ * LIST-ELIG-1), in the same posture as {@link NoBypassArchitectureIT}.
  *
  * <p>The failure being prevented is specific and silent — a launch census, a traversal probe and a
  * listing each carrying their own "almost equivalent" filter. They agree on the day they are
  * written and drift the first time the predicate changes, and both sides keep returning plausible
  * numbers while disagreeing about what a shopper can see.
+ *
+ * <p><b>What this guard does NOT claim.</b> It is source-token based, so it catches the shapes it
+ * names and no others. Equivalent code — a raw {@code new Document(...)}, an aggregation builder, a
+ * helper method, extracted constants, or the same expression formatted differently — passes it.
+ * It makes the common accidental duplication loud; it does not make duplication impossible, and no
+ * short of a Java parser would. Strengthen it opportunistically as consumer code appears rather
+ * than trying to be exhaustive now.
  */
 class ConsumerPredicateGuardIT {
 
@@ -93,6 +99,29 @@ class ConsumerPredicateGuardIT {
         assertThat(code.contains("offers_current") || code.contains("\"available\""))
                 .as("\"available\" is not a synonym for \"eligible\"")
                 .isFalse();
+    }
+
+    /**
+     * REL-MEM-1 / R-A: {@code classification.release_id} is PROVENANCE ONLY and is never consulted
+     * for membership. Taxonomy reachability is supplied externally through
+     * {@code within(verticalIds)} — never by inspecting the product's provenance release.
+     *
+     * <p>This is the semantic reversal most likely to happen by accident, because the field is
+     * called {@code release_id} and the contract is release-bound in a different sense.
+     */
+    @Test
+    void the_predicate_never_consults_the_provenance_release() throws IOException {
+        String code = stripComments(Files.readString(MAIN.resolve("consumer").resolve(OWNER)));
+        List<String> violations = new ArrayList<>();
+        if (code.contains("classification.release_id")) {
+            violations.add("references classification.release_id");
+        }
+        if (code.contains("\"release_id\"")) {
+            violations.add("references the classification subdocument's \"release_id\"");
+        }
+        assertThat(violations)
+                .as("R-A: the release scopes the TAXONOMY, never product membership")
+                .isEmpty();
     }
 
     private String stripComments(String src) {
