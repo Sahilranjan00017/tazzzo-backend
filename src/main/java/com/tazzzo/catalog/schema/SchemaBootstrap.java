@@ -1,5 +1,6 @@
 package com.tazzzo.catalog.schema;
 
+import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.CreateCollectionOptions;
 import com.mongodb.client.model.IndexOptions;
@@ -10,6 +11,7 @@ import com.mongodb.client.model.ValidationOptions;
 import org.bson.Document;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -36,6 +38,23 @@ public class SchemaBootstrap {
             // semantics, validation or identity. Absence is a valid state (RP-6b).
             "consumer_projection_policy");
 
+    /**
+     * PAG-2-SORT-1 transport support: the equality prefix the consumer-eligibility predicate uses,
+     * terminated by {@code _id} so a keyset cursor resumes from the index rather than an in-memory
+     * sort. {@code _id} is LAST and that order is part of the contract, not a formatting choice.
+     */
+    public static final List<String> PAG2_PRODUCT_INDEX_KEYS = List.of(
+            "classification.vertical_id", "lifecycle", "classification.status", "_id");
+
+    /**
+     * The pre-PAG-2 index. It is an exact PREFIX of the above, so a compound index on
+     * PAG2_PRODUCT_INDEX_KEYS serves every query this one served — it is redundant once the wider
+     * index exists, and MongoDB does NOT widen an index in place. Leaving both behind would pay
+     * write amplification for nothing, so bootstrap drops it.
+     */
+    static final List<String> LEGACY_PRODUCT_INDEX_KEYS = List.of(
+            "classification.vertical_id", "lifecycle", "classification.status");
+
     public void bootstrap(MongoDatabase db) {
         List<String> existing = db.listCollectionNames().into(new java.util.ArrayList<>());
 
@@ -52,8 +71,10 @@ public class SchemaBootstrap {
             }
         }
 
-        db.getCollection("products").createIndex(
-                Indexes.ascending("classification.vertical_id", "lifecycle", "classification.status"));
+        // PAG-2-SORT-1. Create the wider index FIRST, then drop the prefix it supersedes, so
+        // there is never a window in which neither exists.
+        db.getCollection("products").createIndex(Indexes.ascending(PAG2_PRODUCT_INDEX_KEYS));
+        dropExactAscendingIndex(db.getCollection("products"), LEGACY_PRODUCT_INDEX_KEYS);
         db.getCollection("products").createIndex(
                 Indexes.ascending("bundle_contents.component_product_id"), new IndexOptions().sparse(true));
         db.getCollection("products").createIndex(
@@ -93,6 +114,40 @@ public class SchemaBootstrap {
                         new Document("gate", "OPEN")));
         db.getCollection("price_rollups").createIndex(
                 Indexes.ascending("product_id", "seller"), new IndexOptions().unique(true));
+    }
+
+    /**
+     * Drops an index whose key is EXACTLY these fields, ascending, in this order.
+     *
+     * <p>Matched by key pattern rather than by name: an index name is a generated implementation
+     * detail, and hard-coding one would silently no-op against a database where the index was
+     * created under a different name. Order is compared as a LIST, because {@code Document.equals}
+     * is map equality and would treat a differently-ordered index as the same one — which for a
+     * compound index it emphatically is not.
+     *
+     * <p>Idempotent: on a database that has already migrated, nothing matches and nothing happens.
+     */
+    static void dropExactAscendingIndex(MongoCollection<Document> collection, List<String> keys) {
+        List<String> doomed = new ArrayList<>();
+        for (Document index : collection.listIndexes()) {
+            Document key = index.get("key", Document.class);
+            if (key == null) {
+                continue;
+            }
+            List<String> fields = new ArrayList<>(key.keySet());
+            if (!fields.equals(keys)) {
+                continue;
+            }
+            boolean allAscending = fields.stream().allMatch(f ->
+                    key.get(f) instanceof Number n && n.intValue() == 1);
+            if (allAscending) {
+                doomed.add(index.getString("name"));
+            }
+        }
+        // Collected first: dropping while iterating the cursor would be undefined.
+        for (String name : doomed) {
+            collection.dropIndex(name);
+        }
     }
 
     static Document productsSchema() {
