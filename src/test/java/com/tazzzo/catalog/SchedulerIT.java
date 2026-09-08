@@ -181,6 +181,23 @@ class SchedulerIT {
                 .getInteger("price")).isEqualTo(110);
     }
 
+    /**
+     * SCHED-FLAKE-1 (2026-09-08). This suite deliberately runs the REAL scheduler with a 300 ms
+     * merge-finalizer cadence, so there are not four contenders for the lease but FIVE: the four
+     * threads below plus Spring's scheduled invocation of the same {@code runFinalizer()}.
+     *
+     * <p>The original assertion waited only on the four tracked Futures and then read the product
+     * immediately. When the SCHEDULED thread won the lease, all four manual runs correctly saw the
+     * item already leased and returned instantly, no Future threw, and the assertion could observe
+     * {@code lifecycle == "merging"} while the scheduler was still mid-transaction. That is a test
+     * synchronisation defect, not a merge-correctness defect: the finalizer's own mutation is
+     * transactional.
+     *
+     * <p>The fix is neither a sleep nor disabling the scheduler — overlapping execution is exactly
+     * what this test exists to prove. It awaits the INVARIANT instead, so the test proves
+     * "whoever claims it, the work happens once and completes" rather than the weaker and
+     * never-guaranteed "one of MY four threads owns the lease".
+     */
     @Test @org.junit.jupiter.api.Order(7)
     void concurrent_worker_invocations_do_not_duplicate_work() throws Exception {
         // simulate two instances ticking at once: leases must serialize them
@@ -208,11 +225,18 @@ class SchedulerIT {
         // emits several MERGE_COMPLETED rows. The invariant that matters is that concurrent
         // runs perform the work ONCE: the outbox item completes once, the lifecycle flips
         // once, and further runs add nothing.
-        assertThat(db.getCollection("products").find(eq("_id", "TZP-SCH-C1")).first()
-                .getString("lifecycle")).isEqualTo("merged");
-        assertThat(db.getCollection("work_queue").countDocuments(and(
-                eq("_id", "merge:TZP-SCH-C1:TZP-SCH-C2"), eq("status", "completed"))))
-                .as("outbox processed exactly once despite 4 concurrent runs").isEqualTo(1);
+        //
+        // Awaited, not asserted immediately: the winner may be the SCHEDULED invocation, which
+        // no Future tracks. Completion is the invariant; lease ownership is not.
+        Awaitility.await().atMost(Duration.ofSeconds(10)).pollInterval(Duration.ofMillis(100))
+                .untilAsserted(() -> {
+                    assertThat(db.getCollection("products").find(eq("_id", "TZP-SCH-C1")).first()
+                            .getString("lifecycle")).isEqualTo("merged");
+                    assertThat(db.getCollection("work_queue").countDocuments(and(
+                            eq("_id", "merge:TZP-SCH-C1:TZP-SCH-C2"), eq("status", "completed"))))
+                            .as("outbox processed exactly once despite concurrent runs")
+                            .isEqualTo(1);
+                });
         long eventsAfterConcurrent = db.getCollection("product_events").countDocuments(and(
                 eq("type", "MERGE_COMPLETED"), eq("product_id", "TZP-SCH-C1")));
         mergeService.runFinalizer();
