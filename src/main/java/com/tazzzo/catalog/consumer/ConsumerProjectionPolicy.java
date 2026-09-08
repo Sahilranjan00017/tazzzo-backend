@@ -111,7 +111,15 @@ public record ConsumerProjectionPolicy(String verticalId, String projectionVersi
         return s;
     }
 
-    /** BSON integral types only — a Double or a numeric string is a malformed display_order. */
+    /**
+     * BSON integral types only — a Double or a numeric string is a malformed display_order.
+     *
+     * <p>A BSON {@code Long} outside {@code int} range is malformed too, and it must arrive as a
+     * {@link ConsumerProjectionPolicyException} like every other RP-6d violation: an unwrapped
+     * {@link ArithmeticException} from {@code toIntExact} would be exactly the "random Java
+     * conversion exception" this validation exists to eliminate. The contract still ACCEPTS BSON
+     * {@code Long}; only the conversion failure is normalised.
+     */
     private static int requireInt(Document doc, String field, String context) {
         Object value = doc.get(field);
         if (value == null) {
@@ -121,7 +129,12 @@ public record ConsumerProjectionPolicy(String verticalId, String projectionVersi
             return i;
         }
         if (value instanceof Long l) {
-            return Math.toIntExact(l);
+            try {
+                return Math.toIntExact(l);
+            } catch (ArithmeticException e) {
+                throw new ConsumerProjectionPolicyException(context + ": " + field
+                        + " is outside the supported integer range");
+            }
         }
         throw new ConsumerProjectionPolicyException(context + ": " + field
                 + " is not an integer but " + value.getClass().getSimpleName());

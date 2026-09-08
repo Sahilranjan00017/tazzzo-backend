@@ -407,6 +407,19 @@ class ConsumerProjectionIT extends AbstractMongoIT {
     }
 
     @Test
+    void a_display_order_outside_int_range_is_a_configuration_failure_not_an_arithmetic_error() {
+        rawPolicy(new Document("vertical_id", V).append("projection_version", "v3")
+                .append("attributes", List.of(new Document("attribute_key", "aged")
+                        .append("display_order", Long.MAX_VALUE).append("display_label", "Aged"))));
+        Document p = product("TZP-S7", Map.of("aged", true));
+
+        assertThatThrownBy(() -> projection.project(p))
+                .as("a BSON Long is accepted by contract; only the CONVERSION failure is normalised")
+                .isInstanceOf(ConsumerProjectionPolicyException.class)
+                .hasMessageContaining("outside the supported integer range");
+    }
+
+    @Test
     void a_non_string_display_label_is_a_configuration_failure() {
         rawPolicy(new Document("vertical_id", V).append("projection_version", "v3")
                 .append("attributes", List.of(new Document("attribute_key", "aged")
