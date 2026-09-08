@@ -30,7 +30,11 @@ public class SchemaBootstrap {
             "marketplace_crosswalks", "system_config", "attachment_registry",
             "price_events", "price_rollups", "rollup_state",
             "taxonomy_nodes", "attribute_definitions", "attribute_schemas",
-            "node_events", "taxonomy_snapshot_nodes", "id_sequences");
+            "node_events", "taxonomy_snapshot_nodes", "id_sequences",
+            // RESP-PROJ RP-6: consumer PRESENTATION policy, keyed per vertical. Deliberately
+            // separate from the governance registry — it changes nothing about attribute
+            // semantics, validation or identity. Absence is a valid state (RP-6b).
+            "consumer_projection_policy");
 
     public void bootstrap(MongoDatabase db) {
         List<String> existing = db.listCollectionNames().into(new java.util.ArrayList<>());
@@ -78,6 +82,8 @@ public class SchemaBootstrap {
         db.getCollection("attribute_schemas").createIndex(
                 Indexes.ascending("schema_id", "version"), new IndexOptions().unique(true));
         db.getCollection("node_events").createIndex(Indexes.ascending("node_id", "at"));
+        db.getCollection("consumer_projection_policy").createIndex(
+                Indexes.ascending("vertical_id"), new IndexOptions().unique(true));
         db.getCollection("taxonomy_snapshot_nodes").createIndex(
                 Indexes.ascending("release_id", "node_id"), new IndexOptions().unique(true));
         // Freeze semantics: at most ONE release may be open (publishing OR freezing) at a
