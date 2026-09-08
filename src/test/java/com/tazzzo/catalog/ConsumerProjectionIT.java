@@ -13,7 +13,10 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 
+import com.tazzzo.catalog.consumer.ConsumerProjectionPolicyException;
+
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Phase 2 — RESP-PROJ projection. Default deny at key AND value level, with RP-3 and RP-5 enforced
@@ -24,6 +27,8 @@ class ConsumerProjectionIT extends AbstractMongoIT {
 
     private static final String REL = "rel-1.0";
     private static final String V = "TZV-000001";
+    private static final String V_B = "TZV-000010";
+    private static final String V_C = "TZV-000020";
 
     @Autowired private ConsumerProjectionService projection;
 
@@ -53,11 +58,15 @@ class ConsumerProjectionIT extends AbstractMongoIT {
     }
 
     private Document product(String id, Map<String, Object> attributes) {
+        return product(id, V, attributes);
+    }
+
+    private Document product(String id, String vertical, Map<String, Object> attributes) {
         Document p = new Document("_id", id).append("product_type", "single")
                 .append("identity", new Document("type", "internal").append("internal_key", id))
                 .append("brand_code", "BR").append("title", "Title " + id)
                 .append("lifecycle", "active")
-                .append("classification", new Document("vertical_id", V)
+                .append("classification", new Document("vertical_id", vertical)
                         .append("release_id", REL).append("status", "confirmed"))
                 .append("attributes", new Document(attributes))
                 .append("attributes_meta", new Document("validated_release", REL))
@@ -67,7 +76,7 @@ class ConsumerProjectionIT extends AbstractMongoIT {
     }
 
     /** Each entry is key:order:label. */
-    private void policy(String version, String... entries) {
+    private void policy(String vertical, String version, String... entries) {
         List<Document> attrs = new ArrayList<>();
         for (String e : entries) {
             String[] parts = e.split(":");
@@ -76,8 +85,20 @@ class ConsumerProjectionIT extends AbstractMongoIT {
                     .append("display_label", parts[2]));
         }
         db.getCollection("consumer_projection_policy").insertOne(
-                new Document("vertical_id", V).append("projection_version", version)
+                new Document("vertical_id", vertical).append("projection_version", version)
                         .append("attributes", attrs));
+    }
+
+    /** Inserts a policy document verbatim, for the RP-6d malformed cases. */
+    private void rawPolicy(Document doc) {
+        db.getCollection("consumer_projection_policy").insertOne(doc);
+    }
+
+    private Document entry(String key, Integer order, String label) {
+        Document d = new Document("attribute_key", key);
+        if (order != null) d.append("display_order", order);
+        if (label != null) d.append("display_label", label);
+        return d;
     }
 
     private List<String> keys(ConsumerProductResponse r) {
@@ -103,7 +124,7 @@ class ConsumerProjectionIT extends AbstractMongoIT {
 
     @Test
     void only_keys_the_policy_opts_into_are_projected() {
-        policy("v3", "grain_length:1:Grain length");
+        policy(V, "v3", "grain_length:1:Grain length");
         Document p = product("TZP-P2", Map.of("grain_length", "long", "aged", true));
         ConsumerProductResponse r = projection.project(p);
 
@@ -113,7 +134,7 @@ class ConsumerProjectionIT extends AbstractMongoIT {
 
     @Test
     void display_order_determines_the_sequence() {
-        policy("v3", "aged:2:Aged", "grain_length:1:Grain length", "brand:3:Brand");
+        policy(V, "v3", "aged:2:Aged", "grain_length:1:Grain length", "brand:3:Brand");
         Document p = product("TZP-P3", Map.of("grain_length", "long", "aged", true, "brand", "X"));
 
         assertThat(keys(projection.project(p)))
@@ -124,7 +145,7 @@ class ConsumerProjectionIT extends AbstractMongoIT {
 
     @Test
     void an_enum_open_value_outside_the_ratified_vocabulary_is_not_published() {
-        policy("v3", "grain_length:1:Grain length");
+        policy(V, "v3", "grain_length:1:Grain length");
         Document accepted = product("TZP-P4", Map.of("grain_length", "extra-long-supplier-text"));
 
         assertThat(keys(projection.project(accepted)))
@@ -137,7 +158,7 @@ class ConsumerProjectionIT extends AbstractMongoIT {
 
     @Test
     void an_attribute_with_no_active_definition_is_not_published() {
-        policy("v3", "undefined_key:1:Undefined");
+        policy(V, "v3", "undefined_key:1:Undefined");
         Document p = product("TZP-P6", Map.of("undefined_key", "whatever"));
 
         assertThat(keys(projection.project(p)))
@@ -149,7 +170,7 @@ class ConsumerProjectionIT extends AbstractMongoIT {
 
     @Test
     void a_claim_attribute_is_refused_even_when_the_policy_lists_it() {
-        policy("v3", "organic_certified:1:Organic", "aged:2:Aged");
+        policy(V, "v3", "organic_certified:1:Organic", "aged:2:Aged");
         Document p = product("TZP-P7", Map.of("organic_certified", true, "aged", true));
 
         assertThat(keys(projection.project(p)))
@@ -159,7 +180,7 @@ class ConsumerProjectionIT extends AbstractMongoIT {
 
     @Test
     void form_is_refused_even_when_the_policy_lists_it() {
-        policy("v3", "form:1:Form", "aged:2:Aged");
+        policy(V, "v3", "form:1:Form", "aged:2:Aged");
         Document p = product("TZP-P8", Map.of("form", "whole", "aged", true));
 
         assertThat(keys(projection.project(p)))
@@ -171,7 +192,7 @@ class ConsumerProjectionIT extends AbstractMongoIT {
 
     @Test
     void pack_size_and_pack_unit_render_as_one_item_carrying_the_unit() {
-        policy("v3", "pack_size:1:Pack size");
+        policy(V, "v3", "pack_size:1:Pack size");
         Document p = product("TZP-P9", Map.of("pack_size", 5, "pack_unit", "kg"));
         ConsumerProductResponse r = projection.project(p);
 
@@ -184,7 +205,7 @@ class ConsumerProjectionIT extends AbstractMongoIT {
 
     @Test
     void a_bare_pack_size_is_omitted_entirely() {
-        policy("v3", "pack_size:1:Pack size", "aged:2:Aged");
+        policy(V, "v3", "pack_size:1:Pack size", "aged:2:Aged");
         Document p = product("TZP-PA", Map.of("pack_size", 5, "aged", true));
 
         assertThat(keys(projection.project(p)))
@@ -194,7 +215,7 @@ class ConsumerProjectionIT extends AbstractMongoIT {
 
     @Test
     void a_unit_is_never_projected_as_a_standalone_item() {
-        policy("v3", "pack_unit:1:Unit", "aged:2:Aged");
+        policy(V, "v3", "pack_unit:1:Unit", "aged:2:Aged");
         Document p = product("TZP-PB", Map.of("pack_size", 5, "pack_unit", "kg", "aged", true));
 
         assertThat(keys(projection.project(p)))
@@ -204,7 +225,7 @@ class ConsumerProjectionIT extends AbstractMongoIT {
 
     @Test
     void an_unpublishable_unit_omits_the_whole_quantity() {
-        policy("v3", "pack_size:1:Pack size");
+        policy(V, "v3", "pack_size:1:Pack size");
         Document p = product("TZP-PC", Map.of("pack_size", 5, "pack_unit", "furlongs"));
 
         assertThat(keys(projection.project(p)))
@@ -212,16 +233,155 @@ class ConsumerProjectionIT extends AbstractMongoIT {
                 .isEmpty();
     }
 
-    // ---------- labels ----------
+    // ---------- RP-6c: item-local version across MULTIPLE verticals ----------
+
+    /** The amendment that motivated this segment: one page, three verticals, three versions. */
+    @Test
+    void projection_version_is_item_local_across_verticals() {
+        policy(V, "v3", "aged:1:Aged");
+        policy(V_B, "v7", "aged:1:Aged");
+        // V_C deliberately has NO policy.
+        Document a = product("TZP-M1", V, Map.of("aged", true));
+        Document b = product("TZP-M2", V_B, Map.of("aged", true));
+        Document c = product("TZP-M3", V_C, Map.of("aged", true));
+
+        assertThat(projection.project(a).projectionVersion()).isEqualTo("v3");
+        assertThat(projection.project(b).projectionVersion()).isEqualTo("v7");
+        assertThat(projection.project(c).projectionVersion())
+                .as("no policy for this vertical — null, and no envelope value could be truthful")
+                .isNull();
+        assertThat(keys(projection.project(c))).isEmpty();
+    }
+
+    /** Authored-but-empty is a REAL policy: empty attributes with a NON-null version. */
+    @Test
+    void an_authored_empty_policy_is_distinct_from_no_policy() {
+        policy(V, "v9");
+        Document p = product("TZP-M4", Map.of("aged", true));
+        ConsumerProductResponse r = projection.project(p);
+
+        assertThat(r.attributes()).isEmpty();
+        assertThat(r.projectionVersion())
+                .as("authored-and-empty must be distinguishable from unauthored")
+                .isEqualTo("v9");
+    }
+
+    // ---------- RP-6d: a malformed policy is a CONFIGURATION FAILURE, never "no policy" ----------
 
     @Test
-    void the_policy_label_is_used_and_falls_back_to_the_key() {
-        db.getCollection("consumer_projection_policy").insertOne(
-                new Document("vertical_id", V).append("projection_version", "v4")
-                        .append("attributes", List.of(
-                                new Document("attribute_key", "aged").append("display_order", 1))));
-        Document p = product("TZP-PD", Map.of("aged", true));
+    void a_policy_without_a_projection_version_is_a_configuration_failure() {
+        rawPolicy(new Document("vertical_id", V)
+                .append("attributes", List.of(entry("aged", 1, "Aged"))));
+        Document p = product("TZP-D1", Map.of("aged", true));
 
-        assertThat(projection.project(p).attributes().get(0).label()).isEqualTo("aged");
+        assertThatThrownBy(() -> projection.project(p))
+                .isInstanceOf(ConsumerProjectionPolicyException.class)
+                .hasMessageContaining("projection_version");
+    }
+
+    @Test
+    void a_blank_projection_version_is_a_configuration_failure() {
+        rawPolicy(new Document("vertical_id", V).append("projection_version", "  ")
+                .append("attributes", List.of(entry("aged", 1, "Aged"))));
+        Document p = product("TZP-D2", Map.of("aged", true));
+
+        assertThatThrownBy(() -> projection.project(p))
+                .isInstanceOf(ConsumerProjectionPolicyException.class);
+    }
+
+    @Test
+    void a_missing_display_order_is_a_configuration_failure_not_a_default() {
+        rawPolicy(new Document("vertical_id", V).append("projection_version", "v3")
+                .append("attributes", List.of(entry("aged", null, "Aged"))));
+        Document p = product("TZP-D3", Map.of("aged", true));
+
+        assertThatThrownBy(() -> projection.project(p))
+                .isInstanceOf(ConsumerProjectionPolicyException.class)
+                .hasMessageContaining("display_order");
+    }
+
+    @Test
+    void a_missing_display_label_is_a_configuration_failure_not_a_key_fallback() {
+        rawPolicy(new Document("vertical_id", V).append("projection_version", "v3")
+                .append("attributes", List.of(entry("grain_length", 1, null))));
+        Document p = product("TZP-D4", Map.of("grain_length", "long"));
+
+        assertThatThrownBy(() -> projection.project(p))
+                .as("a governed key is not a shopper label")
+                .isInstanceOf(ConsumerProjectionPolicyException.class)
+                .hasMessageContaining("display_label");
+    }
+
+    @Test
+    void a_blank_attribute_key_is_a_configuration_failure_not_a_silent_skip() {
+        rawPolicy(new Document("vertical_id", V).append("projection_version", "v3")
+                .append("attributes", List.of(entry("  ", 1, "Label"))));
+        Document p = product("TZP-D5", Map.of("aged", true));
+
+        assertThatThrownBy(() -> projection.project(p))
+                .isInstanceOf(ConsumerProjectionPolicyException.class)
+                .hasMessageContaining("attribute_key");
+    }
+
+    @Test
+    void a_duplicate_attribute_key_is_a_configuration_failure() {
+        rawPolicy(new Document("vertical_id", V).append("projection_version", "v3")
+                .append("attributes", List.of(entry("aged", 1, "Aged"), entry("aged", 2, "Aged again"))));
+        Document p = product("TZP-D6", Map.of("aged", true));
+
+        assertThatThrownBy(() -> projection.project(p))
+                .isInstanceOf(ConsumerProjectionPolicyException.class)
+                .hasMessageContaining("duplicate attribute_key");
+    }
+
+    @Test
+    void a_duplicate_display_order_is_a_configuration_failure_not_an_alphabetical_tiebreak() {
+        rawPolicy(new Document("vertical_id", V).append("projection_version", "v3")
+                .append("attributes", List.of(entry("aged", 1, "Aged"), entry("brand", 1, "Brand"))));
+        Document p = product("TZP-D7", Map.of("aged", true, "brand", "X"));
+
+        assertThatThrownBy(() -> projection.project(p))
+                .as("two entries claiming one display position is an authoring ambiguity")
+                .isInstanceOf(ConsumerProjectionPolicyException.class)
+                .hasMessageContaining("duplicate display_order");
+    }
+
+    // ---------- RP-2: the STORED VALUE must match its declared type ----------
+
+    @Test
+    void a_stored_value_that_contradicts_its_declared_type_is_not_published() {
+        policy(V, "v3", "pack_size:1:Pack size", "aged:2:Aged");
+        // pack_size is declared `number`; a directly-written string must not be published.
+        Document p = product("TZP-T1", Map.of("pack_size", "five", "pack_unit", "kg", "aged", true));
+
+        assertThat(keys(projection.project(p)))
+                .as("a type NAME proves nothing about what is stored in a generic BSON object")
+                .containsExactly("aged");
+    }
+
+    @Test
+    void an_attribute_whose_definition_declares_an_unknown_type_is_not_published() {
+        definition("weird_key", "geo_polygon", "descriptive", null, null);
+        policy(V, "v3", "weird_key:1:Weird", "aged:2:Aged");
+        Document p = product("TZP-T2", Map.of("weird_key", "anything", "aged", true));
+
+        assertThat(keys(projection.project(p)))
+                .as("the projector fails closed on a type it cannot reason about")
+                .containsExactly("aged");
+    }
+
+    /** A superseded definition must not suppress a live attribute (active-only paired-unit check). */
+    @Test
+    void a_superseded_paired_unit_definition_does_not_suppress_an_attribute() {
+        db.getCollection("attribute_definitions").insertOne(
+                new Document("key", "legacy_size").append("version", 1).append("type", "number")
+                        .append("governance", "descriptive").append("status", "superseded")
+                        .append("paired_unit", "aged"));
+        policy(V, "v3", "aged:1:Aged");
+        Document p = product("TZP-T3", Map.of("aged", true));
+
+        assertThat(keys(projection.project(p)))
+                .as("only an ACTIVE definition may mark a key as somebody's unit")
+                .containsExactly("aged");
     }
 }

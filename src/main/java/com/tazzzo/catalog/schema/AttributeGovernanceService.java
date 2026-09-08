@@ -90,12 +90,7 @@ public class AttributeGovernanceService {
             if (def == null) continue; // schema check above already governs membership
             String type = def.getString("type");
             Object v = e.getValue();
-            boolean ok = switch (type) {
-                case "number" -> v instanceof Number;
-                case "boolean" -> v instanceof Boolean;
-                case "string", "enum_open" -> v instanceof String || v instanceof Number || v instanceof Boolean;
-                default -> true;
-            };
+            boolean ok = valueMatchesType(type, v);
             if (!ok) throw new AttributeViolationException(
                     "attribute '" + e.getKey() + "' must be " + type);
             if ("enum_open".equals(type) && v instanceof String sv) {
@@ -113,5 +108,29 @@ public class AttributeGovernanceService {
             }
         }
         return workItems;
+    }
+
+    /** The recognised attribute value types. Anything else is unknown to governance. */
+    public static boolean isKnownType(String type) {
+        return "number".equals(type) || "boolean".equals(type)
+                || "string".equals(type) || "enum_open".equals(type);
+    }
+
+    /**
+     * THE attribute value-type check. Extracted so the consumer projector can apply the SAME type
+     * semantics rather than inventing a second type system; behaviour is unchanged for governance.
+     *
+     * <p>Note the deliberate asymmetry at the call sites: governance accepts an UNKNOWN type
+     * ({@code default -> true}) because an unrecognised type is a registry problem, not a product
+     * problem. The consumer projector must instead FAIL CLOSED on an unknown type — it is deciding
+     * what to publish, and {@link #isKnownType} is how it does so.
+     */
+    public static boolean valueMatchesType(String type, Object v) {
+        return switch (type == null ? "" : type) {
+            case "number" -> v instanceof Number;
+            case "boolean" -> v instanceof Boolean;
+            case "string", "enum_open" -> v instanceof String || v instanceof Number || v instanceof Boolean;
+            default -> true;
+        };
     }
 }

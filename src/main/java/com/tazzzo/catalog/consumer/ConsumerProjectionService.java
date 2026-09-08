@@ -2,6 +2,7 @@ package com.tazzzo.catalog.consumer;
 
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.Filters;
+import com.tazzzo.catalog.schema.AttributeGovernanceService;
 import com.tazzzo.catalog.tx.AttributeAuthoringService;
 import org.bson.Document;
 import org.springframework.stereotype.Service;
@@ -36,9 +37,6 @@ public class ConsumerProjectionService {
 
     /** RP-3: governance=claim carries regulatory/religious exposure and has no verification model. */
     static final String PROHIBITED_GOVERNANCE = "claim";
-
-    /** Types whose values carry no vocabulary to verify, so the raw value is publishable. */
-    private static final Set<String> FREE_VALUE_TYPES = Set.of("boolean", "number", "string");
 
     private final MongoDatabase db;
 
@@ -121,28 +119,47 @@ public class ConsumerProjectionService {
             }
             unit = String.valueOf(unitValue);
         }
-        String label = entry.displayLabel() == null ? key : entry.displayLabel();
-        return new ConsumerAttributeResponse(key, label, value, unit);
+        return new ConsumerAttributeResponse(key, entry.displayLabel(), value, unit);
     }
 
     /**
-     * RP-2 value level. An {@code enum_open} value is publishable only when it is in the definition's
-     * ratified vocabulary — being accepted under H-11 is not publication. Any type we do not
-     * recognise is denied rather than guessed.
+     * RP-2 value level, FAIL CLOSED on three counts.
+     *
+     * <p>1. The declared type must be one governance recognises, and 2. the STORED VALUE must
+     * actually match it — checked with {@link AttributeGovernanceService#valueMatchesType}, the
+     * same semantics the catalogue applies on write, not a second type system. The runtime check
+     * matters because {@code products.attributes} is a generic BSON object: a value written
+     * directly, or by a path that predates a type, can disagree with its definition, and a
+     * type NAME alone proves nothing about what is stored.
+     *
+     * <p>3. An {@code enum_open} value must be in the definition's ratified vocabulary — being
+     * accepted under H-11 is not publication.
      */
     private boolean valueIsPublishable(Document definition, Object value) {
         String type = definition.getString("type");
+        if (!AttributeGovernanceService.isKnownType(type)) {
+            return false;
+        }
+        if (!AttributeGovernanceService.valueMatchesType(type, value)) {
+            return false;
+        }
         if ("enum_open".equals(type)) {
             List<String> known = definition.getList("known_values", String.class);
             return known != null && known.contains(String.valueOf(value));
         }
-        return FREE_VALUE_TYPES.contains(type);
+        return true;
     }
 
-    /** True when some active definition names this key as its paired unit (e.g. pack_unit). */
+    /**
+     * True when an ACTIVE definition names this key as its paired unit (e.g. {@code pack_unit}).
+     *
+     * <p>The active constraint is load-bearing: a stale or superseded definition still carrying a
+     * {@code paired_unit} would otherwise suppress an attribute that is perfectly projectable
+     * today.
+     */
     private boolean isAPairedUnit(String key) {
-        return db.getCollection("attribute_definitions")
-                .find(Filters.eq("paired_unit", key)).limit(1).first() != null;
+        return AttributeAuthoringService.latestActiveIn(db, null, "attribute_definitions",
+                Filters.eq("paired_unit", key)) != null;
     }
 
     private Document activeDefinition(String key) {
