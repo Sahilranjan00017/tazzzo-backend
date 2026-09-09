@@ -19,7 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class HttpSurfaceBoundaryIT extends AbstractApiIT {
 
-    private static final String CONSUMER_PROBE = "/consumer/v1/does-not-exist";
+    private static final String CONSUMER_PROBE = "/catalog/v1/does-not-exist";
 
     private int status(String path, String token) {
         return get(path, token, String.class).getStatusCode().value();
@@ -53,8 +53,19 @@ class HttpSurfaceBoundaryIT extends AbstractApiIT {
 
     @Test
     void consumer_namespace_root_itself_is_public() {
-        assertThat(status("/consumer/v1", null)).isNotIn(401, 403);
-        assertThat(status("/consumer/v1", "bogus")).isEqualTo(status("/consumer/v1", null));
+        assertThat(status("/catalog/v1", null)).isNotIn(401, 403);
+        assertThat(status("/catalog/v1", "bogus")).isEqualTo(status("/catalog/v1", null));
+    }
+
+    /** Phase 4B.1 — the retired namespace is refused, not quietly served. */
+    @ParameterizedTest
+    @ValueSource(strings = {"/consumer/v1", "/consumer/v1/taxonomy/root", "/consumer/v1/products/X"})
+    void the_retired_consumer_namespace_is_refused_as_unknown(String path) {
+        ResponseEntity<JsonNode> res = get(path, CMS_TOKEN, JsonNode.class);
+        assertThat(res.getStatusCode().value())
+                .as(path + " carries no privilege after 4B.1, even for the cms identity")
+                .isEqualTo(404);
+        assertThat(res.getBody().at("/error/code").asText()).isEqualTo("NO_SUCH_ENDPOINT");
     }
 
     // ---------- 2. internal: existing bearer rules exactly as today ----------
@@ -102,8 +113,8 @@ class HttpSurfaceBoundaryIT extends AbstractApiIT {
     // ---------- 5. near-miss consumer namespaces are UNKNOWN, never public ----------
 
     @ParameterizedTest
-    @ValueSource(strings = {"/consumer", "/consumer/", "/consumer/v1x/foo", "/consumer/v10/foo",
-            "/consumer/v2/foo", "/consumer-public/foo"})
+    @ValueSource(strings = {"/catalog", "/catalog/", "/catalog/v1x/foo", "/catalog/v10/foo",
+            "/catalog/v2/foo", "/catalog-public/foo"})
     void near_miss_consumer_namespaces_are_refused_as_unknown(String path) {
         ResponseEntity<JsonNode> res = get(path, CMS_TOKEN, JsonNode.class);
         assertThat(res.getStatusCode().value())

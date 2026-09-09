@@ -99,8 +99,8 @@ class OpenApiProtectionIT extends AbstractApiIT {
     // ---------- nothing outside the slice ----------
 
     /**
-     * No consumer TRANSPORT exists yet: no controller and no request mapping names the consumer
-     * namespace. The SurfaceClassifier's allowlist literal is deliberately not a hit — declaring
+     * No consumer TRANSPORT exists yet: no controller and no request mapping names the public
+     * catalogue namespace (/catalog/v1 since Phase 4B.1). The SurfaceClassifier's allowlist literal is deliberately not a hit — declaring
      * that a namespace is public is the opposite of serving something on it. The first real
      * consumer controller (Phase 5) is expected to trip this, and retiring it then is a decision.
      */
@@ -111,7 +111,7 @@ class OpenApiProtectionIT extends AbstractApiIT {
             for (Path f : files.filter(p -> p.toString().endsWith(".java")).toList()) {
                 String src = Files.readString(f);
                 boolean isTransport = src.contains("@RestController") || src.contains("Mapping(");
-                if (isTransport && src.contains("/consumer")) {
+                if (isTransport && src.contains("/catalog/v1")) {
                     hits.add(f.getFileName().toString());
                 }
             }
