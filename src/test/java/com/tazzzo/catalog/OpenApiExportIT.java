@@ -19,7 +19,9 @@ class OpenApiExportIT extends AbstractApiIT {
 
     @Test
     void export_openapi_specification() throws Exception {
-        ResponseEntity<JsonNode> res = get("/v3/api-docs", null, JsonNode.class);
+        // Q4-e: the OpenAPI surface is inside the service-token boundary; the export reads it
+        // as the internal reader identity, never anonymously.
+        ResponseEntity<JsonNode> res = get("/v3/api-docs", READ_TOKEN, JsonNode.class);
         assertThat(res.getStatusCode().is2xxSuccessful()).isTrue();
         JsonNode spec = res.getBody();
         assertThat(spec).isNotNull();

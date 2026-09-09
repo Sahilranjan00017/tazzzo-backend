@@ -38,9 +38,24 @@ public class ApiAuthFilter extends OncePerRequestFilter {
         if (cmsToken != null && !cmsToken.isBlank()) tokenRoles.put(cmsToken, "cms-writer");
     }
 
+    /**
+     * Q4-e (2026-09-09): the generated OpenAPI document enumerates every CMS write endpoint and
+     * was served ANONYMOUSLY because the boundary was "filter only /api/". It is now inside the
+     * same service-token boundary — read-token and cms-token may fetch it, nothing else may.
+     * No new credential is introduced: documentation access is an internal identity concern,
+     * not a consumer one. (The broader default-closed restructuring is Q4-f / Phase 4B; this
+     * change deliberately touches only the path predicate.)
+     */
     @Override
     protected boolean shouldNotFilter(HttpServletRequest req) {
-        return !req.getRequestURI().startsWith("/api/");
+        String uri = req.getRequestURI();
+        return !(uri.startsWith("/api/") || isOpenApiSurface(uri));
+    }
+
+    /** /v3/api-docs, /v3/api-docs.yaml and every sub-path (groups, swagger-config). */
+    static boolean isOpenApiSurface(String uri) {
+        return uri.equals("/v3/api-docs") || uri.equals("/v3/api-docs.yaml")
+                || uri.startsWith("/v3/api-docs/");
     }
 
     @Override
