@@ -55,6 +55,14 @@ public class SchemaBootstrap {
     static final List<String> LEGACY_PRODUCT_INDEX_KEYS = List.of(
             "classification.vertical_id", "lifecycle", "classification.status");
 
+    /**
+     * The ONLY fields {@code listIndexes()} reports for the historical plain index. OBSERVED, not
+     * assumed — MongoDB 7.0.40 returns exactly {@code {"v": 2, "key": {...}, "name": "..."}} for
+     * it (no {@code ns}; that field was dropped from the output in 4.4). Any other field on an index
+     * document means the index carries behaviour the old bootstrap never gave it.
+     */
+    static final java.util.Set<String> LEGACY_INDEX_METADATA = java.util.Set.of("v", "key", "name");
+
     public void bootstrap(MongoDatabase db) {
         List<String> existing = db.listCollectionNames().into(new java.util.ArrayList<>());
 
@@ -120,11 +128,11 @@ public class SchemaBootstrap {
      * Drops the HISTORICAL plain prefix index and nothing else.
      *
      * <p>Identity is the key pattern — exact fields, exact order, every direction exactly 1 —
-     * AND the behavioural shape the old bootstrap actually created: non-unique, non-sparse, no
-     * partial filter, no TTL, default collation. An index that shares the legacy key pattern but
-     * carries any of those options was created deliberately by someone else for a different
-     * purpose, and {@code dropIndex} is destructive, so it is LEFT ALONE. Key equivalence is not
-     * semantic equivalence; the migration fails conservative.
+     * AND the absence of ANY field beyond the metadata {@code listIndexes()} reports for the plain
+     * index the old bootstrap created. Unique, sparse, partial filter, TTL, collation, hidden, or
+     * an option this code has never heard of: all of them mean the index was created deliberately
+     * for some other purpose, and {@code dropIndex} is destructive, so it is LEFT ALONE. Key
+     * equivalence is not semantic equivalence; the migration fails conservative.
      *
      * <p>Matched by pattern rather than by name: an index name is a generated implementation
      * detail, and hard-coding one would silently no-op against a database where the index was
@@ -159,22 +167,16 @@ public class SchemaBootstrap {
                 return false;
             }
         }
-        // The behavioural options the historical index did NOT have. Any of them present with a
-        // materially different value means this is somebody else's index.
-        if (Boolean.TRUE.equals(index.getBoolean("unique"))) {
-            return false;
-        }
-        if (Boolean.TRUE.equals(index.getBoolean("sparse"))) {
-            return false;
-        }
-        if (index.containsKey("partialFilterExpression")) {
-            return false;
-        }
-        if (index.containsKey("expireAfterSeconds")) {
-            return false;
-        }
-        if (index.containsKey("collation")) {
-            return false;
+        // WHITELIST, not denylist. A denylist proves only "none of the options we remembered";
+        // it does not prove "this IS the old bootstrap index" — an index with the legacy keys
+        // plus e.g. hidden:true would have slipped through. For a destructive drop the posture is
+        // fail conservative: any field outside the observed metadata set means we do not
+        // understand this index's semantics, and one temporarily redundant index is preferable to
+        // deleting one we did not create. background:true is deliberately NOT special-cased.
+        for (String field : index.keySet()) {
+            if (!LEGACY_INDEX_METADATA.contains(field)) {
+                return false;
+            }
         }
         return true;
     }

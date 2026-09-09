@@ -93,14 +93,17 @@ class ProductIndexMigrationIT extends AbstractMongoIT {
     // ---------- 2b. migration safety: same keys, DIFFERENT semantics -> never dropped ----------
 
     /**
-     * The legacy candidate is identified by key pattern AND by the behavioural shape the historical
-     * bootstrap index actually had. An index sharing the keys but carrying unique / sparse / a
-     * partial filter / a non-default collation was created deliberately for some other purpose;
-     * key equivalence is not semantic equivalence, and dropIndex is destructive.
+     * The legacy candidate is identified by key pattern AND by carrying NOTHING beyond the metadata
+     * listIndexes() reports for the plain historical index (observed on MongoDB 7.0.40: exactly
+     * v, key, name). An index sharing the keys but carrying unique / sparse / a partial filter /
+     * a collation / hidden was created deliberately for some other purpose; key equivalence is not
+     * semantic equivalence, and dropIndex is destructive.
+     *
+     * <p>These named cases are structurally redundant under the whitelist and are kept as
+     * documentation. The whitelist itself is proven by the unknown-field predicate test below.
      *
      * <p>TTL is not in this list because MongoDB refuses expireAfterSeconds on a compound index,
-     * so that fixture cannot be created; the code guard for it is exercised by the unit-level
-     * predicate test below.
+     * so that fixture cannot be created; it is exercised at predicate level.
      */
     static Stream<Arguments> optionBearingLegacyIndexes() {
         return Stream.of(
@@ -109,7 +112,9 @@ class ProductIndexMigrationIT extends AbstractMongoIT {
                 Arguments.of("partialFilterExpression", new IndexOptions()
                         .partialFilterExpression(Filters.eq("lifecycle", "active"))),
                 Arguments.of("collation", new IndexOptions()
-                        .collation(Collation.builder().locale("en").build())));
+                        .collation(Collation.builder().locale("en").build())),
+                // hidden is the case a denylist of remembered options would have DROPPED.
+                Arguments.of("hidden", new IndexOptions().hidden(true)));
     }
 
     @ParameterizedTest(name = "legacy keys + {0} survives bootstrap")
@@ -128,6 +133,33 @@ class ProductIndexMigrationIT extends AbstractMongoIT {
         assertThat(countMatching(PAG2))
                 .as("the wider index is still created alongside it")
                 .isEqualTo(1);
+    }
+
+    /**
+     * The whitelist proper: a field this code has NEVER HEARD OF must preserve the index. This is
+     * the property a denylist cannot provide, and the reason for the posture.
+     */
+    @Test
+    void the_predicate_preserves_an_index_carrying_an_unknown_field() {
+        Document unknown = new Document("v", 2)
+                .append("key", new Document("classification.vertical_id", 1)
+                        .append("lifecycle", 1).append("classification.status", 1))
+                .append("name", "whatever").append("someFutureServerOption", true);
+        assertThat(com.tazzzo.catalog.schema.SchemaBootstrap
+                .isHistoricalPlainPrefix(unknown, LEGACY))
+                .as("fail conservative: an option we do not understand is not ours to drop")
+                .isFalse();
+    }
+
+    /** Exactly the observed historical shape — and ONLY that — is what gets dropped. */
+    @Test
+    void the_predicate_accepts_exactly_the_observed_historical_shape() {
+        Document observed = new Document("v", 2)
+                .append("key", new Document("classification.vertical_id", 1)
+                        .append("lifecycle", 1).append("classification.status", 1))
+                .append("name", "classification.vertical_id_1_lifecycle_1_classification.status_1");
+        assertThat(com.tazzzo.catalog.schema.SchemaBootstrap
+                .isHistoricalPlainPrefix(observed, LEGACY)).isTrue();
     }
 
     /** The TTL guard, at the predicate level, since the fixture itself cannot exist in Mongo. */
