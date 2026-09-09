@@ -98,18 +98,24 @@ class OpenApiProtectionIT extends AbstractApiIT {
 
     // ---------- nothing outside the slice ----------
 
-    /** No consumer routes, no consumer DTO wiring, appear in this commit. */
+    /**
+     * No consumer TRANSPORT exists yet: no controller and no request mapping names the consumer
+     * namespace. The SurfaceClassifier's allowlist literal is deliberately not a hit — declaring
+     * that a namespace is public is the opposite of serving something on it. The first real
+     * consumer controller (Phase 5) is expected to trip this, and retiring it then is a decision.
+     */
     @Test
     void no_consumer_routes_exist_yet() throws IOException {
         List<String> hits = new ArrayList<>();
         try (Stream<Path> files = Files.walk(Path.of("src/main/java"))) {
             for (Path f : files.filter(p -> p.toString().endsWith(".java")).toList()) {
                 String src = Files.readString(f);
-                if (src.contains("\"/consumer") || src.contains("RestController") && src.contains("consumer")) {
+                boolean isTransport = src.contains("@RestController") || src.contains("Mapping(");
+                if (isTransport && src.contains("/consumer")) {
                     hits.add(f.getFileName().toString());
                 }
             }
         }
-        assertThat(hits).as("Phase 4A adds no consumer transport").isEmpty();
+        assertThat(hits).as("no consumer transport before Phase 5").isEmpty();
     }
 }

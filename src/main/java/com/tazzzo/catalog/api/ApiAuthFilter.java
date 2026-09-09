@@ -16,8 +16,10 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Service-token authentication + operation-class authorization (spec Part 16).
- * Bearer token maps to a role; writes require cms-writer, reads accept any known role.
+ * Service-token authentication + operation-class authorization (spec Part 16), applied to the
+ * INTERNAL surface as classified by {@link SurfaceClassifier}. Bearer token maps to a role; writes
+ * require cms-writer, reads accept any known role. The PUBLIC consumer namespace bypasses this
+ * filter by decision (Q4-a/b); an UNKNOWN surface is refused by default (Q4-f).
  * Deliberately small and auditable: the API is a consumer of catalogue truth, not its owner.
  */
 @Component
@@ -39,28 +41,28 @@ public class ApiAuthFilter extends OncePerRequestFilter {
     }
 
     /**
-     * Q4-e (2026-09-09): the generated OpenAPI document enumerates every CMS write endpoint and
-     * was served ANONYMOUSLY because the boundary was "filter only /api/". It is now inside the
-     * same service-token boundary — read-token and cms-token may fetch it, nothing else may.
-     * No new credential is introduced: documentation access is an internal identity concern,
-     * not a consumer one. (The broader default-closed restructuring is Q4-f / Phase 4B; this
-     * change deliberately touches only the path predicate.)
+     * Q4-a / Q4-b: the PUBLIC consumer namespace bypasses service-token authentication ENTIRELY.
+     * A bearer header on a public URL is irrelevant to authority — anonymous, bogus, read and cms
+     * identities all reach the same downstream capability. Public means "the header does not
+     * matter", not "anonymous only". Every other surface runs through the filter.
      */
     @Override
     protected boolean shouldNotFilter(HttpServletRequest req) {
-        String uri = req.getRequestURI();
-        return !(uri.startsWith("/api/") || isOpenApiSurface(uri));
-    }
-
-    /** /v3/api-docs, /v3/api-docs.yaml and every sub-path (groups, swagger-config). */
-    static boolean isOpenApiSurface(String uri) {
-        return uri.equals("/v3/api-docs") || uri.equals("/v3/api-docs.yaml")
-                || uri.startsWith("/v3/api-docs/");
+        return SurfaceClassifier.classify(req.getRequestURI())
+                == SurfaceClassifier.Surface.PUBLIC_CONSUMER;
     }
 
     @Override
     protected void doFilterInternal(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
             throws ServletException, IOException {
+        // Q4-f: an UNKNOWN surface is refused BEFORE credentials are even read. "Unknown path +
+        // valid internal token -> pass through just in case" is exactly the hole this closes: a
+        // future actuator, debug endpoint or controller must not become reachable merely by
+        // existing on the classpath. Same code and envelope the advice uses for a missing route.
+        if (SurfaceClassifier.classify(req.getRequestURI()) == SurfaceClassifier.Surface.UNKNOWN) {
+            reject(req, res, 404, "NO_SUCH_ENDPOINT", "no such endpoint");
+            return;
+        }
         String header = req.getHeader("Authorization");
         String role = null;
         if (header != null && header.startsWith("Bearer ")) {
