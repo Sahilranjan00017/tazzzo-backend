@@ -63,6 +63,14 @@ public class SchemaBootstrap {
      */
     static final java.util.Set<String> LEGACY_INDEX_METADATA = java.util.Set.of("v", "key", "name");
 
+    /**
+     * Phase 3B traversal support. SnapshotTaxonomyReader's hot predicate is
+     * {@code release_id = R AND parent_id IN (...)}; the unique {@code (release_id, node_id)} index
+     * serves node() but cannot seek by parent, so without this every children/subtree query would
+     * filter the whole release snapshot. ADDITIVE — the unique index stays.
+     */
+    public static final List<String> SNAPSHOT_TRAVERSAL_INDEX_KEYS = List.of("release_id", "parent_id");
+
     public void bootstrap(MongoDatabase db) {
         List<String> existing = db.listCollectionNames().into(new java.util.ArrayList<>());
 
@@ -115,6 +123,8 @@ public class SchemaBootstrap {
                 Indexes.ascending("vertical_id"), new IndexOptions().unique(true));
         db.getCollection("taxonomy_snapshot_nodes").createIndex(
                 Indexes.ascending("release_id", "node_id"), new IndexOptions().unique(true));
+        db.getCollection("taxonomy_snapshot_nodes").createIndex(
+                Indexes.ascending(SNAPSHOT_TRAVERSAL_INDEX_KEYS));
         // Freeze semantics: at most ONE release may be open (publishing OR freezing) at a
         // time — enforced on the constant `gate` marker, cleared only on activation.
         db.getCollection("catalogue_releases").createIndex(Indexes.ascending("gate"),

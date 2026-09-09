@@ -7,7 +7,9 @@ import org.bson.conversions.Bson;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * RELEASE-BOUND taxonomy topology, read from {@code taxonomy_snapshot_nodes} and nothing else.
@@ -88,8 +90,18 @@ public class SnapshotTaxonomyReader {
      * <p>Self-inclusion for a vertical is the topology primitive LIST-1 L-1 already requires — a
      * vertical scope resolves to itself — not a new decision made here.
      *
-     * <p>Walks one level per query rather than one query per node; the tree is four levels deep, so
-     * a super-category resolves in at most three round trips, every one of them release-bound.
+     * <p>Walks one level per query rather than one query per node; for a well-formed snapshot the
+     * tree is four levels deep, so a super-category resolves in at most three round trips, every
+     * one of them release-bound.
+     *
+     * <p>BOUNDED, and FAIL-CLOSED on corruption. {@code taxonomy_snapshot_nodes} has no validator,
+     * so a directly-written row can make a same-release non-leaf cycle, and an unbounded frontier
+     * walk would then query forever. Every node id reached is recorded; reaching one twice, or a
+     * child row with no {@code node_id}, throws {@link SnapshotTopologyException} immediately.
+     * Repeated nodes are NOT skipped: skipping would present a corrupt snapshot as a smaller valid
+     * one, which is exactly the silent repair this codebase refuses elsewhere.
+     *
+     * @throws SnapshotTopologyException when the snapshot's recorded topology is not a tree
      */
     public List<String> verticalIdsInSubtree(String releaseId, String nodeId) {
         Document root = node(releaseId, nodeId);
@@ -100,16 +112,27 @@ public class SnapshotTaxonomyReader {
             return List.of(nodeId);
         }
         List<String> verticals = new ArrayList<>();
+        Set<String> visited = new HashSet<>();
+        visited.add(nodeId);
         List<String> frontier = List.of(nodeId);
         while (!frontier.isEmpty()) {
             List<String> next = new ArrayList<>();
             for (Document child : db.getCollection(SNAPSHOT_COLLECTION)
                     .find(inRelease(releaseId, Filters.in("parent_id", frontier)))
                     .into(new ArrayList<>())) {
+                String childId = child.getString("node_id");
+                if (childId == null || childId.isBlank()) {
+                    throw new SnapshotTopologyException("malformed snapshot topology in release "
+                            + releaseId + ": a child of " + child.get("parent_id") + " has no node_id");
+                }
+                if (!visited.add(childId)) {
+                    throw new SnapshotTopologyException("cycle in snapshot topology in release "
+                            + releaseId + " at " + childId);
+                }
                 if ("vertical".equals(child.getString("node_type"))) {
-                    verticals.add(child.getString("node_id"));
+                    verticals.add(childId);
                 } else {
-                    next.add(child.getString("node_id"));
+                    next.add(childId);
                 }
             }
             frontier = next;

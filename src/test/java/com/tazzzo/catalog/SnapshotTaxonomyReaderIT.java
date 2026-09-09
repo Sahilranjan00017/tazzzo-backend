@@ -1,6 +1,7 @@
 package com.tazzzo.catalog;
 
 import com.tazzzo.catalog.schema.SnapshotTaxonomyReader;
+import com.tazzzo.catalog.schema.SnapshotTopologyException;
 import com.tazzzo.catalog.schema.TaxonomyLoader;
 import com.tazzzo.catalog.tx.TaxonomyChangeService;
 import org.bson.Document;
@@ -8,11 +9,13 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import java.time.Duration;
 import java.util.List;
 
 import static com.mongodb.client.model.Filters.eq;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 
 /**
  * Phase 3B — the release-bound topology reader. Every test here is a DIVERGENCE test: the live
@@ -183,6 +186,50 @@ class SnapshotTaxonomyReaderIT extends AbstractMongoIT {
         assertThat(r1.getString("status")).isEqualTo("active");
         assertThat(r1.getString("release_id")).isEqualTo(R1);
         assertThat(r1.getString("node_id")).isEqualTo(BASMATI);
+    }
+
+    // ---------- corrupt topology fails CLOSED, and PROMPTLY ----------
+
+    private void snapshotRow(String release, String nodeId, String type, String parent) {
+        db.getCollection("taxonomy_snapshot_nodes").insertOne(new Document("release_id", release)
+                .append("node_id", nodeId).append("node_type", type).append("parent_id", parent)
+                .append("name", nodeId).append("status", "active"));
+    }
+
+    /**
+     * taxonomy_snapshot_nodes has no validator, so a directly-written same-release non-leaf cycle
+     * is representable. An unbounded frontier walk would query forever; the reader must instead
+     * fail as internal topology corruption, and fail FAST — the preemptive timeout is the proof
+     * that it does not loop.
+     */
+    @Test
+    void a_same_release_non_leaf_cycle_fails_promptly_as_topology_corruption() {
+        snapshotRow("R-CYCLE", "C1", "category", "G1");
+        snapshotRow("R-CYCLE", "G1", "sub_category", "C1");
+        snapshotRow("R-CYCLE", "V1", "vertical", "G1");
+
+        assertTimeoutPreemptively(Duration.ofSeconds(10), () ->
+                assertThatThrownBy(() -> reader.verticalIdsInSubtree("R-CYCLE", "C1"))
+                        .isInstanceOf(SnapshotTopologyException.class)
+                        .hasMessageContaining("cycle"));
+    }
+
+    @Test
+    void a_child_row_without_a_node_id_fails_as_topology_corruption() {
+        snapshotRow("R-BLANK", "C9", "category", null);
+        db.getCollection("taxonomy_snapshot_nodes").insertOne(new Document("release_id", "R-BLANK")
+                .append("node_id", "").append("node_type", "sub_category").append("parent_id", "C9")
+                .append("name", "blank").append("status", "active"));
+
+        assertThatThrownBy(() -> reader.verticalIdsInSubtree("R-BLANK", "C9"))
+                .isInstanceOf(SnapshotTopologyException.class)
+                .hasMessageContaining("no node_id");
+    }
+
+    /** Corruption in one release must not bleed into a well-formed one. */
+    @Test
+    void corruption_in_another_release_does_not_affect_a_well_formed_read() {
+        assertThat(reader.verticalIdsInSubtree(R1, STAPLES)).hasSize(69);
     }
 
     @Test
