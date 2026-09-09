@@ -74,7 +74,7 @@ public class SchemaBootstrap {
         // PAG-2-SORT-1. Create the wider index FIRST, then drop the prefix it supersedes, so
         // there is never a window in which neither exists.
         db.getCollection("products").createIndex(Indexes.ascending(PAG2_PRODUCT_INDEX_KEYS));
-        dropExactAscendingIndex(db.getCollection("products"), LEGACY_PRODUCT_INDEX_KEYS);
+        dropHistoricalPlainPrefixIndex(db.getCollection("products"), LEGACY_PRODUCT_INDEX_KEYS);
         db.getCollection("products").createIndex(
                 Indexes.ascending("bundle_contents.component_product_id"), new IndexOptions().sparse(true));
         db.getCollection("products").createIndex(
@@ -117,30 +117,27 @@ public class SchemaBootstrap {
     }
 
     /**
-     * Drops an index whose key is EXACTLY these fields, ascending, in this order.
+     * Drops the HISTORICAL plain prefix index and nothing else.
      *
-     * <p>Matched by key pattern rather than by name: an index name is a generated implementation
+     * <p>Identity is the key pattern — exact fields, exact order, every direction exactly 1 —
+     * AND the behavioural shape the old bootstrap actually created: non-unique, non-sparse, no
+     * partial filter, no TTL, default collation. An index that shares the legacy key pattern but
+     * carries any of those options was created deliberately by someone else for a different
+     * purpose, and {@code dropIndex} is destructive, so it is LEFT ALONE. Key equivalence is not
+     * semantic equivalence; the migration fails conservative.
+     *
+     * <p>Matched by pattern rather than by name: an index name is a generated implementation
      * detail, and hard-coding one would silently no-op against a database where the index was
      * created under a different name. Order is compared as a LIST, because {@code Document.equals}
-     * is map equality and would treat a differently-ordered index as the same one — which for a
-     * compound index it emphatically is not.
+     * is map equality and would treat a differently-ordered compound index as the same one.
      *
      * <p>Idempotent: on a database that has already migrated, nothing matches and nothing happens.
      */
-    static void dropExactAscendingIndex(MongoCollection<Document> collection, List<String> keys) {
+    static void dropHistoricalPlainPrefixIndex(MongoCollection<Document> collection,
+                                                List<String> keys) {
         List<String> doomed = new ArrayList<>();
         for (Document index : collection.listIndexes()) {
-            Document key = index.get("key", Document.class);
-            if (key == null) {
-                continue;
-            }
-            List<String> fields = new ArrayList<>(key.keySet());
-            if (!fields.equals(keys)) {
-                continue;
-            }
-            boolean allAscending = fields.stream().allMatch(f ->
-                    key.get(f) instanceof Number n && n.intValue() == 1);
-            if (allAscending) {
+            if (isHistoricalPlainPrefix(index, keys)) {
                 doomed.add(index.getString("name"));
             }
         }
@@ -148,6 +145,38 @@ public class SchemaBootstrap {
         for (String name : doomed) {
             collection.dropIndex(name);
         }
+    }
+
+    /** True only for an index that IS what the old bootstrap created — pattern and options. */
+    public static boolean isHistoricalPlainPrefix(Document index, List<String> keys) {
+        Document key = index.get("key", Document.class);
+        if (key == null || !new ArrayList<>(key.keySet()).equals(keys)) {
+            return false;
+        }
+        for (String field : keys) {
+            // Exactly 1, not "truncates to 1": intValue() would accept 1.5 or 1.9.
+            if (!(key.get(field) instanceof Number n) || n.doubleValue() != 1.0d) {
+                return false;
+            }
+        }
+        // The behavioural options the historical index did NOT have. Any of them present with a
+        // materially different value means this is somebody else's index.
+        if (Boolean.TRUE.equals(index.getBoolean("unique"))) {
+            return false;
+        }
+        if (Boolean.TRUE.equals(index.getBoolean("sparse"))) {
+            return false;
+        }
+        if (index.containsKey("partialFilterExpression")) {
+            return false;
+        }
+        if (index.containsKey("expireAfterSeconds")) {
+            return false;
+        }
+        if (index.containsKey("collation")) {
+            return false;
+        }
+        return true;
     }
 
     static Document productsSchema() {

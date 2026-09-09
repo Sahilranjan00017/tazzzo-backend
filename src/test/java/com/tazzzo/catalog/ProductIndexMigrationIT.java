@@ -1,8 +1,16 @@
 package com.tazzzo.catalog;
 
+import com.mongodb.client.model.Collation;
+import com.mongodb.client.model.Filters;
+import com.mongodb.client.model.IndexOptions;
 import com.mongodb.client.model.Indexes;
 import org.bson.Document;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
+
+import java.util.stream.Stream;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -80,6 +88,76 @@ class ProductIndexMigrationIT extends AbstractMongoIT {
 
         assertThat(countMatching(LEGACY)).isZero();
         assertThat(productIndexKeys()).noneMatch(k -> k.equals(LEGACY));
+    }
+
+    // ---------- 2b. migration safety: same keys, DIFFERENT semantics -> never dropped ----------
+
+    /**
+     * The legacy candidate is identified by key pattern AND by the behavioural shape the historical
+     * bootstrap index actually had. An index sharing the keys but carrying unique / sparse / a
+     * partial filter / a non-default collation was created deliberately for some other purpose;
+     * key equivalence is not semantic equivalence, and dropIndex is destructive.
+     *
+     * <p>TTL is not in this list because MongoDB refuses expireAfterSeconds on a compound index,
+     * so that fixture cannot be created; the code guard for it is exercised by the unit-level
+     * predicate test below.
+     */
+    static Stream<Arguments> optionBearingLegacyIndexes() {
+        return Stream.of(
+                Arguments.of("unique", new IndexOptions().unique(true)),
+                Arguments.of("sparse", new IndexOptions().sparse(true)),
+                Arguments.of("partialFilterExpression", new IndexOptions()
+                        .partialFilterExpression(Filters.eq("lifecycle", "active"))),
+                Arguments.of("collation", new IndexOptions()
+                        .collation(Collation.builder().locale("en").build())));
+    }
+
+    @ParameterizedTest(name = "legacy keys + {0} survives bootstrap")
+    @MethodSource("optionBearingLegacyIndexes")
+    void a_legacy_key_pattern_with_different_options_is_not_dropped(String option,
+                                                                     IndexOptions options) {
+        db.getCollection("products").dropIndexes();
+        db.getCollection("products").createIndex(Indexes.ascending(LEGACY), options);
+        assertThat(countMatching(LEGACY)).as("precondition").isEqualTo(1);
+
+        schemaBootstrap.bootstrap(db);
+
+        assertThat(countMatching(LEGACY))
+                .as("an index with option '" + option + "' is somebody else's index — never dropped")
+                .isEqualTo(1);
+        assertThat(countMatching(PAG2))
+                .as("the wider index is still created alongside it")
+                .isEqualTo(1);
+    }
+
+    /** The TTL guard, at the predicate level, since the fixture itself cannot exist in Mongo. */
+    @Test
+    void the_predicate_rejects_a_ttl_bearing_index_document() {
+        Document ttlIndex = new Document("v", 2)
+                .append("key", new Document("classification.vertical_id", 1)
+                        .append("lifecycle", 1).append("classification.status", 1))
+                .append("name", "whatever").append("expireAfterSeconds", 3600);
+        assertThat(com.tazzzo.catalog.schema.SchemaBootstrap
+                .isHistoricalPlainPrefix(ttlIndex, LEGACY)).isFalse();
+    }
+
+    /** Direction must be EXACTLY 1 — a value that merely truncates to 1 is not ascending. */
+    @Test
+    void the_predicate_requires_direction_exactly_one() {
+        Document odd = new Document("v", 2)
+                .append("key", new Document("classification.vertical_id", 1)
+                        .append("lifecycle", 1.5).append("classification.status", 1))
+                .append("name", "whatever");
+        assertThat(com.tazzzo.catalog.schema.SchemaBootstrap
+                .isHistoricalPlainPrefix(odd, LEGACY)).isFalse();
+
+        Document plain = new Document("v", 2)
+                .append("key", new Document("classification.vertical_id", 1)
+                        .append("lifecycle", 1L).append("classification.status", 1.0))
+                .append("name", "whatever");
+        assertThat(com.tazzzo.catalog.schema.SchemaBootstrap
+                .isHistoricalPlainPrefix(plain, LEGACY))
+                .as("1, 1L and 1.0 are all exactly one").isTrue();
     }
 
     // ---------- 3. idempotence ----------
