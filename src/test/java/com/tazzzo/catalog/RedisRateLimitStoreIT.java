@@ -206,6 +206,47 @@ class RedisRateLimitStoreIT {
         assertThat(result).isNotInstanceOf(Admission.RateLimited.class);
     }
 
+    // ---------- an IMPOSSIBLE cost is an invariant fault, not throttling ----------
+
+    /**
+     * A full bucket only ever reaches its capacity, so a cost above capacity can NEVER be admitted.
+     * Returning RATE_LIMITED with a finite Retry-After would be a lie the client obeys forever.
+     */
+    @Test
+    void a_cost_above_a_bucket_capacity_is_UNAVAILABLE_not_rate_limited() {
+        BucketSpec small = bucket("ip:impossible", 10, 1.0);
+
+        Admission verdict = instanceA.tryConsume(List.of(small), 11);
+        assertThat(verdict).isInstanceOf(Admission.Unavailable.class);
+        assertThat(verdict).isNotInstanceOf(Admission.RateLimited.class);
+        assertThat(((Admission.Unavailable) verdict).reason()).contains("exceeds bucket capacity");
+
+        assertThat(instanceB.tryConsume(List.of(small), 10))
+                .as("and the bucket was NOT debited by the impossible request")
+                .isInstanceOf(Admission.Allowed.class);
+    }
+
+    @Test
+    void a_cost_above_the_INSTALLATION_capacity_leaves_the_IP_bucket_untouched_too() {
+        BucketSpec ip = bucket("ip:impossible2", 100, 1.0);
+        BucketSpec install = bucket("install:impossible2", 5, 1.0);
+
+        assertThat(instanceA.tryConsume(List.of(ip, install), 6))
+                .isInstanceOf(Admission.Unavailable.class);
+        assertThat(instanceB.tryConsume(List.of(ip), 100))
+                .as("all 100 IP tokens survive an impossible request")
+                .isInstanceOf(Admission.Allowed.class);
+    }
+
+    @Test
+    void a_cost_exactly_equal_to_capacity_is_still_admissible() {
+        BucketSpec exact = bucket("ip:exact", 10, 0.01);
+        assertThat(instanceA.tryConsume(List.of(exact), 10))
+                .as("capacity is the burst allowance, and spending all of it is legitimate")
+                .isInstanceOf(Admission.Allowed.class);
+        assertThat(instanceB.tryConsume(List.of(exact), 1)).isInstanceOf(Admission.RateLimited.class);
+    }
+
     @Test
     void no_buckets_is_UNAVAILABLE_rather_than_a_silent_allow() {
         assertThat(instanceA.tryConsume(List.of(), 1)).isInstanceOf(Admission.Unavailable.class);

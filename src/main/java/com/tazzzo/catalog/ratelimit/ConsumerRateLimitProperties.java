@@ -31,6 +31,15 @@ public class ConsumerRateLimitProperties {
     /** No default. Unset or unrecognised is a configuration failure, never a guess. */
     private String mode;
 
+    /**
+     * The limiter's OWN Redis/Valkey endpoint, e.g. {@code redis://host:6379} or {@code rediss://…}
+     * for an in-transit-encrypted ElastiCache. No default, and deliberately NOT
+     * {@code spring.data.redis.*}: production admission control must not depend on whatever
+     * connection defaults an autoconfiguration happens to supply, and must not be silently
+     * repointed by an unrelated future Redis feature.
+     */
+    private String redisUrl;
+
     /** CIDRs whose X-Forwarded-For may be trusted (Q5-IP-1). Empty means "trust no proxy". */
     private List<String> trustedProxyCidrs = new ArrayList<>();
 
@@ -85,6 +94,9 @@ public class ConsumerRateLimitProperties {
     /** Validates everything REDIS mode needs, so a half-configured limiter cannot start. */
     public void requireCompleteForRedis() {
         List<String> missing = new ArrayList<>();
+        if (redisUrl == null || redisUrl.isBlank()) {
+            missing.add("redis-url (the limiter owns its endpoint; it never inherits a default)");
+        }
         if (!ip.isConfigured()) {
             missing.add("ip.capacity and ip.refill-per-second");
         }
@@ -101,6 +113,14 @@ public class ConsumerRateLimitProperties {
             throw new IllegalStateException(
                     "tazzzo.consumer-rate-limit.mode=REDIS requires: " + String.join(", ", missing));
         }
+    }
+
+    public String getRedisUrl() {
+        return redisUrl;
+    }
+
+    public void setRedisUrl(String redisUrl) {
+        this.redisUrl = redisUrl;
     }
 
     public String getMode() {

@@ -6,6 +6,11 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import io.lettuce.core.RedisURI;
+import org.springframework.data.redis.connection.RedisPassword;
+import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
+import org.springframework.data.redis.connection.lettuce.LettuceClientConfiguration;
+import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
 /**
@@ -51,11 +56,48 @@ public class ConsumerRateLimitConfig {
     @ConditionalOnProperty(name = "tazzzo.consumer-rate-limit.mode", havingValue = "REDIS")
     static class RedisMode {
 
+        /**
+         * The limiter's OWN connection, built from {@code tazzzo.consumer-rate-limit.redis-url}.
+         *
+         * <p>Deliberately not an injected {@code StringRedisTemplate}: Spring Boot's Redis
+         * autoconfiguration would happily hand over a localhost default, so a production deployment
+         * that never configured a limiter endpoint would start and quietly admit against a Redis
+         * that does not exist — or worse, one that does. {@code RedisAutoConfiguration} is excluded
+         * from the application for the same reason.
+         */
         @Bean
-        public RateLimitStore rateLimitStore(ConsumerRateLimitProperties properties,
-                                             StringRedisTemplate redis) {
+        public StringRedisTemplate consumerRateLimitRedisTemplate(ConsumerRateLimitProperties properties) {
             properties.requireCompleteForRedis();
-            return new RedisRateLimitStore(redis);
+            RedisURI uri;
+            try {
+                uri = RedisURI.create(properties.getRedisUrl().trim());
+            } catch (RuntimeException e) {
+                throw new IllegalStateException("tazzzo.consumer-rate-limit.redis-url is not a valid "
+                        + "Redis URL: " + properties.getRedisUrl(), e);
+            }
+            RedisStandaloneConfiguration standalone =
+                    new RedisStandaloneConfiguration(uri.getHost(), uri.getPort());
+            if (uri.getPassword() != null && uri.getPassword().length > 0) {
+                standalone.setPassword(RedisPassword.of(uri.getPassword()));
+            }
+            if (uri.getUsername() != null && !uri.getUsername().isBlank()) {
+                standalone.setUsername(uri.getUsername());
+            }
+            LettuceClientConfiguration.LettuceClientConfigurationBuilder client =
+                    LettuceClientConfiguration.builder();
+            if (uri.isSsl()) {
+                client.useSsl();
+            }
+            LettuceConnectionFactory factory = new LettuceConnectionFactory(standalone, client.build());
+            factory.afterPropertiesSet();
+            StringRedisTemplate template = new StringRedisTemplate(factory);
+            template.afterPropertiesSet();
+            return template;
+        }
+
+        @Bean
+        public RateLimitStore rateLimitStore(StringRedisTemplate consumerRateLimitRedisTemplate) {
+            return new RedisRateLimitStore(consumerRateLimitRedisTemplate);
         }
 
         @Bean

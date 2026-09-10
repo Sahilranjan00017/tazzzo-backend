@@ -32,6 +32,11 @@ tazzzo:
     # fail-closed state (no limiter is built and the consumer surface must not be exposed), NOT an
     # in-memory limiter. REDIS requires complete Redis, bucket and trusted-proxy configuration.
     mode: ${TAZZZO_CONSUMER_RATE_LIMIT_MODE:}
+    # The limiter OWNS its endpoint. Not spring.data.redis.* — production admission control must
+    # not depend on whatever connection defaults an autoconfiguration supplies, and must not be
+    # silently repointed by an unrelated future Redis feature. REDIS mode refuses to start without
+    # it. Q5-REDIS-1: ONE WRITER SHARD, cluster mode DISABLED (replication/Multi-AZ is fine).
+    redis-url: ${TAZZZO_RATE_LIMIT_REDIS_URL:}
     # Q5-IP-1. Behind a proxy this MUST list it, or the resolver treats the proxy as the client and
     # every consumer lands in one bucket. Empty means "trust no proxy" and REDIS mode refuses it.
     trusted-proxy-cidrs: ${TAZZZO_TRUSTED_PROXY_CIDRS:}

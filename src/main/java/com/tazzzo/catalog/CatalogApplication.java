@@ -12,7 +12,12 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
 
-@SpringBootApplication
+// Q5: the limiter owns its Redis connection and builds it from an explicit, mandatory
+// tazzzo.consumer-rate-limit.redis-url. RedisAutoConfiguration is excluded so a localhost
+// default connection cannot exist for anything to fall back onto.
+@SpringBootApplication(exclude = {
+        org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration.class,
+        org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration.class})
 @org.springframework.scheduling.annotation.EnableScheduling
 public class CatalogApplication {
 

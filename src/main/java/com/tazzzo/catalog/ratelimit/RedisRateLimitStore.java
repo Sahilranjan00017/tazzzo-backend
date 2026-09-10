@@ -24,7 +24,8 @@ import java.util.List;
  * everyone.
  *
  * <p><b>No fallback.</b> A connection failure returns {@link Admission.Unavailable}; it never
- * degrades to per-instance limiting and never fails open.
+ * degrades to per-instance limiting and never fails open. The same verdict covers a cost that
+ * exceeds a bucket's capacity — an impossible request is an invariant fault, not throttling.
  */
 public class RedisRateLimitStore implements RateLimitStore {
 
@@ -93,6 +94,17 @@ public class RedisRateLimitStore implements RateLimitStore {
         }
         if (cost <= 0) {
             throw new IllegalArgumentException("cost must be positive, was " + cost);
+        }
+        for (BucketSpec bucket : buckets) {
+            if (cost > bucket.capacity()) {
+                // An IMPOSSIBLE request, not a throttled one: a full bucket only ever reaches
+                // capacity, so no amount of waiting makes this admissible. Returning
+                // RATE_LIMITED with a finite Retry-After would be a lie the client obeys forever.
+                // This is a configuration/invariant fault, and it is answered as one — checked
+                // BEFORE any Redis call, so nothing is debited.
+                return new Admission.Unavailable("cost " + cost + " exceeds bucket capacity "
+                        + bucket.capacity() + "; no wait can admit it");
+            }
         }
         List<String> keys = new ArrayList<>(buckets.size());
         List<String> args = new ArrayList<>(2 + buckets.size() * 2);

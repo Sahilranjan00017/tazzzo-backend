@@ -20,6 +20,7 @@ class ConsumerRateLimitPropertiesTest {
     private ConsumerRateLimitProperties complete() {
         ConsumerRateLimitProperties p = new ConsumerRateLimitProperties();
         p.setMode("REDIS");
+        p.setRedisUrl("redis://limiter.internal:6379");
         p.setTrustedProxyCidrs(List.of("10.0.0.0/8"));
         p.getIp().setCapacity(60);
         p.getIp().setRefillPerSecond(1.0);
@@ -73,6 +74,24 @@ class ConsumerRateLimitPropertiesTest {
         q.getInstallation().setRefillPerSecond(0);
         assertThatThrownBy(q::requireCompleteForRedis)
                 .hasMessageContaining("installation.capacity");
+    }
+
+    /**
+     * The limiter owns its endpoint. Without this check a deployment that never configured one
+     * would inherit whatever an autoconfiguration supplies — a localhost Redis that does not
+     * exist, or worse, one that does.
+     */
+    @Test
+    void redis_mode_refuses_to_start_without_an_explicit_endpoint() {
+        ConsumerRateLimitProperties p = complete();
+        p.setRedisUrl(null);
+        assertThatThrownBy(p::requireCompleteForRedis)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("redis-url");
+
+        ConsumerRateLimitProperties blank = complete();
+        blank.setRedisUrl("   ");
+        assertThatThrownBy(blank::requireCompleteForRedis).hasMessageContaining("redis-url");
     }
 
     /**
