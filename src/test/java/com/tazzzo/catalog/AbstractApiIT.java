@@ -35,6 +35,9 @@ public abstract class AbstractApiIT {
         // M1: background workers must NOT run inside these suites — MergeCrashIT,
         // TaintCrashIT and RollupStallIT assert crash WINDOWS that a live scheduler closes.
         r.add("tazzzo.scheduler.enabled", () -> "false");
+        // Q5-c: the limiter mode has NO production default, so every Spring context must state
+        // it. DISABLED is the fail-closed state; these suites exercise no consumer surface.
+        r.add("tazzzo.consumer-rate-limit.mode", () -> "DISABLED");
         r.add("tazzzo.auth.cms-token", () -> CMS_TOKEN);
         r.add("tazzzo.auth.read-token", () -> READ_TOKEN);
     }

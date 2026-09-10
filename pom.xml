@@ -35,6 +35,16 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
+        <!--
+          CAT-SEC-1 Q5-MECH-1: the consumer limiter is DISTRIBUTED. Two catalogue tasks serve
+          consumers concurrently, so per-instance state would make the effective allowance depend
+          on the replica count. Shared state is ElastiCache speaking the Redis/Valkey protocol.
+          Kept entirely separate from the Mongo connection and config.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>

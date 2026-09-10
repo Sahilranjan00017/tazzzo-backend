@@ -29,6 +29,9 @@ public abstract class AbstractMongoIT {
         // M1: background workers must NOT run inside these suites — MergeCrashIT,
         // TaintCrashIT and RollupStallIT assert crash WINDOWS that a live scheduler closes.
         registry.add("tazzzo.scheduler.enabled", () -> "false");
+        // Q5-c: the limiter mode has NO production default, so every Spring context must state
+        // it. DISABLED is the fail-closed state; these suites exercise no consumer surface.
+        registry.add("tazzzo.consumer-rate-limit.mode", () -> "DISABLED");
     }
 
     @Autowired protected MongoClient client;

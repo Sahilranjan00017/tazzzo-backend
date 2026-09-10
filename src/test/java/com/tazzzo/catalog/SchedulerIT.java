@@ -50,6 +50,9 @@ class SchedulerIT {
         r.add("spring.data.mongodb.database", () -> "tazzzo_sched_it");
         r.add("tazzzo.schema.bootstrap-on-startup", () -> "false");
         r.add("tazzzo.scheduler.enabled", () -> "true");     // scheduler ON for this suite
+        // Q5-c: the limiter mode has NO production default, so every Spring context must state
+        // it. DISABLED is the fail-closed state; these suites exercise no consumer surface.
+        r.add("tazzzo.consumer-rate-limit.mode", () -> "DISABLED");
         r.add("tazzzo.scheduler.merge-finalizer-ms", () -> "300");
         r.add("tazzzo.scheduler.taint-ms", () -> "300");
         r.add("tazzzo.scheduler.stamp-ms", () -> "300");
