@@ -2,9 +2,9 @@ package com.tazzzo.catalog.ratelimit;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Configuration;
 import io.lettuce.core.RedisURI;
 import org.springframework.data.redis.connection.RedisPassword;
@@ -53,7 +53,7 @@ public class ConsumerRateLimitConfig {
     }
 
     @Configuration
-    @ConditionalOnProperty(name = "tazzzo.consumer-rate-limit.mode", havingValue = "REDIS")
+    @Conditional(RedisModeCondition.class)
     static class RedisMode {
 
         /**
@@ -72,8 +72,12 @@ public class ConsumerRateLimitConfig {
             try {
                 uri = RedisURI.create(properties.getRedisUrl().trim());
             } catch (RuntimeException e) {
-                throw new IllegalStateException("tazzzo.consumer-rate-limit.redis-url is not a valid "
-                        + "Redis URL: " + properties.getRedisUrl(), e);
+                // NEITHER the value NOR the parser's exception may appear. The URL supports
+                // username:password, so a typo in a credential-bearing endpoint would otherwise
+                // put that credential into startup logs — and a nested cause can reproduce it just
+                // as effectively as the message. The property name is enough to fix it.
+                throw new IllegalStateException("tazzzo.consumer-rate-limit.redis-url is not a "
+                        + "valid Redis URL (value withheld: it may carry credentials)");
             }
             RedisStandaloneConfiguration standalone =
                     new RedisStandaloneConfiguration(uri.getHost(), uri.getPort());

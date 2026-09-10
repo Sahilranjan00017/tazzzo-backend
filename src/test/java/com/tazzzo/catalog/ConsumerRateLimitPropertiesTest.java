@@ -52,14 +52,30 @@ class ConsumerRateLimitPropertiesTest {
         assertThatThrownBy(p::resolvedMode)
                 .as("there is deliberately no in-memory mode to fall into")
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("DISABLED or REDIS");
+                .hasMessageContaining("exactly DISABLED or REDIS");
     }
 
     @Test
     void disabled_is_an_intentional_state_and_needs_nothing_else() {
         ConsumerRateLimitProperties p = new ConsumerRateLimitProperties();
-        p.setMode("disabled");
+        p.setMode("DISABLED");
         assertThat(p.resolvedMode()).isEqualTo(ConsumerRateLimitProperties.Mode.DISABLED);
+    }
+
+    /**
+     * Exact spellings only, so the ONE parser that decides whether the limiter exists cannot be
+     * fed a value it would read differently from the validator. Whitespace is absent from this
+     * list on purpose: Spring's binder trims String values before they reach here, which
+     * ConsumerRateLimitWiringTest measures directly.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"redis", "Redis", "REDis", "disabled", "Disabled", "REDIS_MODE"})
+    void a_non_canonical_spelling_is_never_normalised_into_a_mode(String mode) {
+        ConsumerRateLimitProperties p = new ConsumerRateLimitProperties();
+        p.setMode(mode);
+        assertThatThrownBy(p::resolvedMode)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("exactly DISABLED or REDIS");
     }
 
     @Test

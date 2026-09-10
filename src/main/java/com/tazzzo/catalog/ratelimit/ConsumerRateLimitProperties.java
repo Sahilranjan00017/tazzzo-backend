@@ -74,7 +74,19 @@ public class ConsumerRateLimitProperties {
     }
 
     /**
-     * @throws IllegalStateException when the configuration is absent or incomplete — the startup
+     * The mode, matched EXACTLY: {@code REDIS} or {@code DISABLED}, with no case normalisation.
+     *
+     * <p><b>This is the ONLY parser that decides whether the limiter exists</b> —
+     * {@link RedisModeCondition} calls this same method to register the Redis beans, rather than
+     * {@code @ConditionalOnProperty}, which compares case-INSENSITIVELY and would therefore have
+     * created the limiter for {@code mode=redis} while this method rejected that spelling. Two
+     * parsers deciding whether a security control exists is the split itself.
+     *
+     * <p>Whitespace is not handled here because it never arrives: Spring Boot's relaxed binder
+     * trims String property values before any application code sees them, which
+     * {@code ConsumerRateLimitWiringTest} measures directly rather than assuming.
+     *
+     * @throws IllegalStateException when the configuration is absent or not canonical — the startup
      *     validation failure Q5-c requires
      */
     public Mode resolvedMode() {
@@ -83,12 +95,14 @@ public class ConsumerRateLimitProperties {
                     "tazzzo.consumer-rate-limit.mode is required and has NO default. "
                             + "Set DISABLED (fail-closed, consumer surface not exposed) or REDIS.");
         }
-        try {
-            return Mode.valueOf(mode.trim().toUpperCase());
-        } catch (IllegalArgumentException e) {
-            throw new IllegalStateException(
-                    "tazzzo.consumer-rate-limit.mode must be DISABLED or REDIS, was: " + mode);
+        for (Mode candidate : Mode.values()) {
+            if (candidate.name().equals(mode)) {
+                return candidate;
+            }
         }
+        throw new IllegalStateException(
+                "tazzzo.consumer-rate-limit.mode must be exactly DISABLED or REDIS "
+                        + "(case-sensitive), was: '" + mode + "'");
     }
 
     /** Validates everything REDIS mode needs, so a half-configured limiter cannot start. */

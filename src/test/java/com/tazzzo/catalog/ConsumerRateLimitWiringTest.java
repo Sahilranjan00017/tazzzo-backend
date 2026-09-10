@@ -6,6 +6,8 @@ import com.tazzzo.catalog.ratelimit.ConsumerRateLimitProperties;
 import com.tazzzo.catalog.ratelimit.ConsumerRateLimiter;
 import com.tazzzo.catalog.ratelimit.RateLimitStore;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -44,7 +46,7 @@ class ConsumerRateLimitWiringTest {
                 .run(context -> assertThat(context)
                         .as("the limiter never inherits an endpoint default")
                         .hasFailed()
-                        .getFailure().hasMessageContaining("redis-url"));
+                        .getFailure().hasStackTraceContaining("redis-url"));
     }
 
     @Test
@@ -86,18 +88,92 @@ class ConsumerRateLimitWiringTest {
     void REDIS_still_refuses_incomplete_buckets_or_an_undecided_proxy_chain() {
         runner.withPropertyValues(completeExcept("tazzzo.consumer-rate-limit.ip.capacity=0"))
                 .run(context -> assertThat(context).hasFailed()
-                        .getFailure().hasMessageContaining("ip.capacity"));
+                        .getFailure().hasStackTraceContaining("ip.capacity"));
         runner.withPropertyValues(completeExcept("tazzzo.consumer-rate-limit.trusted-proxy-cidrs="))
                 .run(context -> assertThat(context).hasFailed()
-                        .getFailure().hasMessageContaining("trusted-proxy-cidrs"));
+                        .getFailure().hasStackTraceContaining("trusted-proxy-cidrs"));
     }
 
     @Test
     void a_missing_or_unrecognised_mode_fails_to_start() {
         runner.run(context -> assertThat(context).hasFailed()
-                .getFailure().hasMessageContaining("NO default"));
+                .getFailure().hasStackTraceContaining("NO default"));
         runner.withPropertyValues("tazzzo.consumer-rate-limit.mode=IN_MEMORY")
                 .run(context -> assertThat(context).hasFailed()
-                        .getFailure().hasMessageContaining("DISABLED or REDIS"));
+                        .getFailure().hasStackTraceContaining("exactly DISABLED or REDIS"));
+    }
+
+    /**
+     * ONE parser decides whether the limiter exists. {@code RedisModeCondition} calls
+     * {@code resolvedMode()} — the same method that validates the property — instead of
+     * {@code @ConditionalOnProperty}, which compares case-INSENSITIVELY and would therefore have
+     * registered the Redis beans for {@code mode=redis} while the validator rejected that spelling.
+     * Two parsers deciding whether a security control exists IS the split.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"redis", "Redis", "REDis", "disabled", "Disabled", "Disable",
+            "REDIS_MODE", "IN_MEMORY", "true"})
+    void a_non_canonical_mode_spelling_fails_to_start(String mode) {
+        runner.withPropertyValues("tazzzo.consumer-rate-limit.mode=" + mode)
+                .run(context -> assertThat(context)
+                        .as("'" + mode + "' must not be normalised into a mode")
+                        .hasFailed());
+    }
+
+    /**
+     * MEASURED, not assumed: Spring Boot's relaxed binder TRIMS String property values, so
+     * surrounding whitespace never reaches application code — {@code " DISABLED "} arrives as
+     * {@code "DISABLED"}. Whitespace therefore cannot be made a startup failure at this layer, and
+     * does not need to be: with a single parser, both the validator and the bean condition observe
+     * the same trimmed value, so there is no disagreement left to exploit. Case is different — the
+     * binder preserves it, which is why the test above is the one that matters.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {" DISABLED ", "DISABLED ", " DISABLED", "\tDISABLED"})
+    void surrounding_whitespace_is_normalised_by_the_framework_before_any_code_sees_it(String mode) {
+        runner.withPropertyValues("tazzzo.consumer-rate-limit.mode=" + mode).run(context -> {
+            assertThat(context).hasNotFailed();
+            assertThat(context.getBean(ConsumerRateLimitProperties.Mode.class))
+                    .isEqualTo(ConsumerRateLimitProperties.Mode.DISABLED);
+            assertThat(context).doesNotHaveBean(RateLimitStore.class);
+        });
+    }
+
+    // ---------- a credential-bearing endpoint must never reach the logs ----------
+
+    /**
+     * {@code redis-url} explicitly supports {@code username:password}, so a typo in a
+     * credential-bearing endpoint must not put that credential into startup output. Neither the
+     * message nor any nested cause may reproduce it.
+     */
+    @Test
+    void a_malformed_secret_bearing_redis_url_fails_without_leaking_the_secret() {
+        String secret = "SUPER_SECRET_PASSWORD";
+        runner.withPropertyValues(completeExcept(
+                        "tazzzo.consumer-rate-limit.redis-url=rediss://default:" + secret + "@bad host:6379"))
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    String rendered = renderFully(context.getStartupFailure());
+                    assertThat(rendered)
+                            .as("the whole causal chain and every stack trace, not just the message")
+                            .doesNotContain(secret)
+                            .doesNotContain("bad host")
+                            .contains("redis-url");
+                });
+    }
+
+    /** Message + stack trace of the failure AND of every cause, as a single string. */
+    private static String renderFully(Throwable failure) {
+        StringBuilder out = new StringBuilder();
+        for (Throwable t = failure; t != null; t = t.getCause()) {
+            out.append(t.getClass().getName()).append(": ").append(t.getMessage()).append('\n');
+            java.io.StringWriter writer = new java.io.StringWriter();
+            t.printStackTrace(new java.io.PrintWriter(writer));
+            out.append(writer);
+            if (t.getCause() == t) {
+                break;
+            }
+        }
+        return out.toString();
     }
 }
