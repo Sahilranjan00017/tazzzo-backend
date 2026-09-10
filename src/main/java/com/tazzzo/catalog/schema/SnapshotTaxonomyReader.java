@@ -64,6 +64,25 @@ public class SnapshotTaxonomyReader {
     }
 
     /**
+     * Every node of one {@code node_type} in the requested release.
+     *
+     * <p>ROOT-1's candidate set is {@code node_type = super_category} — NOT "nodes with no parent".
+     * The seed has NINE parentless nodes: the seven super-categories and BOTH holding verticals,
+     * which are parentless roots. Selecting structurally by type keeps Q3's holding exclusion as a
+     * second line of defence rather than the only thing standing between a shopper and
+     * {@code TZV-SCOPE-BLOCKED}.
+     */
+    public List<Document> nodesOfType(String releaseId, String nodeType) {
+        requireRelease(releaseId);
+        if (nodeType == null || nodeType.isBlank()) {
+            return List.of();
+        }
+        return db.getCollection(SNAPSHOT_COLLECTION)
+                .find(inRelease(releaseId, Filters.eq("node_type", nodeType)))
+                .into(new ArrayList<>());
+    }
+
+    /**
      * The nodes whose SNAPSHOT {@code parent_id} is {@code parentNodeId}, in the requested release.
      * Unordered: presentation ordering (TR-3) is deliberately not this component's concern.
      */

@@ -29,6 +29,9 @@ import java.util.Map;
 @Service
 public class TaxonomyChangeService {
 
+    /** TR2-CURRENT-1 — the single explicit pointer in system_config. */
+    public static final String CONSUMER_RELEASE_POINTER = "consumer_taxonomy_release";
+
     private static final Map<String, String> REQUIRED_PARENT = Map.of(
             "vertical", "sub_category",
             "sub_category", "category",
@@ -165,6 +168,15 @@ public class TaxonomyChangeService {
                             Updates.combine(Updates.set("status", "active"),
                                     Updates.unset("gate"),
                                     Updates.set("activated_at", new Date()))));
+            // TR2-CURRENT-1: the consumer "current release" pointer moves in THIS transaction,
+            // with the status flip. Two writes would leave a window in which the pointer names a
+            // release whose snapshot is incomplete — and "current" must never be inferred from a
+            // timestamp, a lexical id, or whichever active row Mongo returns first.
+            writePath.auxWrite(session, "system_config", e, c -> c.updateOne(session,
+                    Filters.eq("_id", CONSUMER_RELEASE_POINTER),
+                    Updates.combine(Updates.set("release_id", releaseId),
+                            Updates.set("updated_at", new Date())),
+                    new UpdateOptions().upsert(true)));
         });
     }
 

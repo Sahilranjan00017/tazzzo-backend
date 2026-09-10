@@ -96,26 +96,10 @@ class OpenApiProtectionIT extends AbstractApiIT {
                 .getStatusCode().value()).as("reader still may not write").isEqualTo(403);
     }
 
-    // ---------- nothing outside the slice ----------
+    // ---------- the Phase-4 tripwire has GRADUATED ----------
 
-    /**
-     * No consumer TRANSPORT exists yet: no controller and no request mapping names the public
-     * catalogue namespace (/catalog/v1 since Phase 4B.1). The SurfaceClassifier's allowlist literal is deliberately not a hit — declaring
-     * that a namespace is public is the opposite of serving something on it. The first real
-     * consumer controller (Phase 5) is expected to trip this, and retiring it then is a decision.
-     */
-    @Test
-    void no_consumer_routes_exist_yet() throws IOException {
-        List<String> hits = new ArrayList<>();
-        try (Stream<Path> files = Files.walk(Path.of("src/main/java"))) {
-            for (Path f : files.filter(p -> p.toString().endsWith(".java")).toList()) {
-                String src = Files.readString(f);
-                boolean isTransport = src.contains("@RestController") || src.contains("Mapping(");
-                if (isTransport && src.contains("/catalog/v1")) {
-                    hits.add(f.getFileName().toString());
-                }
-            }
-        }
-        assertThat(hits).as("no consumer transport before Phase 5").isEmpty();
-    }
+    // The temporary "no /catalog/v1 controller yet" source guard lived here. Phase 5A added the
+    // first consumer controller, which is exactly what it existed to notice. It is REPLACED by
+    // ConsumerTransportGuardIT's Q4-c boundary assertions, not deleted — retiring a protection
+    // without a successor removes it.
 }

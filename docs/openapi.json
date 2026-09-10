@@ -857,6 +857,32 @@
         }
       }
     },
+    "/catalog/v1/categories" : {
+      "get" : {
+        "tags" : [ "consumer-taxonomy-controller" ],
+        "operationId" : "categories",
+        "parameters" : [ {
+          "name" : "release",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RootResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/taxonomy/releases/{id}" : {
       "get" : {
         "tags" : [ "taxonomy-controller" ],
@@ -1485,6 +1511,31 @@
         "type" : "object",
         "properties" : {
           "title" : {
+            "type" : "string"
+          }
+        }
+      },
+      "ConsumerNode" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string"
+          },
+          "name" : {
+            "type" : "string"
+          }
+        }
+      },
+      "RootResponse" : {
+        "type" : "object",
+        "properties" : {
+          "items" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/ConsumerNode"
+            }
+          },
+          "resolved_release_id" : {
             "type" : "string"
           }
         }
