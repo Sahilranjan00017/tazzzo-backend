@@ -123,8 +123,35 @@ public class SnapshotTaxonomyReader {
      * @throws SnapshotTopologyException when the snapshot's recorded topology is not a tree
      */
     public List<String> verticalIdsInSubtree(String releaseId, String nodeId) {
+        return walkVerticals(releaseId, nodeId, false);
+    }
+
+    /**
+     * CONSUMER-VALID vertical ids in the subtree: only {@code status == active} nodes participate,
+     * a non-active branch is PRUNED (its descendants are never visited), and only active verticals
+     * are returned. A non-active root yields nothing.
+     *
+     * <p>Why a separate primitive rather than a change to {@link #verticalIdsInSubtree}: that method
+     * is Phase 3B's TOPOLOGY primitive and answers "what is under this node in this release" —
+     * governance and CMS reads need that answer to include deprecated branches. This one answers
+     * "what may CONTRIBUTE to consumer visibility", which is a different question.
+     * {@code ConsumerEligibility} deliberately knows nothing about taxonomy status; it trusts the
+     * caller to hand it a release-valid vertical set, and this is where that set is made valid. An
+     * eligible product classified into a vertical that is deprecated or merged in the requested
+     * snapshot must NOT make its super-category appear.
+     *
+     * <p>Same release binding, same fail-closed corruption handling as the generic walk.
+     */
+    public List<String> consumerVerticalIdsInSubtree(String releaseId, String nodeId) {
+        return walkVerticals(releaseId, nodeId, true);
+    }
+
+    private List<String> walkVerticals(String releaseId, String nodeId, boolean consumerOnly) {
         Document root = node(releaseId, nodeId);
         if (root == null) {
+            return List.of();
+        }
+        if (consumerOnly && !isActive(root)) {
             return List.of();
         }
         if ("vertical".equals(root.getString("node_type"))) {
@@ -148,6 +175,9 @@ public class SnapshotTaxonomyReader {
                     throw new SnapshotTopologyException("cycle in snapshot topology in release "
                             + releaseId + " at " + childId);
                 }
+                if (consumerOnly && !isActive(child)) {
+                    continue;   // pruned: neither returned nor descended into
+                }
                 if ("vertical".equals(child.getString("node_type"))) {
                     verticals.add(childId);
                 } else {
@@ -157,6 +187,10 @@ public class SnapshotTaxonomyReader {
             frontier = next;
         }
         return List.copyOf(verticals);
+    }
+
+    private static boolean isActive(Document node) {
+        return "active".equals(node.getString("status"));
     }
 
     /**

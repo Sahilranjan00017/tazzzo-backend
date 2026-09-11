@@ -18,9 +18,11 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  * advice, so the two contracts stay separate: CMS keeps its nested {@code {"error": {…}}}, and the
  * consumer surface never inherits it (ERR-1-CONFIRMATION).
  *
- * <p>The catch-all matters as much as the typed handlers: without it a framework-generated failure
- * on a consumer route would fall through to the CMS advice, and ERR-1 would hold for the errors we
- * wrote while failing for the ones the framework writes — which are the ones a client hits first.
+ * <p>This advice handles ONLY the three typed consumer failures. Framework-generated errors —
+ * unmapped public routes, unsupported methods, binding failures — never reach a consumer
+ * controller at all, so no advice scoped to one could ever see them. They are shaped instead by
+ * {@code ApiExceptionHandler}'s single {@code envelope()} seam, which branches on
+ * {@code SurfaceClassifier} (ERR1-FRAMEWORK-1). One decision point, no duplicated path checks.
  */
 @RestControllerAdvice(assignableTypes = ConsumerTaxonomyController.class)
 @Order(Ordered.HIGHEST_PRECEDENCE)
@@ -47,15 +49,6 @@ public class ConsumerExceptionHandler {
     public ResponseEntity<ConsumerDtos.ConsumerError> unavailable(ConsumerFailures.Unavailable ex,
                                                                    HttpServletRequest req) {
         log.warn("consumer_unavailable reason={} request_id={}", ex.getMessage(),
-                req.getAttribute(RequestIdFilter.REQUEST_ID));
-        return flat(HttpStatus.SERVICE_UNAVAILABLE, "SERVICE_UNAVAILABLE", "service unavailable", req);
-    }
-
-    /** Nothing on a consumer route may reach the CMS envelope. */
-    @ExceptionHandler(Exception.class)
-    public ResponseEntity<ConsumerDtos.ConsumerError> anythingElse(Exception ex,
-                                                                    HttpServletRequest req) {
-        log.warn("consumer_error type={} request_id={}", ex.getClass().getSimpleName(),
                 req.getAttribute(RequestIdFilter.REQUEST_ID));
         return flat(HttpStatus.SERVICE_UNAVAILABLE, "SERVICE_UNAVAILABLE", "service unavailable", req);
     }

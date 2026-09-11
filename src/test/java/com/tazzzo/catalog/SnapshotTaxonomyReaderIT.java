@@ -232,6 +232,65 @@ class SnapshotTaxonomyReaderIT extends AbstractMongoIT {
         assertThat(reader.verticalIdsInSubtree(R1, STAPLES)).hasSize(69);
     }
 
+    // ---------- the CONSUMER-VALID walk prunes non-active branches ----------
+
+    /**
+     * Built directly, because the change API cannot produce an active vertical beneath a
+     * deprecated ancestor (HAS_ACTIVE_CHILDREN forbids it). The pruning rule is defensive against
+     * exactly the states the API does not create — direct writes, future operations.
+     */
+    @Test
+    void consumer_walk_prunes_a_non_active_branch_and_excludes_non_active_verticals() {
+        String R = "R-STATUS";
+        snapshotRow(R, "S1", "super_category", null);
+        snapshotRow(R, "C-OK", "category", "S1");
+        snapshotRow(R, "V-OK", "vertical", "C-OK");
+        snapshotRow(R, "V-DEP", "vertical", "C-OK");
+        db.getCollection("taxonomy_snapshot_nodes").updateOne(
+                new Document("release_id", R).append("node_id", "V-DEP"),
+                new Document("$set", new Document("status", "deprecated")));
+        snapshotRow(R, "C-DEAD", "category", "S1");
+        db.getCollection("taxonomy_snapshot_nodes").updateOne(
+                new Document("release_id", R).append("node_id", "C-DEAD"),
+                new Document("$set", new Document("status", "merged")));
+        snapshotRow(R, "V-UNDER-DEAD", "vertical", "C-DEAD");   // active, but beneath a dead branch
+
+        assertThat(reader.consumerVerticalIdsInSubtree(R, "S1"))
+                .as("only V-OK: the deprecated vertical and the whole merged branch are pruned")
+                .containsExactly("V-OK");
+        assertThat(reader.verticalIdsInSubtree(R, "S1"))
+                .as("the GENERIC topology walk is unchanged and still sees all three")
+                .containsExactlyInAnyOrder("V-OK", "V-DEP", "V-UNDER-DEAD");
+    }
+
+    @Test
+    void consumer_walk_of_a_non_active_root_is_empty() {
+        String R = "R-DEADROOT";
+        snapshotRow(R, "S9", "super_category", null);
+        db.getCollection("taxonomy_snapshot_nodes").updateOne(
+                new Document("release_id", R).append("node_id", "S9"),
+                new Document("$set", new Document("status", "deprecated")));
+        snapshotRow(R, "V9", "vertical", "S9");
+
+        assertThat(reader.consumerVerticalIdsInSubtree(R, "S9")).isEmpty();
+        db.getCollection("taxonomy_snapshot_nodes").updateOne(
+                new Document("release_id", R).append("node_id", "V9"),
+                new Document("$set", new Document("status", "deprecated")));
+        assertThat(reader.consumerVerticalIdsInSubtree(R, "V9"))
+                .as("a deprecated vertical asked for directly answers nothing")
+                .isEmpty();
+        assertThat(reader.verticalIdsInSubtree(R, "S9")).containsExactly("V9");
+    }
+
+    @Test
+    void consumer_walk_keeps_the_cycle_guard() {
+        snapshotRow("R-CCYCLE", "A1", "category", "B1");
+        snapshotRow("R-CCYCLE", "B1", "sub_category", "A1");
+        assertTimeoutPreemptively(Duration.ofSeconds(10), () ->
+                assertThatThrownBy(() -> reader.consumerVerticalIdsInSubtree("R-CCYCLE", "A1"))
+                        .isInstanceOf(SnapshotTopologyException.class));
+    }
+
     @Test
     void a_concrete_release_is_required_on_every_call() {
         assertThatThrownBy(() -> reader.node(null, BASMATI)).isInstanceOf(IllegalArgumentException.class);

@@ -69,12 +69,15 @@ public class ConsumerTaxonomyService {
             }
         }
 
-        // Descendants resolved from THIS release's snapshot, before any charge, because the cost
-        // is computed from them. This reads immutable data (TR-5); nothing live is touched yet.
+        // CONSUMER-VALID descendants from THIS release's snapshot, before any charge, because the
+        // cost is computed from them. Status-aware on purpose: ConsumerEligibility knows nothing
+        // about taxonomy status and trusts this set, so a product under a vertical that is
+        // deprecated or merged in the snapshot must not be able to make a root appear. This reads
+        // immutable data (TR-5); nothing live is touched yet.
         Map<Document, List<String>> descendants = new LinkedHashMap<>();
         long units = 1;
         for (Document candidate : candidates) {
-            List<String> verticals = snapshots.verticalIdsInSubtree(release, candidate.getString("node_id"));
+            List<String> verticals = snapshots.consumerVerticalIdsInSubtree(release, candidate.getString("node_id"));
             descendants.put(candidate, verticals);
             units += verticals.size();
         }

@@ -41,12 +41,43 @@ class HttpSurfaceBoundaryIT extends AbstractApiIT {
                 .as("cms token confers no extra consumer authority").isEqualTo(anonymous);
     }
 
-    /** Documented observation, not a Phase-4B contract: the missing route resolves via the advice. */
+    /**
+     * ERR1-FRAMEWORK-1. An unmapped PUBLIC route never reaches a consumer controller, so no advice
+     * scoped to one can shape it — yet it must still be the flat consumer envelope, not the nested
+     * CMS one. (Before Phase 5A hardening this test asserted the nested shape, which was the gap.)
+     */
     @Test
-    void consumer_probe_currently_resolves_as_a_missing_route_not_an_auth_decision() {
+    void an_unmapped_public_route_is_a_FLAT_404_not_the_nested_cms_envelope() {
         ResponseEntity<JsonNode> res = get(CONSUMER_PROBE, null, JsonNode.class);
         assertThat(res.getStatusCode().value()).isEqualTo(404);
-        assertThat(res.getBody().at("/error/code").asText()).isEqualTo("NO_SUCH_ENDPOINT");
+        assertThat(res.getBody().has("error"))
+                .as("no nested {error:{…}} on the public surface").isFalse();
+        assertThat(res.getBody().get("code").asText()).isEqualTo("NOT_FOUND");
+        assertThat(res.getBody().get("message").asText()).isEqualTo("not found");
+        assertThat(res.getBody().get("request_id").asText())
+                .isEqualTo(res.getHeaders().getFirst("X-Request-Id"));
+    }
+
+    @Test
+    void an_unsupported_method_on_a_public_route_is_a_FLAT_400_INVALID_REQUEST() {
+        ResponseEntity<JsonNode> res = post("/catalog/v1/categories", "{}", null, JsonNode.class);
+        assertThat(res.getStatusCode().value()).isEqualTo(400);
+        assertThat(res.getBody().has("error")).isFalse();
+        assertThat(res.getBody().get("code").asText()).isEqualTo("INVALID_REQUEST");
+    }
+
+    /** The internal surface is untouched by ERR1-FRAMEWORK-1: same failures, still nested. */
+    @Test
+    void the_equivalent_internal_failures_remain_nested() {
+        ResponseEntity<JsonNode> missing = get("/api/v1/no-such-route", CMS_TOKEN, JsonNode.class);
+        assertThat(missing.getStatusCode().value()).isEqualTo(404);
+        assertThat(missing.getBody().at("/error/code").asText()).isEqualTo("NO_SUCH_ENDPOINT");
+
+        ResponseEntity<JsonNode> method = rest.exchange(url("/api/v1/taxonomy/nodes/TZS-000001"),
+                org.springframework.http.HttpMethod.DELETE,
+                new org.springframework.http.HttpEntity<>(headers(CMS_TOKEN)), JsonNode.class);
+        assertThat(method.getStatusCode().value()).isEqualTo(405);
+        assertThat(method.getBody().at("/error/code").asText()).isEqualTo("METHOD_NOT_ALLOWED");
     }
 
     // ---------- 6. exact namespace root ----------
