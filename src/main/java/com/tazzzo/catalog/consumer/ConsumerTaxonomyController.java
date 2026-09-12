@@ -27,12 +27,16 @@ import org.springframework.web.bind.annotation.RestController;
 public class ConsumerTaxonomyController {
 
     private final ConsumerTaxonomyService taxonomy;
+    private final ConsumerProductListService products;
     private final ClientIpResolver clientIps;
     private final ConsumerObservability observe;
 
-    public ConsumerTaxonomyController(ConsumerTaxonomyService taxonomy, ClientIpResolver clientIps,
+    public ConsumerTaxonomyController(ConsumerTaxonomyService taxonomy,
+                                      ConsumerProductListService products,
+                                      ClientIpResolver clientIps,
                                       ConsumerObservability observe) {
         this.taxonomy = taxonomy;
+        this.products = products;
         this.clientIps = clientIps;
         this.observe = observe;
     }
@@ -51,7 +55,7 @@ public class ConsumerTaxonomyController {
             @RequestParam(name = "release", required = false) String release,
             HttpServletRequest request) {
         return measured(ConsumerObservability.Route.ROOT, () ->
-                taxonomy.root(release, clientIp(request), installationId(request)));
+                taxonomy.root(release, identity(request)));
     }
 
     /** CHILD-1. Any taxonomy node id; a visible vertical answers 200 with empty items. */
@@ -61,7 +65,24 @@ public class ConsumerTaxonomyController {
             @RequestParam(name = "release", required = false) String release,
             HttpServletRequest request) {
         return measured(ConsumerObservability.Route.CHILDREN, () ->
-                taxonomy.children(nodeId, release, clientIp(request), installationId(request)));
+                taxonomy.children(nodeId, release, identity(request)));
+    }
+
+    /**
+     * LIST-1. {@code page_size} and {@code cursor} arrive as RAW strings on purpose: a value the
+     * framework could not bind would fail before this method runs and escape the measured
+     * boundary, so the service parses them and a bad one is this route's own
+     * {@code invalid_request} / {@code invalid_cursor} outcome (Q5-OBS-1b).
+     */
+    @GetMapping("/categories/{nodeId}/products")
+    public ConsumerDtos.ProductListResponse productsUnder(
+            @PathVariable("nodeId") String nodeId,
+            @RequestParam(name = "release", required = false) String release,
+            @RequestParam(name = "page_size", required = false) String pageSize,
+            @RequestParam(name = "cursor", required = false) String cursor,
+            HttpServletRequest request) {
+        return measured(ConsumerObservability.Route.LIST, () ->
+                products.list(nodeId, release, pageSize, cursor, identity(request)));
     }
 
     /**
@@ -69,12 +90,11 @@ public class ConsumerTaxonomyController {
      * resolution, recorded exactly once in {@code finally}, outcome derived from the typed failure
      * that escapes so the metric cannot disagree with the status the caller sees.
      */
-    private ConsumerDtos.NodeListResponse measured(ConsumerObservability.Route route,
-                                               java.util.function.Supplier<ConsumerDtos.NodeListResponse> call) {
+    private <T> T measured(ConsumerObservability.Route route, java.util.function.Supplier<T> call) {
         long started = System.nanoTime();
         ConsumerObservability.Outcome outcome = ConsumerObservability.Outcome.UNAVAILABLE;
         try {
-            ConsumerDtos.NodeListResponse response = call.get();
+            T response = call.get();
             outcome = ConsumerObservability.Outcome.SUCCESS;
             return response;
         } catch (ConsumerFailures.NotFound e) {
@@ -83,13 +103,21 @@ public class ConsumerTaxonomyController {
         } catch (ConsumerFailures.RateLimited e) {
             outcome = ConsumerObservability.Outcome.RATE_LIMITED;
             throw e;
+        } catch (ConsumerFailures.InvalidRequest e) {
+            outcome = ConsumerObservability.Outcome.INVALID_REQUEST;
+            throw e;
+        } catch (ConsumerFailures.InvalidCursor e) {
+            outcome = ConsumerObservability.Outcome.INVALID_CURSOR;
+            throw e;
         } finally {
             observe.request(route, outcome, Duration.ofNanos(System.nanoTime() - started));
         }
     }
 
-    private static java.util.Optional<String> installationId(HttpServletRequest request) {
-        return InstallationIdResolver.resolve(request.getHeader(InstallationIdResolver.HEADER));
+    /** Identity is resolved ONCE per request, inside the measured boundary, and never re-derived. */
+    private ConsumerIdentity identity(HttpServletRequest request) {
+        return new ConsumerIdentity(clientIp(request),
+                InstallationIdResolver.resolve(request.getHeader(InstallationIdResolver.HEADER)));
     }
 
     /**

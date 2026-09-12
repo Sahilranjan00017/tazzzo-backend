@@ -18,7 +18,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  * advice, so the two contracts stay separate: CMS keeps its nested {@code {"error": {…}}}, and the
  * consumer surface never inherits it (ERR-1-CONFIRMATION).
  *
- * <p>This advice handles ONLY the three typed consumer failures. Framework-generated errors —
+ * <p>This advice handles ONLY the typed consumer failures. Framework-generated errors —
  * unmapped public routes, unsupported methods, binding failures — never reach a consumer
  * controller at all, so no advice scoped to one could ever see them. They are shaped instead by
  * {@code ApiExceptionHandler}'s single {@code envelope()} seam, which branches on
@@ -34,6 +34,19 @@ public class ConsumerExceptionHandler {
     public ResponseEntity<ConsumerDtos.ConsumerError> notFound(ConsumerFailures.NotFound ex,
                                                                HttpServletRequest req) {
         return flat(HttpStatus.NOT_FOUND, "NOT_FOUND", "not found", req);
+    }
+
+    @ExceptionHandler(ConsumerFailures.InvalidRequest.class)
+    public ResponseEntity<ConsumerDtos.ConsumerError> invalidRequest(ConsumerFailures.InvalidRequest ex,
+                                                                     HttpServletRequest req) {
+        return flat(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", "invalid request", req);
+    }
+
+    /** Its own code, never the framework's generic INVALID_REQUEST (LIST-CURSOR-1). */
+    @ExceptionHandler(ConsumerFailures.InvalidCursor.class)
+    public ResponseEntity<ConsumerDtos.ConsumerError> invalidCursor(ConsumerFailures.InvalidCursor ex,
+                                                                    HttpServletRequest req) {
+        return flat(HttpStatus.BAD_REQUEST, "INVALID_CURSOR", "invalid cursor", req);
     }
 
     @ExceptionHandler(ConsumerFailures.RateLimited.class)

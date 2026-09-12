@@ -26,6 +26,12 @@ tazzzo:
     # NO DEFAULTS BY DESIGN: an unset token disables that role entirely (fail-closed).
     cms-token: ${TAZZZO_CMS_TOKEN:}
     read-token: ${TAZZZO_READ_TOKEN:}
+  consumer:
+    # LIST-CURSOR-1. Base64 of >= 32 random bytes; signs every product-list cursor. NO DEFAULT BY
+    # DESIGN: the production value is generated at deployment setup (CEO decision), never checked
+    # in or invented here. Missing or malformed => the LIST route answers 503 before any product
+    # work. ROOT and CHILDREN do not need it. v1 rotation may invalidate outstanding cursors.
+    cursor-hmac-key-b64: ${TAZZZO_CONSUMER_CURSOR_HMAC_KEY_B64:}
   consumer-rate-limit:
     # NO PRODUCTION DEFAULT BY DESIGN (Q5-c). Unset or unrecognised is a STARTUP FAILURE, because a
     # permissive default is worse than none: it looks like a decision. DISABLED is an intentional

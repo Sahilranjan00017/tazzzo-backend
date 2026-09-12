@@ -2,10 +2,13 @@ package com.tazzzo.catalog;
 
 import com.mongodb.MongoException;
 import com.mongodb.client.MongoDatabase;
+import com.tazzzo.catalog.consumer.ConsumerAdmissionGate;
 import com.tazzzo.catalog.consumer.ConsumerFailures;
+import com.tazzzo.catalog.consumer.ConsumerIdentity;
 import com.tazzzo.catalog.consumer.ConsumerObservability;
 import com.tazzzo.catalog.consumer.ConsumerReleaseResolver;
 import com.tazzzo.catalog.consumer.ConsumerTaxonomyService;
+import com.tazzzo.catalog.consumer.ConsumerVisibilityProbe;
 import com.tazzzo.catalog.ratelimit.Admission;
 import com.tazzzo.catalog.ratelimit.ConsumerRateLimitProperties;
 import com.tazzzo.catalog.ratelimit.ConsumerRateLimiter;
@@ -114,9 +117,11 @@ class ConsumerProbeFailureTest {
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
         ConsumerObservability observe = new ConsumerObservability(registry);
         ConsumerTaxonomyService service = new ConsumerTaxonomyService(
-                oneSuperCategory(), alwaysR1(), failingDatabase(), alwaysAllowing(), observe);
+                oneSuperCategory(), alwaysR1(),
+                new ConsumerAdmissionGate(alwaysAllowing(), observe),
+                new ConsumerVisibilityProbe(failingDatabase(), observe));
 
-        assertThatThrownBy(() -> service.root(null, "203.0.113.9", Optional.empty()))
+        assertThatThrownBy(() -> service.root(null, new ConsumerIdentity("203.0.113.9", Optional.empty())))
                 .as("unknown is neither shown nor hidden -- the request fails")
                 .isInstanceOf(ConsumerFailures.Unavailable.class);
 
@@ -166,8 +171,10 @@ class ConsumerProbeFailureTest {
 
         // And the full request path with a broken registry still returns the business answer.
         ConsumerTaxonomyService service = new ConsumerTaxonomyService(
-                oneSuperCategory(), alwaysR1(), failingDatabase(), alwaysAllowing(), observe);
-        assertThatThrownBy(() -> service.root(null, "203.0.113.9", Optional.empty()))
+                oneSuperCategory(), alwaysR1(),
+                new ConsumerAdmissionGate(alwaysAllowing(), observe),
+                new ConsumerVisibilityProbe(failingDatabase(), observe));
+        assertThatThrownBy(() -> service.root(null, new ConsumerIdentity("203.0.113.9", Optional.empty())))
                 .as("the BUSINESS failure (probe error) is what surfaces, not the registry fault")
                 .isInstanceOf(ConsumerFailures.Unavailable.class)
                 .hasMessageContaining("probe");

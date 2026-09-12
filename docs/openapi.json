@@ -883,6 +883,53 @@
         }
       }
     },
+    "/catalog/v1/categories/{nodeId}/products" : {
+      "get" : {
+        "tags" : [ "consumer-taxonomy-controller" ],
+        "operationId" : "productsUnder",
+        "parameters" : [ {
+          "name" : "nodeId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "release",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "page_size",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "cursor",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProductListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/catalog/v1/categories/{nodeId}/children" : {
       "get" : {
         "tags" : [ "consumer-taxonomy-controller" ],
@@ -1569,6 +1616,63 @@
             }
           },
           "resolved_release_id" : {
+            "type" : "string"
+          }
+        }
+      },
+      "ConsumerAttributeResponse" : {
+        "type" : "object",
+        "properties" : {
+          "key" : {
+            "type" : "string"
+          },
+          "label" : {
+            "type" : "string"
+          },
+          "value" : {
+            "type" : "object"
+          },
+          "unit" : {
+            "type" : "string"
+          }
+        }
+      },
+      "ConsumerProductResponse" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string"
+          },
+          "title" : {
+            "type" : "string"
+          },
+          "brandCode" : {
+            "type" : "string"
+          },
+          "attributes" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/ConsumerAttributeResponse"
+            }
+          },
+          "projectionVersion" : {
+            "type" : "string"
+          }
+        }
+      },
+      "ProductListResponse" : {
+        "type" : "object",
+        "properties" : {
+          "items" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/ConsumerProductResponse"
+            }
+          },
+          "resolved_release_id" : {
+            "type" : "string"
+          },
+          "next_cursor" : {
             "type" : "string"
           }
         }

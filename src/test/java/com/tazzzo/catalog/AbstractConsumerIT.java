@@ -46,6 +46,12 @@ public abstract class AbstractConsumerIT {
 
     /** Counts product reads across the whole driver, so nothing can probe unobserved. */
     public static final AtomicInteger PRODUCT_FINDS = new AtomicInteger();
+    /** Every {@code find}, by collection — the projection read gate (PHASE-5-BATCH-1) under LIST. */
+    public static final java.util.Map<String, AtomicInteger> FINDS_BY_COLLECTION =
+            new java.util.concurrent.ConcurrentHashMap<>();
+    /** Each products {@code find} as sent: its {@code limit} and projected field names (LIST-1 §7). */
+    public static final java.util.List<Document> PRODUCT_FIND_COMMANDS =
+            java.util.Collections.synchronizedList(new java.util.ArrayList<>());
 
     @TestConfiguration
     public static class ProbeCounting {
@@ -54,14 +60,58 @@ public abstract class AbstractConsumerIT {
             return builder -> builder.addCommandListener(new CommandListener() {
                 @Override
                 public void commandStarted(CommandStartedEvent event) {
-                    if ("find".equals(event.getCommandName())
-                            && event.getCommand().containsKey("find")
-                            && "products".equals(event.getCommand().getString("find").getValue())) {
+                    if (!"find".equals(event.getCommandName()) || !event.getCommand().containsKey("find")) {
+                        return;
+                    }
+                    String collection = event.getCommand().getString("find").getValue();
+                    FINDS_BY_COLLECTION.computeIfAbsent(collection, k -> new AtomicInteger()).incrementAndGet();
+                    if ("products".equals(collection)) {
                         PRODUCT_FINDS.incrementAndGet();
+                        Document sent = new Document();
+                        if (event.getCommand().containsKey("limit")) {
+                            sent.append("limit", event.getCommand().getNumber("limit").intValue());
+                        }
+                        if (event.getCommand().containsKey("projection")) {
+                            sent.append("projection", new java.util.ArrayList<>(
+                                    event.getCommand().getDocument("projection").keySet()));
+                        }
+                        sent.append("has_skip", event.getCommand().containsKey("skip"));
+                        PRODUCT_FIND_COMMANDS.add(sent);
                     }
                 }
             });
         }
+    }
+
+    /**
+     * The token buckets are keyed by client IP and live in the ONE Redis every consumer suite in
+     * this JVM shares, so a bucket drained (or flooded) by a previous test class is what the next
+     * class starts from. A suite that pins capacity to an exact cost must begin from an empty
+     * store, or its first request depends on which class ran before it and how long ago.
+     * Test-side isolation only; no server behaviour is involved.
+     */
+    protected static void flushRateLimitBuckets() {
+        org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory factory =
+                new org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory(
+                        new org.springframework.data.redis.connection.RedisStandaloneConfiguration(
+                                REDIS.getHost(), REDIS.getMappedPort(6379)));
+        factory.afterPropertiesSet();
+        try (var connection = factory.getConnection()) {
+            connection.serverCommands().flushAll();
+        } finally {
+            factory.destroy();
+        }
+    }
+
+    protected static int finds(String collection) {
+        AtomicInteger n = FINDS_BY_COLLECTION.get(collection);
+        return n == null ? 0 : n.get();
+    }
+
+    protected static void resetCounters() {
+        PRODUCT_FINDS.set(0);
+        FINDS_BY_COLLECTION.clear();
+        PRODUCT_FIND_COMMANDS.clear();
     }
 
     @LocalServerPort protected int port;

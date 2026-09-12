@@ -1,5 +1,6 @@
 package com.tazzzo.catalog.consumer;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.util.List;
@@ -29,6 +30,18 @@ public final class ConsumerDtos {
      */
     public record NodeListResponse(@JsonProperty("resolved_release_id") String resolvedReleaseId,
                                List<ConsumerNode> items) { }
+
+    /**
+     * LIST-1 / PAGE-SIZE-6. {@code resolved_release_id} scopes the whole request (TR-1); each item
+     * carries its OWN {@code projectionVersion} (RP-6c) — there is no envelope-level projection
+     * version because a category listing spans verticals. {@code next_cursor} is OMITTED, not
+     * null, when no continuation exists. NOT present, by construction: total, total_count, page
+     * number, taxonomy path, price, inventory, seller, ranking.
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record ProductListResponse(@JsonProperty("resolved_release_id") String resolvedReleaseId,
+                                      List<ConsumerProductResponse> items,
+                                      @JsonProperty("next_cursor") String nextCursor) { }
 
     /**
      * ERR-1 — FLAT, deliberately unlike the CMS envelope's nested {@code {"error": {…}}}. The two

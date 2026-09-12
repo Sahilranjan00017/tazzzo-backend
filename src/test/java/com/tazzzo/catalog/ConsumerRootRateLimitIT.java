@@ -44,6 +44,7 @@ class ConsumerRootRateLimitIT extends AbstractConsumerIT {
 
     @BeforeAll
     void seed() {
+        flushRateLimitBuckets();   // this suite pins capacity to an exact cost: start from an empty store
         db.drop();
         schemaBootstrap.bootstrap(db);
         loader.load(db);

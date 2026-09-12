@@ -50,7 +50,7 @@ public class ConsumerObservability {
             Set.of("route", "outcome", "dimension", "decision", "result", "scope");
 
     public enum Route {
-        ROOT("root"), CHILDREN("children");
+        ROOT("root"), CHILDREN("children"), LIST("list");
 
         private final String tag;
 
@@ -64,7 +64,9 @@ public class ConsumerObservability {
     }
 
     public enum Outcome {
-        SUCCESS("success"), RATE_LIMITED("rate_limited"), UNAVAILABLE("unavailable"), NOT_FOUND("not_found");
+        SUCCESS("success"), RATE_LIMITED("rate_limited"), UNAVAILABLE("unavailable"), NOT_FOUND("not_found"),
+        /** Q5-OBS-1b: the two LIST request-shape refusals, bounded values like every other tag. */
+        INVALID_REQUEST("invalid_request"), INVALID_CURSOR("invalid_cursor");
 
         private final String tag;
 

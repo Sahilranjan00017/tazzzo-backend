@@ -1,19 +1,13 @@
 package com.tazzzo.catalog.consumer;
 
-import com.mongodb.client.MongoDatabase;
-import com.tazzzo.catalog.ratelimit.Admission;
-import com.tazzzo.catalog.ratelimit.ConsumerRateLimiter;
 import com.tazzzo.catalog.schema.SnapshotTaxonomyReader;
 import org.bson.Document;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 /**
  * ROOT-1 — the consumer taxonomy root, release-bound, hide-empty, and rate-limited BEFORE it
@@ -31,6 +25,9 @@ import java.util.Optional;
  *   order, then project                  TR-3, CAT-NODE-1
  * </pre>
  *
+ * <p>Admission and the existence probe are the shared seams {@link ConsumerAdmissionGate} and
+ * {@link ConsumerVisibilityProbe} — one implementation for ROOT, CHILDREN and LIST.
+ *
  * <p><b>Q5 is charged before the probes, and that ordering is the point.</b> Charging afterwards
  * would let a rejected request do the exact work the limit exists to prevent — the probes are the
  * expensive part, and at launch, when most verticals are consumer-empty, they are at their most
@@ -43,20 +40,17 @@ public class ConsumerTaxonomyService {
 
     private final SnapshotTaxonomyReader snapshots;
     private final ConsumerReleaseResolver releases;
-    private final MongoDatabase db;
-    private final ObjectProvider<ConsumerRateLimiter> limiter;
-    private final ConsumerObservability observe;
+    private final ConsumerAdmissionGate gate;
+    private final ConsumerVisibilityProbe probe;
 
     public ConsumerTaxonomyService(SnapshotTaxonomyReader snapshots,
                                    ConsumerReleaseResolver releases,
-                                   MongoDatabase db,
-                                   ObjectProvider<ConsumerRateLimiter> limiter,
-                                   ConsumerObservability observe) {
+                                   ConsumerAdmissionGate gate,
+                                   ConsumerVisibilityProbe probe) {
         this.snapshots = snapshots;
         this.releases = releases;
-        this.db = db;
-        this.limiter = limiter;
-        this.observe = observe;
+        this.gate = gate;
+        this.probe = probe;
     }
 
     /**
@@ -65,8 +59,7 @@ public class ConsumerTaxonomyService {
      * that includes client-identity resolution. This class records only what it alone knows: the
      * charged cost, the admission observation, and each probe.
      */
-    public ConsumerDtos.NodeListResponse root(String explicitRelease, String clientIp,
-                                          Optional<String> installationId) {
+    public ConsumerDtos.NodeListResponse root(String explicitRelease, ConsumerIdentity identity) {
         String release = releases.resolve(explicitRelease);
 
         // Candidates are selected by TYPE. "parent_id == null" would return NINE nodes in the
@@ -91,11 +84,11 @@ public class ConsumerTaxonomyService {
             descendants.put(candidate, verticals);
             units += verticals.size();
         }
-        charge(ConsumerObservability.Route.ROOT, clientIp, installationId, units);
+        gate.charge(ConsumerObservability.Route.ROOT, identity, units);
 
         List<Document> visible = new ArrayList<>();
         for (Map.Entry<Document, List<String>> entry : descendants.entrySet()) {
-            if (hasEligibleProduct(ConsumerObservability.Route.ROOT,
+            if (probe.hasEligibleProduct(ConsumerObservability.Route.ROOT,
                     ConsumerObservability.ProbeScope.CHILD, entry.getValue())) {
                 visible.add(entry.getKey());
             }
@@ -126,13 +119,13 @@ public class ConsumerTaxonomyService {
      * <p><b>A missing or non-active node still costs 1, charged before the 404</b>, so probing the
      * tree for what exists is never free.
      */
-    public ConsumerDtos.NodeListResponse children(String nodeId, String explicitRelease, String clientIp,
-                                              Optional<String> installationId) {
+    public ConsumerDtos.NodeListResponse children(String nodeId, String explicitRelease,
+                                                  ConsumerIdentity identity) {
         String release = releases.resolve(explicitRelease);
 
         Document requested = snapshots.node(release, nodeId);
         if (requested == null || !"active".equals(requested.getString("status"))) {
-            charge(ConsumerObservability.Route.CHILDREN, clientIp, installationId, 1);
+            gate.charge(ConsumerObservability.Route.CHILDREN, identity, 1);
             // L-5: absent and non-active are the same consumer answer, and the same as
             // consumer-empty below -- nothing in the response distinguishes them.
             throw new ConsumerFailures.NotFound("node not consumer-reachable: " + nodeId);
@@ -149,17 +142,17 @@ public class ConsumerTaxonomyService {
             childScopes.put(candidate, scope);
             units += scope.size();
         }
-        charge(ConsumerObservability.Route.CHILDREN, clientIp, installationId, units);
+        gate.charge(ConsumerObservability.Route.CHILDREN, identity, units);
 
         // The parent's own visibility, FIRST. A hidden scope answers 404 without touching a child.
-        if (!hasEligibleProduct(ConsumerObservability.Route.CHILDREN,
+        if (!probe.hasEligibleProduct(ConsumerObservability.Route.CHILDREN,
                 ConsumerObservability.ProbeScope.PARENT, parentScope)) {
             throw new ConsumerFailures.NotFound("node consumer-empty: " + nodeId);
         }
 
         List<Document> visible = new ArrayList<>();
         for (Map.Entry<Document, List<String>> entry : childScopes.entrySet()) {
-            if (hasEligibleProduct(ConsumerObservability.Route.CHILDREN,
+            if (probe.hasEligibleProduct(ConsumerObservability.Route.CHILDREN,
                     ConsumerObservability.ProbeScope.CHILD, entry.getValue())) {
                 visible.add(entry.getKey());
             }
@@ -175,58 +168,5 @@ public class ConsumerTaxonomyService {
             items.add(new ConsumerDtos.ConsumerNode(node.getString("node_id"), node.getString("name")));
         }
         return List.copyOf(items);
-    }
-
-    /**
-     * Q5-f: the weight is COMPUTED from the resolved snapshot, never a constant. The 294 units a
-     * root listing costs on the seeded tree is an OBSERVATION of that tree, not the formula.
-     */
-    private void charge(ConsumerObservability.Route route, String clientIp,
-                        Optional<String> installationId, long units) {
-        ConsumerRateLimiter rateLimiter = limiter.getIfAvailable();
-        if (rateLimiter == null) {
-            // DISABLED mode builds no limiter. That is the fail-closed state, not "unlimited":
-            // the surface must not serve while it cannot be limited (Q4-d).
-            throw new ConsumerFailures.Unavailable("consumer rate limiting is not configured");
-        }
-        int cost = (int) Math.min(units, Integer.MAX_VALUE);
-        observe.cost(route, cost);
-        Admission admission = rateLimiter.admit(clientIp, installationId, cost);
-        observe.admission(route, admission);
-        if (admission instanceof Admission.RateLimited limited) {
-            throw new ConsumerFailures.RateLimited(limited.retryAfter());
-        }
-        if (admission instanceof Admission.Unavailable unavailable) {
-            throw new ConsumerFailures.Unavailable("limiter: " + unavailable.reason());
-        }
-    }
-
-    /**
-     * TR-4B: ONE indexed existence probe per candidate, against CURRENT membership. An empty
-     * descendant set matches nothing, which is correct — no consumer-visible descendant means no
-     * eligible product.
-     */
-    private boolean hasEligibleProduct(ConsumerObservability.Route route,
-                                       ConsumerObservability.ProbeScope scope,
-                                       List<String> verticalIds) {
-        long started = System.nanoTime();
-        try {
-            boolean hit = db.getCollection("products")
-                    .find(ConsumerEligibility.within(verticalIds))
-                    .projection(new Document("_id", 1))
-                    .limit(1)
-                    .first() != null;
-            observe.probe(route, scope,
-                    hit ? ConsumerObservability.ProbeResult.HIT : ConsumerObservability.ProbeResult.MISS,
-                    Duration.ofNanos(System.nanoTime() - started));
-            return hit;
-        } catch (RuntimeException e) {
-            observe.probe(route, scope, ConsumerObservability.ProbeResult.ERROR,
-                    Duration.ofNanos(System.nanoTime() - started));
-            // TR-4B failure semantics: a timeout is NOT evidence that a node is empty. Neither
-            // "show it" nor "hide it" is available — the state is UNKNOWN, so the whole request
-            // fails rather than manufacturing a child set.
-            throw new ConsumerFailures.Unavailable("visibility probe failed");
-        }
     }
 }
