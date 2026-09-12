@@ -41,8 +41,13 @@ public class RedisRateLimitStore implements RateLimitStore {
      * The per-bucket remaining values are the OBSERVATION Q5-OBS-1 needs, returned from the SAME
      * atomic execution that made the decision: post-debit on ALLOWED, the undebited available
      * count on RATE_LIMITED. A separate Redis read afterwards would describe a bucket another
-     * request may already have changed. Values are floored: Redis converts Lua numbers to integer
-     * replies and truncates, so flooring makes the truncation explicit rather than accidental.
+     * request may already have changed.
+     *
+     * They are returned as DECIMAL STRINGS, not numbers: Redis converts a Lua number reply to an
+     * integer and truncates, so 2.9 tokens would report as 2 and saturation would read
+     * systematically higher than the state that produced the decision. Since these metrics drive
+     * later production tuning, that approximation must not be embedded. The decision itself always
+     * used the fractional value; now the observation matches it.
      */
     private static final String TOKEN_BUCKET_LUA = """
             local t = redis.call('TIME')
@@ -75,7 +80,7 @@ public class RedisRateLimitStore implements RateLimitStore {
             if deficient then
               local reply = {0, waitMs}
               for i = 1, n do
-                reply[#reply + 1] = math.floor(available[i])
+                reply[#reply + 1] = string.format('%.14g', available[i])
               end
               return reply
             end
@@ -86,7 +91,7 @@ public class RedisRateLimitStore implements RateLimitStore {
               local left = available[i] - cost
               redis.call('HSET', KEYS[i], 'tokens', left, 'ts', now)
               redis.call('EXPIRE', KEYS[i], math.ceil(cap / rate) + 60)
-              reply[#reply + 1] = math.floor(left)
+              reply[#reply + 1] = string.format('%.14g', left)
             end
             return reply
             """;
@@ -107,8 +112,25 @@ public class RedisRateLimitStore implements RateLimitStore {
         List<BucketObservation> out = new ArrayList<>(buckets.size());
         for (int i = 0; i < buckets.size(); i++) {
             int at = 2 + i;
-            double remaining = at < result.size() && result.get(at) instanceof Number n
-                    ? n.doubleValue() : Double.NaN;
+            double remaining = Double.NaN;
+            if (at < result.size()) {
+                Object raw = result.get(at);
+                if (raw instanceof Number n) {
+                    remaining = n.doubleValue();
+                } else if (raw instanceof String str) {
+                    try {
+                        remaining = Double.parseDouble(str);
+                    } catch (NumberFormatException ignored) {
+                        remaining = Double.NaN;
+                    }
+                } else if (raw instanceof byte[] bytes) {
+                    try {
+                        remaining = Double.parseDouble(new String(bytes, java.nio.charset.StandardCharsets.UTF_8));
+                    } catch (NumberFormatException ignored) {
+                        remaining = Double.NaN;
+                    }
+                }
+            }
             if (Double.isNaN(remaining)) {
                 // The script always returns n values; a short reply is a contract violation and
                 // must not be papered over with a plausible number.

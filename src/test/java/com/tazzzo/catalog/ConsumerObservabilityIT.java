@@ -100,6 +100,10 @@ class ConsumerObservabilityIT extends AbstractConsumerIT {
                 .isEqualTo(1);
         assertThat(timerCount(ConsumerObservability.REQUEST_DURATION, "route", "root", "outcome", "success"))
                 .isEqualTo(1);
+        assertThat(registry.find(ConsumerObservability.REQUEST_DURATION)
+                .tags("route", "root", "outcome", "success").timer()
+                .totalTime(java.util.concurrent.TimeUnit.NANOSECONDS))
+                .as("a real elapsed duration from the controller boundary").isGreaterThan(0);
 
         assertThat(summaryMax(ConsumerObservability.RATE_LIMIT_COST, "route", "root"))
                 .as("the COMPUTED cost on the seeded tree -- test evidence, never a production constant")

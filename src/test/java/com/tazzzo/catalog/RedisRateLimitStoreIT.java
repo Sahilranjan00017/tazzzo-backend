@@ -222,10 +222,10 @@ class RedisRateLimitStoreIT {
         assertThat(obs).hasSize(2);
         assertThat(obs.get(0).dimension()).isEqualTo(BucketDimension.IP);
         assertThat(obs.get(0).capacity()).isEqualTo(10);
-        assertThat(obs.get(0).remaining()).as("10 - 4, post-debit").isEqualTo(6.0);
+        assertThat(obs.get(0).remaining()).as("10 - 4, post-debit").isCloseTo(6.0, org.assertj.core.data.Offset.offset(0.05));
         assertThat(obs.get(1).dimension()).isEqualTo(BucketDimension.INSTALLATION);
-        assertThat(obs.get(1).remaining()).isEqualTo(46.0);
-        assertThat(obs.get(0).saturation()).isEqualTo(0.4);
+        assertThat(obs.get(1).remaining()).isCloseTo(46.0, org.assertj.core.data.Offset.offset(0.05));
+        assertThat(obs.get(0).saturation()).isCloseTo(0.4, org.assertj.core.data.Offset.offset(0.01));
     }
 
     @Test
@@ -238,8 +238,10 @@ class RedisRateLimitStoreIT {
         List<BucketObservation> obs = ((Admission.RateLimited) denied).observations();
         assertThat(obs).hasSize(1);
         assertThat(obs.get(0).remaining())
-                .as("what was available when refused -- and NOT debited by the refusal")
-                .isEqualTo(2.0);
+                .as("what was available when refused -- and NOT debited by the refusal. "
+                        + "Not an exact 2.0: the fraction of refill elapsed since the first call is "
+                        + "now visible instead of floored away, which is the point.")
+                .isCloseTo(2.0, org.assertj.core.data.Offset.offset(0.05));
         assertThat(instanceA.tryConsume(List.of(ip), 2))
                 .as("the 2 tokens are provably still there")
                 .isInstanceOf(Admission.Allowed.class);
@@ -257,6 +259,51 @@ class RedisRateLimitStoreIT {
         BucketObservation o = ((Admission.Allowed) a).observations().get(0);
         assertThat(o.remaining()).isEqualTo(0.0);
         assertThat(o.saturation()).isEqualTo(1.0);
+    }
+
+    /** Seeds a bucket with an exact (fractional) token count as of Redis's clock right now. */
+    private void seedTokens(BucketSpec spec, double tokens) {
+        Long serverMillis = templateA.execute((org.springframework.data.redis.core.RedisCallback<Long>)
+                conn -> conn.serverCommands().time());
+        templateA.opsForHash().put(spec.key(), "tokens", Double.toString(tokens));
+        templateA.opsForHash().put(spec.key(), "ts", Long.toString(serverMillis));
+    }
+
+    /**
+     * Q5-g hardening: the observation must carry the FRACTION. Redis truncates a Lua NUMBER reply
+     * to an integer, so a floored value would report 2.9 tokens as 2 and saturation as
+     * systematically higher than the state that produced the decision -- which would then feed
+     * production tuning. Remaining is returned as a decimal string from the same execution.
+     */
+    @Test
+    void an_admitted_request_observes_the_fractional_post_debit_remaining() {
+        BucketSpec ip = bucket("ip:frac", 10, 0.000001);   // refill negligible over the test
+        seedTokens(ip, 2.9);
+
+        Admission a = instanceA.tryConsume(List.of(ip), 1);
+        assertThat(a).isInstanceOf(Admission.Allowed.class);
+        BucketObservation o = ((Admission.Allowed) a).observations().get(0);
+        assertThat(o.remaining())
+                .as("2.9 - 1 = 1.9, NOT floored to 1")
+                .isCloseTo(1.9, org.assertj.core.data.Offset.offset(0.001));
+        assertThat(o.saturation())
+                .as("1 - 1.9/10, from the fractional value")
+                .isCloseTo(0.81, org.assertj.core.data.Offset.offset(0.001));
+        assertThat(o.remaining() % 1.0).as("provably fractional").isNotEqualTo(0.0);
+    }
+
+    @Test
+    void a_refused_request_observes_the_fractional_undebited_state() {
+        BucketSpec ip = bucket("ip:frac2", 10, 0.000001);
+        seedTokens(ip, 2.5);
+
+        Admission denied = instanceB.tryConsume(List.of(ip), 3);   // needs 3, has 2.5
+        assertThat(denied).isInstanceOf(Admission.RateLimited.class);
+        BucketObservation o = ((Admission.RateLimited) denied).observations().get(0);
+        assertThat(o.remaining())
+                .as("2.5 available, undebited, and not floored to 2")
+                .isCloseTo(2.5, org.assertj.core.data.Offset.offset(0.001));
+        assertThat(o.saturation()).isCloseTo(0.75, org.assertj.core.data.Offset.offset(0.001));
     }
 
     @Test

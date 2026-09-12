@@ -4,6 +4,8 @@ import com.tazzzo.catalog.ratelimit.ClientIpResolver;
 import com.tazzzo.catalog.ratelimit.ClientIpUnresolvableException;
 import com.tazzzo.catalog.ratelimit.InstallationIdResolver;
 import jakarta.servlet.http.HttpServletRequest;
+
+import java.time.Duration;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -34,28 +36,48 @@ public class ConsumerTaxonomyController {
         this.observe = observe;
     }
 
-    /** ROOT-1. {@code release} omitted resolves the current pointer ONCE (TR2-CURRENT-1). */
+    /**
+     * ROOT-1. {@code release} omitted resolves the current pointer ONCE (TR2-CURRENT-1).
+     *
+     * <p><b>This is the request clock boundary (Q5-OBS-1).</b> The timer starts before client
+     * identity is resolved and stops after the service returns or throws, so every outcome —
+     * success, not_found, rate_limited, unavailable — is measured from the same point with a REAL
+     * elapsed duration. The outcome is derived from the typed failure that escapes, so the metric
+     * cannot disagree with the status the caller sees. Exactly one request observation per request.
+     */
     @GetMapping("/categories")
     public ConsumerDtos.RootResponse categories(
             @RequestParam(name = "release", required = false) String release,
             HttpServletRequest request) {
-        return taxonomy.root(release, clientIp(request),
-                InstallationIdResolver.resolve(request.getHeader(InstallationIdResolver.HEADER)));
+        long started = System.nanoTime();
+        ConsumerObservability.Outcome outcome = ConsumerObservability.Outcome.UNAVAILABLE;
+        try {
+            ConsumerDtos.RootResponse response = taxonomy.root(release, clientIp(request),
+                    InstallationIdResolver.resolve(request.getHeader(InstallationIdResolver.HEADER)));
+            outcome = ConsumerObservability.Outcome.SUCCESS;
+            return response;
+        } catch (ConsumerFailures.NotFound e) {
+            outcome = ConsumerObservability.Outcome.NOT_FOUND;
+            throw e;
+        } catch (ConsumerFailures.RateLimited e) {
+            outcome = ConsumerObservability.Outcome.RATE_LIMITED;
+            throw e;
+        } finally {
+            observe.request(ConsumerObservability.Route.ROOT, outcome,
+                    Duration.ofNanos(System.nanoTime() - started));
+        }
     }
 
     /**
      * Q5-IP-2a. An unresolvable client identity is an infrastructure fault, not a rate decision:
      * the alternative — falling back to the proxy's address — would put every client behind it in
-     * ONE bucket.
+     * ONE bucket. It surfaces as Unavailable and is timed by the boundary above like any other
+     * outcome; nothing here records a placeholder duration.
      */
     private String clientIp(HttpServletRequest request) {
         try {
             return clientIps.resolve(request.getRemoteAddr(), request.getHeader("X-Forwarded-For"));
         } catch (ClientIpUnresolvableException e) {
-            // Fails before the service is reached, so the service's own accounting never sees it;
-            // recorded here so an unresolvable-identity outage is visible as an outcome.
-            observe.request(ConsumerObservability.Route.ROOT,
-                    ConsumerObservability.Outcome.UNAVAILABLE, java.time.Duration.ZERO);
             throw new ConsumerFailures.Unavailable("client identity unresolvable");
         }
     }

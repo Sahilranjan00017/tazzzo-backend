@@ -60,31 +60,13 @@ public class ConsumerTaxonomyService {
     }
 
     /**
-     * Measured as a whole: one request row per outcome (Q5-OBS-1). The outcome is derived from the
-     * typed failure that escapes, so the metric cannot disagree with the HTTP status the caller saw.
+     * ROOT-1. Request outcome and latency are NOT measured here — the controller owns that clock
+     * (Q5-OBS-1), so that success, not_found, rate_limited and unavailable all share ONE boundary
+     * that includes client-identity resolution. This class records only what it alone knows: the
+     * charged cost, the admission observation, and each probe.
      */
     public ConsumerDtos.RootResponse root(String explicitRelease, String clientIp,
                                           Optional<String> installationId) {
-        long started = System.nanoTime();
-        ConsumerObservability.Outcome outcome = ConsumerObservability.Outcome.UNAVAILABLE;
-        try {
-            ConsumerDtos.RootResponse response = rootUnmeasured(explicitRelease, clientIp, installationId);
-            outcome = ConsumerObservability.Outcome.SUCCESS;
-            return response;
-        } catch (ConsumerFailures.NotFound e) {
-            outcome = ConsumerObservability.Outcome.NOT_FOUND;
-            throw e;
-        } catch (ConsumerFailures.RateLimited e) {
-            outcome = ConsumerObservability.Outcome.RATE_LIMITED;
-            throw e;
-        } finally {
-            observe.request(ConsumerObservability.Route.ROOT, outcome,
-                    Duration.ofNanos(System.nanoTime() - started));
-        }
-    }
-
-    private ConsumerDtos.RootResponse rootUnmeasured(String explicitRelease, String clientIp,
-                                                     Optional<String> installationId) {
         String release = releases.resolve(explicitRelease);
 
         // Candidates are selected by TYPE. "parent_id == null" would return NINE nodes in the

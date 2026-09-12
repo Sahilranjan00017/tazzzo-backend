@@ -124,8 +124,12 @@ class ConsumerProbeFailureTest {
                 .isEqualTo(1);
         assertThat(registry.find(ConsumerObservability.PROBE_DURATION)
                 .tags("route", "root", "result", "error").timer().count()).isEqualTo(1);
-        assertThat(registry.find(ConsumerObservability.REQUESTS)
-                .tags("route", "root", "outcome", "unavailable").counter().count()).isEqualTo(1);
+        // The request OUTCOME is not asserted here: it is recorded at the controller's clock
+        // boundary, which this service-level test deliberately does not include. The HTTP suites
+        // cover it (ConsumerRootStoreDownIT, ConsumerRootIpUnresolvableIT).
+        assertThat(registry.find(ConsumerObservability.REQUESTS).counter())
+                .as("the service records no request row of its own -- no double counting")
+                .isNull();
     }
 
     /** A registry that refuses to create any meter. */
