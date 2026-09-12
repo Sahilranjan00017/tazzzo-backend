@@ -209,8 +209,13 @@ public class AttributeAuthoringService {
         return find.sort(Sorts.descending("version")).first();
     }
 
-    /** Seed docs predate the status field: absent status counts as active (legacy-active). */
-    private static org.bson.conversions.Bson activeOrLegacy() {
+    /**
+     * Seed docs predate the status field: absent status counts as active (legacy-active). Public
+     * because the consumer projector's page-level definition read (PHASE-5-BATCH-1) must apply the
+     * SAME active-or-legacy meaning as {@link #latestActiveIn} — one definition of "active", not a
+     * copy that could drift.
+     */
+    public static org.bson.conversions.Bson activeOrLegacy() {
         return Filters.or(Filters.eq("status", "active"), Filters.exists("status", false));
     }
 
