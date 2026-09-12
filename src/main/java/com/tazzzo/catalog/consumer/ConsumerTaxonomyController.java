@@ -7,6 +7,7 @@ import jakarta.servlet.http.HttpServletRequest;
 
 import java.time.Duration;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -46,14 +47,34 @@ public class ConsumerTaxonomyController {
      * cannot disagree with the status the caller sees. Exactly one request observation per request.
      */
     @GetMapping("/categories")
-    public ConsumerDtos.RootResponse categories(
+    public ConsumerDtos.NodeListResponse categories(
             @RequestParam(name = "release", required = false) String release,
             HttpServletRequest request) {
+        return measured(ConsumerObservability.Route.ROOT, () ->
+                taxonomy.root(release, clientIp(request), installationId(request)));
+    }
+
+    /** CHILD-1. Any taxonomy node id; a visible vertical answers 200 with empty items. */
+    @GetMapping("/categories/{nodeId}/children")
+    public ConsumerDtos.NodeListResponse children(
+            @PathVariable("nodeId") String nodeId,
+            @RequestParam(name = "release", required = false) String release,
+            HttpServletRequest request) {
+        return measured(ConsumerObservability.Route.CHILDREN, () ->
+                taxonomy.children(nodeId, release, clientIp(request), installationId(request)));
+    }
+
+    /**
+     * The ONE request clock boundary for every consumer route (Q5-OBS-1): started before identity
+     * resolution, recorded exactly once in {@code finally}, outcome derived from the typed failure
+     * that escapes so the metric cannot disagree with the status the caller sees.
+     */
+    private ConsumerDtos.NodeListResponse measured(ConsumerObservability.Route route,
+                                               java.util.function.Supplier<ConsumerDtos.NodeListResponse> call) {
         long started = System.nanoTime();
         ConsumerObservability.Outcome outcome = ConsumerObservability.Outcome.UNAVAILABLE;
         try {
-            ConsumerDtos.RootResponse response = taxonomy.root(release, clientIp(request),
-                    InstallationIdResolver.resolve(request.getHeader(InstallationIdResolver.HEADER)));
+            ConsumerDtos.NodeListResponse response = call.get();
             outcome = ConsumerObservability.Outcome.SUCCESS;
             return response;
         } catch (ConsumerFailures.NotFound e) {
@@ -63,9 +84,12 @@ public class ConsumerTaxonomyController {
             outcome = ConsumerObservability.Outcome.RATE_LIMITED;
             throw e;
         } finally {
-            observe.request(ConsumerObservability.Route.ROOT, outcome,
-                    Duration.ofNanos(System.nanoTime() - started));
+            observe.request(route, outcome, Duration.ofNanos(System.nanoTime() - started));
         }
+    }
+
+    private static java.util.Optional<String> installationId(HttpServletRequest request) {
+        return InstallationIdResolver.resolve(request.getHeader(InstallationIdResolver.HEADER));
     }
 
     /**

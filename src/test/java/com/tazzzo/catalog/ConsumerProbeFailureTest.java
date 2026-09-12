@@ -161,7 +161,7 @@ class ConsumerProbeFailureTest {
             observe.request(ConsumerObservability.Route.ROOT, ConsumerObservability.Outcome.SUCCESS, Duration.ZERO);
             observe.cost(ConsumerObservability.Route.ROOT, 1);
             observe.admission(ConsumerObservability.Route.ROOT, new Admission.Allowed(List.of()));
-            observe.probe(ConsumerObservability.Route.ROOT, ConsumerObservability.ProbeResult.HIT, Duration.ZERO);
+            observe.probe(ConsumerObservability.Route.ROOT, ConsumerObservability.ProbeScope.CHILD, ConsumerObservability.ProbeResult.HIT, Duration.ZERO);
         }).as("instrumentation is subordinate to the business result").doesNotThrowAnyException();
 
         // And the full request path with a broken registry still returns the business answer.

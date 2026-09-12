@@ -22,8 +22,12 @@ public final class ConsumerDtos {
      */
     public record ConsumerNode(String id, String name) { }
 
-    /** {@code resolved_release_id} is echoed per TR-1: the response says which release answered it. */
-    public record RootResponse(@JsonProperty("resolved_release_id") String resolvedReleaseId,
+    /**
+     * The one listing shape ROOT-1 and CHILD-1 share: {@code resolved_release_id} is echoed per
+     * TR-1 (the response says which release answered it) and {@code items} is the TR-3-ordered,
+     * hide-empty list of immediate consumer-visible nodes — empty for a visible vertical.
+     */
+    public record NodeListResponse(@JsonProperty("resolved_release_id") String resolvedReleaseId,
                                List<ConsumerNode> items) { }
 
     /**

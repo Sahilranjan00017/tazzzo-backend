@@ -46,10 +46,11 @@ public class ConsumerObservability {
     public static final String PROBE_FAILURES = "tazzzo.catalog.consumer.visibility.probe.failures";
 
     /** The complete tag vocabulary. A guard test asserts no meter carries any other key. */
-    public static final Set<String> ALLOWED_TAG_KEYS = Set.of("route", "outcome", "dimension", "decision", "result");
+    public static final Set<String> ALLOWED_TAG_KEYS =
+            Set.of("route", "outcome", "dimension", "decision", "result", "scope");
 
     public enum Route {
-        ROOT("root");
+        ROOT("root"), CHILDREN("children");
 
         private final String tag;
 
@@ -68,6 +69,25 @@ public class ConsumerObservability {
         private final String tag;
 
         Outcome(String tag) {
+            this.tag = tag;
+        }
+
+        public String tag() {
+            return tag;
+        }
+    }
+
+    /**
+     * Which existence probe: the requested node's own visibility (PARENT), or one immediate
+     * candidate's (CHILD). ROOT has no parent probe — its candidates are children of the implicit
+     * root — so its probes are CHILD-scoped.
+     */
+    public enum ProbeScope {
+        PARENT("parent"), CHILD("child");
+
+        private final String tag;
+
+        ProbeScope(String tag) {
             this.tag = tag;
         }
 
@@ -145,14 +165,14 @@ public class ConsumerObservability {
         });
     }
 
-    public void probe(Route route, ProbeResult result, Duration elapsed) {
+    public void probe(Route route, ProbeScope scope, ProbeResult result, Duration elapsed) {
         safely(() -> {
             Timer.builder(PROBE_DURATION)
-                    .tag("route", route.tag()).tag("result", result.tag())
+                    .tag("route", route.tag()).tag("scope", scope.tag()).tag("result", result.tag())
                     .register(registry).record(elapsed);
             if (result == ProbeResult.ERROR) {
                 Counter.builder(PROBE_FAILURES)
-                        .tag("route", route.tag())
+                        .tag("route", route.tag()).tag("scope", scope.tag())
                         .register(registry).increment();
             }
         });

@@ -875,7 +875,40 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/RootResponse"
+                  "$ref" : "#/components/schemas/NodeListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/catalog/v1/categories/{nodeId}/children" : {
+      "get" : {
+        "tags" : [ "consumer-taxonomy-controller" ],
+        "operationId" : "children",
+        "parameters" : [ {
+          "name" : "nodeId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "release",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/NodeListResponse"
                 }
               }
             }
@@ -1526,7 +1559,7 @@
           }
         }
       },
-      "RootResponse" : {
+      "NodeListResponse" : {
         "type" : "object",
         "properties" : {
           "items" : {
