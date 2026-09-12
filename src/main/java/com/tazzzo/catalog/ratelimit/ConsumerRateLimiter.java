@@ -45,9 +45,13 @@ public class ConsumerRateLimiter {
             return new Admission.Unavailable("client ip not resolved");
         }
         List<BucketSpec> buckets = new ArrayList<>(2);
-        buckets.add(new BucketSpec(IP_BUCKET_PREFIX + clientIp,
+        // The raw keys are built HERE and go DOWN into the store only. What comes back up is a
+        // BucketObservation carrying the bounded dimension and numbers -- never the key, which
+        // embeds the client IP or installation id and must never become a metric tag.
+        buckets.add(new BucketSpec(BucketDimension.IP, IP_BUCKET_PREFIX + clientIp,
                 ipBucket.getCapacity(), ipBucket.getRefillPerSecond()));
-        installationId.ifPresent(id -> buckets.add(new BucketSpec(INSTALL_BUCKET_PREFIX + id,
+        installationId.ifPresent(id -> buckets.add(new BucketSpec(BucketDimension.INSTALLATION,
+                INSTALL_BUCKET_PREFIX + id,
                 installationBucket.getCapacity(), installationBucket.getRefillPerSecond())));
         return store.tryConsume(buckets, cost);
     }

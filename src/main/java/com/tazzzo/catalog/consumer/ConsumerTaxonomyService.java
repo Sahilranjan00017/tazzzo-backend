@@ -8,6 +8,7 @@ import org.bson.Document;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -44,19 +45,46 @@ public class ConsumerTaxonomyService {
     private final ConsumerReleaseResolver releases;
     private final MongoDatabase db;
     private final ObjectProvider<ConsumerRateLimiter> limiter;
+    private final ConsumerObservability observe;
 
     public ConsumerTaxonomyService(SnapshotTaxonomyReader snapshots,
                                    ConsumerReleaseResolver releases,
                                    MongoDatabase db,
-                                   ObjectProvider<ConsumerRateLimiter> limiter) {
+                                   ObjectProvider<ConsumerRateLimiter> limiter,
+                                   ConsumerObservability observe) {
         this.snapshots = snapshots;
         this.releases = releases;
         this.db = db;
         this.limiter = limiter;
+        this.observe = observe;
     }
 
+    /**
+     * Measured as a whole: one request row per outcome (Q5-OBS-1). The outcome is derived from the
+     * typed failure that escapes, so the metric cannot disagree with the HTTP status the caller saw.
+     */
     public ConsumerDtos.RootResponse root(String explicitRelease, String clientIp,
                                           Optional<String> installationId) {
+        long started = System.nanoTime();
+        ConsumerObservability.Outcome outcome = ConsumerObservability.Outcome.UNAVAILABLE;
+        try {
+            ConsumerDtos.RootResponse response = rootUnmeasured(explicitRelease, clientIp, installationId);
+            outcome = ConsumerObservability.Outcome.SUCCESS;
+            return response;
+        } catch (ConsumerFailures.NotFound e) {
+            outcome = ConsumerObservability.Outcome.NOT_FOUND;
+            throw e;
+        } catch (ConsumerFailures.RateLimited e) {
+            outcome = ConsumerObservability.Outcome.RATE_LIMITED;
+            throw e;
+        } finally {
+            observe.request(ConsumerObservability.Route.ROOT, outcome,
+                    Duration.ofNanos(System.nanoTime() - started));
+        }
+    }
+
+    private ConsumerDtos.RootResponse rootUnmeasured(String explicitRelease, String clientIp,
+                                                     Optional<String> installationId) {
         String release = releases.resolve(explicitRelease);
 
         // Candidates are selected by TYPE. "parent_id == null" would return NINE nodes in the
@@ -110,7 +138,9 @@ public class ConsumerTaxonomyService {
             throw new ConsumerFailures.Unavailable("consumer rate limiting is not configured");
         }
         int cost = (int) Math.min(units, Integer.MAX_VALUE);
+        observe.cost(ConsumerObservability.Route.ROOT, cost);
         Admission admission = rateLimiter.admit(clientIp, installationId, cost);
+        observe.admission(ConsumerObservability.Route.ROOT, admission);
         if (admission instanceof Admission.RateLimited limited) {
             throw new ConsumerFailures.RateLimited(limited.retryAfter());
         }
@@ -125,13 +155,20 @@ public class ConsumerTaxonomyService {
      * eligible product.
      */
     private boolean hasEligibleProduct(List<String> verticalIds) {
+        long started = System.nanoTime();
         try {
-            return db.getCollection("products")
+            boolean hit = db.getCollection("products")
                     .find(ConsumerEligibility.within(verticalIds))
                     .projection(new Document("_id", 1))
                     .limit(1)
                     .first() != null;
+            observe.probe(ConsumerObservability.Route.ROOT,
+                    hit ? ConsumerObservability.ProbeResult.HIT : ConsumerObservability.ProbeResult.MISS,
+                    Duration.ofNanos(System.nanoTime() - started));
+            return hit;
         } catch (RuntimeException e) {
+            observe.probe(ConsumerObservability.Route.ROOT, ConsumerObservability.ProbeResult.ERROR,
+                    Duration.ofNanos(System.nanoTime() - started));
             // TR-4B failure semantics: a timeout is NOT evidence that a node is empty. Neither
             // "show it" nor "hide it" is available — the state is UNKNOWN, so the whole request
             // fails rather than manufacturing a child set.

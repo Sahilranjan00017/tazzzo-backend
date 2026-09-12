@@ -33,10 +33,16 @@ public class RedisRateLimitStore implements RateLimitStore {
 
     /**
      * ARGV: [1] cost, [2] bucket count, then per bucket i: capacity at 1+2i, refill at 2+2i.
-     * Returns {allowed, retryAfterMillis}.
+     * Returns {allowed, retryAfterMillis, remaining_1 … remaining_n}.
      *
      * Two passes on purpose: the first only READS and computes, so a deficiency in the last bucket
      * still leaves the earlier ones undebited (Q5-ATOMIC-1).
+     *
+     * The per-bucket remaining values are the OBSERVATION Q5-OBS-1 needs, returned from the SAME
+     * atomic execution that made the decision: post-debit on ALLOWED, the undebited available
+     * count on RATE_LIMITED. A separate Redis read afterwards would describe a bucket another
+     * request may already have changed. Values are floored: Redis converts Lua numbers to integer
+     * replies and truncates, so flooring makes the truncation explicit rather than accidental.
      */
     private static final String TOKEN_BUCKET_LUA = """
             local t = redis.call('TIME')
@@ -67,15 +73,22 @@ public class RedisRateLimitStore implements RateLimitStore {
               end
             end
             if deficient then
-              return {0, waitMs}
+              local reply = {0, waitMs}
+              for i = 1, n do
+                reply[#reply + 1] = math.floor(available[i])
+              end
+              return reply
             end
+            local reply = {1, 0}
             for i = 1, n do
               local cap = tonumber(ARGV[1 + 2 * i])
               local rate = tonumber(ARGV[2 + 2 * i])
-              redis.call('HSET', KEYS[i], 'tokens', available[i] - cost, 'ts', now)
+              local left = available[i] - cost
+              redis.call('HSET', KEYS[i], 'tokens', left, 'ts', now)
               redis.call('EXPIRE', KEYS[i], math.ceil(cap / rate) + 60)
+              reply[#reply + 1] = math.floor(left)
             end
-            return {1, 0}
+            return reply
             """;
 
     private final StringRedisTemplate redis;
@@ -84,6 +97,27 @@ public class RedisRateLimitStore implements RateLimitStore {
     public RedisRateLimitStore(StringRedisTemplate redis) {
         this.redis = redis;
         this.script = new DefaultRedisScript<>(TOKEN_BUCKET_LUA, List.class);
+    }
+
+    /**
+     * Pairs the script's trailing remaining-values with the buckets that produced them. Only the
+     * DIMENSION and the numbers leave this class — never the key, which embeds the client identity.
+     */
+    private static List<BucketObservation> observations(List<BucketSpec> buckets, List<?> result) {
+        List<BucketObservation> out = new ArrayList<>(buckets.size());
+        for (int i = 0; i < buckets.size(); i++) {
+            int at = 2 + i;
+            double remaining = at < result.size() && result.get(at) instanceof Number n
+                    ? n.doubleValue() : Double.NaN;
+            if (Double.isNaN(remaining)) {
+                // The script always returns n values; a short reply is a contract violation and
+                // must not be papered over with a plausible number.
+                throw new IllegalStateException("limiter script returned no remaining for bucket " + i);
+            }
+            BucketSpec spec = buckets.get(i);
+            out.add(new BucketObservation(spec.dimension(), spec.capacity(), remaining));
+        }
+        return List.copyOf(out);
     }
 
     @Override
@@ -122,9 +156,11 @@ public class RedisRateLimitStore implements RateLimitStore {
             }
             long allowed = ((Number) result.get(0)).longValue();
             long retryAfterMillis = ((Number) result.get(1)).longValue();
+            List<BucketObservation> observations = observations(buckets, result);
             return allowed == 1
-                    ? Admission.allowed()
-                    : new Admission.RateLimited(Duration.ofMillis(Math.max(retryAfterMillis, 1)));
+                    ? new Admission.Allowed(observations)
+                    : new Admission.RateLimited(Duration.ofMillis(Math.max(retryAfterMillis, 1)),
+                            observations);
         } catch (RuntimeException e) {
             // Deliberately broad: any store failure is UNAVAILABLE, never an allow and never a 429.
             log.warn("consumer rate-limit store unavailable: {}", e.toString());

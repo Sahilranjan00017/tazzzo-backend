@@ -49,3 +49,12 @@ tazzzo:
     installation:
       capacity: ${TAZZZO_RATE_LIMIT_INSTALL_CAPACITY:0}
       refill-per-second: ${TAZZZO_RATE_LIMIT_INSTALL_REFILL:0}
+management:
+  endpoints:
+    web:
+      # Q5-OBS-1: Actuator is on the classpath for Micrometer ONLY. No actuator endpoint is
+      # served over HTTP; /actuator/** is UNKNOWN to SurfaceClassifier and refused by the auth
+      # filter before routing, and this makes it structural as well -- nothing is registered.
+      # The telemetry exporter is a deployment decision, not chosen here.
+      exposure:
+        include: ""

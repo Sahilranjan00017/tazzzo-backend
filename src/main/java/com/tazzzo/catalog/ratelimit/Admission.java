@@ -1,6 +1,7 @@
 package com.tazzzo.catalog.ratelimit;
 
 import java.time.Duration;
+import java.util.List;
 
 /**
  * The limiter's answer. Three outcomes, deliberately distinct (Q5-FAIL-1):
@@ -17,14 +18,15 @@ import java.time.Duration;
  */
 public sealed interface Admission {
 
-    record Allowed() implements Admission { }
+    /** @param observations per-bucket state from the SAME execution that admitted (Q5-OBS-1) */
+    record Allowed(List<BucketObservation> observations) implements Admission { }
 
-    /** @param retryAfter time until EVERY required bucket could admit — max over the deficient ones */
-    record RateLimited(Duration retryAfter) implements Admission { }
+    /**
+     * @param retryAfter time until EVERY required bucket could admit — max over the deficient ones
+     * @param observations per-bucket state at decision time; nothing was debited
+     */
+    record RateLimited(Duration retryAfter, List<BucketObservation> observations) implements Admission { }
 
+    /** No observations: a fabricated remaining/saturation for a decision that was never made is a lie. */
     record Unavailable(String reason) implements Admission { }
-
-    static Admission allowed() {
-        return new Allowed();
-    }
 }

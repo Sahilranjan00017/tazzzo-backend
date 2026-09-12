@@ -25,10 +25,13 @@ public class ConsumerTaxonomyController {
 
     private final ConsumerTaxonomyService taxonomy;
     private final ClientIpResolver clientIps;
+    private final ConsumerObservability observe;
 
-    public ConsumerTaxonomyController(ConsumerTaxonomyService taxonomy, ClientIpResolver clientIps) {
+    public ConsumerTaxonomyController(ConsumerTaxonomyService taxonomy, ClientIpResolver clientIps,
+                                      ConsumerObservability observe) {
         this.taxonomy = taxonomy;
         this.clientIps = clientIps;
+        this.observe = observe;
     }
 
     /** ROOT-1. {@code release} omitted resolves the current pointer ONCE (TR2-CURRENT-1). */
@@ -49,6 +52,10 @@ public class ConsumerTaxonomyController {
         try {
             return clientIps.resolve(request.getRemoteAddr(), request.getHeader("X-Forwarded-For"));
         } catch (ClientIpUnresolvableException e) {
+            // Fails before the service is reached, so the service's own accounting never sees it;
+            // recorded here so an unresolvable-identity outage is visible as an outcome.
+            observe.request(ConsumerObservability.Route.ROOT,
+                    ConsumerObservability.Outcome.UNAVAILABLE, java.time.Duration.ZERO);
             throw new ConsumerFailures.Unavailable("client identity unresolvable");
         }
     }

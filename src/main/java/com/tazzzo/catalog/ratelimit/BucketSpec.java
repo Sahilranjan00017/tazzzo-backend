@@ -7,9 +7,12 @@ package com.tazzzo.catalog.ratelimit;
  * <p>The numbers are NEVER chosen in code. They are mandatory production configuration derived from
  * load measurement; test profiles carry fixture values that are not production recommendations.
  */
-public record BucketSpec(String key, long capacity, double refillPerSecond) {
+public record BucketSpec(BucketDimension dimension, String key, long capacity, double refillPerSecond) {
 
     public BucketSpec {
+        if (dimension == null) {
+            throw new IllegalArgumentException("bucket dimension is required");
+        }
         if (key == null || key.isBlank()) {
             throw new IllegalArgumentException("bucket key is required");
         }

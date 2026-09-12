@@ -36,6 +36,17 @@
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
         <!--
+          Q5-OBS-1: Micrometer via Actuator, for the consumer limiter/probe measurements Q5-g
+          requires before internet exposure. This does NOT open an HTTP surface: web exposure is
+          disabled in application.yml, /actuator/** stays UNKNOWN to SurfaceClassifier, and the
+          production sink/exporter (CloudWatch vs Prometheus vs OTLP) is a deployment decision
+          that is deliberately not made here.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <!--
           TR-3 (ratified 2026-09-06, implementation pinned in 5.2.1): the transport sort key is
           NFKC -> trim -> collapse whitespace -> UNICODE CASE-FOLD. Java has no built-in foldCase;
           String.toLowerCase(Locale.ROOT) is a close APPROXIMATION, not the operation the contract

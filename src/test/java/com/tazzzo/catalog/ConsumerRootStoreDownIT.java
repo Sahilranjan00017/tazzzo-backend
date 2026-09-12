@@ -22,6 +22,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class ConsumerRootStoreDownIT extends AbstractConsumerIT {
 
+    @org.springframework.beans.factory.annotation.Autowired io.micrometer.core.instrument.MeterRegistry registry;
+
     @DynamicPropertySource
     static void props(DynamicPropertyRegistry r) {
         r.add("spring.data.mongodb.uri", MONGO::getReplicaSetUrl);
@@ -56,5 +58,10 @@ class ConsumerRootStoreDownIT extends AbstractConsumerIT {
         assertThat(res.getBody().has("error")).isFalse();
         assertThat(PRODUCT_FINDS.get())
                 .as("no admission decision means no product work happens at all").isZero();
+        assertThat(registry.find(com.tazzzo.catalog.consumer.ConsumerObservability.REQUESTS)
+                .tags("route", "root", "outcome", "unavailable").counter().count())
+                .as("a limiter failure is an UNAVAILABLE outcome, never rate_limited").isEqualTo(1);
+        assertThat(registry.find(com.tazzzo.catalog.consumer.ConsumerObservability.RATE_LIMIT_REMAINING).summary())
+                .as("no fabricated remaining for a decision that was never made").isNull();
     }
 }

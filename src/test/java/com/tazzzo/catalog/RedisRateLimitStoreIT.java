@@ -1,6 +1,8 @@
 package com.tazzzo.catalog;
 
 import com.tazzzo.catalog.ratelimit.Admission;
+import com.tazzzo.catalog.ratelimit.BucketDimension;
+import com.tazzzo.catalog.ratelimit.BucketObservation;
 import com.tazzzo.catalog.ratelimit.BucketSpec;
 import com.tazzzo.catalog.ratelimit.ConsumerRateLimitProperties;
 import com.tazzzo.catalog.ratelimit.ConsumerRateLimiter;
@@ -70,7 +72,8 @@ class RedisRateLimitStoreIT {
     }
 
     private BucketSpec bucket(String key, long capacity, double refill) {
-        return new BucketSpec(key + ":" + UUID.randomUUID(), capacity, refill);
+        BucketDimension dimension = key.startsWith("install") ? BucketDimension.INSTALLATION : BucketDimension.IP;
+        return new BucketSpec(dimension, key + ":" + UUID.randomUUID(), capacity, refill);
     }
 
     // ---------- THE test: one bucket, two instances ----------
@@ -204,6 +207,74 @@ class RedisRateLimitStoreIT {
                 .isInstanceOf(Admission.Unavailable.class);
         assertThat(result).isNotInstanceOf(Admission.Allowed.class);
         assertThat(result).isNotInstanceOf(Admission.RateLimited.class);
+    }
+
+    // ---------- Q5-OBS-1: observations come from the SAME execution as the verdict ----------
+
+    @Test
+    void an_admitted_request_reports_post_debit_remaining_per_bucket() {
+        BucketSpec ip = bucket("ip:obs", 10, 0.01);
+        BucketSpec install = bucket("install:obs", 50, 0.01);
+
+        Admission a = instanceA.tryConsume(List.of(ip, install), 4);
+        assertThat(a).isInstanceOf(Admission.Allowed.class);
+        List<BucketObservation> obs = ((Admission.Allowed) a).observations();
+        assertThat(obs).hasSize(2);
+        assertThat(obs.get(0).dimension()).isEqualTo(BucketDimension.IP);
+        assertThat(obs.get(0).capacity()).isEqualTo(10);
+        assertThat(obs.get(0).remaining()).as("10 - 4, post-debit").isEqualTo(6.0);
+        assertThat(obs.get(1).dimension()).isEqualTo(BucketDimension.INSTALLATION);
+        assertThat(obs.get(1).remaining()).isEqualTo(46.0);
+        assertThat(obs.get(0).saturation()).isEqualTo(0.4);
+    }
+
+    @Test
+    void a_refused_request_reports_the_undebited_available_tokens() {
+        BucketSpec ip = bucket("ip:obs2", 5, 0.01);
+        instanceA.tryConsume(List.of(ip), 3);                     // 2 left
+
+        Admission denied = instanceB.tryConsume(List.of(ip), 3);   // needs 3, has 2
+        assertThat(denied).isInstanceOf(Admission.RateLimited.class);
+        List<BucketObservation> obs = ((Admission.RateLimited) denied).observations();
+        assertThat(obs).hasSize(1);
+        assertThat(obs.get(0).remaining())
+                .as("what was available when refused -- and NOT debited by the refusal")
+                .isEqualTo(2.0);
+        assertThat(instanceA.tryConsume(List.of(ip), 2))
+                .as("the 2 tokens are provably still there")
+                .isInstanceOf(Admission.Allowed.class);
+    }
+
+    /**
+     * Exactly-full then exactly-spent: the observation must say 0, and it must come from the debit
+     * that just happened, not from a read before it or a guess about capacity.
+     */
+    @Test
+    void spending_the_whole_bucket_observes_zero_remaining_and_full_saturation() {
+        BucketSpec ip = bucket("ip:obs3", 294, 0.0001);
+        Admission a = instanceA.tryConsume(List.of(ip), 294);
+        assertThat(a).isInstanceOf(Admission.Allowed.class);
+        BucketObservation o = ((Admission.Allowed) a).observations().get(0);
+        assertThat(o.remaining()).isEqualTo(0.0);
+        assertThat(o.saturation()).isEqualTo(1.0);
+    }
+
+    @Test
+    void an_observation_never_carries_the_redis_key() {
+        BucketSpec ip = bucket("ip:secret-client-address", 10, 1);
+        Admission a = instanceA.tryConsume(List.of(ip), 1);
+        BucketObservation o = ((Admission.Allowed) a).observations().get(0);
+        assertThat(o.toString())
+                .as("only dimension and numbers cross the store boundary")
+                .doesNotContain("secret-client-address").doesNotContain("rl:");
+    }
+
+    @Test
+    void unavailable_carries_no_fabricated_observation() {
+        RateLimitStore broken = new RedisRateLimitStore(templateFor("127.0.0.1", 6));
+        Admission result = broken.tryConsume(List.of(bucket("ip:down2", 10, 1)), 1);
+        assertThat(result).isInstanceOf(Admission.Unavailable.class);
+        // Unavailable has no observations() at all -- the type makes fabrication unrepresentable.
     }
 
     // ---------- an IMPOSSIBLE cost is an invariant fault, not throttling ----------
