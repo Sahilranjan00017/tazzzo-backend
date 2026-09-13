@@ -34,3 +34,8 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### Local environment & secrets (DOCKER-LOCAL-1) -- never commit
+.env
+.env.*
+!.env.local.example
