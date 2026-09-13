@@ -543,6 +543,33 @@ class ConsumerListIT extends AbstractConsumerIT {
         }
     }
 
+    // ---------- CONSUMER-OBS-2: the framework's HTTP vocabulary does not exist here ----------
+
+    @Test
+    void the_framework_http_server_requests_observation_is_absent_and_ours_is_present() {
+        // Proof is the REGISTRY after real traffic on all three routes, not the property.
+        assertThat(get("/catalog/v1/categories", JsonNode.class).getStatusCode().value()).isEqualTo(200);
+        assertThat(get("/catalog/v1/categories/" + STAPLES + "/children", JsonNode.class).getStatusCode().value()).isEqualTo(200);
+        ok(V_BASMATI, "?page_size=3");
+        assertThat(list("TZC-999999", "").getStatusCode().value()).isEqualTo(404);   // an error path too
+
+        assertThat(registry.find("http.server.requests").meters())
+                .as("Spring's automatic http.server.requests (uri template + exception tags) must not exist")
+                .isEmpty();
+        assertThat(registry.find("http.server.requests.active").meters()).isEmpty();
+        List<String> frameworkHttpMeters = new ArrayList<>();
+        for (Meter meter : registry.getMeters()) {
+            if (meter.getId().getName().startsWith("http.server.")) {
+                frameworkHttpMeters.add(meter.getId().getName());
+            }
+        }
+        assertThat(frameworkHttpMeters).isEmpty();
+        assertThat(registry.find(ConsumerObservability.REQUEST_DURATION).tags("route", "list").timers())
+                .as("our bounded route vocabulary is the HTTP measurement contract").isNotEmpty();
+        assertThat(registry.find(ConsumerObservability.REQUEST_DURATION).tags("route", "root").timers()).isNotEmpty();
+        assertThat(registry.find(ConsumerObservability.REQUEST_DURATION).tags("route", "children").timers()).isNotEmpty();
+    }
+
     // ---------- Q5-OBS-1b ----------
 
     @Test

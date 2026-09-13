@@ -7,6 +7,7 @@ import com.tazzzo.catalog.consumer.ConsumerFailures;
 import com.tazzzo.catalog.consumer.ConsumerIdentity;
 import com.tazzzo.catalog.consumer.ConsumerObservability;
 import com.tazzzo.catalog.consumer.ConsumerReleaseResolver;
+import com.tazzzo.catalog.consumer.ConsumerTaxonomyScopeResolver;
 import com.tazzzo.catalog.consumer.ConsumerTaxonomyService;
 import com.tazzzo.catalog.consumer.ConsumerVisibilityProbe;
 import com.tazzzo.catalog.ratelimit.Admission;
@@ -117,7 +118,7 @@ class ConsumerProbeFailureTest {
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
         ConsumerObservability observe = new ConsumerObservability(registry);
         ConsumerTaxonomyService service = new ConsumerTaxonomyService(
-                oneSuperCategory(), alwaysR1(),
+                oneSuperCategory(), new ConsumerTaxonomyScopeResolver(oneSuperCategory()), alwaysR1(),
                 new ConsumerAdmissionGate(alwaysAllowing(), observe),
                 new ConsumerVisibilityProbe(failingDatabase(), observe));
 
@@ -171,7 +172,7 @@ class ConsumerProbeFailureTest {
 
         // And the full request path with a broken registry still returns the business answer.
         ConsumerTaxonomyService service = new ConsumerTaxonomyService(
-                oneSuperCategory(), alwaysR1(),
+                oneSuperCategory(), new ConsumerTaxonomyScopeResolver(oneSuperCategory()), alwaysR1(),
                 new ConsumerAdmissionGate(alwaysAllowing(), observe),
                 new ConsumerVisibilityProbe(failingDatabase(), observe));
         assertThatThrownBy(() -> service.root(null, new ConsumerIdentity("203.0.113.9", Optional.empty())))

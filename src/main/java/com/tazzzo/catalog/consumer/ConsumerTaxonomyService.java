@@ -25,8 +25,9 @@ import java.util.Map;
  *   order, then project                  TR-3, CAT-NODE-1
  * </pre>
  *
- * <p>Admission and the existence probe are the shared seams {@link ConsumerAdmissionGate} and
- * {@link ConsumerVisibilityProbe} — one implementation for ROOT, CHILDREN and LIST.
+ * <p>Scope resolution, admission and the existence probe are the shared seams
+ * {@link ConsumerTaxonomyScopeResolver}, {@link ConsumerAdmissionGate} and
+ * {@link ConsumerVisibilityProbe} — one implementation each for ROOT, CHILDREN and LIST.
  *
  * <p><b>Q5 is charged before the probes, and that ordering is the point.</b> Charging afterwards
  * would let a rejected request do the exact work the limit exists to prevent — the probes are the
@@ -39,15 +40,18 @@ public class ConsumerTaxonomyService {
     static final String SUPER_CATEGORY = "super_category";
 
     private final SnapshotTaxonomyReader snapshots;
+    private final ConsumerTaxonomyScopeResolver scopes;
     private final ConsumerReleaseResolver releases;
     private final ConsumerAdmissionGate gate;
     private final ConsumerVisibilityProbe probe;
 
     public ConsumerTaxonomyService(SnapshotTaxonomyReader snapshots,
+                                   ConsumerTaxonomyScopeResolver scopes,
                                    ConsumerReleaseResolver releases,
                                    ConsumerAdmissionGate gate,
                                    ConsumerVisibilityProbe probe) {
         this.snapshots = snapshots;
+        this.scopes = scopes;
         this.releases = releases;
         this.gate = gate;
         this.probe = probe;
@@ -80,7 +84,7 @@ public class ConsumerTaxonomyService {
         Map<Document, List<String>> descendants = new LinkedHashMap<>();
         long units = 1;
         for (Document candidate : candidates) {
-            List<String> verticals = snapshots.consumerVerticalIdsInSubtree(release, candidate.getString("node_id"));
+            List<String> verticals = scopes.scope(release, candidate.getString("node_id"));
             descendants.put(candidate, verticals);
             units += verticals.size();
         }
@@ -131,14 +135,14 @@ public class ConsumerTaxonomyService {
             throw new ConsumerFailures.NotFound("node not consumer-reachable: " + nodeId);
         }
 
-        List<String> parentScope = snapshots.consumerVerticalIdsInSubtree(release, nodeId);
+        List<String> parentScope = scopes.scope(release, nodeId);
         Map<Document, List<String>> childScopes = new LinkedHashMap<>();
         long units = 1 + parentScope.size();
         for (Document candidate : snapshots.immediateChildren(release, nodeId)) {
             if (!"active".equals(candidate.getString("status"))) {
                 continue;
             }
-            List<String> scope = snapshots.consumerVerticalIdsInSubtree(release, candidate.getString("node_id"));
+            List<String> scope = scopes.scope(release, candidate.getString("node_id"));
             childScopes.put(candidate, scope);
             units += scope.size();
         }

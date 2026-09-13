@@ -56,6 +56,15 @@ tazzzo:
       capacity: ${TAZZZO_RATE_LIMIT_INSTALL_CAPACITY:0}
       refill-per-second: ${TAZZZO_RATE_LIMIT_INSTALL_REFILL:0}
 management:
+  observations:
+    enable:
+      http:
+        server:
+          # CONSUMER-OBS-2: Spring's automatic http.server.requests observation tags every request
+          # with the URI template and exception class -- a parallel telemetry vocabulary that
+          # Q5-OBS-1 forbids. The explicit route enum (tazzzo.catalog.consumer.requests /
+          # request.duration) IS the HTTP measurement contract. Proved by the registry, not here.
+          requests: false
   endpoints:
     web:
       # Q5-OBS-1: Actuator is on the classpath for Micrometer ONLY. No actuator endpoint is

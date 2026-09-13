@@ -111,6 +111,9 @@ class ConsumerListGuardIT {
             if (!name.equals("ConsumerVisibilityProbe.java") && code.contains(".limit(1)")) {
                 violations.add(name + " issues its own existence probe");
             }
+            if (!name.equals("ConsumerTaxonomyScopeResolver.java") && code.contains("consumerVerticalIdsInSubtree(")) {
+                violations.add(name + " resolves scope around the CONSUMER-ERR-2 seam");
+            }
         }
         assertThat(violations).isEmpty();
     }

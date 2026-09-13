@@ -52,6 +52,7 @@ public class ConsumerProductListService {
             List.of("_id", "title", "brand_code", "classification.vertical_id", "attributes");
 
     private final SnapshotTaxonomyReader snapshots;
+    private final ConsumerTaxonomyScopeResolver scopes;
     private final ConsumerReleaseResolver releases;
     private final ConsumerAdmissionGate gate;
     private final ConsumerVisibilityProbe probe;
@@ -60,6 +61,7 @@ public class ConsumerProductListService {
     private final MongoDatabase db;
 
     public ConsumerProductListService(SnapshotTaxonomyReader snapshots,
+                                      ConsumerTaxonomyScopeResolver scopes,
                                       ConsumerReleaseResolver releases,
                                       ConsumerAdmissionGate gate,
                                       ConsumerVisibilityProbe probe,
@@ -67,6 +69,7 @@ public class ConsumerProductListService {
                                       ConsumerCursorCodec cursors,
                                       MongoDatabase db) {
         this.snapshots = snapshots;
+        this.scopes = scopes;
         this.releases = releases;
         this.gate = gate;
         this.probe = probe;
@@ -125,7 +128,7 @@ public class ConsumerProductListService {
         }
 
         // 4 + 5: release-bound scope, then the charge — before any product read.
-        List<String> scope = snapshots.consumerVerticalIdsInSubtree(release, nodeId);
+        List<String> scope = scopes.scope(release, nodeId);
         gate.charge(ConsumerObservability.Route.LIST, identity, 1L + pageSize);
 
         // 6: the scope's own visibility. This is what makes "visible node, nothing after this
