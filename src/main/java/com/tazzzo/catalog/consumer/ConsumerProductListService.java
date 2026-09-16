@@ -22,7 +22,8 @@ import java.util.List;
  *   1. decode/validate request + cursor                 400 INVALID_REQUEST / INVALID_CURSOR
  *   2. resolve ONE release                              a cursor's release wins; "current" is
  *                                                       never re-resolved on continuation
- *   3. requested node from the snapshot                 absent/non-active -> charge 1 -> 404
+ *   3. requested node from the snapshot                 absent / non-active / not reachable
+ *                                                       (TAX-REACH-1) -> charge 1 -> 404
  *   4. scope = consumer-valid verticals under it        release-bound
  *   5. CHARGE Q5: 1 + effective_page_size               before any product read
  *   6. scope probe (PARENT)                             miss -> 404 · error -> 503
@@ -121,9 +122,11 @@ public class ConsumerProductListService {
 
         // 3: the requested node, from THIS release's snapshot.
         Document requested = snapshots.node(release, nodeId);
-        if (requested == null || !"active".equals(requested.getString("status"))) {
+        // TAX-REACH-1: the node AND its whole ancestor path must be active up to a super-category.
+        // Absent, non-active, non-reachable and consumer-empty are one answer (L-5); corrupt
+        // ancestry is a 503 raised inside the seam.
+        if (!scopes.isReachable(release, requested)) {
             gate.charge(ConsumerObservability.Route.LIST, identity, 1);
-            // L-5: absent, non-active and consumer-empty are one answer.
             throw new ConsumerFailures.NotFound("node not consumer-reachable: " + nodeId);
         }
 

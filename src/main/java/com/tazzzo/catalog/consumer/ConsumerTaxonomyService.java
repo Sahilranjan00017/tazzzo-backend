@@ -106,7 +106,9 @@ public class ConsumerTaxonomyService {
      * <p>Order of operations is the contract (CHILD-Q5-1):
      * <pre>
      *   resolve release ONCE
-     *   requested node from the snapshot     absent or non-active -> charge 1 -> 404, ZERO probes
+     *   requested node from the snapshot     absent, non-active or NOT REACHABLE (TAX-REACH-1:
+     *                                        an inactive ancestor, no super-category above it)
+     *                                        -> charge 1 -> 404, ZERO probes
      *   parentScope + one childScope per ACTIVE immediate candidate, from the consumer-valid walk
      *   cost = 1 + |parentScope| + Σ|childScope|
      *   CHARGE Q5                            before any products query
@@ -128,10 +130,11 @@ public class ConsumerTaxonomyService {
         String release = releases.resolve(explicitRelease);
 
         Document requested = snapshots.node(release, nodeId);
-        if (requested == null || !"active".equals(requested.getString("status"))) {
+        // TAX-REACH-1: the node AND its whole ancestor path must be active up to a super-category
+        // -- the branch ROOT would show. Absent, non-active and non-reachable are one answer (L-5),
+        // the same as consumer-empty below; corrupt ancestry is a 503 raised inside the seam.
+        if (!scopes.isReachable(release, requested)) {
             gate.charge(ConsumerObservability.Route.CHILDREN, identity, 1);
-            // L-5: absent and non-active are the same consumer answer, and the same as
-            // consumer-empty below -- nothing in the response distinguishes them.
             throw new ConsumerFailures.NotFound("node not consumer-reachable: " + nodeId);
         }
 
