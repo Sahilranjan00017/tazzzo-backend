@@ -44,6 +44,15 @@ public final class ConsumerDtos {
                                       @JsonProperty("next_cursor") String nextCursor) { }
 
     /**
+     * PDP-1 / PDP-SHAPE-1 (envelope A). {@code resolved_release_id} scopes the request (TR-1) and
+     * sits on the envelope exactly as on every other consumer response; {@code item} is EXACTLY the
+     * {@link ConsumerProductResponse} a LIST page carries — one DTO for one product (RP-1), so a
+     * detail and a list item can never drift apart.
+     */
+    public record ProductDetailResponse(@JsonProperty("resolved_release_id") String resolvedReleaseId,
+                                        ConsumerProductResponse item) { }
+
+    /**
      * ERR-1 — FLAT, deliberately unlike the CMS envelope's nested {@code {"error": {…}}}. The two
      * surfaces are separate contracts under Q4-c, and the consumer one must not inherit a CMS
      * transport decision merely because an implementation already existed.

@@ -83,6 +83,27 @@ class ConsumerRootIpUnresolvableIT extends AbstractConsumerIT {
         assertThat(allOutcomes).as("exactly ONE request observation for one request").isEqualTo(1);
     }
 
+    /** PDP-1 / PDP-OBS-1: an unresolvable identity is ONE measured unavailable outcome, zero product reads. */
+    @Test
+    void pdp_with_an_unresolvable_client_identity_fails_closed_and_is_measured_once() {
+        resetCounters();
+        ResponseEntity<JsonNode> res = get("/catalog/v1/products/TZP-1", JsonNode.class);
+
+        assertThat(res.getStatusCode().value()).isEqualTo(503);
+        assertThat(res.getBody().get("code").asText()).isEqualTo("SERVICE_UNAVAILABLE");
+        assertThat(PRODUCT_FINDS.get()).isZero();
+        var timer = registry.find(com.tazzzo.catalog.consumer.ConsumerObservability.REQUEST_DURATION)
+                .tags("route", "pdp", "outcome", "unavailable").timer();
+        assertThat(timer).isNotNull();
+        assertThat(timer.count()).isEqualTo(1);
+        assertThat(timer.totalTime(java.util.concurrent.TimeUnit.NANOSECONDS)).isGreaterThan(0);
+        double allOutcomes = 0;
+        for (var c : registry.find(com.tazzzo.catalog.consumer.ConsumerObservability.REQUESTS).tags("route", "pdp").counters()) {
+            allOutcomes += c.count();
+        }
+        assertThat(allOutcomes).as("exactly ONE observation for one PDP request").isEqualTo(1);
+    }
+
     @Test
     void the_same_trusted_peer_WITH_a_forwarded_client_resolves_and_serves() {
         HttpHeaders headers = new HttpHeaders();

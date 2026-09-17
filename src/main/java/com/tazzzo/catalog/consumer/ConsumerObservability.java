@@ -50,7 +50,7 @@ public class ConsumerObservability {
             Set.of("route", "outcome", "dimension", "decision", "result", "scope");
 
     public enum Route {
-        ROOT("root"), CHILDREN("children"), LIST("list");
+        ROOT("root"), CHILDREN("children"), LIST("list"), PDP("pdp");
 
         private final String tag;
 

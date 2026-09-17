@@ -28,15 +28,18 @@ public class ConsumerTaxonomyController {
 
     private final ConsumerTaxonomyService taxonomy;
     private final ConsumerProductListService products;
+    private final ConsumerProductDetailService details;
     private final ClientIpResolver clientIps;
     private final ConsumerObservability observe;
 
     public ConsumerTaxonomyController(ConsumerTaxonomyService taxonomy,
                                       ConsumerProductListService products,
+                                      ConsumerProductDetailService details,
                                       ClientIpResolver clientIps,
                                       ConsumerObservability observe) {
         this.taxonomy = taxonomy;
         this.products = products;
+        this.details = details;
         this.clientIps = clientIps;
         this.observe = observe;
     }
@@ -83,6 +86,20 @@ public class ConsumerTaxonomyController {
             HttpServletRequest request) {
         return measured(ConsumerObservability.Route.LIST, () ->
                 products.list(nodeId, release, pageSize, cursor, identity(request)));
+    }
+
+    /**
+     * PDP-1 (PDP-CTRL-1: on this controller, so identity resolution, the measured boundary, the
+     * consumer advice and the transport guard all already apply). {@code release} omitted resolves
+     * the current pointer ONCE.
+     */
+    @GetMapping("/products/{productId}")
+    public ConsumerDtos.ProductDetailResponse product(
+            @PathVariable("productId") String productId,
+            @RequestParam(name = "release", required = false) String release,
+            HttpServletRequest request) {
+        return measured(ConsumerObservability.Route.PDP, () ->
+                details.detail(productId, release, identity(request)));
     }
 
     /**

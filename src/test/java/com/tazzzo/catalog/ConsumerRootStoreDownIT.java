@@ -64,4 +64,18 @@ class ConsumerRootStoreDownIT extends AbstractConsumerIT {
         assertThat(registry.find(com.tazzzo.catalog.consumer.ConsumerObservability.RATE_LIMIT_REMAINING).summary())
                 .as("no fabricated remaining for a decision that was never made").isNull();
     }
+
+    /** PDP-1: the same fail-closed answer, and the product is never read. */
+    @Test
+    void pdp_under_an_unreachable_limiter_store_is_a_flat_503_with_zero_product_reads() {
+        resetCounters();
+        ResponseEntity<JsonNode> res = get("/catalog/v1/products/TZP-1", JsonNode.class);
+
+        assertThat(res.getStatusCode().value()).isEqualTo(503);
+        assertThat(res.getBody().get("code").asText()).isEqualTo("SERVICE_UNAVAILABLE");
+        assertThat(res.getBody().has("error")).isFalse();
+        assertThat(PRODUCT_FINDS.get()).isZero();
+        assertThat(registry.find(com.tazzzo.catalog.consumer.ConsumerObservability.REQUESTS)
+                .tags("route", "pdp", "outcome", "unavailable").counter().count()).isEqualTo(1);
+    }
 }

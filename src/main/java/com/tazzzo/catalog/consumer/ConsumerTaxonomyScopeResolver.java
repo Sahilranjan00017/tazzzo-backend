@@ -107,4 +107,15 @@ public class ConsumerTaxonomyScopeResolver {
     public boolean isReachable(String release, String nodeId) {
         return isReachable(release, snapshots.node(release, nodeId));
     }
+
+    /**
+     * PDP-1 condition 3: the product's classified node must be a VERTICAL (a product classified to
+     * a category id is not consumer-valid even if that category is reachable) and reachable under
+     * TAX-REACH-1 in the resolved release. Absent, wrong type, hidden branch: false. Corrupt
+     * ancestry: 503, as everywhere.
+     */
+    public boolean isReachableVertical(String release, String verticalId) {
+        Document node = snapshots.node(release, verticalId);
+        return node != null && "vertical".equals(node.getString("node_type")) && isReachable(release, node);
+    }
 }

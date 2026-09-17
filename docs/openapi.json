@@ -857,6 +857,39 @@
         }
       }
     },
+    "/catalog/v1/products/{productId}" : {
+      "get" : {
+        "tags" : [ "consumer-taxonomy-controller" ],
+        "operationId" : "product",
+        "parameters" : [ {
+          "name" : "productId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "release",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProductDetailResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/catalog/v1/categories" : {
       "get" : {
         "tags" : [ "consumer-taxonomy-controller" ],
@@ -1595,31 +1628,6 @@
           }
         }
       },
-      "ConsumerNode" : {
-        "type" : "object",
-        "properties" : {
-          "id" : {
-            "type" : "string"
-          },
-          "name" : {
-            "type" : "string"
-          }
-        }
-      },
-      "NodeListResponse" : {
-        "type" : "object",
-        "properties" : {
-          "items" : {
-            "type" : "array",
-            "items" : {
-              "$ref" : "#/components/schemas/ConsumerNode"
-            }
-          },
-          "resolved_release_id" : {
-            "type" : "string"
-          }
-        }
-      },
       "ConsumerAttributeResponse" : {
         "type" : "object",
         "properties" : {
@@ -1656,6 +1664,42 @@
             }
           },
           "projectionVersion" : {
+            "type" : "string"
+          }
+        }
+      },
+      "ProductDetailResponse" : {
+        "type" : "object",
+        "properties" : {
+          "item" : {
+            "$ref" : "#/components/schemas/ConsumerProductResponse"
+          },
+          "resolved_release_id" : {
+            "type" : "string"
+          }
+        }
+      },
+      "ConsumerNode" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string"
+          },
+          "name" : {
+            "type" : "string"
+          }
+        }
+      },
+      "NodeListResponse" : {
+        "type" : "object",
+        "properties" : {
+          "items" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/ConsumerNode"
+            }
+          },
+          "resolved_release_id" : {
             "type" : "string"
           }
         }
