@@ -70,7 +70,8 @@ public class ConsumerTaxonomyScopeResolver {
      *         super-category; false for absent, non-active, an ancestor that is not active, or a
      *         path that ends without reaching a super-category (a holding vertical, an orphan branch)
      * @throws ConsumerFailures.Unavailable a cycle in the ancestry, a parent id naming no row in
-     *         this release, or a path deeper than {@link #MAX_ANCESTOR_DEPTH}
+     *         this release, a parent id of a non-string type (TAX-REACH-1a), or a path deeper than
+     *         {@link #MAX_ANCESTOR_DEPTH}
      */
     public boolean isReachable(String release, Document node) {
         Document current = node;
@@ -91,8 +92,16 @@ public class ConsumerTaxonomyScopeResolver {
                 return true;                                   // an active root: the branch ROOT shows
             }
             Object parentId = current.get("parent_id");
-            if (!(parentId instanceof String p) || p.isBlank()) {
+            if (parentId == null) {
                 return false;                                  // unattached: no super-category above it
+            }
+            if (!(parentId instanceof String p)) {
+                // TAX-REACH-1a: a PRESENT parent id of a non-string BSON type is not "no parent" --
+                // it is a row the write path could never have written. Corrupt, never unattached.
+                throw new ConsumerFailures.Unavailable("snapshot ancestry corrupt (parent id type) in release " + release);
+            }
+            if (p.isBlank()) {
+                return false;                                  // unattached (unchanged)
             }
             Document parent = snapshots.node(release, p);
             if (parent == null) {

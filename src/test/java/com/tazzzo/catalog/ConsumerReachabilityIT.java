@@ -292,7 +292,35 @@ class ConsumerReachabilityIT extends AbstractConsumerIT {
         }
     }
 
+    /** TAX-REACH-1a: a PRESENT parent id of a non-string type is corruption, not an orphan. */
     @Test @Order(9)
+    void a_numeric_parent_id_on_an_otherwise_active_path_is_corrupt_on_every_route() {
+        db.getCollection(SNAPSHOTS).updateOne(and(eq("release_id", "R1"), eq("node_id", G_SALT)),
+                new Document("$set", new Document("parent_id", 42)));
+        try {
+            assertCorrupt("children", () -> children(V_SALT, ""));
+            assertCorrupt("list", () -> list(V_SALT, ""));
+            // PDP: by its ratified order the weight-1 charge (step 2) and the ONE product read
+            // (step 3) precede the reachability check (step 6), so the corruption is detected
+            // after them -- 503, outcome unavailable, exactly one product read, charged once.
+            resetCounters();
+            double pdpCharged = charged("pdp");
+            double pdpUnavailable = outcome("pdp", "unavailable");
+            ResponseEntity<JsonNode> pdp = get("/catalog/v1/products/TZP-SALT", JsonNode.class);
+            assertThat(pdp.getStatusCode().value()).as(String.valueOf(pdp.getBody())).isEqualTo(503);
+            assertThat(pdp.getBody().get("code").asText()).isEqualTo("SERVICE_UNAVAILABLE");
+            assertThat(outcome("pdp", "unavailable") - pdpUnavailable).isEqualTo(1);
+            assertThat(charged("pdp") - pdpCharged).as("PDP charges before its first read, by contract").isEqualTo(1);
+            assertThat(PRODUCT_FINDS.get()).as("the one point read; nothing projected").isEqualTo(1);
+            assertThat(finds("consumer_projection_policy")).isZero();
+            assertThat(children(V_TEA, "").getStatusCode().value()).as("fault is local to the branch").isEqualTo(200);
+        } finally {
+            setParent(G_SALT, C_SALT);
+        }
+        assertThat(children(V_SALT, "").getStatusCode().value()).as("restored").isEqualTo(200);
+    }
+
+    @Test @Order(10)
     void an_ancestry_deeper_than_any_taxonomy_is_corrupt() {
         // 20 chained rows above a stocked vertical, the top one parentless: the bound (16) refuses
         // it before the walk could decide "unattached".
@@ -317,7 +345,7 @@ class ConsumerReachabilityIT extends AbstractConsumerIT {
 
     // ---------- (f) valid historical reachability, through the REAL write path (last) ----------
 
-    @Test @Order(10)
+    @Test @Order(11)
     void a_vertical_deprecated_in_a_later_release_stays_reachable_under_the_release_where_it_was_active() {
         int version = db.getCollection("taxonomy_nodes").find(eq("_id", V_SLEEP)).first().getInteger("version");
         changes.openRelease("R2", "R1");
