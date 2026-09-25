@@ -136,6 +136,63 @@ class MediaSetValidationTest {
         assertThrows(IllegalArgumentException.class, () -> set(tooMany));
     }
 
+    @Test void owner_id_bounds_enforced() {
+        // ≤128, trimmed, no control chars (unique-index hygiene; format-agnostic by design)
+        assertThrows(IllegalArgumentException.class,
+                () -> new MediaSet(MediaOwnerType.PRODUCT, "x".repeat(129), 1, true, List.of()));
+        assertThrows(IllegalArgumentException.class,
+                () -> new MediaSet(MediaOwnerType.PRODUCT, " padded ", 1, true, List.of()));
+        assertThrows(IllegalArgumentException.class,
+                () -> new MediaSet(MediaOwnerType.PRODUCT, "a\u0000b", 1, true, List.of()));
+        assertDoesNotThrow(() -> new MediaSet(MediaOwnerType.PRODUCT, "x".repeat(128), 1, true, List.of()));
+    }
+
+    @Test void asset_id_bounds_enforced() {
+        assertThrows(IllegalArgumentException.class,
+                () -> new MediaAsset("x".repeat(129), "k.webp", ImageRole.GALLERY, 0, null, null, null, null));
+        assertThrows(IllegalArgumentException.class,
+                () -> new MediaAsset(" padded ", "k.webp", ImageRole.GALLERY, 0, null, null, null, null));
+        assertThrows(IllegalArgumentException.class,
+                () -> new MediaAsset("a\u0007b", "k.webp", ImageRole.GALLERY, 0, null, null, null, null));
+        assertDoesNotThrow(
+                () -> new MediaAsset("x".repeat(128), "k.webp", ImageRole.GALLERY, 0, null, null, null, null));
+    }
+
+    @Test void duplicate_asset_key_in_one_set_rejected() {
+        // DECIDED: same physical object twice in one set = copy-paste error, rejected.
+        assertThrows(IllegalArgumentException.class, () -> set(List.of(
+                asset("a1", "p/item/front.webp", ImageRole.PRIMARY, 0),
+                asset("a2", "p/item/front.webp", ImageRole.GALLERY, 1))));
+    }
+
+    @Test void dot_segment_and_trailing_slash_keys_rejected() {
+        for (String bad : List.of("x/./y", "x/.", "a/", "a/b/")) {
+            assertThrows(IllegalArgumentException.class,
+                    () -> asset("a1", bad, ImageRole.GALLERY, 0), "should reject: " + bad);
+        }
+    }
+
+    @Test void dimension_technical_ceiling_enforced() {
+        assertThrows(IllegalArgumentException.class, () -> new MediaAsset(
+                "a", "k.webp", ImageRole.GALLERY, 0, null, 20_001, 100, null));
+        assertThrows(IllegalArgumentException.class, () -> new MediaAsset(
+                "a", "k.webp", ImageRole.GALLERY, 0, null, Integer.MAX_VALUE, Integer.MAX_VALUE, null));
+        assertDoesNotThrow(() -> new MediaAsset(
+                "a", "k.webp", ImageRole.GALLERY, 0, null, 20_000, 20_000, null));
+    }
+
+    @Test void alt_text_control_chars_rejected() {
+        assertThrows(IllegalArgumentException.class, () -> new MediaAsset(
+                "a", "k.webp", ImageRole.GALLERY, 0, "line1\tline2", null, null, null));
+    }
+
+    @Test void gallery_only_media_with_order_zero_is_intentionally_allowed() {
+        // STEP 11 edge: no PRIMARY + gallery at sortOrder 0 = valid gallery-only media.
+        MediaSet s = set(List.of(asset("g1", "p/g1.webp", ImageRole.GALLERY, 0)));
+        assertTrue(s.primary().isEmpty());
+        assertEquals("g1", s.orderedAssets().get(0).assetId());
+    }
+
     @Test void command_validation_rejects_bad_expected_version() {
         assertThrows(InvalidMediaException.class, () -> MediaService.validateCommand(
                 new UpsertMediaSetCommand(MediaOwnerType.PRODUCT, "TZP-1", List.of(), "seed", 0L)));

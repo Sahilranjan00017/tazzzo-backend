@@ -1,7 +1,6 @@
 package com.tazzzo.media;
 
 import java.net.URI;
-import java.util.Objects;
 
 /**
  * Derives the public HTTPS URL for an asset key (STEP 6 decision B / STEP 18).
@@ -25,7 +24,16 @@ public final class MediaUrlResolver {
         this.baseUrl = baseUrl;
     }
 
-    /** Build from deployment configuration. The base MUST be absolute HTTPS with no query/fragment. */
+    /**
+     * Build from deployment configuration.
+     *
+     * <p><b>Frozen base-URL policy (PR-05 review):</b> the base MUST be absolute HTTPS with a
+     * host; an explicit port and a path prefix (e.g. {@code https://media.example.com/assets})
+     * are SUPPORTED — valid CDN architecture is not over-restricted. REJECTED: userinfo
+     * (embedded credentials would leak into every resolved public URL), query, fragment,
+     * traversal in the path prefix, and every non-HTTPS scheme. Trailing slashes are normalised
+     * away so joining is always {@code base + "/" + key}.
+     */
     public static MediaUrlResolver of(String publicBaseUrl) {
         if (publicBaseUrl == null || publicBaseUrl.isBlank()) {
             throw new InvalidMediaException("media public base URL required");
@@ -44,8 +52,23 @@ public final class MediaUrlResolver {
         if (uri.getHost() == null || uri.getHost().isBlank()) {
             throw new InvalidMediaException("media base URL must have a host");
         }
+        if (uri.getRawUserInfo() != null) {
+            // HIGH (PR-05 review): https://user:pass@host would embed credentials in every
+            // resolved public URL. Rejected. The value is deliberately NOT logged or echoed.
+            throw new InvalidMediaException("media base URL must not carry userinfo");
+        }
         if (uri.getRawQuery() != null || uri.getRawFragment() != null) {
             throw new InvalidMediaException("media base URL must not carry query/fragment");
+        }
+        // Validate the INTERIOR path prefix only: redundant trailing slashes are tolerated (they
+        // are normalised away below), but traversal, empty interior segments, and percent
+        // sequences in a configured prefix are config errors.
+        String path = uri.getRawPath();
+        if (path != null) {
+            String interior = path.replaceAll("/+$", "");
+            if (interior.contains("..") || interior.contains("//") || interior.contains("%")) {
+                throw new InvalidMediaException("media base URL path prefix is unsafe");
+            }
         }
         // normalise: exactly no trailing slash, so joining is always base + "/" + key
         while (trimmed.endsWith("/")) {
@@ -66,17 +89,18 @@ public final class MediaUrlResolver {
     /**
      * Deterministic join: {@code base + "/" + assetKey}. The key is re-validated here (defence in
      * depth — resolution may see keys from storage, not only from validated {@link MediaAsset}s).
+     * All invalid inputs (including null) fail with the typed {@link InvalidMediaException} —
+     * this component never leaks generic NPEs to callers.
+     *
+     * <p>Observability note: this is a pure config/value component and deliberately carries no
+     * logger — failures surface as the typed exception, and the CALLER that invokes resolution
+     * logs {@code media_url_resolution_failure} at its boundary.
      */
     public String resolve(String assetKey) {
         if (baseUrl == null) {
-            // media_url_resolution_failure hook: typed, safe, no fabricated URL
             throw new InvalidMediaException("media URL resolution unavailable: no public base configured");
         }
-        Objects.requireNonNull(assetKey, "assetKey required");
-        // Reuse the asset-level shape rules by constructing a throwaway validated asset key check.
-        if (assetKey.isBlank() || assetKey.length() > MediaAsset.MAX_ASSET_KEY
-                || assetKey.startsWith("/") || assetKey.contains("..") || assetKey.contains("//")
-                || !assetKey.matches("^[A-Za-z0-9][A-Za-z0-9/_.-]*$")) {
+        if (assetKey == null || !MediaAsset.isSafeKey(assetKey)) {
             throw new InvalidMediaException("unsafe assetKey for URL resolution");
         }
         return baseUrl + "/" + assetKey;

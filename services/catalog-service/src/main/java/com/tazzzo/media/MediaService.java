@@ -32,10 +32,14 @@ import java.util.Objects;
  * one document update inside one transaction — set-level invariants (single PRIMARY, unique
  * ordering) can never be observed half-applied.
  *
- * <p><b>Audit seam:</b> the C-4 {@link EventPayload} requires a productId. For
- * {@code ownerType=PRODUCT} the ownerId IS the productId; for {@code ownerType=SKU} the skuId is
- * passed (== productId at launch). This is audit-infrastructure coupling, NOT media identity —
- * media keys stay {@code (owner_type, owner_id)} and never change when variants diverge.
+ * <p><b>Audit seam (honest version, PR-05 review):</b> the C-4 {@link EventPayload} requires a
+ * productId; today the ownerId is passed (valid because skuId == productId at launch). Media
+ * STORAGE identity — {@code (owner_type, owner_id)} — never changes. But note precisely:
+ * {@link UpsertMediaSetCommand} carries NO parent productId, so BEFORE {@code skuId != productId}
+ * is ever enabled, the audit infrastructure must gain either an explicit parent/aggregate context
+ * on the command+service signature, or a generic aggregate-id event envelope. That IS a signature
+ * change and is recognized audit-infrastructure debt — it must not be paid by polluting canonical
+ * media identity with product ids.
  *
  * <p><b>Duplicate delivery (ADR-015):</b> CAS + the unique owner key make duplicates
  * mutation-safe (second delivery conflicts; version never double-increments; no audit residue
@@ -44,8 +48,10 @@ import java.util.Objects;
  * transports.
  *
  * <p><b>Observability hooks:</b> media_write_success, media_write_validation_failure,
- * media_write_conflict, media_read_missing, media_read_inactive (structured logs; the
- * media_url_resolution_failure hook lives in {@link MediaUrlResolver}).
+ * media_write_conflict, media_read_missing, media_read_inactive (structured logs).
+ * {@link MediaUrlResolver} is a pure config/value component with NO logger — resolution
+ * failures surface as typed {@link InvalidMediaException}, and the caller that invokes
+ * resolution logs {@code media_url_resolution_failure} at its own boundary.
  */
 public class MediaService implements MediaReadPort {
 
@@ -119,8 +125,12 @@ public class MediaService implements MediaReadPort {
             log.info("media_write_conflict owner={}/{} reason=stale_version expected={}",
                     cmd.ownerType(), cmd.ownerId(), cmd.expectedVersion());
             throw e;
-        } catch (MongoWriteException e) {
-            if (e.getError().getCategory() == com.mongodb.ErrorCategory.DUPLICATE_KEY) {
+        } catch (com.mongodb.MongoException e) {
+            // Under a SIMULTANEOUS create race inside transactions, the loser's duplicate-key
+            // violation may surface as MongoWriteException OR as a command/transaction-shaped
+            // MongoException after withTransaction's internal retry. Normalize every
+            // duplicate-key form to the typed conflict; rethrow anything else untouched.
+            if (isDuplicateKey(e)) {
                 log.info("media_write_conflict owner={}/{} reason=duplicate_create",
                         cmd.ownerType(), cmd.ownerId());
                 throw new MediaConflictException("media set already exists for " + cmd.ownerType()
@@ -221,5 +231,17 @@ public class MediaService implements MediaReadPort {
 
     private static String safeOwner(UpsertMediaSetCommand cmd) {
         return cmd == null ? "?" : (cmd.ownerType() + "/" + cmd.ownerId());
+    }
+
+    /** Duplicate-key detection across the exception shapes Mongo can produce inside txns. */
+    private static boolean isDuplicateKey(com.mongodb.MongoException e) {
+        if (e instanceof MongoWriteException w) {
+            return w.getError().getCategory() == com.mongodb.ErrorCategory.DUPLICATE_KEY;
+        }
+        if (com.mongodb.ErrorCategory.fromErrorCode(e.getCode()) == com.mongodb.ErrorCategory.DUPLICATE_KEY) {
+            return true;
+        }
+        String msg = e.getMessage();
+        return msg != null && msg.contains("E11000");
     }
 }

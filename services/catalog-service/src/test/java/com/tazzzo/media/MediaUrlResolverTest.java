@@ -40,10 +40,33 @@ class MediaUrlResolverTest {
 
     @Test void unsafe_keys_rejected_at_resolution() {
         MediaUrlResolver r = MediaUrlResolver.of("https://m.example");
-        for (String bad : List.of("/abs", "a/../b", "a//b", "", "  ", "a b", "..", "https://x/y")) {
+        for (String bad : List.of("/abs", "a/../b", "a//b", "", "  ", "a b", "..", "https://x/y",
+                "x/./y", "a/", "x/.", "a\\b")) {
             assertThrows(InvalidMediaException.class, () -> r.resolve(bad), "should reject: " + bad);
         }
-        assertThrows(NullPointerException.class, () -> r.resolve(null));
+        // typed domain failure for null too — never a generic NPE (PR-05 review STEP 6)
+        assertThrows(InvalidMediaException.class, () -> r.resolve(null));
+    }
+
+    @Test void userinfo_in_base_rejected_HIGH() {
+        // HIGH (PR-05 review STEP 4): embedded credentials must never reach resolved public URLs.
+        assertThrows(InvalidMediaException.class,
+                () -> MediaUrlResolver.of("https://user:pass@example.com"));
+        assertThrows(InvalidMediaException.class,
+                () -> MediaUrlResolver.of("https://user@example.com"));
+    }
+
+    @Test void path_prefix_and_port_are_supported_cdn_architecture() {
+        assertEquals("https://media.example.com/assets/k.webp",
+                MediaUrlResolver.of("https://media.example.com/assets").resolve("k.webp"));
+        assertEquals("https://m.example:8443/k.webp",
+                MediaUrlResolver.of("https://m.example:8443").resolve("k.webp"));
+    }
+
+    @Test void unsafe_base_path_prefix_rejected() {
+        assertThrows(InvalidMediaException.class, () -> MediaUrlResolver.of("https://m.example/a/../b"));
+        assertThrows(InvalidMediaException.class, () -> MediaUrlResolver.of("https://m.example/a//b"));
+        assertThrows(InvalidMediaException.class, () -> MediaUrlResolver.of("https://m.example/%2e%2e"));
     }
 
     @Test void unconfigured_resolver_fails_safely_only_when_used() {

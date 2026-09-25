@@ -181,6 +181,55 @@ class MediaFoundationIT extends AbstractMongoIT {
         assertEquals(2, service().findMedia(MediaOwnerType.PRODUCT, "TZP-MEDRACE").mediaSet().version());
     }
 
+    @Test void concurrent_create_race_exactly_one_winner_no_orphan_audit() throws Exception {
+        // STEP 14 (PR-05 review): SIMULTANEOUS creates of the same owner — unique-index behavior
+        // under concurrent transactions, not just a sequential duplicate.
+        MediaService svc = service();
+        CountDownLatch start = new CountDownLatch(1);
+        AtomicInteger wins = new AtomicInteger();
+        AtomicInteger conflicts = new AtomicInteger();
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            Runnable attempt = () -> {
+                try {
+                    start.await();
+                    svc.upsertMediaSet(create(MediaOwnerType.PRODUCT, "TZP-CRACE",
+                            List.of(gallery("g-" + Thread.currentThread().getName(), "k.webp", 1))));
+                    wins.incrementAndGet();
+                } catch (MediaConflictException e) {
+                    conflicts.incrementAndGet();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            };
+            Future<?> a = pool.submit(attempt);
+            Future<?> b = pool.submit(attempt);
+            start.countDown();
+            a.get();
+            b.get();
+        } finally {
+            pool.shutdownNow();
+        }
+        assertEquals(1, wins.get(), "exactly one create may win");
+        assertEquals(1, conflicts.get(), "the loser gets the TYPED conflict (normalized)");
+        // one canonical row at version 1
+        assertEquals(1, db.getCollection("media_refs").countDocuments(
+                Filters.and(Filters.eq("owner_type", "PRODUCT"), Filters.eq("owner_id", "TZP-CRACE"))));
+        assertEquals(1, service().findMedia(MediaOwnerType.PRODUCT, "TZP-CRACE").mediaSet().version());
+        // exactly ONE audit event — the loser's rolled back
+        assertEquals(1, db.getCollection("product_events").countDocuments(
+                Filters.and(Filters.eq("product_id", "TZP-CRACE"), Filters.eq("type", "MEDIA_SET_UPDATED"))));
+    }
+
+    @Test void expected_version_overflow_rejected_and_state_unchanged() {
+        MediaService svc = service();
+        svc.upsertMediaSet(create(MediaOwnerType.PRODUCT, "TZP-MOVF", List.of()));
+        assertThrows(com.tazzzo.media.InvalidMediaException.class, () -> svc.upsertMediaSet(
+                new UpsertMediaSetCommand(MediaOwnerType.PRODUCT, "TZP-MOVF",
+                        List.of(), "cms", Long.MAX_VALUE)));
+        assertEquals(1, svc.findMedia(MediaOwnerType.PRODUCT, "TZP-MOVF").mediaSet().version());
+    }
+
     @Test void bootstrap_idempotent_and_media_unique_index_present() {
         assertDoesNotThrow(() -> schemaBootstrap.bootstrap(db));
         boolean unique = false;

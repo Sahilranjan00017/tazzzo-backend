@@ -34,11 +34,28 @@ public record MediaSet(
 ) {
     /** Sanity ceiling per set — a fat-finger guard, not a merchandising rule. */
     static final int MAX_ASSETS = 50;
+    /**
+     * Technical bound for ownerId — it participates in the unique {@code (owner_type, owner_id)}
+     * Mongo index, so it must stay small and clean. Deliberately NOT Catalog TZP grammar:
+     * Media stays id-format-agnostic. Policy: non-blank, exactly its own trim (surrounding
+     * whitespace is rejected, never silently normalised), no control characters, ≤128 chars.
+     */
+    static final int MAX_OWNER_ID = 128;
 
+    /**
+     * <b>{@code active} ownership (PR-05 review):</b> {@link UpsertMediaSetCommand} NEVER mutates
+     * {@code active} (create writes {@code true}; updates leave it untouched). Deactivation /
+     * reactivation (delisting an owner's media) will arrive as its own explicit, CAS-guarded,
+     * audited lifecycle command when a real need exists — MISSING vs INACTIVE is already part of
+     * the read contract, so the field stays. Same pattern as Inventory.
+     */
     public MediaSet {
         Objects.requireNonNull(ownerType, "ownerType required");
-        if (ownerId == null || ownerId.isBlank()) {
-            throw new IllegalArgumentException("ownerId required");
+        if (ownerId == null || ownerId.isBlank() || ownerId.length() > MAX_OWNER_ID
+                || !ownerId.equals(ownerId.trim())
+                || ownerId.chars().anyMatch(ch -> ch < 0x20 || ch == 0x7F)) {
+            throw new IllegalArgumentException(
+                    "ownerId required: non-blank, trimmed, no control chars, max " + MAX_OWNER_ID);
         }
         if (version < 1) {
             throw new IllegalArgumentException("version must be positive: " + version);
@@ -50,11 +67,19 @@ public record MediaSet(
         assets = List.copyOf(assets);
 
         Set<String> ids = new HashSet<>();
+        Set<String> keys = new HashSet<>();
         Set<Integer> orders = new HashSet<>();
         int primaries = 0;
         for (MediaAsset a : assets) {
             if (!ids.add(a.assetId())) {
                 throw new IllegalArgumentException("duplicate assetId in set: " + a.assetId());
+            }
+            // DECIDED (PR-05 review): duplicate assetKey within ONE set is rejected — two
+            // entries pointing at the same physical object has no product behavior and is
+            // almost certainly a copy-paste error. Reuse of a key ACROSS sets (e.g. PRODUCT
+            // and SKU sharing an image) remains allowed.
+            if (!keys.add(a.assetKey())) {
+                throw new IllegalArgumentException("duplicate assetKey in set: " + a.assetKey());
             }
             if (!orders.add(a.sortOrder())) {
                 throw new IllegalArgumentException("duplicate sortOrder in set: " + a.sortOrder());
