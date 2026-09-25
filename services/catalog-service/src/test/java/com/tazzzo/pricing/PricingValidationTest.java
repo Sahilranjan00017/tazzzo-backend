@@ -67,4 +67,21 @@ class PricingValidationTest {
         Price p = PricingService.validateCommand(cmd(100, 200, Currency.INR, null, null, 4L));
         assertEquals(5, p.version());
     }
+
+    @Test void selling_above_sanity_ceiling_rejected() {
+        long over = PricingService.MAX_AMOUNT_PAISE + 1;
+        assertThrows(InvalidPriceException.class,
+                () -> PricingService.validateCommand(cmd(over, over, Currency.INR, null, null, null)));
+    }
+
+    @Test void mrp_above_sanity_ceiling_rejected() {
+        long over = PricingService.MAX_AMOUNT_PAISE + 1;
+        assertThrows(InvalidPriceException.class,
+                () -> PricingService.validateCommand(cmd(100, over, Currency.INR, null, null, null)));
+    }
+
+    @Test void amount_at_sanity_ceiling_allowed() {
+        long max = PricingService.MAX_AMOUNT_PAISE;
+        assertDoesNotThrow(() -> PricingService.validateCommand(cmd(max, max, Currency.INR, null, null, null)));
+    }
 }

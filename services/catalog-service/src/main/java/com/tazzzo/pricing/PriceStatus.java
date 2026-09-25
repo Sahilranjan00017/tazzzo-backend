@@ -11,7 +11,11 @@ public enum PriceStatus {
     MISSING,
     /** A row exists but active == false. */
     INACTIVE,
-    /** now < effectiveFrom. */
+    /**
+     * now < effectiveFrom. DEFENSIVE state: {@code upsertPrice} rejects future-dated
+     * {@code effectiveFrom} (Option A), so this is reachable only via out-of-band writes or
+     * clock skew — readers must still treat it as "no usable price".
+     */
     NOT_YET_EFFECTIVE,
     /** now >= effectiveTo. */
     EXPIRED

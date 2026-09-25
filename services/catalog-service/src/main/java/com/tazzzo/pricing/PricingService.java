@@ -46,6 +46,15 @@ public class PricingService implements PriceReadPort {
     static final String CURRENT = "price_current";
     static final String LEDGER = "price_events";
 
+    /**
+     * Sanity ceiling for a single SKU price: ₹1 crore (10^9 paise). This is a FAT-FINGER /
+     * unit-confusion guard (e.g. a caller multiplying by 100 twice), NOT a business price policy —
+     * no quick-commerce catalogue item approaches it. Raise deliberately if the catalogue ever
+     * legitimately needs to; {@code Money} itself intentionally has no such cap (totals/ledgers may
+     * exceed it).
+     */
+    static final long MAX_AMOUNT_PAISE = 1_000_000_000L;
+
     private final Tx tx;
     private final WritePath writePath;
     private final MongoDatabase db;
@@ -64,6 +73,23 @@ public class PricingService implements PriceReadPort {
      * atomically. A stale {@code expectedVersion} yields {@link PriceConflictException}; the whole
      * transaction (including the ledger row) rolls back.
      *
+     * <p><b>Immediately-effective writes ONLY (Option A, PR-03 review).</b> {@code price_current}
+     * holds exactly one row per (SKU, currency), so a future-dated {@code effectiveFrom} would
+     * REPLACE the live price before the scheduled one starts — the active price would vanish
+     * early. Therefore {@code effectiveFrom > now} is rejected ({@link InvalidPriceException}),
+     * as is an already-dead {@code effectiveTo <= now}. A future {@code effectiveTo} ("valid
+     * until") remains supported. Scheduled future prices are a deliberate later addition via a
+     * separate {@code price_schedule} model — never by half-supporting them here.
+     *
+     * <p><b>Duplicate delivery semantics (ADR-015).</b> This internal command is not yet exposed
+     * on any transport that redelivers. If the same command IS delivered twice: a duplicate
+     * CREATE hits the unique (sku_id, currency) index and a duplicate UPDATE fails the version
+     * CAS — either way the second delivery raises {@link PriceConflictException} and mutates
+     * NOTHING (no double version increment, no duplicate ledger row; the transaction rolls back).
+     * Retries are therefore mutation-safe; they are not return-original-result idempotent. An
+     * {@code idempotencyKey} with a dedupe store is REQUIRED in the PR that first exposes this
+     * write on a retrying/redelivering transport (queue or HTTP), per ADR-015.
+     *
      * @return the new version after this write.
      */
     public long upsertPrice(UpsertPriceCommand cmd) {
@@ -71,6 +97,7 @@ public class PricingService implements PriceReadPort {
         long newVersion = (cmd.expectedVersion() == null) ? 1L : cmd.expectedVersion() + 1;
         String skuId = cmd.skuId();
         Instant nowInstant = clock.instant();
+        rejectNonImmediateWindow(cmd, nowInstant);
         Date now = Date.from(nowInstant);
         Date from = cmd.effectiveFrom() == null ? null : Date.from(cmd.effectiveFrom());
         Date to = cmd.effectiveTo() == null ? null : Date.from(cmd.effectiveTo());
@@ -110,6 +137,9 @@ public class PricingService implements PriceReadPort {
                     }
                 }
             });
+        } catch (PriceConflictException e) {
+            log.info("price_write_conflict sku={} reason=stale_version expected={}", skuId, cmd.expectedVersion());
+            throw e;
         } catch (MongoWriteException e) {
             if (e.getError().getCategory() == com.mongodb.ErrorCategory.DUPLICATE_KEY) {
                 log.info("price_write_conflict sku={} reason=duplicate_create", skuId);
@@ -143,6 +173,25 @@ public class PricingService implements PriceReadPort {
 
     // --- validation (STEP 13) -------------------------------------------------
 
+    /**
+     * Option A guard: canonical writes must be effective immediately. From is INCLUSIVE, so
+     * {@code effectiveFrom == now} is allowed; to is EXCLUSIVE, so {@code effectiveTo == now}
+     * means already expired and is rejected.
+     */
+    private void rejectNonImmediateWindow(UpsertPriceCommand cmd, Instant now) {
+        if (cmd.effectiveFrom() != null && cmd.effectiveFrom().isAfter(now)) {
+            log.info("price_write_validation_failure sku={} reason=future_effective_from", cmd.skuId());
+            throw new InvalidPriceException(
+                    "future-dated effectiveFrom is not supported by price_current (use the future "
+                            + "price_schedule model when it exists); effectiveFrom=" + cmd.effectiveFrom());
+        }
+        if (cmd.effectiveTo() != null && !cmd.effectiveTo().isAfter(now)) {
+            log.info("price_write_validation_failure sku={} reason=already_expired_effective_to", cmd.skuId());
+            throw new InvalidPriceException(
+                    "effectiveTo must be in the future; writing an already-expired price is rejected");
+        }
+    }
+
     static Price validateCommand(UpsertPriceCommand cmd) {
         try {
             Objects.requireNonNull(cmd, "command required");
@@ -154,6 +203,10 @@ public class PricingService implements PriceReadPort {
             }
             if (cmd.expectedVersion() != null && cmd.expectedVersion() < 1) {
                 throw new InvalidPriceException("expectedVersion must be positive: " + cmd.expectedVersion());
+            }
+            if (cmd.sellingPricePaise() > MAX_AMOUNT_PAISE || cmd.mrpPaise() > MAX_AMOUNT_PAISE) {
+                throw new InvalidPriceException("amount exceeds sanity ceiling of " + MAX_AMOUNT_PAISE
+                        + " paise (fat-finger guard, see MAX_AMOUNT_PAISE)");
             }
             long version = (cmd.expectedVersion() == null) ? 1L : cmd.expectedVersion() + 1;
             // Price's compact constructor enforces: non-negative paise (via Money),

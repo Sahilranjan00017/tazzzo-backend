@@ -133,6 +133,65 @@ class PricingFoundationIT extends AbstractMongoIT {
         assertEquals(150, ((Number) back.get("price")).intValue());
     }
 
+    @Test void future_dated_write_rejected_and_current_price_preserved() {
+        // STEP 3 (PR-03 review): scheduling tomorrow's price must NOT replace today's active price.
+        PricingService svc = service(NOW);
+        svc.upsertPrice(new UpsertPriceCommand("TZP-FUT", 10000L, 12000L, Currency.INR,
+                NOW.minusSeconds(86400), null, "seed", null)); // ₹100, from yesterday, open-ended
+
+        long ledgerBefore = db.getCollection("price_events").countDocuments(Filters.eq("sku_id", "TZP-FUT"));
+        assertThrows(com.tazzzo.pricing.InvalidPriceException.class,
+                () -> svc.upsertPrice(new UpsertPriceCommand("TZP-FUT", 11000L, 12000L, Currency.INR,
+                        NOW.plusSeconds(86400), null, "operator", 1L))); // ₹110 from tomorrow -> rejected
+
+        // the live price is untouched: still ACTIVE, still v1, still ₹100 — no orphan ledger row.
+        PriceLookup lk = svc.findCurrentPrice("TZP-FUT");
+        assertEquals(PriceStatus.ACTIVE, lk.status());
+        assertEquals(10000L, lk.price().sellingPricePaise());
+        assertEquals(1L, lk.price().version());
+        assertEquals(ledgerBefore, db.getCollection("price_events").countDocuments(Filters.eq("sku_id", "TZP-FUT")));
+    }
+
+    @Test void effective_from_exactly_now_is_allowed_boundary() {
+        PricingService svc = service(NOW);
+        long v = svc.upsertPrice(new UpsertPriceCommand("TZP-NOWB", 100L, 200L, Currency.INR,
+                NOW, null, "seed", null)); // from == now: inclusive, immediate
+        assertEquals(1L, v);
+        assertEquals(PriceStatus.ACTIVE, svc.findCurrentPrice("TZP-NOWB").status());
+    }
+
+    @Test void already_expired_effective_to_rejected() {
+        PricingService svc = service(NOW);
+        assertThrows(com.tazzzo.pricing.InvalidPriceException.class,
+                () -> svc.upsertPrice(new UpsertPriceCommand("TZP-DEAD", 100L, 200L, Currency.INR,
+                        NOW.minusSeconds(7200), NOW, "seed", null))); // to == now: exclusive -> dead on arrival
+    }
+
+    @Test void expired_price_can_be_replaced_via_cas() {
+        // STEP 4: an EXPIRED row does not reactivate; a replacement write (expectedVersion=current)
+        // succeeds and becomes the new ACTIVE price.
+        PricingService writer = service(Instant.parse("2026-01-01T00:00:00Z"));
+        writer.upsertPrice(new UpsertPriceCommand("TZP-REPL", 100L, 200L, Currency.INR,
+                null, Instant.parse("2026-01-10T00:00:00Z"), "s", null)); // v1, expires Jan 10
+        PricingService later = service(NOW); // June: expired
+        assertEquals(PriceStatus.EXPIRED, later.findCurrentPrice("TZP-REPL").status());
+        long v2 = later.upsertPrice(new UpsertPriceCommand("TZP-REPL", 120L, 200L, Currency.INR,
+                null, null, "s", 1L));
+        assertEquals(2L, v2);
+        PriceLookup lk = later.findCurrentPrice("TZP-REPL");
+        assertEquals(PriceStatus.ACTIVE, lk.status());
+        assertEquals(120L, lk.price().sellingPricePaise());
+    }
+
+    @Test void bson_money_fields_are_int64() {
+        // STEP 9: paise must persist as BSON int64 (Long), never int32/double/string.
+        service(NOW).upsertPrice(create("TZP-BSON", 26500L, 30000L));
+        Document d = db.getCollection("price_current").find(Filters.eq("sku_id", "TZP-BSON")).first();
+        assertInstanceOf(Long.class, d.get("selling_price_paise"));
+        assertInstanceOf(Long.class, d.get("mrp_paise"));
+        assertInstanceOf(Long.class, d.get("version"));
+    }
+
     @Test void bootstrap_is_idempotent_and_creates_unique_index() {
         // @BeforeAll already bootstrapped; re-running must not throw and index must be unique.
         assertDoesNotThrow(() -> schemaBootstrap.bootstrap(db));
