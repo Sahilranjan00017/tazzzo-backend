@@ -48,10 +48,10 @@ class ServiceabilityFoundationIT extends AbstractMongoIT {
         return new UpsertServiceAreaCommand(pin, area, routes, "seed", null);
     }
 
-    private long auditCount(String areaId) {
+    private long auditCountForPin(String pin) {
         return db.getCollection("domain_events").countDocuments(Filters.and(
-                Filters.eq("aggregate_type", "service_area"),
-                Filters.eq("aggregate_id", areaId),
+                Filters.eq("aggregate_type", "serviceability_pin"),
+                Filters.eq("aggregate_id", pin),
                 Filters.eq("type", "SERVICE_AREA_UPDATED")));
     }
 
@@ -107,22 +107,22 @@ class ServiceabilityFoundationIT extends AbstractMongoIT {
         assertEquals(2L, v2);
         assertEquals("FL-2", svc.resolveByPincode(new Pincode("560004")).fulfillmentLocationId());
 
-        long auditBefore = auditCount("SA-BLR-05");
+        long auditBefore = auditCountForPin("560004");
         assertThrows(ServiceabilityConflictException.class,
                 () -> svc.upsertServiceArea(new UpsertServiceAreaCommand("560004", "SA-BLR-05",
                         List.of(route("FL-3", 0, true)), "ops", 1L)));
         // state unchanged + the losing write left NO neutral-audit residue (txn rollback)
         assertEquals("FL-2", svc.resolveByPincode(new Pincode("560004")).fulfillmentLocationId());
-        assertEquals(auditBefore, auditCount("SA-BLR-05"));
+        assertEquals(auditBefore, auditCountForPin("560004"));
     }
 
     @Test void duplicate_create_rejected_without_orphan_audit() {
         ServiceabilityService svc = service();
         svc.upsertServiceArea(create("560005", "SA-BLR-06", List.of()));
-        long auditBefore = auditCount("SA-BLR-06");
+        long auditBefore = auditCountForPin("560005");
         assertThrows(ServiceabilityConflictException.class,
                 () -> svc.upsertServiceArea(create("560005", "SA-BLR-06", List.of())));
-        assertEquals(auditBefore, auditCount("SA-BLR-06"));
+        assertEquals(auditBefore, auditCountForPin("560005"));
     }
 
     @Test void update_of_missing_pin_is_not_found() {
@@ -139,6 +139,67 @@ class ServiceabilityFoundationIT extends AbstractMongoIT {
         assertEquals("FL-SHARED", svc.resolveByPincode(new Pincode("560008")).fulfillmentLocationId());
         // service_area_id shared across pins by design (an area may span many PINs)
         assertEquals("SA-BLR-07", svc.resolveByPincode(new Pincode("560008")).serviceAreaId());
+        // STEP 3 fix: sharing one serviceAreaId does NOT merge audit streams — each PIN
+        // aggregate has its own independent history.
+        assertEquals(1, auditCountForPin("560007"));
+        assertEquals(1, auditCountForPin("560008"));
+    }
+
+    @Test void relabelling_a_pin_keeps_one_continuous_audit_stream() {
+        // STEP 9: PIN moves SA-A -> SA-B; same canonical row, same version stream, ONE audit
+        // aggregate; the label change is visible IN the stream's detail.
+        ServiceabilityService svc = service();
+        svc.upsertServiceArea(create("560012", "SA-A", List.of(route("FL-1", 0, true))));      // v1
+        long v2 = svc.upsertServiceArea(new UpsertServiceAreaCommand("560012", "SA-B",
+                List.of(route("FL-1", 0, true)), "ops", 1L));                                   // v2
+        assertEquals(2L, v2);
+        assertEquals(1, db.getCollection("service_areas").countDocuments(
+                Filters.eq("pincode", "560012")), "no second canonical row");
+        assertEquals("SA-B", svc.resolveByPincode(new Pincode("560012")).serviceAreaId());
+        assertEquals(2, auditCountForPin("560012"), "one continuous per-PIN stream");
+        List<String> labels = db.getCollection("domain_events")
+                .find(Filters.and(Filters.eq("aggregate_type", "serviceability_pin"),
+                        Filters.eq("aggregate_id", "560012")))
+                .map(d -> ((Document) d.get("detail")).getString("service_area_id"))
+                .into(new java.util.ArrayList<>());
+        assertTrue(labels.contains("SA-A") && labels.contains("SA-B"),
+                "label transition recorded inside the single stream: " + labels);
+    }
+
+    @Test void concurrent_create_race_exactly_one_winner_one_audit() throws Exception {
+        // STEP 13: SIMULTANEOUS creates for the same PIN.
+        ServiceabilityService svc = service();
+        CountDownLatch start = new CountDownLatch(1);
+        AtomicInteger wins = new AtomicInteger();
+        AtomicInteger conflicts = new AtomicInteger();
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            Runnable attempt = () -> {
+                try {
+                    start.await();
+                    svc.upsertServiceArea(create("560013", "SA-CRACE",
+                            List.of(route("FL-" + Thread.currentThread().getName(), 0, true))));
+                    wins.incrementAndGet();
+                } catch (ServiceabilityConflictException e) {
+                    conflicts.incrementAndGet();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            };
+            Future<?> a = pool.submit(attempt);
+            Future<?> b = pool.submit(attempt);
+            start.countDown();
+            a.get();
+            b.get();
+        } finally {
+            pool.shutdownNow();
+        }
+        assertEquals(1, wins.get(), "exactly one create may win");
+        assertEquals(1, conflicts.get(), "the loser gets the TYPED conflict");
+        assertEquals(1, db.getCollection("service_areas").countDocuments(Filters.eq("pincode", "560013")));
+        Document d = db.getCollection("service_areas").find(Filters.eq("pincode", "560013")).first();
+        assertEquals(1L, ((Number) d.get("version")).longValue());
+        assertEquals(1, auditCountForPin("560013"), "loser's audit event rolled back");
     }
 
     @Test void expected_version_overflow_rejected_and_state_unchanged() {
@@ -193,12 +254,13 @@ class ServiceabilityFoundationIT extends AbstractMongoIT {
         Document r = d.getList("routes", Document.class).get(0);
         assertInstanceOf(Integer.class, r.get("priority"));
         assertEquals("FL-1", r.getString("fulfillment_location_id"));
-        // neutral audit rail: aggregate-typed, NOT product_events
+        // neutral audit rail: the PER-PIN aggregate (STEP 3 fix), NOT product_events
         Document ev = db.getCollection("domain_events").find(
-                Filters.eq("aggregate_id", "SA-BSON")).first();
+                Filters.eq("aggregate_id", "560011")).first();
         assertNotNull(ev);
-        assertEquals("service_area", ev.getString("aggregate_type"));
+        assertEquals("serviceability_pin", ev.getString("aggregate_type"));
         assertEquals("SERVICE_AREA_UPDATED", ev.getString("type"));
+        assertEquals("SA-BSON", ((Document) ev.get("detail")).getString("service_area_id"));
         assertNotNull(ev.getDate("at"));
         // product_events must stay product-only: no service-area rows there
         assertEquals(0, db.getCollection("product_events").countDocuments(

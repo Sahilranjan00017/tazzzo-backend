@@ -14,7 +14,13 @@ import java.util.Objects;
  * <p>Callers MUST preserve the C-3 discipline themselves: append the event FIRST, then perform
  * the state write, inside the SAME transaction/session — a failed state write then rolls the
  * event back, exactly like the product rail. {@code product_events} and its {@code WritePath}
- * remain untouched; product-owned domains keep using them.
+ * remain untouched; product-owned domains keep using them. (Documented LOW debt: unlike C-4's
+ * compile-time EventPayload parameter, this discipline is not compiler-enforced — acceptable at
+ * one caller; add a rail if adopters multiply.)
+ *
+ * <p><b>Event identity (PR-06 review, STEP 6 decision):</b> the Mongo {@code _id} of each
+ * {@code domain_events} row IS the event id — deliberate; no UUID infrastructure until a consumer
+ * (outbox/replication) actually needs portable ids. Rows are insert-only and never updated.
  */
 public class DomainAudit {
 

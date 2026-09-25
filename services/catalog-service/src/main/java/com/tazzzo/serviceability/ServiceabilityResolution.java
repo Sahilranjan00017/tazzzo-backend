@@ -13,6 +13,14 @@ package com.tazzzo.serviceability;
  *       signal (observability/data quality), not silently routed and not plain unserviceable.</li>
  * </ul>
  * An INVALID pin never reaches resolution — {@code Pincode} construction rejects it first.
+ *
+ * <p><b>DECIDED (PR-06 review, STEP 7):</b> under the one-row-per-COVERED-PIN model, absence of a
+ * row IS the business meaning "outside configured coverage" — so an absent PIN returns
+ * {@code UNSERVICEABLE}, and a separate {@code MISSING_CONFIGURATION} status is deliberately NOT
+ * used for absent PINs (there is no way, and no need, to distinguish "never covered" from
+ * "accidentally deleted" at read time; coverage completeness is an operational/data-quality
+ * concern). The config-error state that IS distinguishable — an active area whose routes are all
+ * inactive — has its own status: {@code NO_ACTIVE_ROUTE}.
  */
 public record ServiceabilityResolution(Status status, String serviceAreaId,
                                        String fulfillmentLocationId) {

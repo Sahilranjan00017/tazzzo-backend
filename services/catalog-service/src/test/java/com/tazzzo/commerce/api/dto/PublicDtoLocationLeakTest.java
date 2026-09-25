@@ -14,24 +14,43 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * STEP 26 (PR-06) — CRITICAL DATA BOUNDARY REGRESSION.
  * fulfillmentLocationId is INTERNAL routing identity and must NEVER appear in any public
- * commerce DTO — neither as a declared record component nor as a serialized JSON key. This is
- * the standing guard; extend the class list when new public DTOs are added.
+ * commerce DTO — neither as a declared record component nor as a serialized JSON key.
+ *
+ * <p>The declared-shape check AUTO-DISCOVERS every record in this package from the compiled
+ * classes directory (dependency-free), so a future public DTO is covered the moment it exists —
+ * no manual list to forget. A minimum-count assertion guards against the scan silently finding
+ * nothing.
  */
 class PublicDtoLocationLeakTest {
-
-    private static final List<Class<?>> PUBLIC_DTOS = List.of(
-            NodeDto.class, NodeListResponse.class,
-            ProductCardDto.class, ProductDetailDto.class,
-            ProductImageDto.class, ProductVariantDto.class, ProductAttributeDto.class,
-            LegalInformationDto.class, ServiceAreaSummaryDto.class,
-            ServiceabilityResponseDto.class, PagedProductResponse.class, ErrorEnvelopeDto.class);
 
     private static final List<String> FORBIDDEN = List.of(
             "fulfillmentlocation", "fulfillment_location", "warehouseid", "storeid", "darkstore");
 
-    @Test void no_public_dto_declares_internal_location_identity() {
-        for (Class<?> dto : PUBLIC_DTOS) {
-            assertTrue(dto.isRecord(), dto + " expected to be a record");
+    /** Auto-discover all record classes in this package across every classpath copy of it. */
+    private static List<Class<?>> discoverPublicDtos() throws Exception {
+        String pkgPath = "com/tazzzo/commerce/api/dto";
+        var urls = java.util.Collections.list(
+                PublicDtoLocationLeakTest.class.getClassLoader().getResources(pkgPath));
+        assertFalse(urls.isEmpty(), "package directory not found on classpath");
+        java.util.Set<Class<?>> records = new java.util.LinkedHashSet<>();
+        for (java.net.URL url : urls) {
+            assertEquals("file", url.getProtocol(), "expected exploded classes dir under surefire");
+            java.io.File dir = new java.io.File(url.toURI());
+            String[] files = dir.list();
+            if (files == null) continue;
+            for (String f : files) {
+                if (!f.endsWith(".class") || f.contains("$") || f.contains("Test")) continue;
+                Class<?> c = Class.forName("com.tazzzo.commerce.api.dto." + f.substring(0, f.length() - 6));
+                if (c.isRecord()) records.add(c);
+            }
+        }
+        assertTrue(records.size() >= 12,
+                "DTO auto-discovery degraded: found only " + records.size() + " records");
+        return List.copyOf(records);
+    }
+
+    @Test void no_public_dto_declares_internal_location_identity() throws Exception {
+        for (Class<?> dto : discoverPublicDtos()) {
             for (RecordComponent c : dto.getRecordComponents()) {
                 String name = c.getName().toLowerCase(Locale.ROOT);
                 for (String bad : FORBIDDEN) {

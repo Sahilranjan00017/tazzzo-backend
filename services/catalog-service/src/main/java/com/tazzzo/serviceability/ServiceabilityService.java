@@ -52,7 +52,18 @@ public class ServiceabilityService implements ServiceabilityReadPort {
 
     private static final Logger log = LoggerFactory.getLogger(ServiceabilityService.class);
     static final String COLLECTION = "service_areas";
-    static final String AGGREGATE_TYPE = "service_area";
+
+    /**
+     * AUDIT AGGREGATE IDENTITY (PR-06 review, STEP 3 fix). The mutable, CAS-versioned aggregate
+     * is the PER-PIN routing document — NOT the service area label: {@code serviceAreaId} is a
+     * non-unique public grouping shared across PINs, so keying audit on it would interleave
+     * independent version histories and re-labelling a PIN (SA-A → SA-B) would split one
+     * document's history across streams. Therefore: {@code aggregate_type = serviceability_pin},
+     * {@code aggregate_id = pincode}; the current {@code service_area_id} travels in the event
+     * DETAIL. Full PINs are permitted in {@code domain_events} — internal operational data,
+     * never public output — while application LOGS stay masked.
+     */
+    static final String AGGREGATE_TYPE = "serviceability_pin";
 
     private final Tx tx;
     private final MongoDatabase db;
@@ -105,7 +116,7 @@ public class ServiceabilityService implements ServiceabilityReadPort {
             throw new InvalidServiceabilityException("expectedVersion overflow: " + cmd.expectedVersion());
         }
         Date now = Date.from(clock.instant());
-        DomainEvent event = new DomainEvent(AGGREGATE_TYPE, cmd.serviceAreaId(),
+        DomainEvent event = new DomainEvent(AGGREGATE_TYPE, cmd.pincode(),
                 "SERVICE_AREA_UPDATED", auditDetail(cmd, newVersion));
 
         try {
@@ -211,7 +222,9 @@ public class ServiceabilityService implements ServiceabilityReadPort {
 
     private static Map<String, Object> auditDetail(UpsertServiceAreaCommand cmd, long version) {
         Map<String, Object> m = new LinkedHashMap<>();
-        m.put("pincode", cmd.pincode());
+        // the aggregate_id is the pincode; the (mutable) grouping label rides in the detail so
+        // a re-label is visible IN the one continuous per-PIN stream.
+        m.put("service_area_id", cmd.serviceAreaId());
         m.put("route_count", cmd.routes() == null ? 0 : cmd.routes().size());
         m.put("version", version);
         return m;
