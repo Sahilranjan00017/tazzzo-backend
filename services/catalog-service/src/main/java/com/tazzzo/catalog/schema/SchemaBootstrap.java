@@ -45,6 +45,12 @@ public class SchemaBootstrap {
             // by configuration at read time. Distinct from attachment_registry (Law-4b validator
             // key governance) and from evidence payload_ref (evidence bytes) — no shared ownership.
             "media_refs",
+            // PR-06 Serviceability foundation: pincode -> service area + INTERNAL fulfillment
+            // routing, one document per PIN with embedded prioritised route candidates.
+            "service_areas",
+            // PR-06 neutral audit rail (domain_events): C-3-style audit for aggregates that are
+            // NOT products (first user: service_area). product_events stays product-only.
+            "domain_events",
             "taxonomy_nodes", "attribute_definitions", "attribute_schemas",
             "node_events", "taxonomy_snapshot_nodes", "id_sequences",
             // RESP-PROJ RP-6: consumer PRESENTATION policy, keyed per vertical. Deliberately
@@ -139,6 +145,13 @@ public class SchemaBootstrap {
         // create-race guard. All access is a point lookup on this key — no other index.
         db.getCollection("media_refs").createIndex(
                 Indexes.ascending("owner_type", "owner_id"), new IndexOptions().unique(true));
+        // PR-06: exactly one routing config per PIN; unique index doubles as the create-race
+        // guard. service_area_id is deliberately NOT unique (a future area may span many PINs).
+        db.getCollection("service_areas").createIndex(
+                Indexes.ascending("pincode"), new IndexOptions().unique(true));
+        // PR-06: neutral audit rail lookups by aggregate + time.
+        db.getCollection("domain_events").createIndex(
+                Indexes.ascending("aggregate_type", "aggregate_id", "at"));
         db.getCollection("taxonomy_nodes").createIndex(Indexes.ascending("parent_id"));
         db.getCollection("taxonomy_nodes").createIndex(Indexes.ascending("node_type", "status"));
         db.getCollection("attribute_definitions").createIndex(
