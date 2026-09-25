@@ -42,6 +42,18 @@ class StockStateDerivationTest {
         assertEquals(7, rec(10, 3, 2).available());
     }
 
+    @Test void effective_purchasable_is_min_of_cap_and_available() {
+        // maxPurchasable (persisted source cap) vs available — inventory-side effective cap.
+        assertEquals(10, new InventoryRecord("TZP-1", "FL-BLR-01", 50, 0, 2, 10, 1, true)
+                .effectivePurchasableQuantity()); // cap binds
+        assertEquals(3, new InventoryRecord("TZP-1", "FL-BLR-01", 5, 2, 1, 10, 1, true)
+                .effectivePurchasableQuantity()); // available binds
+        assertEquals(0, new InventoryRecord("TZP-1", "FL-BLR-01", 4, 4, 1, 10, 1, true)
+                .effectivePurchasableQuantity()); // fully reserved
+        assertEquals(0, new InventoryRecord("TZP-1", "FL-BLR-01", 5, 0, 1, 0, 1, true)
+                .effectivePurchasableQuantity()); // zero cap
+    }
+
     @Test void record_state_is_never_unknown() {
         // UNKNOWN belongs to InventoryLookup.MISSING / composition boundaries, not to a valid row.
         for (long onHand = 0; onHand <= 4; onHand++) {

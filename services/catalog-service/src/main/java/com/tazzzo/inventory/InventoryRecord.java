@@ -46,6 +46,18 @@ public record InventoryRecord(
     }
 
     /**
+     * FROZEN SEMANTICS (PR-04 review): {@code maxPurchasable} is a PERSISTED, source-provided,
+     * inventory-side static cap per row — never derived, and never the final ProductCard
+     * {@code maxOrderQuantity} (that is composed later as
+     * {@code min(catalog policy, effectivePurchasableQuantity())} in commerce.read). The
+     * inventory-side EFFECTIVE cap can never exceed what stock supports:
+     * {@code min(maxPurchasable, available)}.
+     */
+    public long effectivePurchasableQuantity() {
+        return Math.min(maxPurchasable, available());
+    }
+
+    /**
      * Canonical derivation (Phase 3.1 STEP 7):
      * available == 0 → OUT_OF_STOCK; 0 < available <= threshold → LOW_STOCK; else IN_STOCK.
      */

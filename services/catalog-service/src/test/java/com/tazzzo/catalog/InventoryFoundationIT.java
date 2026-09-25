@@ -67,7 +67,36 @@ class InventoryFoundationIT extends AbstractMongoIT {
     @Test void duplicate_create_rejected_by_unique_key() {
         InventoryService svc = service();
         svc.setInventory(create("TZP-DUP2", LOC, 10, 2));
+        long auditBefore = db.getCollection("product_events").countDocuments(
+                Filters.and(Filters.eq("product_id", "TZP-DUP2"), Filters.eq("type", "INVENTORY_SET")));
         assertThrows(InventoryConflictException.class, () -> svc.setInventory(create("TZP-DUP2", LOC, 20, 2)));
+        // the losing create left NO orphan audit event (transaction rollback)
+        assertEquals(auditBefore, db.getCollection("product_events").countDocuments(
+                Filters.and(Filters.eq("product_id", "TZP-DUP2"), Filters.eq("type", "INVENTORY_SET"))));
+    }
+
+    @Test void on_hand_equal_to_reserved_boundary_allowed_and_out_of_stock() {
+        // STEP 4 boundary: setting onHand exactly to live reserved is allowed -> available 0.
+        InventoryService svc = service();
+        svc.setInventory(create("TZP-EQB", LOC, 10, 2)); // v1
+        assertTrue(com.tazzzo.inventory.InventoryTestAccess.tryReserve(svc, "TZP-EQB", LOC, 6)); // v2
+        long v3 = svc.setInventory(new SetInventoryCommand("TZP-EQB", LOC, 6, 2, 10, "sync", 2L));
+        assertEquals(3L, v3);
+        InventoryLookup lk = svc.findInventory("TZP-EQB", LOC);
+        assertEquals(6, lk.record().onHand());
+        assertEquals(6, lk.record().reserved());
+        assertEquals(0, lk.record().available());
+        assertEquals(StockState.OUT_OF_STOCK, lk.record().stockState());
+        assertEquals(0, lk.record().effectivePurchasableQuantity());
+    }
+
+    @Test void expected_version_overflow_rejected() {
+        // STEP 16: Long.MAX_VALUE expectedVersion must fail typed, never wrap silently.
+        InventoryService svc = service();
+        svc.setInventory(create("TZP-OVF", LOC, 5, 1));
+        assertThrows(InvalidInventoryException.class, () -> svc.setInventory(
+                new SetInventoryCommand("TZP-OVF", LOC, 5, 1, 10, "sync", Long.MAX_VALUE)));
+        assertEquals(1, svc.findInventory("TZP-OVF", LOC).record().version());
     }
 
     @Test void cas_update_increments_version_and_stale_writer_rolls_back() {
@@ -96,7 +125,7 @@ class InventoryFoundationIT extends AbstractMongoIT {
     @Test void on_hand_below_live_reserved_rejected() {
         InventoryService svc = service();
         svc.setInventory(create("TZP-RESV", LOC, 10, 2)); // v1
-        assertTrue(svc.tryReserve("TZP-RESV", LOC, 6));   // reserved=6, v2
+        assertTrue(com.tazzzo.inventory.InventoryTestAccess.tryReserve(svc, "TZP-RESV", LOC, 6));   // reserved=6, v2
         assertThrows(InvalidInventoryException.class,
                 () -> svc.setInventory(new SetInventoryCommand("TZP-RESV", LOC, 5, 2, 10, "sync", 2L)));
         // untouched by the rejected write
@@ -115,7 +144,7 @@ class InventoryFoundationIT extends AbstractMongoIT {
         assertEquals(StockState.LOW_STOCK, svc.findInventory("TZP-IND", "FL-BLR-02").record().stockState());
         assertEquals(StockState.OUT_OF_STOCK, svc.findInventory("TZP-IND2", "FL-BLR-01").record().stockState());
 
-        assertTrue(svc.tryReserve("TZP-IND", "FL-BLR-01", 5));
+        assertTrue(com.tazzzo.inventory.InventoryTestAccess.tryReserve(svc, "TZP-IND", "FL-BLR-01", 5));
         // the other location's row is untouched by the reservation
         assertEquals(0, svc.findInventory("TZP-IND", "FL-BLR-02").record().reserved());
     }
@@ -136,11 +165,11 @@ class InventoryFoundationIT extends AbstractMongoIT {
     @Test void reserve_succeeds_and_insufficient_reserve_leaves_no_residue() {
         InventoryService svc = service();
         svc.setInventory(create("TZP-RES2", LOC, 5, 1)); // v1, available 5
-        assertTrue(svc.tryReserve("TZP-RES2", LOC, 3));  // available 2, v2
+        assertTrue(com.tazzzo.inventory.InventoryTestAccess.tryReserve(svc, "TZP-RES2", LOC, 3));  // available 2, v2
 
         long auditBefore = db.getCollection("product_events").countDocuments(
                 Filters.and(Filters.eq("product_id", "TZP-RES2"), Filters.eq("type", "INVENTORY_RESERVED")));
-        assertFalse(svc.tryReserve("TZP-RES2", LOC, 3)); // only 2 available -> refused
+        assertFalse(com.tazzzo.inventory.InventoryTestAccess.tryReserve(svc, "TZP-RES2", LOC, 3)); // only 2 available -> refused
         InventoryLookup lk = svc.findInventory("TZP-RES2", LOC);
         assertEquals(3, lk.record().reserved());
         assertEquals(2, lk.record().version());
@@ -159,7 +188,7 @@ class InventoryFoundationIT extends AbstractMongoIT {
             Runnable attempt = () -> {
                 try {
                     start.await();
-                    if (svc.tryReserve("TZP-RACE", LOC, 5)) successes.incrementAndGet();
+                    if (com.tazzzo.inventory.InventoryTestAccess.tryReserve(svc, "TZP-RACE", LOC, 5)) successes.incrementAndGet();
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 }

@@ -84,7 +84,13 @@ public class InventoryService implements InventoryReadPort {
      */
     public long setInventory(SetInventoryCommand cmd) {
         validateCommand(cmd);
-        long newVersion = (cmd.expectedVersion() == null) ? 1L : cmd.expectedVersion() + 1;
+        long newVersion;
+        try {
+            newVersion = (cmd.expectedVersion() == null) ? 1L : Math.addExact(cmd.expectedVersion(), 1);
+        } catch (ArithmeticException e) {
+            // A Long.MAX_VALUE expectedVersion can only be caller corruption; never wrap silently.
+            throw new InvalidInventoryException("expectedVersion overflow: " + cmd.expectedVersion());
+        }
         Date now = Date.from(clock.instant());
         EventPayload event = new EventPayload("INVENTORY_SET", cmd.skuId(), auditDetail(cmd, newVersion));
 
@@ -165,10 +171,14 @@ public class InventoryService implements InventoryReadPort {
      * not version-conditioned: a concurrent threshold edit must not fail a legitimate reservation;
      * atomicity comes from the single conditional update, and {@code version} still increments.
      *
-     * <p>NOT exposed on any API. The checkout PR that orchestrates this MUST add idempotency
-     * (reservation ids / dedupe) per ADR-015 before any transport can redeliver it.
+     * <p><b>PACKAGE-PRIVATE BY DESIGN (PR-04 review, Option A).</b> A reservation without a
+     * reservationId, expiry, release path, recovery/reconciliation and an idempotency key can
+     * strand {@code reserved} stock forever if called twice or abandoned. Until that lifecycle
+     * exists (checkout phase), NOTHING outside {@code com.tazzzo.inventory} may invoke this —
+     * the atomic mechanics stay proven by tests through a same-package test bridge only.
+     * Widening this to public is a review-gated change, not a convenience edit.
      */
-    public boolean tryReserve(String skuId, String fulfillmentLocationId, long qty) {
+    boolean tryReserve(String skuId, String fulfillmentLocationId, long qty) {
         new InventoryKey(skuId, fulfillmentLocationId);
         if (qty < 1 || qty > MAX_QUANTITY) {
             log.info("inventory_write_validation_failure sku={} loc={} reason=bad_reserve_qty {}",
