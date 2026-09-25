@@ -40,6 +40,11 @@ public class SchemaBootstrap {
             // persisted counters (on_hand, reserved), never stored. offers_current.available (a
             // per-source boolean observation) is a different fact and untouched.
             "inventory",
+            // PR-05 Media foundation: canonical media REFERENCES per (owner_type, owner_id) —
+            // storage-neutral asset keys, ordering, single-PRIMARY rule; public URLs are DERIVED
+            // by configuration at read time. Distinct from attachment_registry (Law-4b validator
+            // key governance) and from evidence payload_ref (evidence bytes) — no shared ownership.
+            "media_refs",
             "taxonomy_nodes", "attribute_definitions", "attribute_schemas",
             "node_events", "taxonomy_snapshot_nodes", "id_sequences",
             // RESP-PROJ RP-6: consumer PRESENTATION policy, keyed per vertical. Deliberately
@@ -130,6 +135,10 @@ public class SchemaBootstrap {
         // path in PR-04 is a point lookup on this exact key.
         db.getCollection("inventory").createIndex(
                 Indexes.ascending("sku_id", "fulfillment_location_id"), new IndexOptions().unique(true));
+        // PR-05: exactly one canonical media set per owner; unique index doubles as the
+        // create-race guard. All access is a point lookup on this key — no other index.
+        db.getCollection("media_refs").createIndex(
+                Indexes.ascending("owner_type", "owner_id"), new IndexOptions().unique(true));
         db.getCollection("taxonomy_nodes").createIndex(Indexes.ascending("parent_id"));
         db.getCollection("taxonomy_nodes").createIndex(Indexes.ascending("node_type", "status"));
         db.getCollection("attribute_definitions").createIndex(
