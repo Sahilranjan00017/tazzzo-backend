@@ -59,7 +59,7 @@ public record MediaAsset(
      * trailing slash, and empty segments ({@code //}) are banned. Every segment is therefore a
      * non-empty literal name that cannot navigate upward or re-root the path.
      */
-    static boolean isSafeKey(String key) {
+    public static boolean isSafeKey(String key) {
         if (key == null || key.isBlank() || key.length() > MAX_ASSET_KEY) return false;
         if (!KEY_SHAPE.matcher(key).matches()) return false; // also excludes leading '/' and '.'
         if (key.contains("..") || key.contains("//") || key.endsWith("/")) return false;

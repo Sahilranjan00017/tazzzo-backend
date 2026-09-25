@@ -65,10 +65,31 @@ class ModuleBoundaryTest {
                             "com.tazzzo.catalog.schema..")
                     .allowEmptyShould(true);
 
-    /** No dependency cycles between top-level Tazzzo modules. */
+    /** Frozen DAG direction: commerce.api -> commerce.read, NEVER the reverse (PR-07). */
+    @ArchTest
+    static final ArchRule commerce_read_does_not_depend_on_commerce_api =
+            noClasses().that().resideInAPackage("com.tazzzo.commerce.read..")
+                    .should().dependOnClassesThat().resideInAPackage("com.tazzzo.commerce.api..")
+                    .allowEmptyShould(true);
+
+    /**
+     * No dependency cycles between top-level Tazzzo modules.
+     *
+     * <p>Dependencies INTO {@code com.tazzzo.commerce.contract} are excluded from cycle
+     * analysis (PR-07): that package is the documented NEUTRAL LEAF vocabulary (see its
+     * package-info) with zero outgoing dependencies, so an edge into it can never close a real
+     * cycle — but naive top-level slicing would lump it with commerce.read/api and report a
+     * false {@code media ↔ commerce} cycle the moment commerce.read legitimately consumes the
+     * media read port. Real cycles (e.g. a domain importing commerce.read back) remain detected
+     * because only edges whose TARGET is the leaf contract package are ignored.
+     */
     @ArchTest
     static final ArchRule modules_are_free_of_cycles =
             slices().matching("com.tazzzo.(*)..")
                     .should().beFreeOfCycles()
+                    .ignoreDependency(
+                            com.tngtech.archunit.base.DescribedPredicate.alwaysTrue(),
+                            com.tngtech.archunit.core.domain.JavaClass.Predicates
+                                    .resideInAPackage("com.tazzzo.commerce.contract.."))
                     .allowEmptyShould(true);
 }

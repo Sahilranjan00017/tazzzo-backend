@@ -51,6 +51,10 @@ public class SchemaBootstrap {
             // PR-06 neutral audit rail (domain_events): C-3-style audit for aggregates that are
             // NOT products (first user: service_area). product_events stays product-only.
             "domain_events",
+            // PR-07 ProductCardBaseProjection: DERIVED, DISPOSABLE, location-agnostic read model
+            // (Catalog identity + canonical Pricing + Media asset refs). Not a source of truth;
+            // rebuildable at any time; NOT LIVE until the enrichment PR wires freshness.
+            "product_card_base",
             "taxonomy_nodes", "attribute_definitions", "attribute_schemas",
             "node_events", "taxonomy_snapshot_nodes", "id_sequences",
             // RESP-PROJ RP-6: consumer PRESENTATION policy, keyed per vertical. Deliberately
@@ -152,6 +156,10 @@ public class SchemaBootstrap {
         // PR-06: neutral audit rail lookups by aggregate + time.
         db.getCollection("domain_events").createIndex(
                 Indexes.ascending("aggregate_type", "aggregate_id", "at"));
+        // PR-07: one derived card per SKU; unique index doubles as the create-race guard.
+        // All PR-07 access is a point lookup on sku_id — no other index is justified yet.
+        db.getCollection("product_card_base").createIndex(
+                Indexes.ascending("sku_id"), new IndexOptions().unique(true));
         db.getCollection("taxonomy_nodes").createIndex(Indexes.ascending("parent_id"));
         db.getCollection("taxonomy_nodes").createIndex(Indexes.ascending("node_type", "status"));
         db.getCollection("attribute_definitions").createIndex(
