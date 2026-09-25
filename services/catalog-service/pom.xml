@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.3.5</version>
+        <relativePath/>
+    </parent>
+    <groupId>com.tazzzo</groupId>
+    <artifactId>catalog-service</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <name>Tazzzo Catalog Service</name>
+    <description>Catalogue backend implementing Implementation Contract V1 (T1-T7, write path, schema bootstrap)</description>
+    <properties>
+        <java.version>21</java.version>
+        <testcontainers.version>1.21.3</testcontainers.version>
+    </properties>
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-mongodb</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-api</artifactId>
+            <version>2.6.0</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+        <!--
+          Q5-OBS-1: Micrometer via Actuator, for the consumer limiter/probe measurements Q5-g
+          requires before internet exposure. This does NOT open an HTTP surface: web exposure is
+          disabled in application.yml, /actuator/** stays UNKNOWN to SurfaceClassifier, and the
+          production sink/exporter (CloudWatch vs Prometheus vs OTLP) is a deployment decision
+          that is deliberately not made here.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <!--
+          TR-3 (ratified 2026-09-06, implementation pinned in 5.2.1): the transport sort key is
+          NFKC -> trim -> collapse whitespace -> UNICODE CASE-FOLD. Java has no built-in foldCase;
+          String.toLowerCase(Locale.ROOT) is a close APPROXIMATION, not the operation the contract
+          names, and using it would knowingly implement something weaker than TR-3 says. ICU4J is
+          a large artifact, and that cost was accepted with the pick.
+        -->
+        <dependency>
+            <groupId>com.ibm.icu</groupId>
+            <artifactId>icu4j</artifactId>
+            <version>75.1</version>
+        </dependency>
+        <!--
+          CAT-SEC-1 Q5-MECH-1: the consumer limiter is DISTRIBUTED. Two catalogue tasks serve
+          consumers concurrently, so per-instance state would make the effective allowance depend
+          on the replica count. Shared state is ElastiCache speaking the Redis/Valkey protocol.
+          Kept entirely separate from the Mongo connection and config.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>mongodb</artifactId>
+            <version>${testcontainers.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${testcontainers.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.awaitility</groupId>
+            <artifactId>awaitility</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.httpcomponents.client5</groupId>
+            <artifactId>httpclient5</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <includes>
+                        <include>**/*IT.java</include>
+                        <include>**/*Test.java</include>
+                    </includes>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

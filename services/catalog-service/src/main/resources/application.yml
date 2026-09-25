@@ -1,0 +1,75 @@
+spring:
+  task:
+    scheduling:
+      pool:
+        size: 4          # M2: four workers, four threads — no head-of-line blocking
+  application:
+    name: tazzzo-catalog-service
+  data:
+    mongodb:
+      uri: ${MONGODB_URI:mongodb://localhost:27017/tazzzo?replicaSet=rs0}
+      database: ${MONGODB_DATABASE:tazzzo}
+tazzzo:
+  schema:
+    bootstrap-on-startup: true      # create collections, validators, indexes (idempotent)
+    load-taxonomy-seed: true        # load frozen taxonomy v0.9.0 (insert-only, idempotent)
+  scheduler:
+    enabled: ${TAZZZO_SCHEDULER_ENABLED:true}   # operational layer; workers are idempotent
+    merge-finalizer-ms: 30000
+    taint-ms: 30000
+    stamp-ms: 30000
+    rollup-ms: 3600000
+    rollup-lag-seconds: 120                     # never aggregate events younger than this
+    taint-batch-size: 100
+    stamp-batch-size: 100
+  auth:
+    # NO DEFAULTS BY DESIGN: an unset token disables that role entirely (fail-closed).
+    cms-token: ${TAZZZO_CMS_TOKEN:}
+    read-token: ${TAZZZO_READ_TOKEN:}
+  consumer:
+    # LIST-CURSOR-1. Base64 of >= 32 random bytes; signs every product-list cursor. NO DEFAULT BY
+    # DESIGN: the production value is generated at deployment setup (CEO decision), never checked
+    # in or invented here. Missing or malformed => the LIST route answers 503 before any product
+    # work. ROOT and CHILDREN do not need it. v1 rotation may invalidate outstanding cursors.
+    cursor-hmac-key-b64: ${TAZZZO_CONSUMER_CURSOR_HMAC_KEY_B64:}
+  consumer-rate-limit:
+    # NO PRODUCTION DEFAULT BY DESIGN (Q5-c). Unset or unrecognised is a STARTUP FAILURE, because a
+    # permissive default is worse than none: it looks like a decision. DISABLED is an intentional
+    # fail-closed state (no limiter is built and the consumer surface must not be exposed), NOT an
+    # in-memory limiter. REDIS requires complete Redis, bucket and trusted-proxy configuration.
+    mode: ${TAZZZO_CONSUMER_RATE_LIMIT_MODE:}
+    # The limiter OWNS its endpoint. Not spring.data.redis.* — production admission control must
+    # not depend on whatever connection defaults an autoconfiguration supplies, and must not be
+    # silently repointed by an unrelated future Redis feature. REDIS mode refuses to start without
+    # it. Q5-REDIS-1: ONE WRITER SHARD, cluster mode DISABLED (replication/Multi-AZ is fine).
+    redis-url: ${TAZZZO_RATE_LIMIT_REDIS_URL:}
+    # Q5-IP-1. Behind a proxy this MUST list it, or the resolver treats the proxy as the client and
+    # every consumer lands in one bucket. Empty means "trust no proxy" and REDIS mode refuses it.
+    trusted-proxy-cidrs: ${TAZZZO_TRUSTED_PROXY_CIDRS:}
+    # Capacities and refill rates are MANDATORY production configuration derived from load
+    # measurement (Q5-c). They are deliberately not defaulted here; test profiles carry fixture
+    # values, and those are not production recommendations.
+    ip:
+      capacity: ${TAZZZO_RATE_LIMIT_IP_CAPACITY:0}
+      refill-per-second: ${TAZZZO_RATE_LIMIT_IP_REFILL:0}
+    installation:
+      capacity: ${TAZZZO_RATE_LIMIT_INSTALL_CAPACITY:0}
+      refill-per-second: ${TAZZZO_RATE_LIMIT_INSTALL_REFILL:0}
+management:
+  observations:
+    enable:
+      http:
+        server:
+          # CONSUMER-OBS-2: Spring's automatic http.server.requests observation tags every request
+          # with the URI template and exception class -- a parallel telemetry vocabulary that
+          # Q5-OBS-1 forbids. The explicit route enum (tazzzo.catalog.consumer.requests /
+          # request.duration) IS the HTTP measurement contract. Proved by the registry, not here.
+          requests: false
+  endpoints:
+    web:
+      # Q5-OBS-1: Actuator is on the classpath for Micrometer ONLY. No actuator endpoint is
+      # served over HTTP; /actuator/** is UNKNOWN to SurfaceClassifier and refused by the auth
+      # filter before routing, and this makes it structural as well -- nothing is registered.
+      # The telemetry exporter is a deployment decision, not chosen here.
+      exposure:
+        include: ""

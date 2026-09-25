@@ -1,0 +1,58 @@
+# DOCKER-LOCAL-1 -- the LOCAL, MANUAL development stack for a host-run Spring Boot application.
+#
+# This is NOT what the automated tests use. `./mvnw test` starts its own throwaway MongoDB and
+# Redis through Testcontainers and never touches these containers. Start this stack only when
+# you want to run the application yourself:
+#
+#   docker compose -f docker-compose.local.yml up -d
+#   docker compose -f docker-compose.local.yml ps
+#   docker compose -f docker-compose.local.yml logs -f mongo
+#   docker compose -f docker-compose.local.yml down          # NOT `down -v`: -v erases Mongo data
+#
+# restart: "no" everywhere on purpose -- after a Docker Desktop restart nothing here resurrects
+# and consumes resources; Tazzzo infrastructure is started explicitly when it is needed.
+
+name: tazzzo-local
+
+services:
+  mongo:
+    image: mongo:7
+    container_name: tazzzo-local-mongo
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    ports:
+      - "27017:27017"
+    volumes:
+      - tazzzo_mongo_data:/data/db      # named volume: development data survives `down`
+    restart: "no"
+
+  # One-shot: waits for mongod, then initiates the single-node replica set (the application's
+  # transactions require a replica set). Idempotent -- rs.status() succeeding means nothing to do.
+  mongo-init:
+    image: mongo:7
+    container_name: tazzzo-local-mongo-init
+    network_mode: "service:mongo"
+    depends_on:
+      - mongo
+    entrypoint: ["/bin/bash", "-lc"]
+    # A literal block, JS on ONE line: a folded scalar re-flows the quotes and bash sees a
+    # truncated script (observed: "syntax error: unexpected end of file", exit 2).
+    command:
+      - |
+        until mongosh --host localhost:27017 --quiet --eval 'db.adminCommand({ping:1})' >/dev/null 2>&1; do sleep 1; done
+        mongosh --host localhost:27017 --quiet --eval 'try { rs.status(); print("replica set rs0 already initiated") } catch (e) { rs.initiate({_id:"rs0", members:[{_id:0, host:"localhost:27017"}]}); print("replica set rs0 initiated") }'
+    restart: "no"
+
+  redis:
+    image: redis:7-alpine
+    container_name: tazzzo-local-redis
+    ports:
+      # Host port 6380, not 6379: another project's Redis (backend-redis) already publishes 6379 on
+      # this machine and DOCKER-LOCAL-1 says leave other projects' containers alone.
+      - "6380:6379"
+    # Ephemeral by design: no RDB snapshots, no AOF. Local limiter state is worth nothing
+    # across restarts, and production Redis is a separate, ratified decision (Q5-AWS-REDIS-1).
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    restart: "no"
+
+volumes:
+  tazzzo_mongo_data:
