@@ -31,6 +31,10 @@ public class SchemaBootstrap {
             "batches", "campaigns", "campaign_membership", "aliases", "variant_groups",
             "marketplace_crosswalks", "system_config", "attachment_registry",
             "price_events", "price_rollups", "rollup_state",
+            // PR-03 Pricing foundation: canonical resolved current-price SoT per SKU (paise, MRP,
+            // version, effective window). ADDITIVE and separate from offers_current, which remains
+            // the raw multi-source commercial input; the two have distinct roles, not dual SoT.
+            "price_current",
             "taxonomy_nodes", "attribute_definitions", "attribute_schemas",
             "node_events", "taxonomy_snapshot_nodes", "id_sequences",
             // RESP-PROJ RP-6: consumer PRESENTATION policy, keyed per vertical. Deliberately
@@ -112,6 +116,10 @@ public class SchemaBootstrap {
                 Indexes.ascending("alias_norm", "lang", "region"), new IndexOptions().unique(true));
         db.getCollection("price_events").createIndex(Indexes.ascending("product_id", "ts"));
         db.getCollection("price_events").createIndex(Indexes.ascending("rolled", "ts"));
+        // PR-03: canonical current price, one active row per (SKU, currency). Additive; does not
+        // touch offers_current's (product_id, source, seller, channel) unique index.
+        db.getCollection("price_current").createIndex(
+                Indexes.ascending("sku_id", "currency"), new IndexOptions().unique(true));
         db.getCollection("taxonomy_nodes").createIndex(Indexes.ascending("parent_id"));
         db.getCollection("taxonomy_nodes").createIndex(Indexes.ascending("node_type", "status"));
         db.getCollection("attribute_definitions").createIndex(
