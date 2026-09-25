@@ -35,6 +35,11 @@ public class SchemaBootstrap {
             // version, effective window). ADDITIVE and separate from offers_current, which remains
             // the raw multi-source commercial input; the two have distinct roles, not dual SoT.
             "price_current",
+            // PR-04 Inventory foundation (ADR-004): authoritative stock per
+            // (sku_id, fulfillment_location_id). available/stock_state are DERIVED from the two
+            // persisted counters (on_hand, reserved), never stored. offers_current.available (a
+            // per-source boolean observation) is a different fact and untouched.
+            "inventory",
             "taxonomy_nodes", "attribute_definitions", "attribute_schemas",
             "node_events", "taxonomy_snapshot_nodes", "id_sequences",
             // RESP-PROJ RP-6: consumer PRESENTATION policy, keyed per vertical. Deliberately
@@ -120,6 +125,11 @@ public class SchemaBootstrap {
         // touch offers_current's (product_id, source, seller, channel) unique index.
         db.getCollection("price_current").createIndex(
                 Indexes.ascending("sku_id", "currency"), new IndexOptions().unique(true));
+        // PR-04: canonical inventory, exactly one row per (SKU, fulfillment location). The unique
+        // index is also the create-race guard. Additive; no other index needed — every access
+        // path in PR-04 is a point lookup on this exact key.
+        db.getCollection("inventory").createIndex(
+                Indexes.ascending("sku_id", "fulfillment_location_id"), new IndexOptions().unique(true));
         db.getCollection("taxonomy_nodes").createIndex(Indexes.ascending("parent_id"));
         db.getCollection("taxonomy_nodes").createIndex(Indexes.ascending("node_type", "status"));
         db.getCollection("attribute_definitions").createIndex(
