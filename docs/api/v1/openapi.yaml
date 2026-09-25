@@ -1,0 +1,405 @@
+openapi: 3.0.3
+info:
+  title: Tazzzo Commerce Read API
+  version: "1.0.0-draft"
+  description: >
+    Production customer-facing commerce READ contract (Phase 3.1 freeze).
+    This document is a FROZEN CONTRACT ONLY — it is NOT yet implemented.
+    The existing internal/consumer API under `/catalog/v1` and `/api/v1`
+    (see docs/openapi.json) is unchanged and documented separately.
+    All monetary amounts are integer paise (int64), currency INR.
+servers:
+  - url: https://api.tazzzo.com
+    description: Production gateway (not yet provisioned)
+tags:
+  - name: commerce-read
+    description: Composed, consumer-ready browse contract (ADR-001, ADR-003.1).
+paths:
+  /v1/categories:
+    get:
+      tags: [commerce-read]
+      operationId: getCategories
+      summary: Flat list of consumer-visible super-categories (ROOT).
+      parameters:
+        - $ref: '#/components/parameters/Release'
+        - $ref: '#/components/parameters/InstallationId'
+      responses:
+        '200':
+          description: OK
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            Cache-Control: { $ref: '#/components/headers/CacheControl' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NodeListResponse' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /v1/categories/{id}/children:
+    get:
+      tags: [commerce-read]
+      operationId: getCategoryChildren
+      summary: Immediate consumer-visible children of a taxonomy node.
+      parameters:
+        - $ref: '#/components/parameters/NodeId'
+        - $ref: '#/components/parameters/Release'
+        - $ref: '#/components/parameters/InstallationId'
+      responses:
+        '200':
+          description: OK (a visible vertical returns empty items)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NodeListResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /v1/categories/{id}/products:
+    get:
+      tags: [commerce-read]
+      operationId: listProductsInCategory
+      summary: >
+        Cursor-paginated ProductCard list under a node, enriched with
+        location-specific stock/serviceability when a location is supplied.
+      parameters:
+        - $ref: '#/components/parameters/NodeId'
+        - $ref: '#/components/parameters/Release'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Pin'
+        - $ref: '#/components/parameters/Lat'
+        - $ref: '#/components/parameters/Lng'
+        - $ref: '#/components/parameters/InstallationId'
+      responses:
+        '200':
+          description: OK
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlPrivate' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedProductResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /v1/products/{id}:
+    get:
+      tags: [commerce-read]
+      operationId: getProductDetail
+      summary: Full ProductDetail, location-enriched when a location is supplied.
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+        - $ref: '#/components/parameters/Release'
+        - $ref: '#/components/parameters/Pin'
+        - $ref: '#/components/parameters/Lat'
+        - $ref: '#/components/parameters/Lng'
+        - $ref: '#/components/parameters/InstallationId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /v1/serviceability:
+    get:
+      tags: [commerce-read]
+      operationId: getServiceability
+      summary: Resolve a customer location to a serviceable area + ETA.
+      parameters:
+        - $ref: '#/components/parameters/Pin'
+        - $ref: '#/components/parameters/Lat'
+        - $ref: '#/components/parameters/Lng'
+        - $ref: '#/components/parameters/InstallationId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceabilityResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+components:
+  parameters:
+    Release:
+      name: release
+      in: query
+      required: false
+      schema: { type: string }
+      description: Taxonomy release id; omitted resolves the current pointer once.
+    NodeId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, pattern: '^TZ[SCGV]-[0-9]{6}$' }
+    ProductId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, pattern: '^TZP-[0-9]+$' }
+    PageSize:
+      name: page_size
+      in: query
+      required: false
+      schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema: { type: string }
+      description: Opaque signed cursor. Clients MUST NOT parse it.
+    Pin:
+      name: pin
+      in: query
+      required: false
+      schema: { type: string, pattern: '^[1-9][0-9]{5}$' }
+      description: 6-digit Indian PIN code (launch location mechanism).
+    Lat:
+      name: lat
+      in: query
+      required: false
+      schema: { type: number }
+      description: Reserved for future lat/lng resolution.
+    Lng:
+      name: lng
+      in: query
+      required: false
+      schema: { type: number }
+      description: Reserved for future lat/lng resolution.
+    InstallationId:
+      name: X-Tazzzo-Installation-Id
+      in: header
+      required: false
+      schema: { type: string, maxLength: 128, pattern: '^[A-Za-z0-9\-_.:]+$' }
+      description: Optional opaque rate-limit dimension. Never identity/authz.
+  headers:
+    ETag:
+      description: Entity tag for conditional GET on stable/global responses.
+      schema: { type: string }
+    CacheControl:
+      description: Cacheable (global, release-keyed) response.
+      schema: { type: string, example: "public, max-age=300, stale-while-revalidate=60" }
+    CacheControlPrivate:
+      description: Location-enriched response; never shared across locations.
+      schema: { type: string, example: "private, max-age=15" }
+  schemas:
+    Node:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: string }
+        name: { type: string }
+    NodeListResponse:
+      type: object
+      required: [resolvedReleaseId, items, requestId]
+      properties:
+        resolvedReleaseId: { type: string }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Node' }
+        requestId: { type: string }
+    StockState:
+      type: string
+      enum: [IN_STOCK, LOW_STOCK, OUT_OF_STOCK, UNKNOWN]
+    ProductImage:
+      type: object
+      required: [url, role, order]
+      properties:
+        url: { type: string, format: uri, description: Approved CDN host only. }
+        role: { type: string, enum: [PRIMARY, GALLERY] }
+        order: { type: integer, minimum: 0 }
+        alt: { type: string, nullable: true }
+        width: { type: integer, nullable: true }
+        height: { type: integer, nullable: true }
+    ProductVariant:
+      type: object
+      required: [variantId, skuId]
+      properties:
+        variantId: { type: string }
+        skuId: { type: string }
+        packSize: { type: string, nullable: true }
+        unit: { type: string, nullable: true }
+    ProductAttribute:
+      type: object
+      required: [key, label]
+      properties:
+        key: { type: string }
+        label: { type: string }
+        value: {}
+        unit: { type: string, nullable: true }
+    LegalInformation:
+      type: object
+      properties:
+        manufacturer: { type: string, nullable: true }
+        countryOfOrigin: { type: string, nullable: true }
+        netQuantity: { type: string, nullable: true }
+        fssai: { type: string, nullable: true }
+        importer: { type: string, nullable: true }
+    ServiceAreaSummary:
+      type: object
+      required: [serviceable]
+      properties:
+        serviceAreaId: { type: string, nullable: true }
+        serviceable: { type: boolean }
+    ServiceabilityResponse:
+      type: object
+      required: [serviceable, requestId]
+      properties:
+        serviceable: { type: boolean }
+        serviceAreaId: { type: string, nullable: true }
+        serviceAreaVersion: { type: integer, nullable: true }
+        etaMinutesMin: { type: integer, nullable: true }
+        etaMinutesMax: { type: integer, nullable: true }
+        requestId: { type: string }
+    ProductCard:
+      type: object
+      description: >
+        Public composed card = stable base fields + runtime location enrichment.
+        Amounts are integer paise (int64). Location fields are null/UNKNOWN when
+        no location is supplied.
+      required: [skuId, productId, name, stockState, maxOrderQuantity, minimumOrderQuantity, buyable]
+      properties:
+        skuId: { type: string }
+        productId: { type: string }
+        name: { type: string }
+        brandCode: { type: string, nullable: true }
+        brandName: { type: string, nullable: true }
+        thumbnailUrl: { type: string, format: uri, nullable: true }
+        packSize: { type: string, nullable: true }
+        unit: { type: string, nullable: true }
+        sellingPricePaise: { type: integer, format: int64, nullable: true, minimum: 0 }
+        mrpPaise: { type: integer, format: int64, nullable: true, minimum: 0 }
+        discountPercent: { type: integer, nullable: true, minimum: 0, maximum: 99 }
+        discountAmountPaise: { type: integer, format: int64, nullable: true, minimum: 0 }
+        offerSummary: { type: string, nullable: true }
+        categoryId: { type: string, nullable: true }
+        verticalId: { type: string, nullable: true }
+        badges:
+          type: array
+          nullable: true
+          items: { type: string }
+        rating: { type: integer, nullable: true, description: "rating x10 (e.g. 45 = 4.5); integer to avoid floats" }
+        ratingCount: { type: integer, nullable: true }
+        sponsored: { type: boolean, default: false }
+        stockState: { $ref: '#/components/schemas/StockState' }
+        lowStockRemaining: { type: integer, nullable: true }
+        maxOrderQuantity: { type: integer, minimum: 0 }
+        minimumOrderQuantity: { type: integer, minimum: 1, default: 1 }
+        serviceable: { type: boolean, nullable: true }
+        etaMinutesMin: { type: integer, nullable: true }
+        etaMinutesMax: { type: integer, nullable: true }
+        buyable: { type: boolean, description: "server-derived: priced AND in stock AND serviceable AND active" }
+    ProductDetail:
+      allOf:
+        - $ref: '#/components/schemas/ProductCard'
+        - type: object
+          required: [resolvedReleaseId, requestId]
+          properties:
+            description: { type: string, nullable: true }
+            highlights:
+              type: array
+              nullable: true
+              items: { type: string }
+            gallery:
+              type: array
+              items: { $ref: '#/components/schemas/ProductImage' }
+            attributes:
+              type: array
+              items: { $ref: '#/components/schemas/ProductAttribute' }
+            variants:
+              type: array
+              items: { $ref: '#/components/schemas/ProductVariant' }
+            legal: { $ref: '#/components/schemas/LegalInformation' }
+            serviceability: { $ref: '#/components/schemas/ServiceabilityResponse' }
+            resolvedReleaseId: { type: string }
+            requestId: { type: string }
+    PagedProductResponse:
+      type: object
+      required: [resolvedReleaseId, items, hasMore, requestId]
+      properties:
+        resolvedReleaseId: { type: string }
+        serviceArea: { $ref: '#/components/schemas/ServiceAreaSummary' }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/ProductCard' }
+        nextCursor: { type: string, nullable: true, description: Omitted at end of list. }
+        hasMore: { type: boolean }
+        requestId: { type: string }
+    ErrorEnvelope:
+      type: object
+      required: [code, message, requestId, retryable]
+      properties:
+        code:
+          type: string
+          enum: [INVALID_REQUEST, INVALID_CURSOR, NOT_FOUND, RATE_LIMITED, SERVICE_UNAVAILABLE, INTERNAL]
+        message: { type: string, description: "Safe, generic. No internals." }
+        requestId: { type: string }
+        retryable: { type: boolean }
+        retryAfterSeconds: { type: integer, nullable: true }
+        details: { type: object, nullable: true, description: Only when safe. }
+    ProductCardBaseProjection:
+      type: object
+      description: >
+        INTERNAL persisted projection — NOT a public API response. Documented
+        here for architecture reference only. Contains ONLY stable, global,
+        location-agnostic fields. Location-specific stock/ETA are NEVER stored here.
+      required: [skuId, productId, releaseId, name, categoryNodeId, updatedAt]
+      properties:
+        skuId: { type: string }
+        productId: { type: string }
+        releaseId: { type: string }
+        name: { type: string }
+        brandCode: { type: string, nullable: true }
+        brandName: { type: string, nullable: true }
+        thumbnailUrl: { type: string, nullable: true }
+        mediaRefId: { type: string, nullable: true }
+        packSize: { type: string, nullable: true }
+        unit: { type: string, nullable: true }
+        sellingPricePaise: { type: integer, format: int64, nullable: true }
+        mrpPaise: { type: integer, format: int64, nullable: true }
+        discountPercent: { type: integer, nullable: true }
+        discountAmountPaise: { type: integer, format: int64, nullable: true }
+        offerSummary: { type: string, nullable: true }
+        categoryNodeId: { type: string }
+        verticalId: { type: string, nullable: true }
+        badges:
+          type: array
+          nullable: true
+          items: { type: string }
+        sourceVersions:
+          type: object
+          properties:
+            catalogRelease: { type: string }
+            priceVersion: { type: integer, format: int64, nullable: true }
+            mediaVersion: { type: integer, format: int64, nullable: true }
+        updatedAt: { type: string, format: date-time }
+        freshness:
+          type: object
+          properties:
+            stalePrice: { type: boolean }
+  responses:
+    BadRequest:
+      description: Invalid request or cursor
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    NotFound:
+      description: Resource not found (indistinguishable from hidden/inactive by design)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    RateLimited:
+      description: Rate limited
+      headers:
+        Retry-After: { schema: { type: integer }, description: seconds }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    Unavailable:
+      description: Service temporarily unavailable
+      headers:
+        Retry-After: { schema: { type: integer }, description: seconds }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }

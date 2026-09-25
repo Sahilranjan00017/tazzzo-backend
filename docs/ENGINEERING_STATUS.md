@@ -21,7 +21,12 @@ Last updated: 2026-09-25
 
 ## In Progress
 
-- (none)
+- **PR-01 — Production commerce architecture & contract foundation.** Adds ratified ADRs
+  (`docs/architecture/`), the frozen `/v1` OpenAPI contract + contract reference
+  (`docs/api/v1/`), ArchUnit module-boundary tests, and backend CI. **Documentation/contracts/CI
+  only — no Pricing/Inventory/Media/Serviceability/projection/KMP behavior is implemented, and
+  `/catalog/v1` runtime semantics are unchanged.** Phase 3.1 is ratified; see
+  [architecture index](architecture/README.md).
 
 ## Completed
 

@@ -1,0 +1,47 @@
+name: backend-ci
+
+# Production CI for tazzzo-backend (PR-01 foundation).
+# Validates the /v1 OpenAPI contract, compiles, and runs the full test suite
+# (including Testcontainers integration tests — GitHub-hosted Ubuntu runners
+# provide a working Docker engine). No deploy, no secrets, no AWS.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: backend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contracts:
+    name: Validate API contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Validate /v1 OpenAPI (structure + $ref)
+        run: npx --yes @apidevtools/swagger-cli@4 validate docs/api/v1/openapi.yaml
+
+  build-test:
+    name: Compile & test (Java 21 + Testcontainers)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/catalog-service
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Java 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Show toolchain
+        run: ./mvnw -v
+      - name: Build and test
+        run: ./mvnw -B clean test
