@@ -48,10 +48,26 @@ public record ProductCardBaseProjection(
         Long mediaVersion,
         long projectionVersion
 ) {
+    /** Technical bounds (PR-07 review, STEP 12) — derived rows still refuse pathological values. */
+    static final int MAX_ID = 128;
+    static final int MAX_TITLE = 500;
+
     public ProductCardBaseProjection {
-        if (skuId == null || skuId.isBlank()) throw new IllegalArgumentException("skuId required");
-        if (productId == null || productId.isBlank()) throw new IllegalArgumentException("productId required");
-        if (title == null || title.isBlank()) throw new IllegalArgumentException("title required");
+        requireId(skuId, "skuId");
+        requireId(productId, "productId");
+        if (title == null || title.isBlank() || title.length() > MAX_TITLE) {
+            throw new IllegalArgumentException("title required (max " + MAX_TITLE + " chars)");
+        }
+        if (brandCode != null && brandCode.length() > MAX_ID) {
+            throw new IllegalArgumentException("brandCode exceeds " + MAX_ID);
+        }
+        if (verticalId != null && verticalId.length() > MAX_ID) {
+            throw new IllegalArgumentException("verticalId exceeds " + MAX_ID);
+        }
+        if (primaryAssetKey != null && !com.tazzzo.media.MediaAsset.isSafeKey(primaryAssetKey)) {
+            // Media-safe by construction upstream; re-checked so a corrupt persisted key fails loudly.
+            throw new IllegalArgumentException("unsafe primaryAssetKey");
+        }
         Objects.requireNonNull(priceStatus, "priceStatus required");
         boolean priced = sellingPricePaise != null;
         if (priced != (mrpPaise != null) || priced != (currency != null)) {
@@ -63,7 +79,19 @@ public record ProductCardBaseProjection(
         if (priced && (sellingPricePaise < 0 || mrpPaise < 0 || mrpPaise < sellingPricePaise)) {
             throw new IllegalArgumentException("invalid paise amounts");
         }
+        if (priced) {
+            // Currency must be the canonical enum vocabulary — arbitrary strings fail loudly
+            // (STEP 13): persisted corruption must never round-trip into a valid-looking card.
+            com.tazzzo.common.money.Currency.valueOf(currency);
+        }
         if (projectionVersion < 1) throw new IllegalArgumentException("projectionVersion must be positive");
+    }
+
+    private static void requireId(String value, String name) {
+        if (value == null || value.isBlank() || value.length() > MAX_ID
+                || value.chars().anyMatch(ch -> ch < 0x20 || ch == 0x7F)) {
+            throw new IllegalArgumentException(name + " required: non-blank, no control chars, max " + MAX_ID);
+        }
     }
 
     /** Business-content equality: excludes projectionVersion AND source-version metadata. */

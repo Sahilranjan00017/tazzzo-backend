@@ -71,6 +71,28 @@ class ProductCardBaseProjectionTest {
         assertFalse(base.contentEquals(retitled));
     }
 
+    @Test void technical_bounds_enforced() {
+        assertThrows(IllegalArgumentException.class, () -> new ProductCardBaseProjection(
+                "x".repeat(129), "TZP-1", "T", null, null, PriceStatus.MISSING,
+                null, null, null, null, 1L, null, null, 1L));
+        assertThrows(IllegalArgumentException.class, () -> new ProductCardBaseProjection(
+                "TZP-1", "TZP-1", "t".repeat(501), null, null, PriceStatus.MISSING,
+                null, null, null, null, 1L, null, null, 1L));
+        assertThrows(IllegalArgumentException.class, () -> new ProductCardBaseProjection(
+                "TZP-1", "TZP-1", "T", null, null, PriceStatus.MISSING,
+                null, null, null, "a/../evil", 1L, null, null, 1L));
+    }
+
+    @Test void currency_must_be_canonical_enum_vocabulary() {
+        assertThrows(IllegalArgumentException.class, () -> new ProductCardBaseProjection(
+                "TZP-1", "TZP-1", "T", null, null, PriceStatus.ACTIVE,
+                100L, 200L, "RUPEES", null, 1L, null, null, 1L),
+                "arbitrary currency strings must fail loudly");
+        assertDoesNotThrow(() -> new ProductCardBaseProjection(
+                "TZP-1", "TZP-1", "T", null, null, PriceStatus.ACTIVE,
+                100L, 200L, "INR", null, 1L, null, null, 1L));
+    }
+
     @Test void BLOCKER_no_location_or_stock_concepts_in_base_model() {
         // STEP 20 hard boundary: the base projection must carry ZERO location/inventory state.
         List<String> forbidden = List.of("stock", "available", "reserved", "lowstock",

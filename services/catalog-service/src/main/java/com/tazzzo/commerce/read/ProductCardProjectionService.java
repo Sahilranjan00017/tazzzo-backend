@@ -69,41 +69,72 @@ public class ProductCardProjectionService {
     }
 
     /**
-     * Rebuild one SKU's base card from authoritative sources. Deterministic and replay-safe:
-     * unchanged sources converge to {@link RebuildOutcome#NOOP} with no write and no version
-     * churn; concurrent rebuilders converge via CAS + bounded retry.
+     * Rebuild one SKU's base card from authoritative sources.
+     *
+     * <p><b>UNIFIED RECONCILIATION LOOP (PR-07 review, STEP 2/3/4 fix):</b> EVERY attempt is a
+     * COMPLETE, FRESH authoritative observation — projection row, Catalog, Pricing, Media are
+     * all re-read on each iteration, and NOTHING is carried across attempts. The projection-row
+     * CAS alone cannot protect source freshness: a rebuilder that loses a CAS race while holding
+     * an earlier source snapshot would otherwise REGRESS a newer projection with older data, and
+     * a stale "catalog ineligible" observation could otherwise blind-delete a freshly rebuilt
+     * row. Therefore: the update path CASes on the observed {@code projection_version}, the
+     * DELETE path equally CASes on the observed version, and ANY conflict (stale CAS, create
+     * race, delete race) restarts the attempt from a new observation of every source.
+     * Deterministic sources make retries converge (typically to NOOP).
+     *
+     * <p><b>Source-read assumption (STEP 8, documented):</b> the Catalog/Pricing/Media ports
+     * return CURRENT COMMITTED state — with full re-reads per attempt that is sufficient; if a
+     * port ever intentionally serves historical/non-monotonic reads, projection reconciliation
+     * will additionally need source-generation fencing (not required today).
      */
     public RebuildOutcome rebuildOne(String skuId) {
         try {
-            Optional<CatalogCardFacts> factsOpt = catalog.findEligibleCard(skuId);
-            if (factsOpt.isEmpty()) {
-                // Typed ineligible/unknown — derived rows are disposable (STEP 17): delete so an
-                // unpublished product can never remain consumer-visible via a stale projection.
-                long removed = db.getCollection(COLLECTION)
-                        .deleteOne(Filters.eq("sku_id", skuId)).getDeletedCount();
-                if (removed > 0) {
-                    log.info("projection_rebuild_missing_catalog sku={} action=removed", skuId);
-                    return RebuildOutcome.REMOVED;
-                }
-                log.debug("projection_rebuild_missing_catalog sku={} action=none", skuId);
-                return RebuildOutcome.MISSING;
-            }
-            CatalogCardFacts facts = factsOpt.get();
-            PriceLookup price = prices.findCurrentPrice(skuId);
-            MediaFacts mediaFacts = resolveMedia(facts);
-
             for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+                // 1) FRESH projection-row observation FIRST: every conditional mutation in this
+                //    attempt (update OR delete) CASes on exactly this observed version.
                 Document existing = db.getCollection(COLLECTION)
                         .find(Filters.eq("sku_id", skuId)).first();
-                long nextVersion = existing == null
-                        ? 1L
-                        : Math.addExact(((Number) existing.get("projection_version")).longValue(), 1);
-                ProductCardBaseProjection candidate = derive(facts, price, mediaFacts,
-                        existing == null ? 1L : nextVersion);
+                Long observedVersion = existing == null ? null
+                        : ((Number) existing.get("projection_version")).longValue();
+
+                // 2) FRESH catalog observation.
+                Optional<CatalogCardFacts> factsOpt = catalog.findEligibleCard(skuId);
+                if (factsOpt.isEmpty()) {
+                    if (existing == null) {
+                        log.debug("projection_rebuild_missing_catalog sku={} action=none", skuId);
+                        return RebuildOutcome.MISSING;
+                    }
+                    // Version-guarded removal: a stale ineligible observation must never delete
+                    // a row a concurrent rebuilder has just refreshed (STEP 3).
+                    long removed = db.getCollection(COLLECTION)
+                            .deleteOne(Filters.and(Filters.eq("sku_id", skuId),
+                                    Filters.eq("projection_version", observedVersion)))
+                            .getDeletedCount();
+                    if (removed == 1) {
+                        log.info("projection_rebuild_missing_catalog sku={} action=removed", skuId);
+                        return RebuildOutcome.REMOVED;
+                    }
+                    log.info("projection_write_conflict sku={} reason=delete_race attempt={}",
+                            skuId, attempt);
+                    continue; // re-observe EVERYTHING
+                }
+                CatalogCardFacts facts = factsOpt.get();
+
+                // 3) FRESH pricing + media observations.
+                PriceLookup price = prices.findCurrentPrice(skuId);
+                MediaFacts mediaFacts = resolveMedia(facts);
+
+                long nextVersion;
+                try {
+                    nextVersion = existing == null ? 1L : Math.addExact(observedVersion, 1);
+                } catch (ArithmeticException e) {
+                    throw new ProjectionConflictException(
+                            "projection_version overflow for " + skuId + "; row preserved");
+                }
+                ProductCardBaseProjection candidate = derive(facts, price, mediaFacts, nextVersion);
 
                 if (existing != null && candidate.contentEquals(fromDocument(existing))) {
-                    log.debug("projection_rebuild_noop sku={} version={}", skuId,
-                            ((Number) existing.get("projection_version")).longValue());
+                    log.debug("projection_rebuild_noop sku={} version={}", skuId, observedVersion);
                     return RebuildOutcome.NOOP;
                 }
                 if (existing == null) {
@@ -111,19 +142,18 @@ public class ProductCardProjectionService {
                         db.getCollection(COLLECTION).insertOne(toDocument(candidate, true));
                         log.info("projection_rebuild_success sku={} outcome=created", skuId);
                         return RebuildOutcome.CREATED;
-                    } catch (MongoWriteException e) {
-                        if (e.getError().getCategory() == com.mongodb.ErrorCategory.DUPLICATE_KEY) {
+                    } catch (com.mongodb.MongoException e) {
+                        if (isDuplicateKey(e)) {
                             log.info("projection_write_conflict sku={} reason=create_race attempt={}",
                                     skuId, attempt);
-                            continue; // a concurrent rebuilder inserted — re-read and converge
+                            continue; // re-observe EVERYTHING and converge
                         }
                         throw e;
                     }
                 }
                 UpdateResult r = db.getCollection(COLLECTION).replaceOne(
                         Filters.and(Filters.eq("sku_id", skuId),
-                                Filters.eq("projection_version",
-                                        ((Number) existing.get("projection_version")).longValue())),
+                                Filters.eq("projection_version", observedVersion)),
                         toDocument(candidate, false)
                                 .append("created_at", existing.get("created_at")));
                 if (r.getModifiedCount() == 1) {
@@ -132,26 +162,48 @@ public class ProductCardProjectionService {
                     return RebuildOutcome.UPDATED;
                 }
                 log.info("projection_write_conflict sku={} reason=stale_cas attempt={}", skuId, attempt);
-                // concurrent rebuilder advanced the row — loop: re-read; deterministic sources converge
+                // loop: next attempt re-reads every source AND the row
             }
             throw new ProjectionConflictException("rebuild did not converge for " + skuId
                     + " after " + MAX_ATTEMPTS + " attempts");
         } catch (ProjectionConflictException e) {
             throw e;
         } catch (RuntimeException e) {
-            // Infrastructure/read failure: nothing was written this attempt; previous row preserved.
+            // Infrastructure/read failure (any source): nothing was written this attempt —
+            // the previous good row is preserved (STEP 28).
             log.warn("projection_rebuild_failure sku={} reason={}", skuId, e.toString());
             throw e;
         }
+    }
+
+    /** Duplicate-key detection across the exception shapes Mongo can produce (PR-05/06 lesson). */
+    private static boolean isDuplicateKey(com.mongodb.MongoException e) {
+        if (e instanceof MongoWriteException w) {
+            return w.getError().getCategory() == com.mongodb.ErrorCategory.DUPLICATE_KEY;
+        }
+        if (com.mongodb.ErrorCategory.fromErrorCode(e.getCode()) == com.mongodb.ErrorCategory.DUPLICATE_KEY) {
+            return true;
+        }
+        String msg = e.getMessage();
+        return msg != null && msg.contains("E11000");
     }
 
     // --- derivation ---------------------------------------------------------------
 
     private record MediaFacts(String primaryAssetKey, Long mediaVersion) { }
 
-    /** SKU media wins; PRODUCT media is the documented fallback (the composer seam lives here). */
+    /**
+     * FROZEN FALLBACK POLICY (PR-07 review, STEP 9): SKU media {@code MISSING} → fall back to
+     * PRODUCT media (nothing was ever authored for the SKU). SKU media {@code INACTIVE} →
+     * EXPLICIT SUPPRESSION, no fallback: an operator deliberately switched that SKU's imagery
+     * off, and silently substituting product-level imagery would undo that decision (and risk
+     * showing a wrong pack image). Not an accident of {@code isPresent()} — a deliberate branch.
+     */
     private MediaFacts resolveMedia(CatalogCardFacts facts) {
         MediaLookup sku = media.findMedia(MediaOwnerType.SKU, facts.skuId());
+        if (sku.status() == MediaLookup.Status.INACTIVE) {
+            return new MediaFacts(null, null); // suppressed by explicit operator decision
+        }
         MediaLookup chosen = sku.isPresent() ? sku
                 : media.findMedia(MediaOwnerType.PRODUCT, facts.productId());
         if (!chosen.isPresent()) {
@@ -204,17 +256,28 @@ public class ProductCardProjectionService {
         return d;
     }
 
+    /**
+     * FAIL-FAST reconstruction (PR-07 review, STEP 14): a derived collection is rebuildable, so
+     * corrupt persisted state must surface loudly — never be defaulted into valid-looking data.
+     * Missing {@code source_versions}/{@code catalog_version}/{@code projection_version}/
+     * {@code price_status} (or an unknown status/currency) throws; nothing silently becomes 0.
+     */
     static ProductCardBaseProjection fromDocument(Document d) {
         Document sv = d.get("source_versions", Document.class);
+        if (sv == null || sv.get("catalog_version") == null
+                || d.get("projection_version") == null || d.getString("price_status") == null) {
+            throw new IllegalStateException("corrupt product_card_base row for sku_id="
+                    + d.getString("sku_id") + " — rebuild required");
+        }
         return new ProductCardBaseProjection(
                 d.getString("sku_id"), d.getString("product_id"), d.getString("title"),
                 d.getString("brand_code"), d.getString("vertical_id"),
                 PriceStatus.valueOf(d.getString("price_status")),
                 d.getLong("selling_price_paise"), d.getLong("mrp_paise"), d.getString("currency"),
                 d.getString("primary_asset_key"),
-                sv == null ? 0L : ((Number) sv.get("catalog_version")).longValue(),
-                sv == null ? null : sv.getLong("price_version"),
-                sv == null ? null : sv.getLong("media_version"),
+                ((Number) sv.get("catalog_version")).longValue(),
+                sv.getLong("price_version"),
+                sv.getLong("media_version"),
                 ((Number) d.get("projection_version")).longValue());
     }
 }

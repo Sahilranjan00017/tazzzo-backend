@@ -257,6 +257,150 @@ class ProductCardProjectionIT extends AbstractMongoIT {
                 "exactly one content change: v1 -> v2, never double-applied");
     }
 
+    @Test void HIGH_stale_price_snapshot_cannot_regress_newer_projection() {
+        // PR-07 review STEP 2/5: a rebuilder holding an OLDER source snapshot loses its CAS and
+        // must RE-READ ALL SOURCES — the old snapshot may never be written as a newer version.
+        seedEligibleProduct("TZP-RG1", "Regress", "R", 1);
+        pricing().upsertPrice(new UpsertPriceCommand("TZP-RG1", 10000L, 20000L, Currency.INR, null, null, "s", null));
+        projector().rebuildOne("TZP-RG1"); // row v1 @ 10000
+        pricing().upsertPrice(new UpsertPriceCommand("TZP-RG1", 13000L, 20000L, Currency.INR, null, null, "s", 1L));
+
+        PricingService real = pricing();
+        java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+        com.tazzzo.pricing.PriceReadPort stalePrices = sku -> {
+            if (calls.incrementAndGet() == 1) {
+                var stale = real.findCurrentPrice(sku); // captures 13000 (v2)
+                // interleave: canonical price advances AND a concurrent rebuilder lands v2@15000
+                real.upsertPrice(new UpsertPriceCommand("TZP-RG1", 15000L, 20000L, Currency.INR, null, null, "s", 2L));
+                projector().rebuildOne("TZP-RG1");
+                return stale; // A now holds an OUTDATED snapshot
+            }
+            return real.findCurrentPrice(sku); // retry attempts observe fresh truth
+        };
+        ProductCardProjectionService a = new ProductCardProjectionService(
+                new CatalogCardReader(db), stalePrices, media(), db, CLOCK);
+        RebuildOutcome outcome = a.rebuildOne("TZP-RG1");
+
+        Document d = row("TZP-RG1");
+        assertEquals(15000L, ((Number) d.get("selling_price_paise")).longValue(),
+                "stale 13000 snapshot must never overwrite fresh 15000");
+        assertEquals(2L, ((Number) d.get("projection_version")).longValue(), "no stale v3 write");
+        assertEquals(RebuildOutcome.NOOP, outcome, "retry with fresh sources converges");
+        assertTrue(calls.get() >= 2, "conflict forced a full source re-read");
+    }
+
+    @Test void HIGH_stale_ineligible_observation_cannot_delete_revived_projection() {
+        // PR-07 review STEP 3/6: version-guarded delete — a stale "catalog missing" observation
+        // must not remove a row a concurrent rebuilder just refreshed.
+        seedEligibleProduct("TZP-RV1", "Revive", "V", 1);
+        pricing().upsertPrice(new UpsertPriceCommand("TZP-RV1", 10000L, 20000L, Currency.INR, null, null, "s", null));
+        projector().rebuildOne("TZP-RV1"); // row v1
+
+        CatalogCardReader real = new CatalogCardReader(db);
+        java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+        CatalogCardReadPort staleCatalog = sku -> {
+            if (calls.incrementAndGet() == 1) {
+                // interleave AFTER A observed row v1: price change + concurrent rebuild -> row v2
+                pricing().upsertPrice(new UpsertPriceCommand("TZP-RV1", 12000L, 20000L, Currency.INR, null, null, "s", 1L));
+                projector().rebuildOne("TZP-RV1");
+                return java.util.Optional.empty(); // A's STALE ineligible observation
+            }
+            return real.findEligibleCard(sku);
+        };
+        ProductCardProjectionService a = new ProductCardProjectionService(
+                staleCatalog, pricing(), media(), db, CLOCK);
+        RebuildOutcome outcome = a.rebuildOne("TZP-RV1");
+
+        Document d = row("TZP-RV1");
+        assertNotNull(d, "fresh projection must survive the stale delete attempt");
+        assertEquals(12000L, ((Number) d.get("selling_price_paise")).longValue());
+        assertEquals(2L, ((Number) d.get("projection_version")).longValue());
+        assertEquals(RebuildOutcome.NOOP, outcome, "delete CAS failed; retry converged on truth");
+    }
+
+    @Test void simultaneous_create_race_converges_to_one_row() throws Exception {
+        seedEligibleProduct("TZP-CR1", "CreateRace", "C", 1);
+        pricing().upsertPrice(new UpsertPriceCommand("TZP-CR1", 100L, 200L, Currency.INR, null, null, "s", null));
+        ProductCardProjectionService svc = projector();
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        List<RebuildOutcome> outcomes;
+        try {
+            java.util.concurrent.Callable<RebuildOutcome> attempt = () -> {
+                start.await();
+                return svc.rebuildOne("TZP-CR1");
+            };
+            Future<RebuildOutcome> a = pool.submit(attempt);
+            Future<RebuildOutcome> b = pool.submit(attempt);
+            start.countDown();
+            outcomes = List.of(a.get(), b.get()); // no raw Mongo exception may escape
+        } finally {
+            pool.shutdownNow();
+        }
+        assertTrue(outcomes.contains(RebuildOutcome.CREATED), "outcomes=" + outcomes);
+        assertEquals(1, db.getCollection("product_card_base").countDocuments(Filters.eq("sku_id", "TZP-CR1")));
+        assertEquals(1L, ((Number) row("TZP-CR1").get("projection_version")).longValue());
+    }
+
+    @Test void projection_version_overflow_fails_typed_and_preserves_row() {
+        seedEligibleProduct("TZP-OV1", "Overflow", "O", 1);
+        pricing().upsertPrice(new UpsertPriceCommand("TZP-OV1", 100L, 200L, Currency.INR, null, null, "s", null));
+        projector().rebuildOne("TZP-OV1");
+        db.getCollection("product_card_base").updateOne(Filters.eq("sku_id", "TZP-OV1"),
+                new Document("$set", new Document("projection_version", Long.MAX_VALUE)));
+        pricing().upsertPrice(new UpsertPriceCommand("TZP-OV1", 150L, 200L, Currency.INR, null, null, "s", 1L));
+        assertThrows(com.tazzzo.commerce.read.ProjectionConflictException.class,
+                () -> projector().rebuildOne("TZP-OV1"));
+        Document d = row("TZP-OV1");
+        assertEquals(Long.MAX_VALUE, ((Number) d.get("projection_version")).longValue());
+        assertEquals(100L, ((Number) d.get("selling_price_paise")).longValue(), "no wrap, no write");
+    }
+
+    @Test void inactive_sku_media_is_suppressed_not_product_fallback() {
+        // STEP 9 frozen policy: MISSING -> PRODUCT fallback; INACTIVE -> explicit suppression.
+        seedEligibleProduct("TZP-SUP1", "Suppress", "S", 1);
+        media().upsertMediaSet(new UpsertMediaSetCommand(MediaOwnerType.PRODUCT, "TZP-SUP1",
+                List.of(new MediaAsset("pp", "p/TZP-SUP1/prod.webp", ImageRole.PRIMARY, 0,
+                        null, null, null, null)), "seed", null));
+        media().upsertMediaSet(new UpsertMediaSetCommand(MediaOwnerType.SKU, "TZP-SUP1",
+                List.of(new MediaAsset("ps", "p/TZP-SUP1/sku.webp", ImageRole.PRIMARY, 0,
+                        null, null, null, null)), "seed", null));
+        db.getCollection("media_refs").updateOne(
+                Filters.and(Filters.eq("owner_type", "SKU"), Filters.eq("owner_id", "TZP-SUP1")),
+                new Document("$set", new Document("active", false)));
+        projector().rebuildOne("TZP-SUP1");
+        assertNull(row("TZP-SUP1").getString("primary_asset_key"),
+                "INACTIVE SKU media suppresses imagery; PRODUCT media must NOT leak through");
+    }
+
+    @Test void pricing_and_media_read_failures_preserve_previous_row() {
+        seedEligibleProduct("TZP-SF1", "SourceFail", "F", 1);
+        pricing().upsertPrice(new UpsertPriceCommand("TZP-SF1", 100L, 200L, Currency.INR, null, null, "s", null));
+        projector().rebuildOne("TZP-SF1");
+
+        com.tazzzo.pricing.PriceReadPort badPrices = sku -> { throw new RuntimeException("pricing outage"); };
+        assertThrows(RuntimeException.class, () -> new ProductCardProjectionService(
+                new CatalogCardReader(db), badPrices, media(), db, CLOCK).rebuildOne("TZP-SF1"));
+
+        com.tazzzo.media.MediaReadPort badMedia = (t, id) -> { throw new RuntimeException("media outage"); };
+        assertThrows(RuntimeException.class, () -> new ProductCardProjectionService(
+                new CatalogCardReader(db), pricing(), badMedia, db, CLOCK).rebuildOne("TZP-SF1"));
+
+        Document d = row("TZP-SF1");
+        assertEquals(100L, ((Number) d.get("selling_price_paise")).longValue());
+        assertEquals(1L, ((Number) d.get("projection_version")).longValue(), "row fully preserved");
+    }
+
+    @Test void corrupt_persisted_row_fails_fast_never_defaults() {
+        seedEligibleProduct("TZP-CX1", "Corrupt", "X", 1);
+        pricing().upsertPrice(new UpsertPriceCommand("TZP-CX1", 100L, 200L, Currency.INR, null, null, "s", null));
+        projector().rebuildOne("TZP-CX1");
+        db.getCollection("product_card_base").updateOne(Filters.eq("sku_id", "TZP-CX1"),
+                new Document("$unset", new Document("source_versions", "")));
+        assertThrows(IllegalStateException.class, () -> projector().rebuildOne("TZP-CX1"),
+                "corruption must surface loudly, never default into valid-looking state");
+    }
+
     @Test void bootstrap_idempotent_and_sku_unique_index_present() {
         assertDoesNotThrow(() -> schemaBootstrap.bootstrap(db));
         boolean unique = false;
