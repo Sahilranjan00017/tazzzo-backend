@@ -216,6 +216,44 @@ public class InventoryService implements InventoryReadPort {
         return true;
     }
 
+    /**
+     * ONE indexed query for a page of SKUs at one location (PR-08, STEP 19/20). The filter
+     * {@code sku_id IN (...) AND fulfillment_location_id = X} is served by the existing unique
+     * {@code (sku_id, fulfillment_location_id)} index as at most |ids| bounded index seeks in a
+     * single round trip — for page sizes ≤50 no additional index is justified. Requested SKUs
+     * with no row are reported as {@code MISSING} (never silently absent); inactive rows as
+     * {@code INACTIVE}; nothing outside the supplied location can appear in the result.
+     */
+    @Override
+    public java.util.Map<String, InventoryLookup> findInventoryBatch(
+            java.util.Collection<String> skuIds, String fulfillmentLocationId) {
+        if (fulfillmentLocationId == null || fulfillmentLocationId.isBlank()) {
+            throw new InvalidInventoryException("fulfillmentLocationId required");
+        }
+        java.util.LinkedHashSet<String> distinct = new java.util.LinkedHashSet<>(skuIds);
+        java.util.Map<String, InventoryLookup> out = new java.util.LinkedHashMap<>();
+        for (String id : distinct) {
+            out.put(id, InventoryLookup.missing()); // default: MISSING until a row proves otherwise
+        }
+        if (distinct.isEmpty()) {
+            return out;
+        }
+        for (Document d : db.getCollection(COLLECTION).find(Filters.and(
+                Filters.in("sku_id", distinct),
+                Filters.eq("fulfillment_location_id", fulfillmentLocationId)))) {
+            String skuId = d.getString("sku_id");
+            InventoryRecord record = new InventoryRecord(
+                    skuId, fulfillmentLocationId,
+                    asLong(d.get("on_hand")), asLong(d.get("reserved")),
+                    asLong(d.get("low_stock_threshold")), asLong(d.get("max_purchasable")),
+                    asLong(d.get("version")), d.getBoolean("active", false));
+            out.put(skuId, record.active()
+                    ? InventoryLookup.of(InventoryLookup.Status.PRESENT, record)
+                    : InventoryLookup.of(InventoryLookup.Status.INACTIVE, record));
+        }
+        return out;
+    }
+
     @Override
     public InventoryLookup findInventory(String skuId, String fulfillmentLocationId) {
         new InventoryKey(skuId, fulfillmentLocationId);
