@@ -142,11 +142,13 @@ public class ProductCardRuntimeEnricher {
                 default -> throw new IllegalStateException("unknown resolution " + resolution.status());
             }
         } catch (RuntimeException e) {
-            // Infrastructure failures propagate typed — never masked as business state. The
-            // structured field is the SAFE exception class only; the throwable itself goes to
-            // the logger for operator diagnostics rather than interpolating an arbitrary
-            // message (which could carry internal identifiers) into the structured line.
-            log.warn("commerce_enrich_failure type={}", e.getClass().getSimpleName(), e);
+            // Infrastructure failures propagate typed — never masked as business state.
+            // WARN carries ONLY the exception class: a downstream message/stack can embed a
+            // full PIN, a fulfillmentLocationId or Mongo topology, so neither is emitted here.
+            // The exception is rethrown UNTOUCHED — full diagnostic logging is owned by the
+            // centralized error boundary (ApiExceptionHandler today; the PR-10 request layer
+            // for commerce), matching this repository's existing logging policy.
+            log.warn("commerce_enrich_failure type={}", e.getClass().getSimpleName());
             throw e;
         }
     }
