@@ -9,4 +9,29 @@ package com.tazzzo.inventory;
 public interface InventoryReadPort {
 
     InventoryLookup findInventory(String skuId, String fulfillmentLocationId);
+
+    /**
+     * Batch read for page enrichment (PR-08): every requested SKU is present in the result —
+     * a SKU with no row maps to {@link InventoryLookup.Status#MISSING}, an inactive row to
+     * {@code INACTIVE} — so callers never confuse "not returned" with "no stock". Duplicate
+     * input ids are deterministic (deduplicated). The result can never carry another
+     * fulfillment location: every lookup is scoped to the single supplied location.
+     *
+     * <p>This default is the naive per-SKU fallback so functional-interface test stubs keep
+     * working; {@link InventoryService} overrides it with ONE indexed query.
+     */
+    default java.util.Map<String, InventoryLookup> findInventoryBatch(
+            java.util.Collection<String> skuIds, String fulfillmentLocationId) {
+        java.util.Objects.requireNonNull(skuIds, "skuIds required");
+        java.util.Map<String, InventoryLookup> out = new java.util.LinkedHashMap<>();
+        for (String skuId : skuIds) {
+            // NOT putIfAbsent(skuId, findInventory(...)): Java evaluates arguments eagerly, so
+            // that shape would re-read duplicates anyway (PR-08 review, STEP 4). Guard first —
+            // duplicates cost exactly one read each, first-seen order preserved.
+            if (!out.containsKey(skuId)) {
+                out.put(skuId, findInventory(skuId, fulfillmentLocationId));
+            }
+        }
+        return out;
+    }
 }

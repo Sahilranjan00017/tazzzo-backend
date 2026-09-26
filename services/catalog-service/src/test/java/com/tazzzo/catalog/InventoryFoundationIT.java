@@ -240,6 +240,55 @@ class InventoryFoundationIT extends AbstractMongoIT {
         assertEquals(2, service().findInventory("TZP-CASRACE", LOC).record().version());
     }
 
+    @Test void batch_lookup_reports_present_missing_inactive_per_sku() {
+        // PR-08: one indexed query; every requested SKU represented; duplicates deterministic.
+        InventoryService svc = service();
+        svc.setInventory(create("TZP-BAT1", LOC, 10, 2));
+        svc.setInventory(create("TZP-BAT2", LOC, 0, 2));
+        svc.setInventory(create("TZP-BAT3", LOC, 5, 2));
+        db.getCollection("inventory").updateOne(Filters.eq("sku_id", "TZP-BAT3"),
+                new Document("$set", new Document("active", false)));
+
+        var out = svc.findInventoryBatch(
+                java.util.List.of("TZP-BAT1", "TZP-BAT2", "TZP-BAT3", "TZP-BAT-GHOST", "TZP-BAT1"), LOC);
+        assertEquals(4, out.size(), "duplicates deduplicated deterministically");
+        assertEquals(InventoryLookup.Status.PRESENT, out.get("TZP-BAT1").status());
+        assertEquals(StockState.OUT_OF_STOCK, out.get("TZP-BAT2").record().stockState());
+        assertEquals(InventoryLookup.Status.INACTIVE, out.get("TZP-BAT3").status());
+        assertEquals(InventoryLookup.Status.MISSING, out.get("TZP-BAT-GHOST").status(),
+                "absent row is MISSING, never silently dropped");
+    }
+
+    @Test void batch_lookup_validation_parity_with_point_read() {
+        // PR-08 review, STEP 5: the batch path must reject exactly what the point read rejects —
+        // a malformed id never reaches the Mongo $in filter as a silent MISSING.
+        InventoryService svc = service();
+        assertThrows(NullPointerException.class, () -> svc.findInventoryBatch(null, LOC));
+        // blank sku: same InventoryKey rejection as the point read
+        assertThrows(IllegalArgumentException.class, () -> svc.findInventory(" ", LOC));
+        assertThrows(IllegalArgumentException.class,
+                () -> svc.findInventoryBatch(java.util.List.of("TZP-OK", " "), LOC));
+        // blank location: rejected even when skuIds is empty (per-key validation never runs)
+        assertThrows(IllegalArgumentException.class,
+                () -> svc.findInventoryBatch(java.util.List.of("TZP-OK"), " "));
+        assertThrows(IllegalArgumentException.class,
+                () -> svc.findInventoryBatch(java.util.List.of(), " "));
+        assertTrue(svc.findInventoryBatch(java.util.List.of(), LOC).isEmpty(),
+                "empty request is a valid no-op, not an error");
+    }
+
+    @Test void batch_lookup_cannot_leak_another_fulfillment_location() {
+        InventoryService svc = service();
+        svc.setInventory(create("TZP-BATX", "FL-BLR-01", 10, 2));
+        svc.setInventory(create("TZP-BATX", "FL-BLR-02", 0, 2));
+        var one = svc.findInventoryBatch(java.util.List.of("TZP-BATX"), "FL-BLR-01");
+        var two = svc.findInventoryBatch(java.util.List.of("TZP-BATX"), "FL-BLR-02");
+        assertEquals(10, one.get("TZP-BATX").record().onHand());
+        assertEquals(0, two.get("TZP-BATX").record().onHand());
+        assertEquals("FL-BLR-01", one.get("TZP-BATX").record().fulfillmentLocationId());
+        assertEquals("FL-BLR-02", two.get("TZP-BATX").record().fulfillmentLocationId());
+    }
+
     @Test void bootstrap_idempotent_and_inventory_unique_index_present() {
         assertDoesNotThrow(() -> schemaBootstrap.bootstrap(db));
         boolean unique = false;
