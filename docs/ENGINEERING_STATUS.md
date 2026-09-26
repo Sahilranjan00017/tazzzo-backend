@@ -21,8 +21,8 @@ Last updated: 2026-09-26
 
 ## Merged on `main`
 
-`main` = `d2799eef8070e7ae6a31a92ae08e28cdf44931cd` — regression floor **773 tests green**
-(pre-PR-08). PR-01 through PR-07 are **MERGED**:
+`main` = `f9c88997c9fe6337e3e79188b510845befad65b5` — regression floor **842 tests green**.
+PR-01 through PR-08 are **MERGED**:
 
 - **PR-01** — Frozen commerce architecture: 15 ADRs + ADR-003.1 (`docs/architecture/`),
   frozen `/v1` OpenAPI contract (`docs/api/v1/`), ArchUnit module-boundary rules, backend CI.
@@ -39,17 +39,18 @@ Last updated: 2026-09-26
 - **PR-07** — **ProductCardBaseProjection** (`product_card_base`): derived/disposable,
   strictly location-agnostic, unified fresh-observation rebuild loop.
   **NOT LIVE** for serving until an explicit freshness mechanism ships (frozen gate).
+- **PR-08** — **Runtime product enrichment** (`commerce.read`): internal
+  `RuntimeProductCard/Page/ServiceArea` composer — one serviceability resolution per request,
+  one batched inventory read per page (≤ `MAX_PAGE_SIZE=50`), frozen buyable rule,
+  cross-location isolation proven. Squash merge `f9c8899` (runtime implementation was
+  verified at PR head `efbddc52`, 842 green, CI green on both PR head and merge commit).
 
 ## In review (NOT merged)
 
-- **PR-08 — Production runtime product enrichment** (`commerce.read`).
-  - Runtime implementation verified at: `efbddc52f4559513bf85b89632b5b1aa395f67a4`
-    (base `main`, CI **green**). Subsequent commits on the PR, if any, are
-    documentation-only cleanup — this SHA is the exact code head that was tested.
-  - Internal `RuntimeProductCard/Page/ServiceArea` composer: one serviceability resolution
-    per request, one batched inventory read per page (≤ `MAX_PAGE_SIZE=50`), frozen buyable
-    rule, cross-location isolation proven by integration tests.
-  - Branch verification: **842 tests green** (0 failures / 0 errors / 0 skipped).
+- **PR-09 — Production runtime product detail composition** (`commerce.read`): internal
+  PDP composer — Catalog detail facts + PR-08 runtime card enrichment + media gallery,
+  eligibility-gated, no public controller. In progress on
+  `feature/runtime-product-detail`.
 
 ## Blocked
 
@@ -64,9 +65,8 @@ Last updated: 2026-09-26
 
 ## Next (ratified sequence)
 
-1. **Merge PR-08** (on explicit approval).
-2. **PR-09** — PDP / runtime detail composition (builds on the `enrichOne` seam).
-3. **PR-10** — Public API / gateway / cache / observability / freshness gate. Must close
+1. **PR-09** — PDP / runtime detail composition (in review, builds on the `enrichOne` seam).
+2. **PR-10** — Public API / gateway / cache / observability / freshness gate. Must close
    OPENAPI-INTERNAL-PROJECTION-DEBT; cache keys must derive from routing topology
    (serviceAreaId alone is proven insufficient).
 
@@ -102,5 +102,6 @@ is FUTURE work and not required for the production modular monolith.
 ## Last verification
 
 - **2026-09-26** — `./mvnw clean test` in `services/catalog-service` on Java 21.0.12 +
-  Docker (MongoDB 7, Redis via Testcontainers), PR-08 branch at review head:
-  **BUILD SUCCESS**, **842 tests, 0 failures / 0 errors / 0 skipped**, ~2:00 min.
+  Docker (MongoDB 7, Redis via Testcontainers), on `main` at merge commit `f9c8899`
+  (post-PR-08 baseline): **BUILD SUCCESS**, **842 tests, 0 failures / 0 errors / 0 skipped**,
+  ~2:00 min.
