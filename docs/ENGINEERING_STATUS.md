@@ -43,7 +43,9 @@ Last updated: 2026-09-26
 ## In review (NOT merged)
 
 - **PR-08 — Production runtime product enrichment** (`commerce.read`).
-  - Head: `bb45352156d9c52a5dc4a898315931050a888c56`, base `main`, CI **green**.
+  - Runtime implementation verified at: `efbddc52f4559513bf85b89632b5b1aa395f67a4`
+    (base `main`, CI **green**). Subsequent commits on the PR, if any, are
+    documentation-only cleanup — this SHA is the exact code head that was tested.
   - Internal `RuntimeProductCard/Page/ServiceArea` composer: one serviceability resolution
     per request, one batched inventory read per page (≤ `MAX_PAGE_SIZE=50`), frozen buyable
     rule, cross-location isolation proven by integration tests.
