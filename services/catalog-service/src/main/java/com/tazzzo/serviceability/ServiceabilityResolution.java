@@ -27,6 +27,37 @@ public record ServiceabilityResolution(Status status, String serviceAreaId,
 
     public enum Status { SERVICEABLE, UNSERVICEABLE, INACTIVE, NO_ACTIVE_ROUTE }
 
+    /**
+     * STATUS-SHAPE INVARIANTS (PR-08 review, STEP 3): the runtime composer must receive a valid
+     * routing decision, never discover malformed state via a later NPE or a bogus inventory
+     * lookup. SERVICEABLE carries BOTH ids; UNSERVICEABLE carries NEITHER; INACTIVE and
+     * NO_ACTIVE_ROUTE carry the area id but NEVER a fulfillment location (an unusable area must
+     * not leak a routing target). Identifier grammar/limits stay owned by {@code ServiceArea}/
+     * {@code ServiceabilityRoute} upstream — this record enforces shape, not a second id policy.
+     */
+    public ServiceabilityResolution {
+        java.util.Objects.requireNonNull(status, "status required");
+        boolean hasArea = serviceAreaId != null && !serviceAreaId.isBlank();
+        boolean hasLocation = fulfillmentLocationId != null && !fulfillmentLocationId.isBlank();
+        switch (status) {
+            case SERVICEABLE -> {
+                if (!hasArea || !hasLocation) {
+                    throw new IllegalArgumentException("SERVICEABLE requires area AND fulfillment location");
+                }
+            }
+            case UNSERVICEABLE -> {
+                if (serviceAreaId != null || fulfillmentLocationId != null) {
+                    throw new IllegalArgumentException("UNSERVICEABLE must carry no identifiers");
+                }
+            }
+            case INACTIVE, NO_ACTIVE_ROUTE -> {
+                if (!hasArea || fulfillmentLocationId != null) {
+                    throw new IllegalArgumentException(status + " requires an area id and NO fulfillment location");
+                }
+            }
+        }
+    }
+
     public static ServiceabilityResolution serviceable(String serviceAreaId, String fulfillmentLocationId) {
         return new ServiceabilityResolution(Status.SERVICEABLE, serviceAreaId, fulfillmentLocationId);
     }

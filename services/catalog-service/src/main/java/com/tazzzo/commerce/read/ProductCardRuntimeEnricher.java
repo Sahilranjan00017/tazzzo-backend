@@ -64,6 +64,15 @@ public class ProductCardRuntimeEnricher {
      */
     static final int MINIMUM_ORDER_QUANTITY = 1;
 
+    /**
+     * PAGE BOUND (PR-08 review, STEP 6): the batch-query design is justified by "page <= 50
+     * bounded index seeks", so this boundary ENFORCES that cardinality — an oversized page is
+     * rejected typed BEFORE any serviceability/inventory/media work. The bound lives here in
+     * commerce.read, deliberately NOT on InventoryReadPort, which may serve other legitimate
+     * batch consumers later.
+     */
+    static final int MAX_PAGE_SIZE = 50;
+
     private final ServiceabilityReadPort serviceability;
     private final InventoryReadPort inventory;
     private final MediaUrlResolver mediaUrls;
@@ -88,6 +97,14 @@ public class ProductCardRuntimeEnricher {
     public RuntimeProductPage enrichPage(List<ProductCardBaseProjection> bases, LocationQuery location) {
         Objects.requireNonNull(bases, "bases required");
         Objects.requireNonNull(location, "location required");
+        if (bases.size() > MAX_PAGE_SIZE) {
+            throw new IllegalArgumentException("page exceeds MAX_PAGE_SIZE=" + MAX_PAGE_SIZE
+                    + ": " + bases.size());
+        }
+        // EMPTY-PAGE SEMANTICS (STEP 9, deliberate — option A): a PIN request with zero cards
+        // STILL resolves serviceability so the page carries service-area context (the frozen
+        // PagedProductResponse echoes serviceArea for empty categories); the inventory batch is
+        // skipped below because there is nothing to enrich.
         try {
             if (!location.isPresent()) {
                 log.debug("commerce_enrich_anonymous cards={}", bases.size());
@@ -125,8 +142,11 @@ public class ProductCardRuntimeEnricher {
                 default -> throw new IllegalStateException("unknown resolution " + resolution.status());
             }
         } catch (RuntimeException e) {
-            // Infrastructure failures propagate typed — never masked as business state.
-            log.warn("commerce_enrich_failure reason={}", e.toString());
+            // Infrastructure failures propagate typed — never masked as business state. The
+            // structured field is the SAFE exception class only; the throwable itself goes to
+            // the logger for operator diagnostics rather than interpolating an arbitrary
+            // message (which could carry internal identifiers) into the structured line.
+            log.warn("commerce_enrich_failure type={}", e.getClass().getSimpleName(), e);
             throw e;
         }
     }
@@ -150,11 +170,16 @@ public class ProductCardRuntimeEnricher {
     /** SERVICEABLE: ONE batched inventory read at the resolved internal location. */
     private List<RuntimeProductCard> composeServiceable(
             List<ProductCardBaseProjection> bases, String fulfillmentLocationId) {
+        if (bases.isEmpty()) {
+            return List.of(); // zero cards -> zero inventory work (STEP 9)
+        }
         LinkedHashSet<String> skuIds = new LinkedHashSet<>();
         for (ProductCardBaseProjection base : bases) {
             skuIds.add(base.skuId());
         }
-        Map<String, InventoryLookup> stock = inventory.findInventoryBatch(skuIds, fulfillmentLocationId);
+        Map<String, InventoryLookup> stock = Objects.requireNonNull(
+                inventory.findInventoryBatch(skuIds, fulfillmentLocationId),
+                "inventory batch adapter returned null map");
 
         boolean unconfiguredWarned = false;
         List<RuntimeProductCard> cards = new ArrayList<>(bases.size());
@@ -163,7 +188,17 @@ public class ProductCardRuntimeEnricher {
             unconfiguredWarned = unconfiguredWarned || (base.primaryAssetKey() != null && thumb == null
                     && !mediaUrls.isConfigured());
 
-            InventoryLookup lookup = stock.getOrDefault(base.skuId(), InventoryLookup.missing());
+            // Batch-response defence (STEP 8): an OMITTED key is the port's documented MISSING;
+            // a key mapped to NULL is an adapter BUG and fails fast rather than becoming a
+            // plausible business state. Extra unrelated keys are ignored by construction.
+            InventoryLookup lookup = stock.get(base.skuId());
+            if (lookup == null) {
+                if (stock.containsKey(base.skuId())) {
+                    throw new IllegalStateException(
+                            "inventory batch adapter mapped sku to null: " + base.skuId());
+                }
+                lookup = InventoryLookup.missing();
+            }
             cards.add(switch (lookup.status()) {
                 case PRESENT -> presentCard(base, thumb, lookup);
                 case MISSING -> {

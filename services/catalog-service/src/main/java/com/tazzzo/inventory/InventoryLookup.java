@@ -17,6 +17,35 @@ public record InventoryLookup(Status status, InventoryRecord record) {
 
     public enum Status { PRESENT, MISSING, INACTIVE }
 
+    /**
+     * STRUCTURAL INVARIANTS (PR-08 review, STEP 2 — HIGH): downstream buyability relies on
+     * {@code PRESENT} meaning "an ACTIVE row exists", so an inconsistent shape (PRESENT with an
+     * inactive record, MISSING with a record, INACTIVE with an active record) must be
+     * IMPOSSIBLE TO CONSTRUCT — not merely avoided by the current adapter. A future adapter,
+     * stub or repair path can therefore never smuggle an inactive row past the frozen
+     * buyable rule.
+     */
+    public InventoryLookup {
+        java.util.Objects.requireNonNull(status, "status required");
+        switch (status) {
+            case MISSING -> {
+                if (record != null) {
+                    throw new IllegalArgumentException("MISSING lookup must carry no record");
+                }
+            }
+            case PRESENT -> {
+                if (record == null || !record.active()) {
+                    throw new IllegalArgumentException("PRESENT lookup requires an ACTIVE record");
+                }
+            }
+            case INACTIVE -> {
+                if (record == null || record.active()) {
+                    throw new IllegalArgumentException("INACTIVE lookup requires an inactive record");
+                }
+            }
+        }
+    }
+
     public static InventoryLookup missing() {
         return new InventoryLookup(Status.MISSING, null);
     }

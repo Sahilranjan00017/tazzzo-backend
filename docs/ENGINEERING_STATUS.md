@@ -39,6 +39,13 @@ Last updated: 2026-09-25
 
 - (none tracked)
 
+## Tracked debt
+
+- See [`docs/architecture/DEBT-REGISTER.md`](architecture/DEBT-REGISTER.md). Currently OPEN:
+  **OPENAPI-INTERNAL-PROJECTION-DEBT** — the frozen `/v1` file's internal
+  `ProductCardBaseProjection` schema has drifted from the implemented projection;
+  **MUST FIX BEFORE PR-10** exposes any public endpoint.
+
 ## Next
 
 Services **not started** (no code exists yet — do not assume otherwise):

@@ -22,9 +22,15 @@ public interface InventoryReadPort {
      */
     default java.util.Map<String, InventoryLookup> findInventoryBatch(
             java.util.Collection<String> skuIds, String fulfillmentLocationId) {
+        java.util.Objects.requireNonNull(skuIds, "skuIds required");
         java.util.Map<String, InventoryLookup> out = new java.util.LinkedHashMap<>();
         for (String skuId : skuIds) {
-            out.putIfAbsent(skuId, findInventory(skuId, fulfillmentLocationId));
+            // NOT putIfAbsent(skuId, findInventory(...)): Java evaluates arguments eagerly, so
+            // that shape would re-read duplicates anyway (PR-08 review, STEP 4). Guard first —
+            // duplicates cost exactly one read each, first-seen order preserved.
+            if (!out.containsKey(skuId)) {
+                out.put(skuId, findInventory(skuId, fulfillmentLocationId));
+            }
         }
         return out;
     }

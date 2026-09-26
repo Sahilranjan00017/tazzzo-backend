@@ -13,8 +13,14 @@ import com.tazzzo.serviceability.ServiceabilityResolution;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.RecordComponent;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -257,5 +263,140 @@ class RuntimeEnricherTest {
                 .enrichPage(List.of(pricedBase("TZP-B"), pricedBase("TZP-A"), pricedBase("TZP-C")), AT_PIN);
         assertEquals(List.of("TZP-B", "TZP-A", "TZP-C"),
                 page.cards().stream().map(RuntimeProductCard::skuId).toList());
+    }
+
+    // --- page bound (PR-08 review, STEP 6) ----------------------------------------------
+
+    private List<ProductCardBaseProjection> pageOf(int n) {
+        return IntStream.rangeClosed(1, n).mapToObj(i -> pricedBase("TZP-" + i)).toList();
+    }
+
+    @Test void page_of_exactly_max_size_accepted() {
+        RuntimeProductPage page = enricher(serviceableAt, stock(5, 0, 1, 10, true))
+                .enrichPage(pageOf(ProductCardRuntimeEnricher.MAX_PAGE_SIZE), AT_PIN);
+        assertEquals(50, page.cards().size());
+    }
+
+    @Test void oversized_page_rejected_before_any_port_call() {
+        // neverServiceability / neverInventory prove the guard fires BEFORE location dispatch.
+        assertThrows(IllegalArgumentException.class, () ->
+                enricher(neverServiceability, neverInventory).enrichPage(pageOf(51), AT_PIN));
+    }
+
+    @Test void oversized_page_rejected_even_anonymous() {
+        assertThrows(IllegalArgumentException.class, () ->
+                enricher(neverServiceability, neverInventory)
+                        .enrichPage(pageOf(51), LocationQuery.anonymous()));
+    }
+
+    // --- empty-page semantics (PR-08 review, STEP 9 — decision A) ------------------------
+
+    /** Batch-throwing stub: the lambda-based neverInventory cannot catch an EMPTY batch call
+     *  (the default batch returns an empty map without a point read), so proving "zero
+     *  inventory work" requires overriding the batch itself. */
+    private InventoryReadPort neverEvenBatch() {
+        return new InventoryReadPort() {
+            @Override public InventoryLookup findInventory(String sku, String loc) {
+                throw new AssertionError("inventory point read must not be called");
+            }
+            @Override public Map<String, InventoryLookup> findInventoryBatch(
+                    Collection<String> skuIds, String loc) {
+                throw new AssertionError("inventory batch must not be called");
+            }
+        };
+    }
+
+    @Test void empty_page_with_pin_resolves_serviceability_but_skips_inventory() {
+        AtomicInteger svcCalls = new AtomicInteger();
+        ServiceabilityReadPort counting = pin -> {
+            svcCalls.incrementAndGet();
+            return ServiceabilityResolution.serviceable("SA-1", "FL-1");
+        };
+        RuntimeProductPage page = enricher(counting, neverEvenBatch()).enrichPage(List.of(), AT_PIN);
+        assertEquals(1, svcCalls.get(), "empty category still answers 'is my PIN served?'");
+        assertTrue(page.cards().isEmpty());
+        assertEquals(new RuntimeServiceArea("SA-1", true), page.serviceArea());
+    }
+
+    @Test void empty_page_anonymous_calls_no_ports_at_all() {
+        RuntimeProductPage page = enricher(neverServiceability, neverEvenBatch())
+                .enrichPage(List.of(), LocationQuery.anonymous());
+        assertTrue(page.cards().isEmpty());
+        assertNull(page.serviceArea());
+    }
+
+    // --- batch-response defence (PR-08 review, STEP 8) -----------------------------------
+
+    private InventoryReadPort batchReturning(Map<String, InventoryLookup> response) {
+        return new InventoryReadPort() {
+            @Override public InventoryLookup findInventory(String sku, String loc) {
+                throw new AssertionError("point read must not be used when batch is overridden");
+            }
+            @Override public Map<String, InventoryLookup> findInventoryBatch(
+                    Collection<String> skuIds, String loc) {
+                return response;
+            }
+        };
+    }
+
+    @Test void null_batch_map_fails_fast_as_adapter_bug() {
+        assertThrows(NullPointerException.class, () ->
+                enricher(serviceableAt, batchReturning(null))
+                        .enrichPage(List.of(pricedBase("TZP-1")), AT_PIN));
+    }
+
+    @Test void key_mapped_to_null_fails_fast_never_becomes_business_missing() {
+        Map<String, InventoryLookup> poisoned = new HashMap<>();
+        poisoned.put("TZP-1", null); // adapter bug shape, distinct from an omitted key
+        IllegalStateException e = assertThrows(IllegalStateException.class, () ->
+                enricher(serviceableAt, batchReturning(poisoned))
+                        .enrichPage(List.of(pricedBase("TZP-1")), AT_PIN));
+        assertTrue(e.getMessage().contains("TZP-1"));
+    }
+
+    @Test void omitted_key_degrades_as_missing_per_port_contract() {
+        RuntimeProductCard c = enricher(serviceableAt, batchReturning(Map.of()))
+                .enrichOne(pricedBase("TZP-1"), AT_PIN);
+        assertEquals(StockState.UNKNOWN, c.stockState());
+        assertFalse(c.buyable());
+    }
+
+    @Test void extra_unrelated_batch_keys_are_ignored() {
+        Map<String, InventoryLookup> response = new LinkedHashMap<>();
+        response.put("TZP-1", InventoryLookup.of(InventoryLookup.Status.PRESENT,
+                new InventoryRecord("TZP-1", "FL-1", 50, 0, 3, 10, 1, true)));
+        response.put("SKU-GHOST", InventoryLookup.missing());
+        RuntimeProductCard c = enricher(serviceableAt, batchReturning(response))
+                .enrichOne(pricedBase("TZP-1"), AT_PIN);
+        assertTrue(c.buyable(), "requested card composes normally; ghost key changes nothing");
+    }
+
+    // --- RuntimeProductCard low-stock invariants (PR-08 review, STEP 7) -------------------
+
+    private RuntimeProductCard card(StockState state, Integer lowRemaining) {
+        return new RuntimeProductCard("TZP-1", "TZP-1", "T", null, null, null,
+                100L, null, null, null, state, lowRemaining, 5, 1, Boolean.TRUE, null, null, false);
+    }
+
+    @Test void low_stock_with_positive_remaining_accepted() {
+        assertDoesNotThrow(() -> card(StockState.LOW_STOCK, 2));
+    }
+
+    @Test void low_stock_without_remaining_permitted() {
+        // Deliberately one-directional: the invariant constrains what a remaining-count MEANS,
+        // it does not force every LOW_STOCK producer to expose one.
+        assertDoesNotThrow(() -> card(StockState.LOW_STOCK, null));
+    }
+
+    @Test void remaining_on_non_low_stock_states_rejected() {
+        for (StockState s : List.of(StockState.IN_STOCK, StockState.OUT_OF_STOCK, StockState.UNKNOWN)) {
+            assertThrows(IllegalArgumentException.class, () -> card(s, 2),
+                    "lowStockRemaining must be unrepresentable on " + s);
+        }
+    }
+
+    @Test void non_positive_remaining_rejected() {
+        assertThrows(IllegalArgumentException.class, () -> card(StockState.LOW_STOCK, 0));
+        assertThrows(IllegalArgumentException.class, () -> card(StockState.LOW_STOCK, -1));
     }
 }

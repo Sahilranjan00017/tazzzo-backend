@@ -259,6 +259,24 @@ class InventoryFoundationIT extends AbstractMongoIT {
                 "absent row is MISSING, never silently dropped");
     }
 
+    @Test void batch_lookup_validation_parity_with_point_read() {
+        // PR-08 review, STEP 5: the batch path must reject exactly what the point read rejects —
+        // a malformed id never reaches the Mongo $in filter as a silent MISSING.
+        InventoryService svc = service();
+        assertThrows(NullPointerException.class, () -> svc.findInventoryBatch(null, LOC));
+        // blank sku: same InventoryKey rejection as the point read
+        assertThrows(IllegalArgumentException.class, () -> svc.findInventory(" ", LOC));
+        assertThrows(IllegalArgumentException.class,
+                () -> svc.findInventoryBatch(java.util.List.of("TZP-OK", " "), LOC));
+        // blank location: rejected even when skuIds is empty (per-key validation never runs)
+        assertThrows(IllegalArgumentException.class,
+                () -> svc.findInventoryBatch(java.util.List.of("TZP-OK"), " "));
+        assertThrows(IllegalArgumentException.class,
+                () -> svc.findInventoryBatch(java.util.List.of(), " "));
+        assertTrue(svc.findInventoryBatch(java.util.List.of(), LOC).isEmpty(),
+                "empty request is a valid no-op, not an error");
+    }
+
     @Test void batch_lookup_cannot_leak_another_fulfillment_location() {
         InventoryService svc = service();
         svc.setInventory(create("TZP-BATX", "FL-BLR-01", 10, 2));

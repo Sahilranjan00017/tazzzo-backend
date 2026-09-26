@@ -52,6 +52,15 @@ public record RuntimeProductCard(
         if (discountPercent != null && (discountPercent < 0 || discountPercent > 99)) {
             throw new IllegalArgumentException("discountPercent must be within the frozen 0..99 contract");
         }
+        // LOW-STOCK SHAPE (PR-08 review, STEP 7): lowStockRemaining is the LOW_STOCK badge value
+        // and nothing else — a stray remaining-count on IN_STOCK/OUT_OF_STOCK/UNKNOWN, or a
+        // nonsensical <1 badge, must be unrepresentable rather than left to UI interpretation.
+        if (lowStockRemaining != null && stockState != StockState.LOW_STOCK) {
+            throw new IllegalArgumentException("lowStockRemaining is only meaningful for LOW_STOCK");
+        }
+        if (lowStockRemaining != null && lowStockRemaining < 1) {
+            throw new IllegalArgumentException("lowStockRemaining must be >= 1 when present");
+        }
         if (buyable && (sellingPricePaise == null || stockState == StockState.OUT_OF_STOCK
                 || stockState == StockState.UNKNOWN || !Boolean.TRUE.equals(serviceable)
                 || maxOrderQuantity < minimumOrderQuantity)) {
