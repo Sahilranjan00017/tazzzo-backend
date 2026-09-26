@@ -4,8 +4,6 @@ import com.mongodb.MongoWriteException;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.Filters;
 import com.mongodb.client.result.UpdateResult;
-import com.tazzzo.media.MediaLookup;
-import com.tazzzo.media.MediaOwnerType;
 import com.tazzzo.media.MediaReadPort;
 import com.tazzzo.pricing.PriceLookup;
 import com.tazzzo.pricing.PriceReadPort;
@@ -193,25 +191,16 @@ public class ProductCardProjectionService {
     private record MediaFacts(String primaryAssetKey, Long mediaVersion) { }
 
     /**
-     * FROZEN FALLBACK POLICY (PR-07 review, STEP 9): SKU media {@code MISSING} → fall back to
-     * PRODUCT media (nothing was ever authored for the SKU). SKU media {@code INACTIVE} →
-     * EXPLICIT SUPPRESSION, no fallback: an operator deliberately switched that SKU's imagery
-     * off, and silently substituting product-level imagery would undo that decision (and risk
-     * showing a wrong pack image). Not an accident of {@code isPresent()} — a deliberate branch.
+     * FROZEN FALLBACK POLICY (PR-07 review, STEP 9), now owned by {@link MediaSelection} so the
+     * PDP composer (PR-09) applies the IDENTICAL branch rules — SKU MISSING → PRODUCT fallback;
+     * SKU INACTIVE → explicit suppression, no fallback; neither present → no image (valid card,
+     * placeholder is a UI concern).
      */
     private MediaFacts resolveMedia(CatalogCardFacts facts) {
-        MediaLookup sku = media.findMedia(MediaOwnerType.SKU, facts.skuId());
-        if (sku.status() == MediaLookup.Status.INACTIVE) {
-            return new MediaFacts(null, null); // suppressed by explicit operator decision
-        }
-        MediaLookup chosen = sku.isPresent() ? sku
-                : media.findMedia(MediaOwnerType.PRODUCT, facts.productId());
-        if (!chosen.isPresent()) {
-            return new MediaFacts(null, null); // valid card with no image; placeholder is a UI concern
-        }
-        return new MediaFacts(
-                chosen.mediaSet().primary().map(a -> a.assetKey()).orElse(null),
-                chosen.mediaSet().version());
+        return MediaSelection.selectFor(media, facts.skuId(), facts.productId())
+                .map(set -> new MediaFacts(
+                        set.primary().map(a -> a.assetKey()).orElse(null), set.version()))
+                .orElseGet(() -> new MediaFacts(null, null));
     }
 
     private ProductCardBaseProjection derive(CatalogCardFacts facts, PriceLookup price,
