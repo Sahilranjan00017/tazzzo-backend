@@ -95,10 +95,9 @@ public class ProductDetailRuntimeComposer {
         }
         CatalogProductDetailFacts facts = catalogLookup.facts();
 
-        ProductCardBaseProjection base = baseRead.findBySku(skuId).orElseGet(() -> {
-            log.warn("commerce_detail_base_missing sku={}", skuId);
-            return degradedBase(facts);
-        });
+        // Read the base row for the SURVIVOR id (facts.skuId), not the requested id — a merged
+        // loser's enrichment must use the survivor's projection/inventory/media.
+        ProductCardBaseProjection base = selectBase(facts);
         RuntimeProductCard card = enricher.enrichOne(base, location);
 
         Optional<MediaSet> chosen = MediaSelection.selectFor(media, facts.skuId(), facts.productId());
@@ -128,40 +127,72 @@ public class ProductDetailRuntimeComposer {
     }
 
     /**
-     * In-memory stand-in when an ELIGIBLE product has no {@code product_card_base} row yet:
-     * identity from Catalog facts, {@code PriceStatus.MISSING} (amounts were NOT observed — a
-     * fresh Pricing read here would fork the projection's composition rules), no media key.
-     * Never persisted; buyability fails closed through the unmodified PR-08 rules.
-     *
-     * <p><b>Bounds reconciliation (PR-09 review, HIGH):</b> the Catalog WRITE path does not cap
-     * {@code title}/{@code brandCode}/{@code verticalId} length, but {@link ProductCardBaseProjection}
-     * enforces technical sanity ceilings (MAX_TITLE/MAX_ID). An eligible product that exceeds them
-     * can never get a persisted row (rebuild fails identically), so it ALWAYS lands here — and a
-     * raw construction would throw {@code IllegalArgumentException}, turning a data-quality state
-     * into a caller-shaped error and breaking the documented "missing row → degraded FOUND" gate.
-     * The stand-in therefore CLAMPS to the same ceilings the persisted card would impose anyway
-     * (so PDP loses no information relative to the card contract) and logs the condition — this is
-     * OBSERVED data-quality debt, not a silent truncation. Closing the write-side gap belongs to a
-     * Catalog validation change, tracked separately.
+     * Choose the base projection to enrich, enforcing the projection FRESHNESS GATE against fresh
+     * Catalog facts (PR-09 review, HIGH). {@code product_card_base} is NOT the existence authority
+     * and its catalog-derived fields must never be served when they disagree with the Catalog read
+     * we just performed. Comparing {@code catalogVersion} (the products {@code version} both sides
+     * carry):
+     * <ul>
+     *   <li><b>base.catalogVersion == facts.catalogVersion</b> — the row is catalog-fresh; use it
+     *       (its ACTIVE-price snapshot is the ratified buyability input).</li>
+     *   <li><b>base absent</b> or <b>base.catalogVersion &lt; facts.catalogVersion</b> — no row, or
+     *       the row lags the latest Catalog write; do NOT serve stale catalog-derived fields.
+     *       Degrade to fresh Catalog identity, fail closed (PriceStatus.MISSING, no price, no
+     *       media key, buyable=false). No {@code rebuildOne()} — the projection stays NOT LIVE.</li>
+     *   <li><b>base.catalogVersion &gt; facts.catalogVersion</b> — the row was built from a NEWER
+     *       Catalog version than our read returned: an inconsistent snapshot the write path cannot
+     *       normally produce (rebuild only ever reflects a past-or-current Catalog state). Fail
+     *       typed rather than serve either side.</li>
+     * </ul>
      */
-    private static ProductCardBaseProjection degradedBase(CatalogProductDetailFacts facts) {
-        String title = clamp(facts.title(), ProductCardBaseProjection.MAX_TITLE);
-        String brandCode = clamp(facts.brandCode(), ProductCardBaseProjection.MAX_ID);
-        String verticalId = clamp(facts.verticalId(), ProductCardBaseProjection.MAX_ID);
-        if (!title.equals(facts.title())
-                || !Objects.equals(brandCode, facts.brandCode())
-                || !Objects.equals(verticalId, facts.verticalId())) {
-            log.warn("commerce_detail_facts_over_bounds sku={} — degraded stand-in clamped to card ceilings",
-                    facts.skuId());
+    private ProductCardBaseProjection selectBase(CatalogProductDetailFacts facts) {
+        Optional<ProductCardBaseProjection> found = baseRead.findBySku(facts.skuId());
+        if (found.isEmpty()) {
+            log.warn("commerce_detail_base_missing sku={}", facts.skuId());
+            return degradedBase(facts);
         }
-        return new ProductCardBaseProjection(
-                facts.skuId(), facts.productId(), title, brandCode,
-                verticalId, PriceStatus.MISSING,
-                null, null, null, null,
-                facts.catalogVersion(), null, null, 1L);
+        ProductCardBaseProjection base = found.get();
+        long baseVersion = base.catalogVersion();
+        long freshVersion = facts.catalogVersion();
+        if (baseVersion == freshVersion) {
+            return base;
+        }
+        if (baseVersion < freshVersion) {
+            log.warn("commerce_detail_base_stale sku={} baseCatalogVersion={} catalogVersion={}",
+                    facts.skuId(), baseVersion, freshVersion);
+            return degradedBase(facts); // fresh identity, fail closed — never stale catalog fields
+        }
+        throw new ProductDetailCompositionException(
+                "base catalogVersion (" + baseVersion + ") is ahead of the Catalog read ("
+                        + freshVersion + ") for " + facts.skuId() + " — inconsistent snapshot");
     }
 
-    private static String clamp(String value, int max) {
-        return value != null && value.length() > max ? value.substring(0, max) : value;
+    /**
+     * In-memory stand-in when the base row is absent or catalog-stale: identity from FRESH Catalog
+     * facts, {@code PriceStatus.MISSING} (amounts were NOT observed — a fresh Pricing read here
+     * would fork the projection's composition rules), no media key. Never persisted; buyability
+     * fails closed through the unmodified PR-08 rules.
+     *
+     * <p><b>No truncation (PR-09 review, HIGH):</b> the Catalog WRITE path does not cap
+     * {@code title}/{@code brandCode}/{@code verticalId} length, but {@link ProductCardBaseProjection}
+     * enforces technical ceilings. Authoritative Catalog data must NOT be altered merely to fit a
+     * CARD projection — so if the fresh facts exceed those ceilings the construction throws
+     * {@code IllegalArgumentException}, which is converted to a typed
+     * {@link ProductDetailCompositionException} (a data-quality failure the PR-10 layer may map to
+     * 503). This is strictly better than returning altered product truth. Closing the write-side
+     * length gap belongs to a Catalog validation change, tracked separately.
+     */
+    private static ProductCardBaseProjection degradedBase(CatalogProductDetailFacts facts) {
+        try {
+            return new ProductCardBaseProjection(
+                    facts.skuId(), facts.productId(), facts.title(), facts.brandCode(),
+                    facts.verticalId(), PriceStatus.MISSING,
+                    null, null, null, null,
+                    facts.catalogVersion(), null, null, 1L);
+        } catch (IllegalArgumentException e) {
+            throw new ProductDetailCompositionException(
+                    "eligible product facts violate card projection technical bounds (never truncated): "
+                            + facts.skuId(), e);
+        }
     }
 }

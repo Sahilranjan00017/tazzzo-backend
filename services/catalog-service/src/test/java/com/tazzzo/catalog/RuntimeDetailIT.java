@@ -1,6 +1,8 @@
 package com.tazzzo.catalog;
 
 import com.mongodb.client.model.Filters;
+import com.tazzzo.catalog.consumer.ConsumerFailures;
+import com.tazzzo.catalog.consumer.ConsumerProductResolver;
 import com.tazzzo.catalog.consumer.ConsumerProjectionService;
 import com.tazzzo.catalog.repo.WritePath;
 import com.tazzzo.catalog.tx.Tx;
@@ -94,7 +96,8 @@ class RuntimeDetailIT extends AbstractMongoIT {
                                                   InventoryReadPort inv, MediaReadPort media) {
         MediaUrlResolver resolver = MediaUrlResolver.of(MEDIA_BASE);
         return new ProductDetailRuntimeComposer(
-                new CatalogProductDetailReader(db, new ConsumerProjectionService(db)),
+                new CatalogProductDetailReader(
+                        new ConsumerProductResolver(db), new ConsumerProjectionService(db)),
                 new ProductCardBaseReader(db),
                 new ProductCardRuntimeEnricher(svc, inv, resolver),
                 media, resolver);
@@ -295,21 +298,131 @@ class RuntimeDetailIT extends AbstractMongoIT {
 
     // ---------- reader outcomes ----------
 
-    @Test void absent_and_merged_and_draft_products_yield_typed_outcomes() {
+    @Test void absent_and_draft_products_yield_typed_outcomes() {
         assertEquals(RuntimeProductDetailLookup.Status.NOT_FOUND,
                 composer().composeDetail("TZP-NEVER", at("560001")).status());
 
         seedProduct("TZP-DRAFT1", "draft", Map.of());
         assertEquals(RuntimeProductDetailLookup.Status.INELIGIBLE,
                 composer().composeDetail("TZP-DRAFT1", at("560001")).status());
+    }
 
-        // merged loser: lifecycle=merged fails the ratified predicate -> INELIGIBLE at this
-        // seam (PDP-MERGE-1 survivor resolution is a PR-10 public-surface decision)
-        seedProduct("TZP-LOSER", "merged", Map.of());
-        db.getCollection("products").updateOne(Filters.eq("_id", "TZP-LOSER"),
-                new Document("$set", new Document("merged_into", "TZP-D1")));
+    // ---------- merge-chain resolution: SAME shared resolver as the legacy consumer PDP ----------
+
+    /** Insert an eligible product then mark it merged into {@code target} (direct write). */
+    private void mergedTo(String id, Object target) {
+        seedProduct(id, "active", Map.of());
+        Document set = new Document("lifecycle", "merged");
+        if (target != null) {
+            set.append("merged_into", target);
+        }
+        db.getCollection("products").updateOne(Filters.eq("_id", id), new Document("$set", set));
+    }
+
+    @Test void A_active_product_resolves_to_itself() {
+        seedDetail("TZP-MA", 10000L);
+        RuntimeProductDetail d = found("TZP-MA", LocationQuery.anonymous());
+        assertEquals("TZP-MA", d.card().skuId());
+        assertEquals("TZP-MA", d.card().productId());
+    }
+
+    @Test void B_merged_loser_resolves_to_survivor_identity_never_the_loser() {
+        seedDetail("TZP-MB-SURV", 10000L);          // survivor B, eligible, with base row
+        mergedTo("TZP-MB-LOSER", "TZP-MB-SURV");      // loser A -> B
+        RuntimeProductDetail d = found("TZP-MB-LOSER", LocationQuery.anonymous());
+        assertEquals("TZP-MB-SURV", d.card().skuId(), "survivor identity, never the requested loser");
+        assertEquals("TZP-MB-SURV", d.card().productId());
+        assertEquals("T TZP-MB-SURV", d.card().title());
+    }
+
+    @Test void C_two_hop_chain_resolves_to_final_survivor() {
+        seedDetail("TZP-MC-C", 10000L);               // final survivor
+        mergedTo("TZP-MC-B", "TZP-MC-C");
+        mergedTo("TZP-MC-A", "TZP-MC-B");
+        assertEquals("TZP-MC-C", found("TZP-MC-A", LocationQuery.anonymous()).card().skuId());
+    }
+
+    @Test void D_merge_cycle_is_typed_corruption_not_a_business_absence() {
+        mergedTo("TZP-CYC1", "TZP-CYC2");
+        mergedTo("TZP-CYC2", "TZP-CYC1");
+        assertThrows(ConsumerFailures.Unavailable.class,
+                () -> composer().composeDetail("TZP-CYC1", at("560001")));
+    }
+
+    @Test void E_missing_merge_target_is_typed_corruption() {
+        mergedTo("TZP-MISS", "TZP-GONE");
+        assertThrows(ConsumerFailures.Unavailable.class,
+                () -> composer().composeDetail("TZP-MISS", at("560001")));
+    }
+
+    @Test void F_blank_merge_pointer_is_typed_corruption() {
+        mergedTo("TZP-NULLPTR", null);
+        assertThrows(ConsumerFailures.Unavailable.class,
+                () -> composer().composeDetail("TZP-NULLPTR", at("560001")));
+    }
+
+    @Test void G_chain_beyond_max_hops_is_typed_corruption() {
+        // 33 merged rows H00->H01->...->H32 (all merged): the 33rd hop exceeds MAX_MERGE_HOPS=32.
+        for (int i = 0; i <= ConsumerProductResolver.MAX_MERGE_HOPS; i++) {
+            mergedTo(String.format("TZP-H%02d", i), String.format("TZP-H%02d", i + 1));
+        }
+        assertThrows(ConsumerFailures.Unavailable.class,
+                () -> composer().composeDetail("TZP-H00", at("560001")));
+    }
+
+    @Test void H_survivor_that_is_ineligible_is_ineligible() {
+        seedProduct("TZP-MH-SURV", "discontinued", Map.of()); // survivor exists but not eligible
+        mergedTo("TZP-MH-LOSER", "TZP-MH-SURV");
         assertEquals(RuntimeProductDetailLookup.Status.INELIGIBLE,
-                composer().composeDetail("TZP-LOSER", at("560001")).status());
+                composer().composeDetail("TZP-MH-LOSER", at("560001")).status());
+    }
+
+    // ---------- base/catalog-version freshness gate ----------
+
+    @Test void version_A_matched_base_composes_normally() {
+        seedDetail("TZP-VA", 10000L);
+        route("560071", "SA-VA", "FL-VA");
+        stockAt("TZP-VA", "FL-VA", 5);
+        RuntimeProductDetail d = found("TZP-VA", at("560071"));
+        assertEquals(10000L, d.card().sellingPricePaise());
+        assertTrue(d.card().buyable());
+    }
+
+    @Test void version_B_stale_base_is_not_served_fresh_identity_and_no_rebuild() {
+        seedDetail("TZP-VB", 10000L);                 // base at product version 1
+        long projVersionBefore = db.getCollection("product_card_base")
+                .find(Filters.eq("sku_id", "TZP-VB")).first().get("projection_version", Number.class).longValue();
+        // Catalog moves ahead (version 2, new title) WITHOUT a projection rebuild.
+        db.getCollection("products").updateOne(Filters.eq("_id", "TZP-VB"),
+                new Document("$set", new Document("version", 2).append("title", "Renamed VB")));
+        route("560072", "SA-VB", "FL-VB");
+        stockAt("TZP-VB", "FL-VB", 5);
+
+        RuntimeProductDetail d = found("TZP-VB", at("560072"));
+        assertEquals("Renamed VB", d.card().title(), "fresh Catalog title, never the stale base title");
+        assertNull(d.card().sellingPricePaise(), "stale base commerce facts not served; fails closed");
+        assertFalse(d.card().buyable());
+        // E. version mismatch must NOT trigger rebuildOne — the projection stays NOT LIVE.
+        long projVersionAfter = db.getCollection("product_card_base")
+                .find(Filters.eq("sku_id", "TZP-VB")).first().get("projection_version", Number.class).longValue();
+        assertEquals(projVersionBefore, projVersionAfter, "no rebuildOne fan-out on a PDP request");
+        long baseCatalogVersion = db.getCollection("product_card_base").find(Filters.eq("sku_id", "TZP-VB"))
+                .first().get("source_versions", Document.class).get("catalog_version", Number.class).longValue();
+        assertEquals(1L, baseCatalogVersion, "base row untouched at its stale catalog version");
+    }
+
+    @Test void version_C_base_ahead_of_catalog_read_is_typed_inconsistency() {
+        seedProduct("TZP-VC", "active", Map.of());
+        db.getCollection("products").updateOne(Filters.eq("_id", "TZP-VC"),
+                new Document("$set", new Document("version", 10)));
+        pricing().upsertPrice(new UpsertPriceCommand("TZP-VC", 10000L, 15000L,
+                Currency.INR, null, null, "seed", null));
+        projector().rebuildOne("TZP-VC");             // base built at catalog version 10
+        // Now the fresh Catalog read returns an OLDER version than the base captured (inconsistent).
+        db.getCollection("products").updateOne(Filters.eq("_id", "TZP-VC"),
+                new Document("$set", new Document("version", 9)));
+        assertThrows(com.tazzzo.commerce.read.ProductDetailCompositionException.class,
+                () -> composer().composeDetail("TZP-VC", LocationQuery.anonymous()));
     }
 
     // ---------- governed attributes end-to-end ----------

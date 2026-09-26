@@ -79,6 +79,16 @@ class ProductDetailComposerTest {
                 PriceStatus.ACTIVE, 26500L, 30000L, "INR", "p/x/primary.webp", 3L, 1L, 1L, 1L);
     }
 
+    /** A priced base row at a given catalog version, for freshness-gate tests. */
+    private ProductCardBaseProjection baseAt(String title, long catalogVersion) {
+        return new ProductCardBaseProjection("TZP-1", "TZP-1", title, "BR", "TZV-1",
+                PriceStatus.ACTIVE, 26500L, 30000L, "INR", null, catalogVersion, 1L, null, 1L);
+    }
+
+    private CatalogProductDetailFacts factsV(String title, long catalogVersion) {
+        return new CatalogProductDetailFacts("TZP-1", "TZP-1", title, "BR", "TZV-1", catalogVersion, List.of());
+    }
+
     private InventoryReadPort stock(long onHand, long reserved, long threshold, long cap, boolean active) {
         return (sku, loc) -> {
             InventoryRecord r = new InventoryRecord(sku, loc, onHand, reserved, threshold, cap, 1, active);
@@ -341,25 +351,71 @@ class ProductDetailComposerTest {
                 (type, id) -> { throw mediaCorrupt; }, resolver).composeDetail("TZP-1", AT_PIN)));
     }
 
-    // ---- degraded stand-in tolerates over-bounds Catalog facts (PR-09 review, HIGH) --------
+    // ---- authoritative data is NEVER truncated to fit the card projection (PR-09 review, HIGH-2) ----
 
-    @Test void missing_base_row_with_over_bound_title_degrades_not_throws() {
-        // Catalog write path is unbounded; ProductCardBaseProjection caps title at MAX_TITLE.
-        // An eligible product with a 501-char title can never get a persisted row, so it ALWAYS
-        // takes the degraded path — which must clamp (observably) rather than throw an
-        // infrastructure-shaped error and violate the missing-row degradation gate.
+    private ProductDetailRuntimeComposer bounded(CatalogProductDetailFacts f) {
+        return composer(foundCatalog(f), baseRow(null), serviceableAt,
+                stock(50, 0, 3, 10, true), skuMedia(null), MediaUrlResolver.of(BASE_URL));
+    }
+
+    @Test void over_bound_title_fails_typed_never_truncated() {
+        // The Catalog write path is unbounded; ProductCardBaseProjection caps title at MAX_TITLE.
+        // A 501-char title can never get a persisted row, so it always hits the degraded path —
+        // which must FAIL TYPED, never return an altered (truncated) authoritative title.
         String longTitle = "T".repeat(ProductCardBaseProjection.MAX_TITLE + 1);
-        CatalogProductDetailFacts f = new CatalogProductDetailFacts(
-                "TZP-1", "TZP-1", longTitle, "B".repeat(ProductCardBaseProjection.MAX_ID + 5),
-                "TZV-1", 3L, List.of());
-        RuntimeProductDetailLookup out = composer(foundCatalog(f), baseRow(null),
+        ProductDetailCompositionException ex = assertThrows(ProductDetailCompositionException.class,
+                () -> bounded(factsV(longTitle, 3L)).composeDetail("TZP-1", AT_PIN));
+        assertTrue(ex.getMessage().contains("TZP-1"));
+    }
+
+    @Test void over_bound_brand_code_fails_typed() {
+        CatalogProductDetailFacts f = new CatalogProductDetailFacts("TZP-1", "TZP-1", "Detail T",
+                "B".repeat(ProductCardBaseProjection.MAX_ID + 1), "TZV-1", 3L, List.of());
+        assertThrows(ProductDetailCompositionException.class,
+                () -> bounded(f).composeDetail("TZP-1", AT_PIN));
+    }
+
+    @Test void over_bound_vertical_id_fails_typed() {
+        CatalogProductDetailFacts f = new CatalogProductDetailFacts("TZP-1", "TZP-1", "Detail T",
+                "BR", "V".repeat(ProductCardBaseProjection.MAX_ID + 1), 3L, List.of());
+        assertThrows(ProductDetailCompositionException.class,
+                () -> bounded(f).composeDetail("TZP-1", AT_PIN));
+    }
+
+    @Test void title_at_exact_limit_degrades_found_and_is_preserved_verbatim() {
+        String exact = "T".repeat(ProductCardBaseProjection.MAX_TITLE);
+        RuntimeProductDetailLookup out = bounded(factsV(exact, 3L)).composeDetail("TZP-1", AT_PIN);
+        assertTrue(out.isFound());
+        assertEquals(exact, out.detail().card().title(), "exact-limit title preserved verbatim, not altered");
+        assertFalse(out.detail().card().buyable(), "still fails closed — no fabricated price");
+    }
+
+    // ---- base/catalog-version freshness gate (PR-09 review, HIGH-3) ----
+
+    @Test void base_version_equal_to_facts_uses_the_base_snapshot() {
+        RuntimeProductDetail d = composer(foundCatalog(facts(List.of())), baseRow(baseAt("Detail T", 3L)),
                 serviceableAt, stock(50, 0, 3, 10, true), skuMedia(null), MediaUrlResolver.of(BASE_URL))
-                .composeDetail("TZP-1", AT_PIN);
-        assertTrue(out.isFound(), "over-bound facts must degrade to FOUND, never a caller-shaped error");
-        assertEquals(ProductCardBaseProjection.MAX_TITLE, out.detail().card().title().length(),
-                "clamped to the same ceiling the persisted card would impose");
-        assertNull(out.detail().card().sellingPricePaise(), "still fails closed — no fabricated price");
-        assertFalse(out.detail().card().buyable());
+                .composeDetail("TZP-1", AT_PIN).detail();
+        assertEquals(26500L, d.card().sellingPricePaise(), "catalog-fresh base snapshot is used");
+        assertTrue(d.card().buyable());
+    }
+
+    @Test void stale_base_version_is_not_served_fresh_identity_fail_closed() {
+        // base v9 carries an OLD title + a price; facts are v10 with a NEW title. The stale base
+        // must NOT be served as authoritative — fresh Catalog identity, commerce facts fail closed.
+        RuntimeProductDetail d = composer(foundCatalog(factsV("New Title", 10L)),
+                baseRow(baseAt("OLD Title", 9L)), serviceableAt, stock(50, 0, 3, 10, true),
+                skuMedia(null), MediaUrlResolver.of(BASE_URL)).composeDetail("TZP-1", AT_PIN).detail();
+        assertEquals("New Title", d.card().title(), "fresh Catalog title, never the stale base title");
+        assertNull(d.card().sellingPricePaise(), "stale base commerce facts are not served");
+        assertFalse(d.card().buyable(), "fails closed under uncertain projection freshness");
+    }
+
+    @Test void base_version_ahead_of_catalog_read_is_typed_inconsistency() {
+        // base built from a NEWER catalog version than our read returned: impossible/suspicious.
+        assertThrows(ProductDetailCompositionException.class, () -> composer(foundCatalog(factsV("Detail T", 9L)),
+                baseRow(baseAt("Detail T", 10L)), serviceableAt, stock(50, 0, 3, 10, true),
+                skuMedia(null), MediaUrlResolver.of(BASE_URL)).composeDetail("TZP-1", AT_PIN));
     }
 
     // ---- leak guards + no-fabrication (STEP 34) -------------------------------------------

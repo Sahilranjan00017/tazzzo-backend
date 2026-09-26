@@ -177,7 +177,11 @@ class ConsumerPdpIT extends AbstractConsumerIT {
         Document read = PRODUCT_FIND_COMMANDS.get(0);
         assertThat(read.getList("projection", String.class)).containsExactlyInAnyOrder(
                 "_id", "title", "brand_code", "product_type", "lifecycle",
-                "classification.status", "classification.vertical_id", "attributes", "merged_into");
+                "classification.status", "classification.vertical_id", "attributes", "merged_into",
+                // PR-09: the shared ConsumerProductResolver adds the single scalar `version` so an
+                // internal reuse can compare a derived projection's snapshot against Catalog truth.
+                // Still one narrow point read, no probe; `version` never enters the public response.
+                "version");
         assertThat(read.getBoolean("has_skip")).isFalse();
         assertThat(finds("taxonomy_snapshot_nodes")).as("vertical + 3 ancestors").isBetween(1, 4);
         assertThat(finds("consumer_projection_policy")).isEqualTo(1);

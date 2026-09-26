@@ -49,8 +49,10 @@ PR-01 through PR-08 are **MERGED**:
 
 - **PR-09 — Production runtime product detail composition** (`commerce.read`): internal
   PDP composer — Catalog detail facts + PR-08 runtime card enrichment + media gallery,
-  eligibility-gated, no public controller. In progress on
-  `feature/runtime-product-detail`.
+  eligibility-gated, no public controller. Merge-chain/eligibility resolution shares the ONE
+  `ConsumerProductResolver` with the legacy consumer PDP (no forked semantics); catalog-version
+  freshness gate guards against serving a stale/inconsistent base row; authoritative Catalog
+  data is never truncated. In review on `feature/runtime-product-detail` — **897 tests green**.
 
 ## Blocked
 
