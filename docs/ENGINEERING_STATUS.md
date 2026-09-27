@@ -3,7 +3,7 @@
 Single source of truth for what is actually built and verified in `tazzzo-backend`.
 Reflects **current reality only** — nothing is marked complete unless verified from existing code.
 
-Last updated: 2026-09-27
+Last updated: 2026-09-28
 
 ---
 
@@ -81,29 +81,39 @@ PR-01 through PR-08 are **MERGED**:
   `CommerceReadReadiness` internal readiness seam (`baseReady`/`listReady` split, no new public
   endpoint). No response cache, no AWS infra, no app integration. Squash merge `4718d51` —
   **1051-test regression floor**.
+- **PR-11A** — **Customer authentication security foundation** (`com.tazzzo.auth`): a FOURTH
+  HTTP surface, `CUSTOMER_AUTHENTICATED`, for `/v1/customer` + `/v1/customer/**`. The blanket
+  `/v1/**` public rule is GONE — `SurfaceClassifier` now uses an explicit, per-family `/v1`
+  public allowlist (`/v1/categories/**`, `/v1/products/**`, `/v1/serviceability` exact,
+  `/v1/auth/**`); any other `/v1` path, including the bare `/v1` root, is `UNKNOWN` and denied
+  by default until deliberately ratified — a future route is never public by accident.
+  `/v1/auth/**` stays reserved PUBLIC for the future OTP/login/refresh/logout endpoints
+  (PR-11B/11C — NOT implemented here). `CustomerPrincipal` (customerId + sessionId, opaque
+  `CUS_*`/`SES_*` value objects, no phone/installationId/IP/email as identity).
+  `CustomerAccessTokenCodec`: HMAC-SHA256 signed, length-prefixed (never delimiter-joined)
+  versioned token binding version/customerId/sessionId/issuedAt/expiresAt; fail-closed key
+  config (`tazzzo.customer-auth.access-token-hmac-key-b64`, no default); injected `Clock`;
+  constant-time signature comparison; expired/future-issued (beyond a 30s tolerance) tokens
+  rejected; a pathological signed epoch value fails closed as `MALFORMED_CLAIMS` rather than an
+  uncaught exception; `issue()` rejects a zero/negative TTL as an issuer-contract bug.
+  `CustomerAuthFilter` (`HIGHEST_PRECEDENCE + 2`, deterministically after `RequestIdFilter` and
+  `ApiAuthFilter`) owns the `CUSTOMER_AUTHENTICATED` surface exclusively — `ApiAuthFilter`
+  explicitly skips it (no CMS/read service token can authorize a customer route, and a customer
+  token can never authorize `/api/**`); every failure flattens to one flat `401 UNAUTHENTICATED`
+  with a generic `WWW-Authenticate: Bearer` challenge and `Cache-Control: no-store`, never
+  revealing the internal rejection reason. `X-Tazzzo-Installation-Id` and client IP remain what
+  they always were — anti-abuse dimensions only, proven unable to authorize or bind identity.
+  **No OTP, no phone provider, no refresh/session persistence/revocation, no Profile/Address/
+  Cart, no real `/v1/auth/**` or `/v1/customer/**` production endpoints yet** — PR-11A proves
+  cryptographic and time validity only; session-lifecycle revocation is a PR-11C concern. Squash
+  merges `375d02e` (foundation) + `0ecae78` (deny-by-default hardening) → `4ce798f` —
+  **1142-test regression floor**.
 
-`main` = `bce537fa360788e9ea224ae1bc9e9be6ffde0041` (PR-10C squash `4718d51` + status-doc squash `bce537f`).
+`main` = `4ce798f013f6fa6380e1155e5b88461607b1e4a3` (PR-11A squash `4ce798f`).
 
 ## In review (NOT merged)
 
-- **PR-11A — Customer authentication security foundation** (`com.tazzzo.auth`): a FOURTH HTTP
-  surface, `CUSTOMER_AUTHENTICATED`, reserved for `/v1/customer` + `/v1/customer/**` (checked
-  before the generic `/v1` public rule, so it is never swallowed by it); `/v1/auth` + `/v1/auth/**`
-  reserved PUBLIC for the future OTP/login/refresh/logout endpoints (PR-11B/11C — NOT implemented
-  here). `CustomerPrincipal` (customerId + sessionId, opaque `CUS_*`/`SES_*` value objects, no
-  phone/installationId/IP/email as identity). `CustomerAccessTokenCodec`: HMAC-SHA256 signed,
-  length-prefixed (never delimiter-joined) versioned token binding version/customerId/sessionId/
-  issuedAt/expiresAt; fail-closed key config (`tazzzo.customer-auth.access-token-hmac-key-b64`, no
-  default); injected `Clock`; constant-time signature comparison; expired/future-issued (beyond a
-  30s tolerance) tokens rejected. `CustomerAuthFilter` owns the `CUSTOMER_AUTHENTICATED` surface
-  exclusively — `ApiAuthFilter` explicitly skips it (no CMS/read service token can authorize a
-  customer route, and a customer token can never authorize `/api/**`); every failure flattens to
-  one flat `401 UNAUTHENTICATED`. `X-Tazzzo-Installation-Id` and client IP remain what they always
-  were — anti-abuse dimensions only, proven unable to authorize or bind identity. **No OTP, no
-  phone provider, no refresh/session persistence/revocation, no Profile/Address/Cart, no real
-  `/v1/auth/**` or `/v1/customer/**` production endpoints yet** — PR-11A proves cryptographic and
-  time validity only; session-lifecycle revocation is a PR-11C concern. On
-  `feature/pr11a-customer-auth-foundation`.
+- (none tracked)
 
 ## Blocked
 
@@ -126,8 +136,9 @@ PR-01 through PR-08 are **MERGED**:
   children, category-products, product detail, serviceability) is live on `main`, operationally
   hardened (cache/ETag/observability/readiness), with a 1051-test regression floor.
 - **Customer Auth (PR-11A/B/C): IN PROGRESS. Do not mark authentication complete.**
-  - **PR-11A — customer auth security boundary: IN REVIEW.** Fourth HTTP surface + principal/
-    token cryptographic verification foundation. No business auth flow yet.
+  - **PR-11A — customer auth security boundary: MERGED.** Fourth HTTP surface + principal/
+    token cryptographic verification foundation, deny-by-default `/v1` classification. No
+    business auth flow yet.
   - **PR-11B — OTP challenge lifecycle + provider abstraction: PLANNED.** Not started.
   - **PR-11C — login/session/refresh/logout endpoints: PLANNED.** Not started. Session
     persistence and revocation do not exist before this lands.
@@ -170,6 +181,10 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-09-28** — `./mvnw clean test` in `services/catalog-service` on Java 21.0.12 +
+  Docker (MongoDB 7, Redis via Testcontainers), on `main` at squash merge `4ce798f`
+  (post-PR-11A baseline): **BUILD SUCCESS**, **1142 tests, 0 failures / 0 errors / 0 skipped**.
+  `backend-ci` green on the same commit (Compile & test, Validate API contracts).
 - **2026-09-27** — `./mvnw clean test` in `services/catalog-service` on Java 21.0.12 +
   Docker (MongoDB 7, Redis via Testcontainers), on `main` at squash merge `4718d51`
   (post-PR-10C baseline): **BUILD SUCCESS**, **1051 tests, 0 failures / 0 errors / 0 skipped**,
