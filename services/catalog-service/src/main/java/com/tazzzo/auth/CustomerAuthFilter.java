@@ -1,0 +1,87 @@
+package com.tazzzo.auth;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.tazzzo.catalog.api.RequestIdFilter;
+import com.tazzzo.catalog.api.SurfaceClassifier;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
+import org.springframework.stereotype.Component;
+import org.springframework.web.filter.OncePerRequestFilter;
+
+import java.io.IOException;
+
+/**
+ * PR-11A — the customer bearer-token authentication boundary. Runs ONLY for
+ * {@link SurfaceClassifier.Surface#CUSTOMER_AUTHENTICATED} — {@code ApiAuthFilter} explicitly skips
+ * that surface (it owns INTERNAL only), so exactly ONE filter ever decides authority for
+ * {@code /v1/customer/**}, and neither a CMS/read service token nor an unauthenticated public
+ * request can reach it.
+ *
+ * <p><b>Accepts ONLY</b> {@code Authorization: Bearer <token>}. Never a query parameter, cookie,
+ * {@code X-Tazzzo-Installation-Id}, or request body — there is no silent fallback identity, and the
+ * installation id remains what it has always been: an optional anti-abuse dimension, never
+ * authentication (CAT-SEC-1 Q5-INSTALL-1).
+ *
+ * <p>Every failure — missing header, malformed bearer, bad signature, expired token, wrong key,
+ * not-ready codec — flattens to the SAME {@code 401 UNAUTHENTICATED} with a generic message; the
+ * bounded {@link CustomerAuthFailure.Reason} is logged internally only, never in the response.
+ */
+@Component
+@Order(Ordered.HIGHEST_PRECEDENCE + 1)
+public class CustomerAuthFilter extends OncePerRequestFilter {
+
+    private static final Logger log = LoggerFactory.getLogger(CustomerAuthFilter.class);
+    private static final String BEARER_PREFIX = "Bearer ";
+
+    private final CustomerAccessTokenCodec codec;
+    private final ObjectMapper mapper = new ObjectMapper();
+
+    public CustomerAuthFilter(CustomerAccessTokenCodec codec) {
+        this.codec = codec;
+    }
+
+    @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        return SurfaceClassifier.classify(request.getRequestURI())
+                != SurfaceClassifier.Surface.CUSTOMER_AUTHENTICATED;
+    }
+
+    @Override
+    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
+            throws ServletException, IOException {
+        String header = request.getHeader("Authorization");
+        if (header == null || !header.startsWith(BEARER_PREFIX)) {
+            reject(request, response, CustomerAuthFailure.Reason.MISSING);
+            return;
+        }
+        String token = header.substring(BEARER_PREFIX.length());
+        try {
+            CustomerPrincipal principal = codec.verify(token);
+            request.setAttribute(CustomerPrincipalResolver.ATTRIBUTE, principal);
+            chain.doFilter(request, response);
+        } catch (CustomerAuthFailure e) {
+            reject(request, response, e.reason());
+        }
+    }
+
+    private void reject(HttpServletRequest request, HttpServletResponse response,
+                        CustomerAuthFailure.Reason reason) throws IOException {
+        String requestId = requestId(request);
+        log.warn("customer_auth_rejected reason={} request_id={}", reason, requestId);
+        response.setStatus(401);
+        response.setContentType("application/json");
+        mapper.writeValue(response.getWriter(),
+                new CustomerAuthErrorDto("UNAUTHENTICATED", "authentication required", requestId));
+    }
+
+    private static String requestId(HttpServletRequest request) {
+        Object value = request.getAttribute(RequestIdFilter.REQUEST_ID);
+        return value == null ? "unknown" : value.toString();
+    }
+}

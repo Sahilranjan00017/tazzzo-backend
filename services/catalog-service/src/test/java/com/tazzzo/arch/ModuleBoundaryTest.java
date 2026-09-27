@@ -73,6 +73,42 @@ class ModuleBoundaryTest {
                     .allowEmptyShould(true);
 
     /**
+     * PR-11A — {@code auth} is a foundational security module: it must not reach into
+     * {@code commerce.read} composition or any domain internals. It may depend on the shared HTTP
+     * transport primitives in {@code catalog.api} (SurfaceClassifier, RequestIdFilter) — those are
+     * neutral, not domain-owned.
+     */
+    @ArchTest
+    static final ArchRule auth_does_not_depend_on_commerce_read_or_domains =
+            noClasses().that().resideInAPackage("com.tazzzo.auth..")
+                    .should().dependOnClassesThat().resideInAnyPackage(
+                            "com.tazzzo.commerce.read..",
+                            "com.tazzzo.commerce.api..",
+                            "com.tazzzo.pricing..",
+                            "com.tazzzo.inventory..",
+                            "com.tazzzo.media..",
+                            "com.tazzzo.serviceability..")
+                    .allowEmptyShould(true);
+
+    /**
+     * PR-11A — nothing in {@code catalog}, {@code commerce} or the domain modules may depend on
+     * {@code auth} internals yet. Future customer-facing controllers (Profile/Address/Cart) will
+     * deliberately depend on the {@code CustomerPrincipal}/{@code CustomerPrincipalResolver}
+     * contract — when that day comes this rule is the one to relax, not remove wholesale.
+     */
+    @ArchTest
+    static final ArchRule domains_do_not_depend_on_auth =
+            noClasses().that().resideInAnyPackage(
+                            "com.tazzzo.catalog..",
+                            "com.tazzzo.commerce..",
+                            "com.tazzzo.pricing..",
+                            "com.tazzzo.inventory..",
+                            "com.tazzzo.media..",
+                            "com.tazzzo.serviceability..")
+                    .should().dependOnClassesThat().resideInAPackage("com.tazzzo.auth..")
+                    .allowEmptyShould(true);
+
+    /**
      * No dependency cycles between top-level Tazzzo modules.
      *
      * <p>Dependencies INTO {@code com.tazzzo.commerce.contract} are excluded from cycle
