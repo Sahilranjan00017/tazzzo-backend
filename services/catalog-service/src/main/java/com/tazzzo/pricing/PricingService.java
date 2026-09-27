@@ -60,11 +60,25 @@ public class PricingService implements PriceReadPort {
     private final MongoDatabase db;
     private final Clock clock;
 
+    private final com.tazzzo.catalog.repo.ProjectionRebuildQueue rebuildQueue;
+
     public PricingService(Tx tx, WritePath writePath, Clock clock) {
+        this(tx, writePath, clock, null);
+    }
+
+    /**
+     * PR-10A: with a {@link com.tazzzo.catalog.repo.ProjectionRebuildQueue}, a successful price
+     * write enqueues a global product-card rebuild request in the SAME transaction (durable with
+     * the price mutation). The queue is OPTIONAL — when null (the pre-PR-10A constructor) no
+     * enqueue happens, so price authority/CAS/audit are entirely unchanged.
+     */
+    public PricingService(Tx tx, WritePath writePath, Clock clock,
+                          com.tazzzo.catalog.repo.ProjectionRebuildQueue rebuildQueue) {
         this.tx = Objects.requireNonNull(tx);
         this.writePath = Objects.requireNonNull(writePath);
         this.db = writePath.database();
         this.clock = Objects.requireNonNull(clock);
+        this.rebuildQueue = rebuildQueue; // nullable by design
     }
 
     /**
@@ -136,6 +150,11 @@ public class PricingService implements PriceReadPort {
                                 + " expectedVersion=" + cmd.expectedVersion());
                     }
                 }
+                // 3) PR-10A freshness: request a global card rebuild, durable with this price
+                //    write. Idempotent; global only (SKU id, no location). No-op when unwired.
+                if (rebuildQueue != null) {
+                    rebuildQueue.requestRebuild(session, skuId, "price");
+                }
             });
         } catch (PriceConflictException e) {
             log.info("price_write_conflict sku={} reason=stale_version expected={}", skuId, cmd.expectedVersion());
@@ -169,6 +188,48 @@ public class PricingService implements PriceReadPort {
             log.debug("price_read_expired sku={} version={}", skuId, price.version());
         }
         return PriceLookup.of(status, price);
+    }
+
+    /**
+     * ONE query for a page of SKUs at one currency (PR-10A). INDEX-SHAPE REASONING (no explain()
+     * was captured — design reasoning, not a measured plan): the filter
+     * {@code sku_id IN (...) AND currency = X} matches the existing unique
+     * {@code (sku_id, currency)} index prefix-per-IN-value, i.e. at most |ids| bounded index
+     * seeks in one round trip. Requested SKUs with no row are reported {@code MISSING}; each
+     * present row's status is evaluated against the service clock (EXPIRED/NOT_YET_EFFECTIVE
+     * preserved, never laundered to MISSING). VALIDATION PARITY with the point read: currency is
+     * pinned to the canonical INR vocabulary; a null collection fails typed.
+     */
+    @Override
+    public java.util.Map<String, PriceLookup> findCurrentPrices(
+            java.util.Collection<String> skuIds, Currency currency) {
+        java.util.Objects.requireNonNull(skuIds, "skuIds required");
+        if (currency != Currency.INR) {
+            throw new IllegalArgumentException("only INR is supported: " + currency);
+        }
+        java.util.LinkedHashSet<String> distinct = new java.util.LinkedHashSet<>(skuIds);
+        java.util.Map<String, PriceLookup> out = new LinkedHashMap<>();
+        for (String id : distinct) {
+            if (id == null || id.isBlank()) {
+                throw new IllegalArgumentException("skuId required in batch");
+            }
+            out.put(id, PriceLookup.missing()); // default: MISSING until a row proves otherwise
+        }
+        if (distinct.isEmpty()) {
+            return out;
+        }
+        Instant now = clock.instant();
+        for (Document d : db.getCollection(CURRENT).find(Filters.and(
+                Filters.in("sku_id", distinct),
+                Filters.eq("currency", Currency.INR.name())))) {
+            String skuId = d.getString("sku_id");
+            Price price = new Price(skuId, Currency.INR,
+                    asLong(d.get("selling_price_paise")), asLong(d.get("mrp_paise")),
+                    asLong(d.get("version")), d.getBoolean("active", false),
+                    toInstant(d.getDate("effective_from")), toInstant(d.getDate("effective_to")));
+            out.put(skuId, PriceLookup.of(price.statusAt(now), price));
+        }
+        return out;
     }
 
     // --- validation (STEP 13) -------------------------------------------------

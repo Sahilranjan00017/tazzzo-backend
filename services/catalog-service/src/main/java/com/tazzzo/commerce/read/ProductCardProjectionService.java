@@ -3,6 +3,7 @@ package com.tazzzo.commerce.read;
 import com.mongodb.MongoWriteException;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.Filters;
+import com.mongodb.client.model.Updates;
 import com.mongodb.client.result.UpdateResult;
 import com.tazzzo.media.MediaReadPort;
 import com.tazzzo.pricing.PriceLookup;
@@ -132,8 +133,12 @@ public class ProductCardProjectionService {
                 ProductCardBaseProjection candidate = derive(facts, price, mediaFacts, nextVersion);
 
                 if (existing != null && candidate.contentEquals(fromDocument(existing))) {
-                    log.debug("projection_rebuild_noop sku={} version={}", skuId, observedVersion);
-                    return RebuildOutcome.NOOP;
+                    if (refreshObservedVersionsIfDrifted(skuId, observedVersion, candidate, fromDocument(existing))) {
+                        log.debug("projection_rebuild_noop sku={} version={}", skuId, observedVersion);
+                        return RebuildOutcome.NOOP;
+                    }
+                    log.info("projection_write_conflict sku={} reason=watermark_cas attempt={}", skuId, attempt);
+                    continue; // watermark CAS lost to a concurrent update — re-observe everything
                 }
                 if (existing == null) {
                     try {
@@ -184,6 +189,49 @@ public class ProductCardProjectionService {
         }
         String msg = e.getMessage();
         return msg != null && msg.contains("E11000");
+    }
+
+    /**
+     * OPTION A (PR-10A, source-version truthfulness, hardened): on a content NOOP where a source
+     * version advanced without a consumer-visible change, advance the stored source-version markers
+     * so they truthfully record the LAST OBSERVED versions (freshness observability / drift). The
+     * update is CAS-guarded on BOTH the observed {@code projection_version} AND the EXACT
+     * source-version values this attempt observed in the row — so a concurrent update (content
+     * change OR another watermark advance) makes this write miss ({@code modifiedCount == 0}) and
+     * this method returns {@code false}, whereupon the caller re-enters the bounded rebuild loop
+     * and re-observes CURRENT sources. Because every attempt re-derives from current (monotonic)
+     * sources, a retry can only ever write versions ≥ what a racing writer set — a stale observation
+     * can never regress a newer one (LATEST-OBSERVATION-WINS). {@code contentEquals} still excludes
+     * these markers, so the content path keeps its PR-07 no-version-churn behavior. Returns
+     * {@code true} when there is nothing to advance or the advance committed; {@code false} on a
+     * CAS conflict (retry).
+     */
+    public boolean refreshObservedVersionsIfDrifted(String skuId, long observedVersion,
+                                                    ProductCardBaseProjection candidate,
+                                                    ProductCardBaseProjection existing) {
+        boolean drifted = candidate.catalogVersion() != existing.catalogVersion()
+                || !Objects.equals(candidate.priceVersion(), existing.priceVersion())
+                || !Objects.equals(candidate.mediaVersion(), existing.mediaVersion());
+        if (!drifted) {
+            return true;
+        }
+        UpdateResult r = db.getCollection(COLLECTION).updateOne(
+                Filters.and(
+                        Filters.eq("sku_id", skuId),
+                        Filters.eq("projection_version", observedVersion),
+                        Filters.eq("source_versions.catalog_version", existing.catalogVersion()),
+                        Filters.eq("source_versions.price_version", existing.priceVersion()),
+                        Filters.eq("source_versions.media_version", existing.mediaVersion())),
+                Updates.combine(
+                        Updates.set("source_versions.catalog_version", candidate.catalogVersion()),
+                        Updates.set("source_versions.price_version", candidate.priceVersion()),
+                        Updates.set("source_versions.media_version", candidate.mediaVersion()),
+                        Updates.set("updated_at", Date.from(clock.instant()))));
+        if (r.getModifiedCount() == 1) {
+            log.debug("projection_versions_refreshed sku={} version={}", skuId, observedVersion);
+            return true;
+        }
+        return false; // concurrent change to the row; caller re-observes and retries
     }
 
     // --- derivation ---------------------------------------------------------------
