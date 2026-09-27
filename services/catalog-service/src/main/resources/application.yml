@@ -51,6 +51,11 @@ tazzzo:
       max-attempts: ${TAZZZO_OTP_MAX_ATTEMPTS:5}
       # How long a successful-verification login grant remains consumable by PR-11C.
       grant-ttl-seconds: ${TAZZZO_OTP_GRANT_TTL_SECONDS:300}
+      # Durability hardening: how long a PENDING_DELIVERY challenge may hold the "delivering" slot
+      # before it is considered stale (e.g. the process crashed before recording a provider
+      # outcome). Independent of ttl-seconds — the OTP's own validity window starts at CONFIRMED
+      # delivery, not at challenge creation.
+      delivery-timeout-seconds: ${TAZZZO_OTP_DELIVERY_TIMEOUT_SECONDS:60}
       # NO DEFAULT PRODUCTION PROVIDER BY DESIGN. Unset => no OtpDeliveryProvider bean => the
       # request endpoint fails closed with 503 rather than silently discarding an OTP. LOGGING
       # wires the dev-only LoggingOtpDeliveryProvider (never logs the plaintext OTP). A real

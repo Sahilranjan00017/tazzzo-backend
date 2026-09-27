@@ -1,5 +1,6 @@
 package com.tazzzo.auth.otp;
 
+import com.mongodb.client.ClientSession;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.FindOneAndUpdateOptions;
@@ -38,12 +39,29 @@ public class OtpVerifiedGrantRepository {
     }
 
     /**
+     * Executed as part of the caller's transaction (see {@code OtpService#verify}), together with
+     * the challenge's ACTIVE-&gt;VERIFIED transition — durability hardening §1: either both writes
+     * commit or neither does.
+     *
      * @throws com.mongodb.MongoWriteException duplicate key — either {@code grantId} (astronomically
      *         unlikely to collide) or {@code challengeId} (the unique index added in the hardening
      *         pass: defense-in-depth against ever creating a second grant for one challenge). The
-     *         caller (see {@code OtpService#ensureGrantExists}) treats a challengeId collision as
-     *         "already exists", never as an error.
+     *         caller disambiguates via {@link #findByChallengeId} rather than assuming success.
      */
+    public Document insert(ClientSession session, String grantId, String challengeId, Phone phone,
+                           OtpPurpose purpose, Instant now, Instant expiresAt) {
+        Document doc = new Document("_id", grantId)
+                .append("challengeId", challengeId)
+                .append("phoneNormalized", phone.value())
+                .append("purpose", purpose.name())
+                .append("createdAt", now)
+                .append("expiresAt", expiresAt)
+                .append("consumedAt", null);
+        collection().insertOne(session, doc);
+        return doc;
+    }
+
+    /** Non-transactional convenience overload — used by tests and defense-in-depth checks. */
     public Document insert(String grantId, String challengeId, Phone phone, OtpPurpose purpose,
                            Instant now, Instant expiresAt) {
         Document doc = new Document("_id", grantId)
@@ -55,6 +73,15 @@ public class OtpVerifiedGrantRepository {
                 .append("consumedAt", null);
         collection().insertOne(doc);
         return doc;
+    }
+
+    /**
+     * Durability hardening §4 — the lookup used to disambiguate a duplicate-key hit on
+     * {@code challengeId}: is this the SAME logical grant (safe to treat as idempotent), or a
+     * conflicting one (integrity violation)? See {@code OtpService#insertGrantOrReconcile}.
+     */
+    public Document findByChallengeId(ClientSession session, String challengeId) {
+        return collection().find(session, Filters.eq("challengeId", challengeId)).first();
     }
 
     /**

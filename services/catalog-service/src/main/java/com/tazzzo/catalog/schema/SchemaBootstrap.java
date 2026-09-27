@@ -201,9 +201,19 @@ public class SchemaBootstrap {
                 new IndexOptions().name("otp_one_active_per_phone").unique(true)
                         .partialFilterExpression(new Document("active", true)));
         // Cleanup only — application logic enforces expiry itself (markExpiredIfPastDeadline);
-        // this TTL sweep is asynchronous and must never be the sole expiry mechanism.
+        // this TTL sweep is asynchronous and must never be the sole expiry mechanism. NOTE:
+        // expiresAt is null until activateAfterDelivery finalizes it (durability §6 — the OTP's
+        // validity window starts at confirmed delivery, not creation), and the Mongo TTL monitor
+        // never expires a null/missing date field — so a PENDING_DELIVERY/DELIVERY_FAILED document
+        // that never reaches ACTIVE would live forever under this index alone.
         db.getCollection("customer_otp_challenges").createIndex(
                 Indexes.ascending("expiresAt"), new IndexOptions().expireAfter(0L, java.util.concurrent.TimeUnit.SECONDS));
+        // Backstop cleanup net for exactly that gap: createdAt is ALWAYS set, so every document —
+        // however it ends its life — is swept within a day regardless of whether expiresAt was ever
+        // populated. Generous window: this is cleanup only, never a business-logic deadline.
+        db.getCollection("customer_otp_challenges").createIndex(
+                Indexes.ascending("createdAt"), new IndexOptions().name("otp_challenge_createdat_backstop_ttl")
+                        .expireAfter(1L, java.util.concurrent.TimeUnit.DAYS));
         // PR-11B: one-time login grant, cleaned up on the same TTL discipline. consume() enforces
         // expiry/one-time-use atomically; this index is cleanup only.
         db.getCollection("customer_otp_verified_grants").createIndex(

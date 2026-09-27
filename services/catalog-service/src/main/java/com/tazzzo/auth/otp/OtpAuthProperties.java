@@ -20,6 +20,14 @@ public class OtpAuthProperties {
     private long resendCooldownSeconds = 30;
     private int maxAttempts = 5;
     private long grantTtlSeconds = 300;
+    /**
+     * Hardening pass (durability §6/§7) — the bound on how long a PENDING_DELIVERY challenge may
+     * hold the "delivering" slot before it is considered stale (e.g. the process crashed between
+     * inserting it and recording the provider outcome). Deliberately SHORT and independent of
+     * {@link #ttlSeconds} (the OTP's own validity window, which starts at CONFIRMED delivery, not
+     * at challenge creation — see {@code OtpService#createAndDeliver}).
+     */
+    private long deliveryTimeoutSeconds = 60;
 
     /**
      * NO default. Empty/unset means no {@code OtpDeliveryProvider} bean is wired, so the OTP
@@ -99,6 +107,14 @@ public class OtpAuthProperties {
         this.grantTtlSeconds = grantTtlSeconds;
     }
 
+    public long getDeliveryTimeoutSeconds() {
+        return deliveryTimeoutSeconds;
+    }
+
+    public void setDeliveryTimeoutSeconds(long deliveryTimeoutSeconds) {
+        this.deliveryTimeoutSeconds = deliveryTimeoutSeconds;
+    }
+
     public String getProviderMode() {
         return providerMode;
     }
@@ -154,6 +170,9 @@ public class OtpAuthProperties {
         }
         if (grantTtlSeconds <= 0) {
             throw new IllegalStateException("tazzzo.customer-auth.otp.grant-ttl-seconds must be > 0");
+        }
+        if (deliveryTimeoutSeconds <= 0) {
+            throw new IllegalStateException("tazzzo.customer-auth.otp.delivery-timeout-seconds must be > 0");
         }
     }
 
