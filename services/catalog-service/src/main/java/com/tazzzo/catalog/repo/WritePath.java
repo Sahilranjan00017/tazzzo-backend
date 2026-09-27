@@ -41,13 +41,29 @@ public class WritePath {
 
     private final MongoDatabase db;
 
+    /**
+     * PR-10A freshness hook (OPTIONAL, nullable). When set, every {@code products} state mutation
+     * through this single write path enqueues a global product-card rebuild request for the
+     * mutated product — one bypass-proof chokepoint covering ALL card-relevant Catalog writes
+     * (title/brand/vertical/lifecycle/merge), rather than N per-service hooks. Left null in the
+     * pre-PR-10A wiring (and in every existing test), so no {@code work_queue} row is produced and
+     * behavior is unchanged; production/PR-10B sets it. Injected via a setter, not the constructor,
+     * so this {@code @Component}'s single Spring constructor is untouched.
+     */
+    private ProjectionRebuildQueue rebuildQueue;
+
     public WritePath(MongoDatabase db) {
         this.db = db;
+    }
+
+    public void setRebuildQueue(ProjectionRebuildQueue rebuildQueue) {
+        this.rebuildQueue = rebuildQueue;
     }
 
     public void insertWithEvent(ClientSession session, String collection, Document doc, EventPayload event) {
         appendEvent(session, event);
         db.getCollection(collection).insertOne(session, doc);
+        requestCardRebuild(session, collection, event);
     }
 
     /** CAS update guarded by expectedVersion; the update MUST $inc version itself. */
@@ -62,6 +78,7 @@ public class WritePath {
         if (r.getModifiedCount() == 0) {
             throw new CasConflictException(collection + "/" + id + " expectedVersion=" + expectedVersion);
         }
+        requestCardRebuild(session, collection, event);
         return r.getModifiedCount();
     }
 
@@ -136,4 +153,19 @@ public class WritePath {
         db.getCollection("product_events").insertOne(session,
                 ProductDocuments.eventDoc(event.type(), event.productId(), event.detail()));
     }
+
+    /**
+     * Enqueue a global card rebuild for a {@code products} mutation, in the SAME session (durable
+     * with the write). Only for the {@code products} collection — {@code product_id == sku id} at
+     * launch — and only when the freshness hook is wired. Over-enqueuing on a non-card-relevant
+     * product write (e.g. a gtin bind) is harmless: the rebuild is idempotent and re-derives to a
+     * NOOP. auxWrite is deliberately NOT hooked (it is the queue's own write channel).
+     */
+    private void requestCardRebuild(ClientSession session, String collection, EventPayload event) {
+        if (rebuildQueue != null && "products".equals(collection) && event != null
+                && event.productId() != null && !event.productId().isBlank()) {
+            rebuildQueue.requestRebuild(session, event.productId(), "catalog");
+        }
+    }
 }
+

@@ -61,8 +61,14 @@ class NoBypassArchitectureIT {
 
     @Test
     void only_writepath_performs_state_mutations() throws IOException {
+        // WritePath is THE product-state write primitive; the DDL/seed classes create collections.
+        // ProjectionRebuildQueue (PR-10A) is the sanctioned producer for the work_queue ONLY — its
+        // collection is a hardcoded "work_queue" constant, so it is structurally incapable of
+        // mutating product/price/media state; it is event-free by design (a rebuild request is not
+        // a product_events audit row). Allowlisting it here does not weaken the product-state
+        // guarantee, exactly as the work_queue lease-claim pattern is already exempt below.
         List<String> allowed = List.of("WritePath.java", "SchemaBootstrap.java",
-                "ValidatorGenerator.java", "TaxonomyLoader.java");
+                "ValidatorGenerator.java", "TaxonomyLoader.java", "ProjectionRebuildQueue.java");
         List<String> violations = new ArrayList<>();
         for (Path f : javaFiles(MAIN)) {
             String name = f.getFileName().toString();

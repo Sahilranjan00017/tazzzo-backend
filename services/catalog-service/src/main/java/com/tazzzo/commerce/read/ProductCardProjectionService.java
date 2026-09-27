@@ -3,6 +3,7 @@ package com.tazzzo.commerce.read;
 import com.mongodb.MongoWriteException;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.Filters;
+import com.mongodb.client.model.Updates;
 import com.mongodb.client.result.UpdateResult;
 import com.tazzzo.media.MediaReadPort;
 import com.tazzzo.pricing.PriceLookup;
@@ -132,6 +133,7 @@ public class ProductCardProjectionService {
                 ProductCardBaseProjection candidate = derive(facts, price, mediaFacts, nextVersion);
 
                 if (existing != null && candidate.contentEquals(fromDocument(existing))) {
+                    refreshObservedVersionsIfDrifted(skuId, observedVersion, candidate, fromDocument(existing));
                     log.debug("projection_rebuild_noop sku={} version={}", skuId, observedVersion);
                     return RebuildOutcome.NOOP;
                 }
@@ -184,6 +186,36 @@ public class ProductCardProjectionService {
         }
         String msg = e.getMessage();
         return msg != null && msg.contains("E11000");
+    }
+
+    /**
+     * OPTION A (PR-10A, source-version truthfulness): on a content NOOP where a source version has
+     * advanced without a consumer-visible change, refresh the stored source-version markers so they
+     * truthfully record the LAST OBSERVED source versions — required for freshness observability and
+     * drift detection. CAS-guarded on the observed projection_version and does NOT bump it: a
+     * concurrent CONTENT update (which bumps the version) wins the row (modifiedCount 0 here), so no
+     * stale marker regresses newer content. {@code contentEquals} still excludes these markers, so
+     * the content-equality path keeps its PR-07 no-version-churn behavior; this only advances the
+     * advisory watermark. (Per-SKU processing is serialized by the work-queue lease, so racing
+     * pure-NOOP refreshes are the rare lease-expiry case and are advisory-only.)
+     */
+    private void refreshObservedVersionsIfDrifted(String skuId, long observedVersion,
+                                                  ProductCardBaseProjection candidate,
+                                                  ProductCardBaseProjection existing) {
+        boolean drifted = candidate.catalogVersion() != existing.catalogVersion()
+                || !Objects.equals(candidate.priceVersion(), existing.priceVersion())
+                || !Objects.equals(candidate.mediaVersion(), existing.mediaVersion());
+        if (!drifted) {
+            return;
+        }
+        db.getCollection(COLLECTION).updateOne(
+                Filters.and(Filters.eq("sku_id", skuId), Filters.eq("projection_version", observedVersion)),
+                Updates.combine(
+                        Updates.set("source_versions.catalog_version", candidate.catalogVersion()),
+                        Updates.set("source_versions.price_version", candidate.priceVersion()),
+                        Updates.set("source_versions.media_version", candidate.mediaVersion()),
+                        Updates.set("updated_at", Date.from(clock.instant()))));
+        log.debug("projection_versions_refreshed sku={} version={}", skuId, observedVersion);
     }
 
     // --- derivation ---------------------------------------------------------------

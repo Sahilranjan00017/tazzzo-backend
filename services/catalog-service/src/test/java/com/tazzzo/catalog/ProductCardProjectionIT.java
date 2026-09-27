@@ -136,6 +136,26 @@ class ProductCardProjectionIT extends AbstractMongoIT {
         assertEquals(1L, ((Number) row("TZP-PC3").get("projection_version")).longValue());
     }
 
+    @Test void noop_refreshes_the_observed_source_version_watermark_without_content_churn() {
+        // PR-10A (Option A): a price re-write with IDENTICAL amounts advances the price version
+        // without any consumer-visible change. The rebuild is a content NOOP (no projection_version
+        // churn), but the stored source-version markers are refreshed so they truthfully record the
+        // LAST OBSERVED source versions — the property freshness observability/drift needs.
+        seedEligibleProduct("TZP-SV", "Dal", "D", 1);
+        pricing().upsertPrice(new UpsertPriceCommand("TZP-SV", 100L, 200L, Currency.INR, null, null, "s", null));
+        assertEquals(RebuildOutcome.CREATED, projector().rebuildOne("TZP-SV"));
+        long pv1 = ((Number) row("TZP-SV").get("source_versions", Document.class)
+                .get("price_version")).longValue();
+
+        pricing().upsertPrice(new UpsertPriceCommand("TZP-SV", 100L, 200L, Currency.INR, null, null, "s", 1L));
+        assertEquals(RebuildOutcome.NOOP, projector().rebuildOne("TZP-SV"), "amounts unchanged -> content NOOP");
+
+        Document d = row("TZP-SV");
+        assertEquals(1L, ((Number) d.get("projection_version")).longValue(), "no content version churn");
+        assertEquals(pv1 + 1, ((Number) d.get("source_versions", Document.class).get("price_version")).longValue(),
+                "observed price-version watermark refreshed truthfully on NOOP");
+    }
+
     @Test void price_change_reflects_on_rebuild() {
         seedEligibleProduct("TZP-PC4", "Oil", "F", 1);
         pricing().upsertPrice(new UpsertPriceCommand("TZP-PC4", 100L, 200L, Currency.INR, null, null, "s", null));

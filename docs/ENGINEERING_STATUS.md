@@ -42,17 +42,27 @@ PR-01 through PR-08 are **MERGED**:
 - **PR-08** — **Runtime product enrichment** (`commerce.read`): internal
   `RuntimeProductCard/Page/ServiceArea` composer — one serviceability resolution per request,
   one batched inventory read per page (≤ `MAX_PAGE_SIZE=50`), frozen buyable rule,
-  cross-location isolation proven. Squash merge `f9c8899` (runtime implementation was
-  verified at PR head `efbddc52`, 842 green, CI green on both PR head and merge commit).
+  cross-location isolation proven. Squash merge `f9c8899`.
+- **PR-09** — **Runtime product detail composition** (`commerce.read`): internal PDP composer
+  sharing the ONE `ConsumerProductResolver` with the legacy consumer PDP (no forked
+  merge/eligibility semantics), catalog-version freshness gate, no truncation of authoritative
+  data. Squash merge `cc23c88` — **897-test regression floor**.
+
+`main` = `cc23c88a81ae683df1c67a893602fdd857c4261b`.
 
 ## In review (NOT merged)
 
-- **PR-09 — Production runtime product detail composition** (`commerce.read`): internal
-  PDP composer — Catalog detail facts + PR-08 runtime card enrichment + media gallery,
-  eligibility-gated, no public controller. Merge-chain/eligibility resolution shares the ONE
-  `ConsumerProductResolver` with the legacy consumer PDP (no forked semantics); catalog-version
-  freshness gate guards against serving a stale/inconsistent base row; authoritative Catalog
-  data is never truncated. In review on `feature/runtime-product-detail` — **897 tests green**.
+- **PR-10 milestone — Public commerce API** (IN PROGRESS, phased):
+  - **PR-10A — Production projection freshness foundation** (in review): async
+    work-queue-driven `product_card_base` rebuild (neutral `ProjectionRebuildQueue` producer;
+    Pricing/Media/Catalog source hooks, opt-in and off in existing tests; `commerce.read`
+    `ProjectionRebuildWorker` + `ProjectionReconciler` + gated `CommerceProjectionScheduler`),
+    a Pricing batch read (`findCurrentPrices`) and an ephemeral `CurrentPriceOverlay` seam so
+    public serving never shows stale price, and truthful source-version watermarks.
+    **INTERNAL ONLY — no `/v1`, no controller, no `SurfaceClassifier` change.**
+  - **PR-10B — Public API exposure** (planned): `/v1` controllers, Runtime→DTO mapping,
+    release reachability, location/error/requestId, closes OPENAPI-INTERNAL-PROJECTION-DEBT.
+  - **PR-10C — Cache / observability hardening** (planned).
 
 ## Blocked
 

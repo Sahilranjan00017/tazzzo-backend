@@ -63,11 +63,27 @@ public class MediaService implements MediaReadPort {
     private final MongoDatabase db;
     private final Clock clock;
 
+    private final com.tazzzo.catalog.repo.ProjectionRebuildQueue rebuildQueue;
+
     public MediaService(Tx tx, WritePath writePath, Clock clock) {
+        this(tx, writePath, clock, null);
+    }
+
+    /**
+     * PR-10A: with a {@link com.tazzzo.catalog.repo.ProjectionRebuildQueue}, a successful media
+     * write enqueues a global product-card rebuild for the owner id in the SAME transaction. At
+     * launch {@code skuId == productId}, so both a SKU-owned and a PRODUCT-owned set map to that
+     * one card; when a product later fans out to many SKUs, the PRODUCT-media→child-SKU fan-out is
+     * the RECONCILER's job (bounded re-derivation), never an unbounded synchronous fan-out here.
+     * The queue is OPTIONAL — null leaves media write behavior entirely unchanged.
+     */
+    public MediaService(Tx tx, WritePath writePath, Clock clock,
+                        com.tazzzo.catalog.repo.ProjectionRebuildQueue rebuildQueue) {
         this.tx = Objects.requireNonNull(tx);
         this.writePath = Objects.requireNonNull(writePath);
         this.db = writePath.database();
         this.clock = Objects.requireNonNull(clock);
+        this.rebuildQueue = rebuildQueue; // nullable by design
     }
 
     /**
@@ -119,6 +135,11 @@ public class MediaService implements MediaReadPort {
                         throw new MediaConflictException("stale update for " + cmd.ownerType() + "/"
                                 + cmd.ownerId() + " expectedVersion=" + cmd.expectedVersion());
                     }
+                }
+                // PR-10A freshness: request a global card rebuild for the owner, durable with this
+                // media write. Idempotent; global only. No-op when unwired.
+                if (rebuildQueue != null) {
+                    rebuildQueue.requestRebuild(session, cmd.ownerId(), "media");
                 }
             });
         } catch (MediaConflictException e) {
