@@ -185,13 +185,21 @@ public class SchemaBootstrap {
                         new Document("gate", "OPEN")));
         db.getCollection("price_rollups").createIndex(
                 Indexes.ascending("product_id", "seller"), new IndexOptions().unique(true));
-        // PR-11B: at most one active (PENDING_DELIVERY/ACTIVE) challenge per phone+purpose. The
-        // partial unique index is the create-race guard — the SAME idiom as service_areas.pincode
-        // and catalogue_releases.gate above. "active" is present ONLY while a challenge is usable;
-        // every terminal transition unsets it, freeing the slot for the next challenge.
+        // PR-11B (hardening pass): TWO independent partial-unique guards, not one. "delivering" is
+        // present ONLY while a challenge is PENDING_DELIVERY (at most one delivery attempt in
+        // flight per phone+purpose); "active" is present ONLY while a challenge is ACTIVE (at most
+        // one guessable code per phone+purpose). Deliberately separate: a resend's replacement
+        // challenge occupies the "delivering" slot WITHOUT touching the previous ACTIVE code, so a
+        // failed resend never destroys a working code. Same create-race-guard idiom as
+        // service_areas.pincode and catalogue_releases.gate above.
         db.getCollection("customer_otp_challenges").createIndex(
                 Indexes.ascending("phoneNormalized", "purpose"),
-                new IndexOptions().unique(true).partialFilterExpression(new Document("active", true)));
+                new IndexOptions().name("otp_one_delivering_per_phone").unique(true)
+                        .partialFilterExpression(new Document("delivering", true)));
+        db.getCollection("customer_otp_challenges").createIndex(
+                Indexes.ascending("phoneNormalized", "purpose"),
+                new IndexOptions().name("otp_one_active_per_phone").unique(true)
+                        .partialFilterExpression(new Document("active", true)));
         // Cleanup only — application logic enforces expiry itself (markExpiredIfPastDeadline);
         // this TTL sweep is asynchronous and must never be the sole expiry mechanism.
         db.getCollection("customer_otp_challenges").createIndex(
@@ -200,6 +208,11 @@ public class SchemaBootstrap {
         // expiry/one-time-use atomically; this index is cleanup only.
         db.getCollection("customer_otp_verified_grants").createIndex(
                 Indexes.ascending("expiresAt"), new IndexOptions().expireAfter(0L, java.util.concurrent.TimeUnit.SECONDS));
+        // PR-11B (hardening §7): defense-in-depth — _id uniqueness alone protects grantId, not
+        // challengeId. This structurally forbids a second grant document ever being created for the
+        // same challenge, even if application logic regressed.
+        db.getCollection("customer_otp_verified_grants").createIndex(
+                Indexes.ascending("challengeId"), new IndexOptions().unique(true));
     }
 
     /**

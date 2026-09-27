@@ -1,9 +1,12 @@
 package com.tazzzo.auth.otp;
 
+import com.mongodb.MongoWriteException;
+import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.model.Filters;
+import com.mongodb.client.model.Updates;
 import com.tazzzo.catalog.AbstractMongoIT;
 import com.tazzzo.catalog.CatalogApplication;
 import com.tazzzo.catalog.ratelimit.Admission;
-import com.tazzzo.catalog.ratelimit.BucketSpec;
 import com.tazzzo.catalog.ratelimit.RateLimitStore;
 import org.bson.Document;
 import org.junit.jupiter.api.BeforeEach;
@@ -26,9 +29,12 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -96,9 +102,60 @@ class OtpServiceIT extends AbstractMongoIT {
         @Override
         public void sendLoginOtp(Phone phone, String otp, Duration expiresIn) {
             if (failNext) {
-                throw new RuntimeException("simulated provider failure");
+                throw new OtpProviderException("simulated provider failure");
             }
             lastOtpByPhone.put(phone.value(), otp);
+        }
+    }
+
+    /**
+     * A provider whose {@code sendLoginOtp} pauses mid-call — signals {@code entered} the instant
+     * it is invoked (so a test knows the challenge is durably PENDING_DELIVERY), then blocks on
+     * {@code proceed} until the test releases it, then either succeeds or throws. No sleeps: the
+     * test controls timing entirely via latches.
+     */
+    static class ControllableOtpDeliveryProvider implements OtpDeliveryProvider {
+        private final CountDownLatch entered;
+        private final CountDownLatch proceed;
+        private final boolean fail;
+
+        ControllableOtpDeliveryProvider(CountDownLatch entered, CountDownLatch proceed, boolean fail) {
+            this.entered = entered;
+            this.proceed = proceed;
+            this.fail = fail;
+        }
+
+        @Override
+        public void sendLoginOtp(Phone phone, String otp, Duration expiresIn) {
+            entered.countDown();
+            try {
+                proceed.await(10, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new OtpProviderException("interrupted", e);
+            }
+            if (fail) {
+                throw new OtpProviderException("simulated provider failure");
+            }
+        }
+    }
+
+    /** Fails the first {@code failCount} insert attempts, then delegates to the real behavior. */
+    static class FlakyOnceGrantRepository extends OtpVerifiedGrantRepository {
+        private final AtomicInteger remainingFailures;
+
+        FlakyOnceGrantRepository(MongoDatabase db, int failCount) {
+            super(db);
+            this.remainingFailures = new AtomicInteger(failCount);
+        }
+
+        @Override
+        public Document insert(String grantId, String challengeId, Phone phone, OtpPurpose purpose, Instant now,
+                               Instant expiresAt) {
+            if (remainingFailures.getAndDecrement() > 0) {
+                throw new RuntimeException("simulated transient grant-insert failure");
+            }
+            return super.insert(grantId, challengeId, phone, purpose, now, expiresAt);
         }
     }
 
@@ -106,6 +163,12 @@ class OtpServiceIT extends AbstractMongoIT {
     @Autowired OtpChallengeRepository challenges;
     @Autowired OtpVerifiedGrantRepository grants;
     @Autowired CapturingOtpDeliveryProvider provider;
+    @Autowired Clock clock;
+
+    private OtpRateLimiter sharedAllowLimiter() {
+        RateLimitStore alwaysAllow = (buckets, cost) -> new Admission.Allowed(List.of());
+        return new OtpRateLimiter(alwaysAllow, activeTestProperties());
+    }
 
     @BeforeEach
     void resetClockAndProvider() {
@@ -346,6 +409,13 @@ class OtpServiceIT extends AbstractMongoIT {
                 .satisfies(e -> assertThat(((OtpFailure) e).reason()).isEqualTo(OtpFailure.Reason.INVALID));
     }
 
+    /**
+     * Hardening §2/§8: with the two-marker design, at most ONE of two concurrent requests for a
+     * brand-new phone (no prior ACTIVE challenge, so neither can take the idempotent-cooldown path)
+     * may win the "delivering" slot — the loser is bounced UNAVAILABLE rather than falsely claiming
+     * success. This is a semantic CHANGE from the pre-hardening design, which used to hand the loser
+     * a borrowed success — that was exactly the false-success bug this pass closes.
+     */
     @Test void resend_race_never_leaves_two_simultaneously_usable_codes() throws Exception {
         String phone = uniquePhone("40110");
 
@@ -353,11 +423,14 @@ class OtpServiceIT extends AbstractMongoIT {
         CountDownLatch ready = new CountDownLatch(2);
         CountDownLatch go = new CountDownLatch(1);
         List<OtpRequestResult> results = new CopyOnWriteArrayList<>();
+        List<OtpFailure> failures = new CopyOnWriteArrayList<>();
         Runnable attempt = () -> {
             ready.countDown();
             try {
                 go.await();
                 results.add(service.request(phone, "203.0.113.1"));
+            } catch (OtpFailure e) {
+                failures.add(e);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
@@ -369,19 +442,225 @@ class OtpServiceIT extends AbstractMongoIT {
         pool.shutdown();
         pool.awaitTermination(10, TimeUnit.SECONDS);
 
-        assertThat(results).hasSize(2);
-        // At most one distinct challenge is genuinely ACTIVE/PENDING_DELIVERY for this phone.
+        assertThat(results).as("exactly one racer wins the delivering slot").hasSize(1);
+        assertThat(failures).as("the loser is bounced, never a false success").hasSize(1);
+        assertThat(failures.get(0).reason()).isEqualTo(OtpFailure.Reason.UNAVAILABLE);
+
         Document active = challenges.findActive(Phone.parse(phone), OtpPurpose.LOGIN);
         assertThat(active).isNotNull();
-        String activeId = active.getString("_id");
-        for (OtpRequestResult r : results) {
-            if (!r.challengeId().equals(activeId)) {
-                Document other = challenges.findById(r.challengeId());
-                assertThat(other.getString("status"))
-                        .as("a non-active returned identity must be superseded/failed, never separately usable")
-                        .isIn("SUPERSEDED", "DELIVERY_FAILED");
-            }
-        }
+        assertThat(active.getString("_id")).isEqualTo(results.get(0).challengeId());
+    }
+
+    /**
+     * Hardening §2 — the CORE false-success bug: a concurrent request arriving while a delivery is
+     * genuinely in flight must never be told "202 challenge created" for a code that was never
+     * confirmed delivered. Proven deterministically with latches, no sleeps.
+     */
+    @Test void concurrent_request_while_delivery_in_flight_never_returns_false_success_and_original_succeeds()
+            throws Exception {
+        String phone = uniquePhone("40400");
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch proceed = new CountDownLatch(1);
+        ControllableOtpDeliveryProvider blockingProvider = new ControllableOtpDeliveryProvider(entered, proceed, false);
+        OtpService blockingService = new OtpService(challenges, grants, readyTestCodec(), activeTestProperties(),
+                clock, fixedProvider(sharedAllowLimiter()), fixedDeliveryProvider(blockingProvider));
+
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        Future<OtpRequestResult> inFlight = pool.submit(() -> blockingService.request(phone, "203.0.113.1"));
+        assertThat(entered.await(10, TimeUnit.SECONDS)).as("provider was entered").isTrue();
+
+        // A second caller arrives while delivery is still unconfirmed — must be bounced, not 202.
+        assertThatThrownBy(() -> blockingService.request(phone, "203.0.113.2"))
+                .isInstanceOf(OtpFailure.class)
+                .satisfies(e -> assertThat(((OtpFailure) e).reason()).isEqualTo(OtpFailure.Reason.UNAVAILABLE));
+
+        proceed.countDown();
+        OtpRequestResult result = inFlight.get(10, TimeUnit.SECONDS);
+        assertThat(result.challengeId()).isNotNull();
+        pool.shutdown();
+
+        Document active = challenges.findActive(Phone.parse(phone), OtpPurpose.LOGIN);
+        assertThat(active).isNotNull();
+        assertThat(active.getString("_id")).isEqualTo(result.challengeId());
+    }
+
+    /** Hardening §2 — same race, but delivery ultimately FAILS: still no false success anywhere. */
+    @Test void concurrent_request_while_delivery_in_flight_then_provider_fails_no_false_success_ever()
+            throws Exception {
+        String phone = uniquePhone("40410");
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch proceed = new CountDownLatch(1);
+        ControllableOtpDeliveryProvider blockingProvider = new ControllableOtpDeliveryProvider(entered, proceed, true);
+        OtpService blockingService = new OtpService(challenges, grants, readyTestCodec(), activeTestProperties(),
+                clock, fixedProvider(sharedAllowLimiter()), fixedDeliveryProvider(blockingProvider));
+
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        Future<OtpRequestResult> inFlight = pool.submit(() -> blockingService.request(phone, "203.0.113.1"));
+        assertThat(entered.await(10, TimeUnit.SECONDS)).isTrue();
+
+        assertThatThrownBy(() -> blockingService.request(phone, "203.0.113.2"))
+                .isInstanceOf(OtpFailure.class)
+                .satisfies(e -> assertThat(((OtpFailure) e).reason()).isEqualTo(OtpFailure.Reason.UNAVAILABLE));
+
+        proceed.countDown();
+        assertThatThrownBy(() -> inFlight.get(10, TimeUnit.SECONDS))
+                .isInstanceOf(ExecutionException.class)
+                .cause().isInstanceOf(OtpFailure.class);
+        pool.shutdown();
+
+        // No ghost ACTIVE challenge is left behind for either caller.
+        assertThat(challenges.findActive(Phone.parse(phone), OtpPurpose.LOGIN)).isNull();
+    }
+
+    /** Hardening §8 — the previous, already-delivered code must remain valid while a resend is
+     *  mid-flight, and provider failure on the resend must never destroy it. */
+    @Test void resend_keeps_old_code_usable_while_replacement_delivery_is_in_flight() throws Exception {
+        String phone = uniquePhone("40420");
+        OtpRequestResult first = service.request(phone, "203.0.113.1");
+        String firstOtp = provider.lastOtpByPhone.get("+91" + phone);
+        CLOCK_NOW.set(CLOCK_NOW.get().plusSeconds(31)); // past cooldown -> next request is a resend
+
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch proceed = new CountDownLatch(1);
+        ControllableOtpDeliveryProvider blockingProvider = new ControllableOtpDeliveryProvider(entered, proceed, false);
+        OtpService blockingService = new OtpService(challenges, grants, readyTestCodec(), activeTestProperties(),
+                clock, fixedProvider(sharedAllowLimiter()), fixedDeliveryProvider(blockingProvider));
+
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        Future<OtpRequestResult> resend = pool.submit(() -> blockingService.request(phone, "203.0.113.1"));
+        assertThat(entered.await(10, TimeUnit.SECONDS)).isTrue();
+
+        // The OLD code must STILL work while the replacement is unconfirmed.
+        OtpVerifyResult verify = blockingService.verify(first.challengeId(), firstOtp, "203.0.113.1");
+        assertThat(verify.grantId()).isNotNull();
+
+        proceed.countDown();
+        resend.get(10, TimeUnit.SECONDS);
+        pool.shutdown();
+    }
+
+    @Test void resend_provider_failure_does_not_destroy_the_previous_working_code() {
+        String phone = uniquePhone("40430");
+        OtpRequestResult first = service.request(phone, "203.0.113.1");
+        String firstOtp = provider.lastOtpByPhone.get("+91" + phone);
+        CLOCK_NOW.set(CLOCK_NOW.get().plusSeconds(31));
+
+        provider.failNext = true;
+        assertThatThrownBy(() -> service.request(phone, "203.0.113.1"))
+                .isInstanceOf(OtpFailure.class)
+                .satisfies(e -> assertThat(((OtpFailure) e).reason()).isEqualTo(OtpFailure.Reason.UNAVAILABLE));
+        provider.failNext = false;
+
+        // The OLD code must be untouched by the failed resend attempt.
+        OtpVerifyResult verify = service.verify(first.challengeId(), firstOtp, "203.0.113.1");
+        assertThat(verify.grantId()).isNotNull();
+    }
+
+    // ---------- verification/grant atomicity (hardening §1/§3/§4/§6/§7) ----------
+
+    @Test void grant_insert_transient_failure_recovers_to_exactly_one_grant() {
+        String phone = uniquePhone("40500");
+        OtpRequestResult req = service.request(phone, "203.0.113.1");
+        String otp = provider.lastOtpByPhone.get("+91" + phone);
+
+        FlakyOnceGrantRepository flakyGrants = new FlakyOnceGrantRepository(db, 2); // fails twice, then succeeds
+        OtpService recoveringService = new OtpService(challenges, flakyGrants, readyTestCodec(), activeTestProperties(),
+                clock, fixedProvider(sharedAllowLimiter()), fixedDeliveryProvider(provider));
+
+        OtpVerifyResult result = recoveringService.verify(req.challengeId(), otp, "203.0.113.1");
+        assertThat(result.grantId()).isNotNull();
+
+        long grantCount = db.getCollection(OtpVerifiedGrantRepository.COLLECTION)
+                .countDocuments(Filters.eq("challengeId", req.challengeId()));
+        assertThat(grantCount).as("exactly one grant ultimately exists").isEqualTo(1);
+
+        Document doc = challenges.findById(req.challengeId());
+        assertThat(doc.getString("status")).isEqualTo("VERIFIED");
+        assertThat(doc.getString("grantId")).isEqualTo(result.grantId());
+    }
+
+    @Test void grant_insert_permanent_failure_throws_unavailable_leaving_a_recoverable_grant_id() {
+        String phone = uniquePhone("40510");
+        OtpRequestResult req = service.request(phone, "203.0.113.1");
+        String otp = provider.lastOtpByPhone.get("+91" + phone);
+
+        FlakyOnceGrantRepository alwaysFailingGrants = new FlakyOnceGrantRepository(db, 100);
+        OtpService brokenService = new OtpService(challenges, alwaysFailingGrants, readyTestCodec(),
+                activeTestProperties(), clock, fixedProvider(sharedAllowLimiter()), fixedDeliveryProvider(provider));
+
+        assertThatThrownBy(() -> brokenService.verify(req.challengeId(), otp, "203.0.113.1"))
+                .isInstanceOf(OtpFailure.class)
+                .satisfies(e -> assertThat(((OtpFailure) e).reason()).isEqualTo(OtpFailure.Reason.UNAVAILABLE));
+
+        // The challenge is NOT stranded as a dead end: it durably recorded which grantId belongs to
+        // it, so it never needs a second OTP verification to eventually recover.
+        Document doc = challenges.findById(req.challengeId());
+        assertThat(doc.getString("status")).isEqualTo("VERIFIED");
+        assertThat(doc.getString("grantId")).isNotNull();
+        long grantCount = db.getCollection(OtpVerifiedGrantRepository.COLLECTION)
+                .countDocuments(Filters.eq("challengeId", req.challengeId()));
+        assertThat(grantCount).isEqualTo(0);
+    }
+
+    @Test void same_challenge_cannot_ever_create_two_grant_documents() {
+        String phone = uniquePhone("40520");
+        OtpRequestResult req = service.request(phone, "203.0.113.1");
+        String otp = provider.lastOtpByPhone.get("+91" + phone);
+        service.verify(req.challengeId(), otp, "203.0.113.1");
+
+        // Defense-in-depth (hardening §7): even a direct repository call attempting a SECOND,
+        // differently-id'd grant for the SAME challengeId is rejected by the unique index.
+        assertThatThrownBy(() -> grants.insert(OpaqueIds.newGrantId(), req.challengeId(), Phone.parse(phone),
+                OtpPurpose.LOGIN, CLOCK_NOW.get(), CLOCK_NOW.get().plusSeconds(300)))
+                .isInstanceOf(MongoWriteException.class);
+    }
+
+    @Test void correct_otp_cannot_win_once_attempt_count_has_reached_the_max_even_before_the_lock_flag_is_set() {
+        String phone = uniquePhone("40530");
+        OtpRequestResult req = service.request(phone, "203.0.113.1");
+        String otp = provider.lastOtpByPhone.get("+91" + phone);
+
+        // Deterministically simulate the exact race window hardening §3 closes: attemptCount has
+        // JUST reached maxAttempts (3) via the atomic $inc, but the SEPARATE follow-up "flip to
+        // LOCKED" update has not run yet — status is still ACTIVE in the database at this instant.
+        db.getCollection(OtpChallengeRepository.COLLECTION).updateOne(
+                Filters.eq("_id", req.challengeId()), Updates.set("attemptCount", 3));
+        assertThat(challenges.findById(req.challengeId()).getString("status")).isEqualTo("ACTIVE");
+
+        assertThatThrownBy(() -> service.verify(req.challengeId(), otp, "203.0.113.1"))
+                .isInstanceOf(OtpFailure.class)
+                .satisfies(e -> assertThat(((OtpFailure) e).reason()).isEqualTo(OtpFailure.Reason.INVALID));
+        assertThat(challenges.findById(req.challengeId()).getString("status"))
+                .as("the CAS predicate itself — not merely the LOCKED flip — must reject this")
+                .isNotEqualTo("VERIFIED");
+    }
+
+    @Test void tryMarkVerified_cas_rejects_past_expiry_even_while_status_is_still_active_in_the_document() {
+        String phone = uniquePhone("40540");
+        OtpRequestResult req = service.request(phone, "203.0.113.1");
+        Instant farFuture = CLOCK_NOW.get().plusSeconds(10_000);
+
+        // Exercised directly at the repository layer: status in the database is untouched (still
+        // ACTIVE — markExpiredIfPastDeadline was never called), proving the CAS predicate itself
+        // enforces expiry (hardening §4), not merely OtpService's earlier read-based pre-check.
+        Document result = challenges.tryMarkVerified(req.challengeId(), OpaqueIds.newGrantId(), farFuture, 3);
+        assertThat(result).isNull();
+        assertThat(challenges.findById(req.challengeId()).getString("status")).isEqualTo("ACTIVE");
+    }
+
+    @Test void fixed_clock_controls_the_verified_at_timestamp_not_wall_time() {
+        String phone = uniquePhone("40550");
+        OtpRequestResult req = service.request(phone, "203.0.113.1");
+        String otp = provider.lastOtpByPhone.get("+91" + phone);
+        Instant verifyTime = CLOCK_NOW.get().plusSeconds(10);
+        CLOCK_NOW.set(verifyTime);
+
+        service.verify(req.challengeId(), otp, "203.0.113.1");
+        Document doc = challenges.findById(req.challengeId());
+        assertThat(doc.getDate("verifiedAt").toInstant()).isEqualTo(verifyTime);
+        assertThat(doc.containsKey("consumedAt"))
+                .as("the challenge tracks verifiedAt, never a misleading consumedAt — that belongs to the grant")
+                .isFalse();
     }
 
     // ---------- unavailable seams ----------

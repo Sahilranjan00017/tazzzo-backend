@@ -37,6 +37,13 @@ public class OtpVerifiedGrantRepository {
         return db.getCollection(COLLECTION);
     }
 
+    /**
+     * @throws com.mongodb.MongoWriteException duplicate key — either {@code grantId} (astronomically
+     *         unlikely to collide) or {@code challengeId} (the unique index added in the hardening
+     *         pass: defense-in-depth against ever creating a second grant for one challenge). The
+     *         caller (see {@code OtpService#ensureGrantExists}) treats a challengeId collision as
+     *         "already exists", never as an error.
+     */
     public Document insert(String grantId, String challengeId, Phone phone, OtpPurpose purpose,
                            Instant now, Instant expiresAt) {
         Document doc = new Document("_id", grantId)
