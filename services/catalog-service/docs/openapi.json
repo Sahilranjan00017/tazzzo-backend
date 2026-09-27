@@ -857,6 +857,227 @@
         }
       }
     },
+    "/v1/serviceability" : {
+      "get" : {
+        "tags" : [ "commerce-read-controller" ],
+        "operationId" : "serviceability",
+        "parameters" : [ {
+          "name" : "pin",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "lat",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "lng",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ServiceabilityResponseDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/products/{id}" : {
+      "get" : {
+        "tags" : [ "commerce-read-controller" ],
+        "operationId" : "productDetail",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "release",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "pin",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "lat",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "lng",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProductDetailDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/categories" : {
+      "get" : {
+        "tags" : [ "commerce-read-controller" ],
+        "operationId" : "categories",
+        "parameters" : [ {
+          "name" : "release",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/NodeListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/categories/{id}/products" : {
+      "get" : {
+        "tags" : [ "commerce-read-controller" ],
+        "operationId" : "products",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "release",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "page_size",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "cursor",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "pin",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "lat",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "lng",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/PagedProductResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/categories/{id}/children" : {
+      "get" : {
+        "tags" : [ "commerce-read-controller" ],
+        "operationId" : "children",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "release",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/NodeListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/catalog/v1/products/{productId}" : {
       "get" : {
         "tags" : [ "consumer-taxonomy-controller" ],
@@ -893,7 +1114,7 @@
     "/catalog/v1/categories" : {
       "get" : {
         "tags" : [ "consumer-taxonomy-controller" ],
-        "operationId" : "categories",
+        "operationId" : "categories_1",
         "parameters" : [ {
           "name" : "release",
           "in" : "query",
@@ -966,7 +1187,7 @@
     "/catalog/v1/categories/{nodeId}/children" : {
       "get" : {
         "tags" : [ "consumer-taxonomy-controller" ],
-        "operationId" : "children",
+        "operationId" : "children_1",
         "parameters" : [ {
           "name" : "nodeId",
           "in" : "path",
@@ -1628,6 +1849,323 @@
           }
         }
       },
+      "ServiceabilityResponseDto" : {
+        "type" : "object",
+        "properties" : {
+          "serviceable" : {
+            "type" : "boolean"
+          },
+          "serviceAreaId" : {
+            "type" : "string"
+          },
+          "serviceAreaVersion" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "etaMinutesMin" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "etaMinutesMax" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "requestId" : {
+            "type" : "string"
+          }
+        }
+      },
+      "LegalInformationDto" : {
+        "type" : "object",
+        "properties" : {
+          "manufacturer" : {
+            "type" : "string"
+          },
+          "countryOfOrigin" : {
+            "type" : "string"
+          },
+          "netQuantity" : {
+            "type" : "string"
+          },
+          "fssai" : {
+            "type" : "string"
+          },
+          "importer" : {
+            "type" : "string"
+          }
+        }
+      },
+      "ProductAttributeDto" : {
+        "type" : "object",
+        "properties" : {
+          "key" : {
+            "type" : "string"
+          },
+          "label" : {
+            "type" : "string"
+          },
+          "value" : {
+            "type" : "object"
+          },
+          "unit" : {
+            "type" : "string"
+          }
+        }
+      },
+      "ProductCardDto" : {
+        "type" : "object",
+        "properties" : {
+          "skuId" : {
+            "type" : "string"
+          },
+          "productId" : {
+            "type" : "string"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "brandCode" : {
+            "type" : "string"
+          },
+          "brandName" : {
+            "type" : "string"
+          },
+          "thumbnailUrl" : {
+            "type" : "string"
+          },
+          "packSize" : {
+            "type" : "string"
+          },
+          "unit" : {
+            "type" : "string"
+          },
+          "sellingPricePaise" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "mrpPaise" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "discountPercent" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "discountAmountPaise" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "offerSummary" : {
+            "type" : "string"
+          },
+          "categoryId" : {
+            "type" : "string"
+          },
+          "verticalId" : {
+            "type" : "string"
+          },
+          "badges" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "rating" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "ratingCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "sponsored" : {
+            "type" : "boolean"
+          },
+          "stockState" : {
+            "type" : "string",
+            "enum" : [ "IN_STOCK", "LOW_STOCK", "OUT_OF_STOCK", "UNKNOWN" ]
+          },
+          "lowStockRemaining" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "maxOrderQuantity" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "minimumOrderQuantity" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "serviceable" : {
+            "type" : "boolean"
+          },
+          "etaMinutesMin" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "etaMinutesMax" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "buyable" : {
+            "type" : "boolean"
+          }
+        }
+      },
+      "ProductDetailDto" : {
+        "type" : "object",
+        "properties" : {
+          "description" : {
+            "type" : "string"
+          },
+          "highlights" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "gallery" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/ProductImageDto"
+            }
+          },
+          "attributes" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/ProductAttributeDto"
+            }
+          },
+          "variants" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/ProductVariantDto"
+            }
+          },
+          "legal" : {
+            "$ref" : "#/components/schemas/LegalInformationDto"
+          },
+          "serviceability" : {
+            "$ref" : "#/components/schemas/ServiceabilityResponseDto"
+          },
+          "resolvedReleaseId" : {
+            "type" : "string"
+          },
+          "requestId" : {
+            "type" : "string"
+          }
+        }
+      },
+      "ProductImageDto" : {
+        "type" : "object",
+        "properties" : {
+          "url" : {
+            "type" : "string"
+          },
+          "role" : {
+            "type" : "string",
+            "enum" : [ "PRIMARY", "GALLERY" ]
+          },
+          "order" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "alt" : {
+            "type" : "string"
+          },
+          "width" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "height" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }
+      },
+      "ProductVariantDto" : {
+        "type" : "object",
+        "properties" : {
+          "variantId" : {
+            "type" : "string"
+          },
+          "skuId" : {
+            "type" : "string"
+          },
+          "packSize" : {
+            "type" : "string"
+          },
+          "unit" : {
+            "type" : "string"
+          }
+        }
+      },
+      "NodeDto" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string"
+          },
+          "name" : {
+            "type" : "string"
+          }
+        }
+      },
+      "NodeListResponse" : {
+        "type" : "object",
+        "properties" : {
+          "resolvedReleaseId" : {
+            "type" : "string"
+          },
+          "items" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/NodeDto"
+            }
+          },
+          "requestId" : {
+            "type" : "string"
+          }
+        }
+      },
+      "PagedProductResponse" : {
+        "type" : "object",
+        "properties" : {
+          "resolvedReleaseId" : {
+            "type" : "string"
+          },
+          "serviceArea" : {
+            "$ref" : "#/components/schemas/ServiceAreaSummaryDto"
+          },
+          "items" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/ProductCardDto"
+            }
+          },
+          "nextCursor" : {
+            "type" : "string"
+          },
+          "hasMore" : {
+            "type" : "boolean"
+          },
+          "requestId" : {
+            "type" : "string"
+          }
+        }
+      },
+      "ServiceAreaSummaryDto" : {
+        "type" : "object",
+        "properties" : {
+          "serviceAreaId" : {
+            "type" : "string"
+          },
+          "serviceable" : {
+            "type" : "boolean"
+          }
+        }
+      },
       "ConsumerAttributeResponse" : {
         "type" : "object",
         "properties" : {
@@ -1673,31 +2211,6 @@
         "properties" : {
           "item" : {
             "$ref" : "#/components/schemas/ConsumerProductResponse"
-          },
-          "resolved_release_id" : {
-            "type" : "string"
-          }
-        }
-      },
-      "ConsumerNode" : {
-        "type" : "object",
-        "properties" : {
-          "id" : {
-            "type" : "string"
-          },
-          "name" : {
-            "type" : "string"
-          }
-        }
-      },
-      "NodeListResponse" : {
-        "type" : "object",
-        "properties" : {
-          "items" : {
-            "type" : "array",
-            "items" : {
-              "$ref" : "#/components/schemas/ConsumerNode"
-            }
           },
           "resolved_release_id" : {
             "type" : "string"

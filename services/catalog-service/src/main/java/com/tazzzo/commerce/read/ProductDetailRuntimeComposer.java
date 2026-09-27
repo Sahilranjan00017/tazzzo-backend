@@ -58,17 +58,36 @@ public class ProductDetailRuntimeComposer {
     private final ProductCardRuntimeEnricher enricher;
     private final MediaReadPort media;
     private final MediaUrlResolver mediaUrls;
+    private final com.tazzzo.pricing.PriceReadPort prices; // nullable
 
     public ProductDetailRuntimeComposer(CatalogProductDetailReadPort catalogDetail,
                                         ProductCardBaseReadPort baseRead,
                                         ProductCardRuntimeEnricher enricher,
                                         MediaReadPort media,
                                         MediaUrlResolver mediaUrls) {
+        this(catalogDetail, baseRead, enricher, media, mediaUrls, null);
+    }
+
+    /**
+     * PR-10B: with a {@link com.tazzzo.pricing.PriceReadPort}, the composer overlays the CURRENT
+     * canonical price of the survivor SKU onto the base before enrichment (via
+     * {@link CurrentPriceOverlay}) — so public PDP NEVER serves a stale projected price, even if
+     * the base row lags or was degraded by the freshness gate. When null (the PR-09 constructor)
+     * the base snapshot price is used unchanged, so existing PR-09 behavior/tests are untouched.
+     * PR-08's enricher remains the sole discount/buyable/stock authority either way.
+     */
+    public ProductDetailRuntimeComposer(CatalogProductDetailReadPort catalogDetail,
+                                        ProductCardBaseReadPort baseRead,
+                                        ProductCardRuntimeEnricher enricher,
+                                        MediaReadPort media,
+                                        MediaUrlResolver mediaUrls,
+                                        com.tazzzo.pricing.PriceReadPort prices) {
         this.catalogDetail = Objects.requireNonNull(catalogDetail);
         this.baseRead = Objects.requireNonNull(baseRead);
         this.enricher = Objects.requireNonNull(enricher);
         this.media = Objects.requireNonNull(media);
         this.mediaUrls = Objects.requireNonNull(mediaUrls);
+        this.prices = prices; // nullable by design
     }
 
     public RuntimeProductDetailLookup composeDetail(String skuId, LocationQuery location) {
@@ -98,6 +117,11 @@ public class ProductDetailRuntimeComposer {
         // Read the base row for the SURVIVOR id (facts.skuId), not the requested id — a merged
         // loser's enrichment must use the survivor's projection/inventory/media.
         ProductCardBaseProjection base = selectBase(facts);
+        // PR-10B: overlay the CURRENT canonical price so public PDP never serves a stale projected
+        // price (ephemeral, never persisted). No-op when the price port is unwired (PR-09 path).
+        if (prices != null) {
+            base = CurrentPriceOverlay.withCurrentPrice(base, prices.findCurrentPrice(facts.skuId()));
+        }
         RuntimeProductCard card = enricher.enrichOne(base, location);
 
         Optional<MediaSet> chosen = MediaSelection.selectFor(media, facts.skuId(), facts.productId());

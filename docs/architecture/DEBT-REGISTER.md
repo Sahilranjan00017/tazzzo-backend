@@ -6,7 +6,7 @@ every entry has an owner PR and a hard deadline expressed in PR order.
 
 | ID | Raised | Gate (MUST FIX BEFORE) | Status |
 |----|--------|------------------------|--------|
-| OPENAPI-INTERNAL-PROJECTION-DEBT | PR-08 final review (2026-09-26) | **PR-10** (public API exposure) | OPEN |
+| OPENAPI-INTERNAL-PROJECTION-DEBT | PR-08 final review (2026-09-26) | **PR-10** (public API exposure) | **CLOSED (PR-10B)** |
 
 ---
 
@@ -41,4 +41,22 @@ drift; only the courtesy-documented internal shape is stale.
 3. This entry flips to CLOSED in the same PR, with the closing commit referenced here.
 
 **Not in scope of this entry:** the freshness-gate debt (product_card_base NOT LIVE until an
-explicit freshness mechanism) is tracked by ADR-003.1/PR-07 notes, not here.
+explicit freshness mechanism) is tracked by ADR-003.1/PR-07 notes, not here — and it is itself
+resolved by PR-10A's production freshness mechanism plus PR-10B's list freshness-readiness gate.
+
+### CLOSED — PR-10B (public commerce API exposure)
+
+Resolved when the public `/v1` surface went live:
+1. **Internal schema removed** — `components.schemas.ProductCardBaseProjection` was deleted from
+   `docs/api/v1/openapi.yaml` (it was orphaned: no `$ref` reached it). The public contract now
+   contains only public shapes.
+2. **Mapping verified** — `RuntimeToDtoMapper` maps `RuntimeProductCard → ProductCardDto`
+   field-by-field: `title→name`, price/discount/stock/serviceable/buyable direct; unsupported
+   fields (`brandName`, `packSize`, `unit`, `offerSummary`, `categoryId`, `badges`, `rating`,
+   `ratingCount`, `etaMinutesMin/Max`) are OMITTED (`@JsonInclude(NON_NULL)`), never fabricated;
+   `sponsored=false` is the contract's explicit default; required fields are fail-fast guarded.
+   Contract tests assert no internal field (`fulfillmentLocationId`, `source_versions`,
+   `projection_version`, `assetKey`, stock counters, supplier/purchase) ever appears in `/v1` JSON.
+3. **Closing change:** the `docs/api/v1/openapi.yaml` edit + `RuntimeToDtoMapper` +
+   `CommerceApiIT` leak-guard assertions land in the PR-10B branch
+   `feature/pr10b-public-commerce-api`.

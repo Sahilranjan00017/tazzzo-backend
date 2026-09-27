@@ -69,11 +69,11 @@ class PublicDtoLocationLeakTest {
         Object[] samples = {
                 card,
                 new ProductDetailDto(card, null, null, List.of(), List.of(), List.of(), null,
-                        new ServiceabilityResponseDto(true, "SA-BLR-01", 1, 30, 45, "rq"),
+                        new ServiceabilityResponseDto(true, "SA-BLR-01", 1L, 30, 45, "rq"),
                         "REL-1", "rq"),
                 new PagedProductResponse("REL-1", new ServiceAreaSummaryDto("SA-BLR-01", true),
                         List.of(card), null, false, "rq"),
-                new ServiceabilityResponseDto(true, "SA-BLR-01", 1, 30, 45, "rq"),
+                new ServiceabilityResponseDto(true, "SA-BLR-01", 1L, 30, 45, "rq"),
                 new ServiceAreaSummaryDto("SA-BLR-01", true),
                 new ErrorEnvelopeDto(PublicErrorCode.NOT_FOUND, "x", "rq", false, null, null)};
         for (Object sample : samples) {

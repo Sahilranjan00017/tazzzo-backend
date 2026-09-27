@@ -32,6 +32,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/NodeListResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
         '429': { $ref: '#/components/responses/RateLimited' }
         '503': { $ref: '#/components/responses/Unavailable' }
   /v1/categories/{id}/children:
@@ -46,6 +47,8 @@ paths:
       responses:
         '200':
           description: OK (a visible vertical returns empty items)
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControl' }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/NodeListResponse' }
@@ -98,6 +101,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ProductDetail' }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/NotFound' }
         '429': { $ref: '#/components/responses/RateLimited' }
         '503': { $ref: '#/components/responses/Unavailable' }
@@ -248,7 +252,7 @@ components:
       properties:
         serviceable: { type: boolean }
         serviceAreaId: { type: string, nullable: true }
-        serviceAreaVersion: { type: integer, nullable: true }
+        serviceAreaVersion: { type: integer, format: int64, nullable: true }
         etaMinutesMin: { type: integer, nullable: true }
         etaMinutesMax: { type: integer, nullable: true }
         requestId: { type: string }
@@ -338,46 +342,6 @@ components:
         retryable: { type: boolean }
         retryAfterSeconds: { type: integer, nullable: true }
         details: { type: object, nullable: true, description: Only when safe. }
-    ProductCardBaseProjection:
-      type: object
-      description: >
-        INTERNAL persisted projection — NOT a public API response. Documented
-        here for architecture reference only. Contains ONLY stable, global,
-        location-agnostic fields. Location-specific stock/ETA are NEVER stored here.
-      required: [skuId, productId, releaseId, name, categoryNodeId, updatedAt]
-      properties:
-        skuId: { type: string }
-        productId: { type: string }
-        releaseId: { type: string }
-        name: { type: string }
-        brandCode: { type: string, nullable: true }
-        brandName: { type: string, nullable: true }
-        thumbnailUrl: { type: string, nullable: true }
-        mediaRefId: { type: string, nullable: true }
-        packSize: { type: string, nullable: true }
-        unit: { type: string, nullable: true }
-        sellingPricePaise: { type: integer, format: int64, nullable: true }
-        mrpPaise: { type: integer, format: int64, nullable: true }
-        discountPercent: { type: integer, nullable: true }
-        discountAmountPaise: { type: integer, format: int64, nullable: true }
-        offerSummary: { type: string, nullable: true }
-        categoryNodeId: { type: string }
-        verticalId: { type: string, nullable: true }
-        badges:
-          type: array
-          nullable: true
-          items: { type: string }
-        sourceVersions:
-          type: object
-          properties:
-            catalogRelease: { type: string }
-            priceVersion: { type: integer, format: int64, nullable: true }
-            mediaVersion: { type: integer, format: int64, nullable: true }
-        updatedAt: { type: string, format: date-time }
-        freshness:
-          type: object
-          properties:
-            stalePrice: { type: boolean }
   responses:
     BadRequest:
       description: Invalid request or cursor

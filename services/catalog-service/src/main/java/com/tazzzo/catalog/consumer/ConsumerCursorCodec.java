@@ -12,6 +12,7 @@ import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.HexFormat;
 
 /**
  * LIST-CURSOR-1 — the v1 product-list cursor: stateless, versioned, HMAC-SHA256 signed,
@@ -19,14 +20,27 @@ import java.util.Base64;
  *
  * <p><b>Wire form:</b> {@code base64url( payload || HMAC-SHA256(key, payload) )}. The payload is a
  * canonical, unambiguous text — each field percent-encoded (so no field can contain the separator)
- * and joined with {@code |} in a FIXED order:
+ * and joined with {@code |} in a FIXED order. The shape is PER-ROUTE (final review, compatibility
+ * gate): the legacy {@code /catalog/v1} route ({@link #ROUTE}) keeps the ORIGINAL, pre-PR-10B
+ * 9-field shape byte-for-byte — a cursor issued before PR-10B decodes unchanged after it — while
+ * the commerce {@link #COMMERCE_ROUTE} route uses a 10th, location-bound field:
  * <pre>
- *   1 | list | 1 | node_id | resolved_release_id | page_size | id | asc | last_product_id
- *   ^cursor    ^query                                          ^sort ^direction
- *    version    version
+ *   legacy (route=list):     1 | list          | 1 | node_id | release | page_size | id | asc | last_product_id
+ *   commerce (route=commerce-list):
+ *                            1 | commerce-list | 1 | node_id | release | page_size | id | asc | last_product_id | location_context
+ *   ^cursor                     ^query                                              ^sort ^direction              ^PR-10B: bound
+ *    version                    version                                                                           location
  * </pre>
  * Everything the listing's identity depends on is bound and signed (L-7): a cursor from another
- * node, release, page size, sort or direction is rejected, and a client cannot edit any of it.
+ * node, release, page size, sort, direction — or, on the commerce route, LOCATION CONTEXT — is
+ * rejected, and a client cannot edit any of it. {@code location_context} is a caller-supplied
+ * opaque token (never the raw PIN — callers must fingerprint it, e.g. via {@link #fingerprint(String)})
+ * so continuing a page under a different location/serviceability/inventory routing context is
+ * impossible: the caller compares its current location context against
+ * {@link ListCursor#locationContext()} and rejects a mismatch as {@code INVALID_CURSOR} before this
+ * codec is even involved. The legacy route has no location concept at all — it never reads or
+ * writes a 10th field — so {@link ListCursor#locationContext()} on a legacy-decoded cursor is
+ * always the fixed {@link #LOCATION_UNBOUND} sentinel, never carried on the wire.
  * It does NOT bind {@code projectionVersion}, prices, inventory or the current-release pointer —
  * projection stays live and pagination stays on the release that started it.
  *
@@ -54,19 +68,55 @@ public class ConsumerCursorCodec {
     static final int CURSOR_VERSION = 1;
     static final int QUERY_VERSION = 1;
     static final String ROUTE = "list";
+    /**
+     * PR-10B: the commerce /v1 list surface signs cursors with a DISTINCT route literal so a
+     * cursor minted for {@code /catalog/v1} is rejected on {@code /v1} and vice-versa (the
+     * route literal is part of the signed, validated payload). Same HMAC key, same crypto — only
+     * the namespacing literal differs, injected via the {@code (properties, route, queryVersion)}
+     * constructor. The default {@code @Component} keeps {@code "list"} so the consumer surface is
+     * byte-for-byte unchanged.
+     */
+    public static final String COMMERCE_ROUTE = "commerce-list";
     static final String SORT = "id";
     static final String DIRECTION = "asc";
     private static final String MAC_ALGORITHM = "HmacSHA256";
     private static final int MAC_BYTES = 32;
-    private static final int FIELD_COUNT = 9;
+    /** Original, pre-PR-10B shape — the legacy {@code /catalog/v1} wire format, byte-for-byte. */
+    private static final int LEGACY_FIELD_COUNT = 9;
+    /** PR-10B commerce shape: the 9 legacy fields plus the signed {@code location_context}. */
+    private static final int COMMERCE_FIELD_COUNT = 10;
+    private static final int FINGERPRINT_BYTES = 16;   // 128 bits: not reversible without the key
 
-    /** The bound position of one continuation. */
-    public record ListCursor(String nodeId, String releaseId, int pageSize, String lastProductId) { }
+    /** Callers with no location concept (legacy consumer list) bind this fixed sentinel. */
+    public static final String LOCATION_UNBOUND = "n/a";
+    /** Anonymous browse (no location supplied) binds this fixed, non-secret sentinel. */
+    public static final String LOCATION_ANONYMOUS = "anon";
+
+    /** The bound position of one continuation, including the location context it started under. */
+    public record ListCursor(String nodeId, String releaseId, int pageSize, String lastProductId,
+                              String locationContext) { }
 
     private final SecretKeySpec key;          // null when not configured or malformed
     private final String unavailableReason;   // generic; carries no key material
+    private final String route;               // signed+validated surface discriminator
+    private final int queryVersion;
+    /**
+     * Compatibility gate (final review): ONLY the commerce route carries the location-bound 10th
+     * field. Derived from the route literal so the legacy {@code @Component} constructor — and
+     * any future caller that reuses {@link #ROUTE} — automatically stays on the original 9-field
+     * shape without needing its own flag.
+     */
+    private final boolean locationBound;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public ConsumerCursorCodec(ConsumerCursorProperties properties) {
+        this(properties, ROUTE, QUERY_VERSION);
+    }
+
+    public ConsumerCursorCodec(ConsumerCursorProperties properties, String route, int queryVersion) {
+        this.route = route;
+        this.queryVersion = queryVersion;
+        this.locationBound = COMMERCE_ROUTE.equals(route);
         SecretKeySpec resolved = null;
         String reason = null;
         String configured = properties.getCursorHmacKeyB64();
@@ -106,10 +156,16 @@ public class ConsumerCursorCodec {
 
     public String encode(ListCursor cursor) {
         requireReady();
-        String payload = String.join("|",
-                Integer.toString(CURSOR_VERSION), ROUTE, Integer.toString(QUERY_VERSION),
-                field(cursor.nodeId()), field(cursor.releaseId()),
-                Integer.toString(cursor.pageSize()), SORT, DIRECTION, field(cursor.lastProductId()));
+        String payload = locationBound
+                ? String.join("|",
+                        Integer.toString(CURSOR_VERSION), route, Integer.toString(queryVersion),
+                        field(cursor.nodeId()), field(cursor.releaseId()),
+                        Integer.toString(cursor.pageSize()), SORT, DIRECTION, field(cursor.lastProductId()),
+                        field(cursor.locationContext()))
+                : String.join("|",
+                        Integer.toString(CURSOR_VERSION), route, Integer.toString(queryVersion),
+                        field(cursor.nodeId()), field(cursor.releaseId()),
+                        Integer.toString(cursor.pageSize()), SORT, DIRECTION, field(cursor.lastProductId()));
         byte[] payloadBytes = payload.getBytes(StandardCharsets.UTF_8);
         byte[] signature = sign(payloadBytes);
         byte[] token = new byte[payloadBytes.length + signature.length];
@@ -150,15 +206,16 @@ public class ConsumerCursorCodec {
         return parse(new String(payloadBytes, StandardCharsets.UTF_8));
     }
 
-    private static ListCursor parse(String payload) {
+    private ListCursor parse(String payload) {
         String[] parts = payload.split("\\|", -1);
-        if (parts.length != FIELD_COUNT) {
+        int expected = locationBound ? COMMERCE_FIELD_COUNT : LEGACY_FIELD_COUNT;
+        if (parts.length != expected) {
             throw new ConsumerFailures.InvalidCursor("cursor shape");
         }
         if (!Integer.toString(CURSOR_VERSION).equals(parts[0])) {
             throw new ConsumerFailures.InvalidCursor("cursor version");
         }
-        if (!ROUTE.equals(parts[1]) || !Integer.toString(QUERY_VERSION).equals(parts[2])
+        if (!route.equals(parts[1]) || !Integer.toString(queryVersion).equals(parts[2])
                 || !SORT.equals(parts[6]) || !DIRECTION.equals(parts[7])) {
             throw new ConsumerFailures.InvalidCursor("cursor identity");
         }
@@ -171,10 +228,26 @@ public class ConsumerCursorCodec {
         String nodeId = unfield(parts[3]);
         String releaseId = unfield(parts[4]);
         String lastProductId = unfield(parts[8]);
-        if (nodeId.isEmpty() || releaseId.isEmpty() || lastProductId.isEmpty() || pageSize < 1) {
+        String locationContext = locationBound ? unfield(parts[9]) : LOCATION_UNBOUND;
+        if (nodeId.isEmpty() || releaseId.isEmpty() || lastProductId.isEmpty() || pageSize < 1
+                || locationContext.isEmpty()) {
             throw new ConsumerFailures.InvalidCursor("cursor fields");
         }
-        return new ListCursor(nodeId, releaseId, pageSize, lastProductId);
+        return new ListCursor(nodeId, releaseId, pageSize, lastProductId, locationContext);
+    }
+
+    /**
+     * A keyed, non-reversible fingerprint of an arbitrary normalized value (PR-10B): the same MAC
+     * key that signs the cursor, applied to a caller-namespaced string (e.g. {@code "pin:560001"}),
+     * truncated to {@value #FINGERPRINT_BYTES} bytes. A client cannot recover the input from the
+     * fingerprint; only the party holding this key can. This is NOT encryption of the cursor payload
+     * (the payload stays plainly readable, opaque-by-contract only) — it is how a value can be
+     * BOUND into the signed payload without ever appearing in it.
+     */
+    public String fingerprint(String normalizedValue) {
+        requireReady();
+        byte[] mac = sign(normalizedValue.getBytes(StandardCharsets.UTF_8));
+        return HexFormat.of().formatHex(mac, 0, FINGERPRINT_BYTES);
     }
 
     private byte[] sign(byte[] payload) {

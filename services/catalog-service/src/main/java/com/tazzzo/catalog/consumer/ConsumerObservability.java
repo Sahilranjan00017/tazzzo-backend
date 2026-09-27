@@ -50,7 +50,13 @@ public class ConsumerObservability {
             Set.of("route", "outcome", "dimension", "decision", "result", "scope");
 
     public enum Route {
-        ROOT("root"), CHILDREN("children"), LIST("list"), PDP("pdp");
+        ROOT("root"), CHILDREN("children"), LIST("list"), PDP("pdp"),
+        // PR-10B: fixed bounded labels for the public /v1 commerce surface (never derived from
+        // the request path). Distinct from the legacy consumer routes so the two surfaces are
+        // measured separately.
+        COMMERCE_CATEGORIES("commerce_categories"), COMMERCE_CHILDREN("commerce_children"),
+        COMMERCE_LIST("commerce_list"), COMMERCE_PDP("commerce_pdp"),
+        COMMERCE_SERVICEABILITY("commerce_serviceability");
 
         private final String tag;
 
