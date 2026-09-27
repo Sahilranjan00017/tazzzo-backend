@@ -44,4 +44,14 @@ class PriceReadPortDefaultTest {
         assertTrue(port.findCurrentPrices(List.of(), Currency.INR).isEmpty());
         assertTrue(port.reads.isEmpty());
     }
+
+    @Test void blank_sku_rejected_before_any_read() {
+        // validation parity with PricingService: a blank id fails BEFORE any point read
+        CountingPort port = new CountingPort();
+        assertThrows(IllegalArgumentException.class,
+                () -> port.findCurrentPrices(List.of("SKU-A", " "), Currency.INR));
+        assertTrue(port.reads.isEmpty(), "validation precedes reads");
+        // (non-INR currency is likewise rejected by the same guard; Phase 1 Currency is INR-only
+        // per ADR-002, so a second-currency case is not expressible as an enum value yet.)
+    }
 }

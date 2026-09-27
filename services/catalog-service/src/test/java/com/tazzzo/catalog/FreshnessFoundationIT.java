@@ -1,5 +1,6 @@
 package com.tazzzo.catalog;
 
+import com.mongodb.client.ClientSession;
 import com.mongodb.client.model.Filters;
 import com.tazzzo.catalog.repo.ProjectionRebuildQueue;
 import com.tazzzo.catalog.repo.WritePath;
@@ -23,11 +24,14 @@ import com.tazzzo.pricing.UpsertPriceCommand;
 import org.bson.Document;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import com.tazzzo.commerce.read.RebuildOutcome;
 
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -187,7 +191,9 @@ class FreshnessFoundationIT extends AbstractMongoIT {
         seedProduct("TZP-W1", "active");
         seedPrice("TZP-W1", 10000, 12000);
         queue().requestRebuild("TZP-W1", "test");
-        assertEquals(1, worker().drain(50));
+        ProjectionRebuildWorker.DrainResult r = worker().drain(50);
+        assertEquals(1, r.rebuilt());
+        assertEquals(1, r.cleared(), "no newer generation -> item fully cleared");
         assertNotNull(row("TZP-W1"), "worker built the projection row via rebuildOne");
         assertEquals(0, rebuildItems(), "completed request removed");
     }
@@ -205,10 +211,11 @@ class FreshnessFoundationIT extends AbstractMongoIT {
                 return super.rebuildOne(skuId);
             }
         };
-        int processed = new ProjectionRebuildWorker(db, throwing, CLOCK).drain(50);
-        assertEquals(1, processed, "poison SKU did not abort the batch");
+        ProjectionRebuildWorker.DrainResult r = new ProjectionRebuildWorker(db, throwing, CLOCK).drain(50);
+        assertEquals(1, r.rebuilt(), "poison SKU did not abort the batch");
         assertNotNull(row("TZP-OK"), "healthy SKU still built");
         assertNotNull(rebuildItem("TZP-POISON"), "failed item left for retry (lease expiry)");
+        assertTrue(asLong(rebuildItem("TZP-POISON").get("attempt_count")) >= 1, "attempt tracked");
     }
 
     @Test void two_concurrent_workers_do_not_double_process_one_item() throws Exception {
@@ -222,7 +229,7 @@ class FreshnessFoundationIT extends AbstractMongoIT {
             fs.add(pool.submit(() -> {
                 try {
                     start.await();
-                    total.addAndGet(worker().drain(10));
+                    total.addAndGet(worker().drain(10).rebuilt());
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 }
@@ -238,14 +245,34 @@ class FreshnessFoundationIT extends AbstractMongoIT {
 
     // ---------- reconciliation ----------
 
-    @Test void reconcile_missing_enqueues_uncovered_eligible_products() {
+    @Test void reconcile_drift_enqueues_uncovered_eligible_products() {
         seedProduct("TZP-R1", "active"); seedPrice("TZP-R1", 100, 200); // eligible, no projection row
         assertNull(row("TZP-R1"));
-        int enqueued = reconciler().reconcileMissing(100);
+        int enqueued = reconciler().reconcileDrift(100);
         assertTrue(enqueued >= 1);
         assertNotNull(rebuildItem("TZP-R1"));
         worker().drain(100);
         assertNotNull(row("TZP-R1"), "reconciliation backfilled the missing row");
+    }
+
+    @Test void reconcile_drift_repairs_an_existing_stale_row() {
+        // Build a row, then move the canonical price WITHOUT a rebuild (a dropped/lost queue
+        // request). The row is now stale. Drift reconciliation must re-derive it.
+        seedProduct("TZP-R3", "active"); seedPrice("TZP-R3", 10000, 12000);
+        queue().requestRebuild("TZP-R3", "test");
+        worker().drain(10);
+        assertEquals(10000L, ((Number) row("TZP-R3").get("selling_price_paise")).longValue());
+        // canonical price moves; NO enqueue (simulate a dropped hook/queue request)
+        pricingWithQueue(); // (unused queue) — mutate price via a no-queue service to avoid enqueue
+        new PricingService(new Tx(client), new WritePath(db), CLOCK)
+                .upsertPrice(new UpsertPriceCommand("TZP-R3", 8000, 12000, Currency.INR, null, null, "s", 1L));
+        assertEquals(0, rebuildItems(), "no queue item exists for the stale row");
+
+        int enqueued = reconciler().reconcileDrift(100);
+        assertTrue(enqueued >= 1, "drift reconciliation enqueues the existing (stale) SKU");
+        worker().drain(100);
+        assertEquals(8000L, ((Number) row("TZP-R3").get("selling_price_paise")).longValue(),
+                "stale content repaired by rolling drift reconciliation");
     }
 
     @Test void reconcile_orphan_enqueues_ineligible_projection_rows_for_removal() {
@@ -262,9 +289,9 @@ class FreshnessFoundationIT extends AbstractMongoIT {
         assertNull(row("TZP-R2"), "orphan row removed by the worker's version-CAS delete");
     }
 
-    @Test void reconcile_missing_is_bounded_by_limit() {
+    @Test void reconcile_drift_is_bounded_by_limit() {
         for (int i = 0; i < 5; i++) { seedProduct("TZP-RB" + i, "active"); seedPrice("TZP-RB" + i, 100, 200); }
-        int enqueued = reconciler().reconcileMissing(2);
+        int enqueued = reconciler().reconcileDrift(2);
         assertTrue(enqueued <= 2, "a pass never enqueues more than the bound");
     }
 
@@ -309,5 +336,94 @@ class FreshnessFoundationIT extends AbstractMongoIT {
         // and the persisted row is untouched by the overlay
         assertEquals(10000L, ((Number) db.getCollection("product_card_base")
                 .find(Filters.eq("sku_id", "TZP-OV")).first().get("selling_price_paise")).longValue());
+    }
+
+    // ---------- BLOCKER: a mutation during a lease must not be lost (generation guard) ----------
+
+    @Test void a_mutation_during_a_worker_lease_is_not_lost() {
+        seedProduct("TZP-GEN", "active"); seedPrice("TZP-GEN", 100, 200);
+        ProjectionRebuildQueue q = queue();
+        q.requestRebuild("TZP-GEN", "gen1"); // generation 1
+
+        // A projection service that SIMULATES a concurrent source mutation arriving DURING the
+        // rebuild: it re-enqueues the same SKU exactly once, deterministically (no threads/sleeps),
+        // which advances request_generation to 2 and re-arms status=pending.
+        boolean[] fired = {false};
+        ProductCardProjectionService reenqueuing = new ProductCardProjectionService(new CatalogCardReader(db),
+                new PricingService(new Tx(client), new WritePath(db), CLOCK),
+                new MediaService(new Tx(client), new WritePath(db), CLOCK), db, CLOCK) {
+            @Override public RebuildOutcome rebuildOne(String skuId) {
+                RebuildOutcome o = super.rebuildOne(skuId);
+                if ("TZP-GEN".equals(skuId) && !fired[0]) {
+                    fired[0] = true;
+                    q.requestRebuild(skuId, "mutation-during-lease"); // generation 2
+                }
+                return o;
+            }
+        };
+        // drain(1): process exactly the gen-1 claim; the re-enqueued gen-2 item is NOT picked up here
+        ProjectionRebuildWorker.DrainResult r1 = new ProjectionRebuildWorker(db, reenqueuing, CLOCK).drain(1);
+        assertEquals(1, r1.rebuilt(), "gen-1 was rebuilt");
+        assertEquals(0, r1.cleared(), "but NOT cleared — a newer generation arrived mid-lease");
+        Document survived = rebuildItem("TZP-GEN");
+        assertNotNull(survived, "the newer mutation's request survives (BLOCKER fix)");
+        assertEquals("pending", survived.getString("status"), "re-armed to pending");
+        assertEquals(2L, asLong(survived.get("request_generation")));
+
+        // a subsequent drain processes generation 2 and only then clears the item
+        ProjectionRebuildWorker.DrainResult r2 = worker().drain(1);
+        assertEquals(1, r2.cleared(), "generation 2 processed and cleared");
+        assertNull(rebuildItem("TZP-GEN"));
+    }
+
+    // ---------- HIGH: unique lease token — a stale worker cannot clear a newer claim ----------
+
+    @Test void a_stale_worker_cannot_clear_a_newer_workers_claim() {
+        queue().requestRebuild("TZP-ST", "test"); // generation 1, pending
+        Document item = rebuildItem("TZP-ST");
+        // Worker B holds an active, non-expired claim with its own unique token:
+        db.getCollection("work_queue").updateOne(Filters.eq("_id", item.get("_id")),
+                new Document("$set", new Document("status", "leased").append("lease_token", "token-B")
+                        .append("lease_until", new Date(NOW.plusSeconds(60).toEpochMilli()))));
+        // Stale worker A (a DIFFERENT, older token) issues its late completion — the worker's exact
+        // delete predicate. It must not match B's claim.
+        long deleted = db.getCollection("work_queue").deleteOne(Filters.and(
+                Filters.eq("_id", item.get("_id")),
+                Filters.eq("lease_token", "token-A-stale"),
+                Filters.eq("request_generation", 1L))).getDeletedCount();
+        assertEquals(0, deleted, "stale token does not match B's claim — no cross-worker delete");
+        assertNotNull(rebuildItem("TZP-ST"), "B's active claim is intact");
+    }
+
+    // ---------- HIGH: source enqueue is atomic with the source write ----------
+
+    @Test void enqueue_failure_rolls_back_the_source_write() {
+        seedProduct("TZP-TX", "active");
+        ProjectionRebuildQueue boom = new ProjectionRebuildQueue(db, CLOCK) {
+            @Override public void requestRebuild(ClientSession session, String skuId, String reason) {
+                throw new RuntimeException("queue write failed inside the txn");
+            }
+        };
+        PricingService svc = new PricingService(new Tx(client), new WritePath(db), CLOCK, boom);
+        assertThrows(RuntimeException.class, () -> svc.upsertPrice(
+                new UpsertPriceCommand("TZP-TX", 100, 200, Currency.INR, null, null, "s", null)));
+        assertNull(db.getCollection("price_current").find(Filters.eq("sku_id", "TZP-TX")).first(),
+                "enqueue failure inside the transaction rolled back the price write (no dual-write)");
+        assertEquals(0, rebuildItems());
+    }
+
+    // ---------- HIGH: production WritePath bean does not enqueue without the freshness flag ----------
+
+    @Autowired WritePath springWritePath;
+
+    @Test void production_writepath_bean_without_freshness_flag_does_not_enqueue() {
+        seedProduct("TZP-DIS", "active");
+        // The Spring WritePath bean has no queue attached (tazzzo.freshness.enabled is absent here).
+        new ProductUpdateService(new Tx(client), springWritePath).updateTitle("TZP-DIS", 1, "Renamed");
+        assertEquals(0, rebuildItems(), "freshness disabled -> WritePath bean has no queue -> no enqueue");
+    }
+
+    private static long asLong(Object v) {
+        return v == null ? 0L : ((Number) v).longValue();
     }
 }

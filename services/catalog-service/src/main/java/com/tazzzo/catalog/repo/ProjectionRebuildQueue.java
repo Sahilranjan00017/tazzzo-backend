@@ -25,10 +25,15 @@ import java.util.Objects;
  * {@link WritePath#auxWrite} because auxWrite always appends a {@code product_events} audit row —
  * a price or media change is not a product event, and the enqueue is bookkeeping, not audit.
  *
- * <p><b>Idempotent by construction:</b> the item {@code _id} is deterministic
- * ({@code "card_rebuild:" + skuId}) and the upsert uses {@code $setOnInsert}, so any number of
- * enqueues for the same SKU while a request is still pending collapse to one row — duplicate
- * source writes never create duplicate work.
+ * <p><b>One row per SKU, but every mutation WAKES it (PR-10A review, BLOCKER):</b> the item
+ * {@code _id} is deterministic ({@code "card_rebuild:" + skuId}) so there is never more than one
+ * row per SKU, but each enqueue does more than {@code $setOnInsert} — it {@code $set status=pending}
+ * (re-arming a row a worker is currently holding as {@code leased}) and monotonically
+ * {@code $inc request_generation}. That generation is the wake token: a mutation occurring AFTER a
+ * worker claimed the row bumps the generation, so the worker's completion (which is CAS-guarded on
+ * the generation it claimed) can no longer clear the row — guaranteeing at least one further
+ * rebuild after that mutation. Duplicate enqueues still collapse to one row; they simply advance
+ * the generation, which is harmless (the worker re-derives idempotently).
  *
  * <p><b>Global only:</b> the payload carries the SKU id and a coarse reason and nothing else — no
  * PIN, no serviceAreaId, no fulfillmentLocationId, no stock/availability. The projection it drives
@@ -52,30 +57,38 @@ public class ProjectionRebuildQueue {
 
     /**
      * Enqueue a rebuild request for {@code skuId} on the caller's transaction session — durable
-     * with the source mutation. Idempotent: a pending request for the same SKU is not duplicated.
+     * with the source mutation. Wakes an existing row (status→pending) and advances the generation.
      */
     public void requestRebuild(ClientSession session, String skuId, String reason) {
         Objects.requireNonNull(session, "session required");
         db.getCollection(COLLECTION).updateOne(session, Filters.eq("_id", ID_PREFIX + require(skuId)),
-                onInsert(skuId, reason), new UpdateOptions().upsert(true));
+                wake(skuId, reason), new UpdateOptions().upsert(true));
     }
 
     /**
-     * Enqueue outside a source transaction (reconciliation/backfill). Same idempotent upsert; a
-     * pending request already parked by a source hook is left untouched.
+     * Enqueue outside a source transaction (reconciliation/backfill). Same wake+generation upsert.
      */
     public void requestRebuild(String skuId, String reason) {
         db.getCollection(COLLECTION).updateOne(Filters.eq("_id", ID_PREFIX + require(skuId)),
-                onInsert(skuId, reason), new UpdateOptions().upsert(true));
+                wake(skuId, reason), new UpdateOptions().upsert(true));
     }
 
-    private Bson onInsert(String skuId, String reason) {
+    /**
+     * Insert-if-absent immutable fields; on EVERY enqueue re-arm the item ({@code status=pending})
+     * and monotonically bump {@code request_generation} (the wake token) so a mutation during a
+     * worker's lease is never lost. {@code request_generation} lives ONLY in {@code $inc} (never in
+     * {@code $setOnInsert}) — on insert it becomes 1, on an existing row it increments.
+     */
+    private Bson wake(String skuId, String reason) {
         return Updates.combine(
                 Updates.setOnInsert("type", TYPE),
                 Updates.setOnInsert("sku_id", skuId),
-                Updates.setOnInsert("reason", reason == null ? "unspecified" : reason),
-                Updates.setOnInsert("status", "pending"),
-                Updates.setOnInsert("created_at", Date.from(clock.instant())));
+                Updates.setOnInsert("created_at", Date.from(clock.instant())),
+                Updates.setOnInsert("attempt_count", 0),
+                Updates.set("status", "pending"),
+                Updates.set("reason", reason == null ? "unspecified" : reason),
+                Updates.set("requested_at", Date.from(clock.instant())),
+                Updates.inc("request_generation", 1L));
     }
 
     private static String require(String skuId) {

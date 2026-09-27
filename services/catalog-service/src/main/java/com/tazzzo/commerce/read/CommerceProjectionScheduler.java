@@ -20,18 +20,21 @@ import java.time.Clock;
  * Production driver of the projection freshness loop (PR-10A). Lives in {@code commerce.read}, NOT
  * {@code catalog.ops}, because {@code catalog} must not depend on {@code commerce} (ArchUnit
  * {@code catalog_does_not_depend_on_other_modules}) — so it is a SEPARATE scheduler from
- * {@link com.tazzzo.catalog.ops.CatalogSchedulers}, gated by the SAME
- * {@code tazzzo.scheduler.enabled} flag. It is never instantiated in tests (the flag is off in
- * every test profile), so it adds no wiring or work_queue activity to the suite; production turns
- * it on. Derivation is delegated to {@link ProductCardProjectionService#rebuildOne} via the
- * {@link ProjectionRebuildWorker}; nothing is duplicated.
+ * {@link com.tazzzo.catalog.ops.CatalogSchedulers}.
  *
- * <p>Two ticks: a frequent DRAIN of the rebuild queue, and a slower bounded RECONCILE (missing
- * coverage + orphan cleanup). Both are guarded so a tick failure leaves work pending for retry and
- * never crashes the scheduler.
+ * <p><b>Dedicated activation flag (PR-10A review #12):</b> gated by
+ * {@code tazzzo.scheduler.card-projection-enabled}, NOT the master {@code tazzzo.scheduler.enabled}
+ * — so enabling this projection loop never unintentionally starts the unrelated Catalog
+ * merge/taint/rollup workers, and vice-versa. Off in every test profile, so it adds no wiring or
+ * work_queue activity to the suite; production turns it on. Derivation is delegated to
+ * {@link ProductCardProjectionService#rebuildOne} via {@link ProjectionRebuildWorker}.
+ *
+ * <p>Two ticks: a frequent DRAIN of the rebuild queue, and a slower bounded RECONCILE (rolling
+ * drift re-derivation + orphan cleanup). Both are guarded so a tick failure leaves work pending for
+ * retry and never crashes the scheduler.
  */
 @Component
-@ConditionalOnProperty(value = "tazzzo.scheduler.enabled", havingValue = "true")
+@ConditionalOnProperty(value = "tazzzo.scheduler.card-projection-enabled", havingValue = "true")
 public class CommerceProjectionScheduler {
 
     private static final Logger log = LoggerFactory.getLogger(CommerceProjectionScheduler.class);
@@ -69,7 +72,7 @@ public class CommerceProjectionScheduler {
 
     @Scheduled(fixedDelayString = "${tazzzo.scheduler.card-reconcile-ms:300000}")
     public void reconcile() {
-        guard("card_reconcile_missing", () -> reconciler.reconcileMissing(reconcileLimit));
+        guard("card_reconcile_drift", () -> reconciler.reconcileDrift(reconcileLimit));
         guard("card_reconcile_orphan", () -> reconciler.reconcileOrphans(reconcileLimit));
     }
 

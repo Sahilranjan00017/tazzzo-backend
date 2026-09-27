@@ -6,6 +6,8 @@ import com.tazzzo.catalog.tx.Tx;
 import com.tazzzo.commerce.contract.ImageRole;
 import com.tazzzo.commerce.read.CatalogCardReadPort;
 import com.tazzzo.commerce.read.CatalogCardReader;
+import com.tazzzo.commerce.read.ProductCardBaseProjection;
+import com.tazzzo.commerce.read.ProductCardBaseReader;
 import com.tazzzo.commerce.read.ProductCardProjectionService;
 import com.tazzzo.commerce.read.RebuildOutcome;
 import com.tazzzo.common.money.Currency;
@@ -154,6 +156,36 @@ class ProductCardProjectionIT extends AbstractMongoIT {
         assertEquals(1L, ((Number) d.get("projection_version")).longValue(), "no content version churn");
         assertEquals(pv1 + 1, ((Number) d.get("source_versions", Document.class).get("price_version")).longValue(),
                 "observed price-version watermark refreshed truthfully on NOOP");
+    }
+
+    @Test void stale_watermark_refresh_cannot_regress_a_newer_observation() {
+        // PR-10A review (HIGH #5): the watermark refresh CAS-guards on the EXACT observed source
+        // versions, so a stale observation can never overwrite a newer one (latest-wins).
+        seedEligibleProduct("TZP-WM", "Dal", "D", 1);
+        pricing().upsertPrice(new UpsertPriceCommand("TZP-WM", 100L, 200L, Currency.INR, null, null, "s", null));
+        ProductCardProjectionService svc = projector();
+        assertEquals(RebuildOutcome.CREATED, svc.rebuildOne("TZP-WM"));
+        ProductCardBaseProjection existing = new ProductCardBaseReader(db).findBySku("TZP-WM").orElseThrow();
+        long projVer = existing.projectionVersion();
+        assertEquals(1L, storedPriceVersion("TZP-WM"));
+
+        // a newer observation (price version 3) advances the watermark
+        assertTrue(svc.refreshObservedVersionsIfDrifted("TZP-WM", projVer, withPriceVersion(existing, 3L), existing));
+        assertEquals(3L, storedPriceVersion("TZP-WM"));
+        // a STALE observation (version 2, read-snapshot still pv=1) must NOT commit: the CAS on
+        // source_versions.price_version==1 fails because the row already advanced to 3.
+        assertFalse(svc.refreshObservedVersionsIfDrifted("TZP-WM", projVer, withPriceVersion(existing, 2L), existing));
+        assertEquals(3L, storedPriceVersion("TZP-WM"), "stale observation did not regress the newer watermark");
+    }
+
+    private long storedPriceVersion(String sku) {
+        return ((Number) row(sku).get("source_versions", Document.class).get("price_version")).longValue();
+    }
+
+    private ProductCardBaseProjection withPriceVersion(ProductCardBaseProjection p, long pv) {
+        return new ProductCardBaseProjection(p.skuId(), p.productId(), p.title(), p.brandCode(),
+                p.verticalId(), p.priceStatus(), p.sellingPricePaise(), p.mrpPaise(), p.currency(),
+                p.primaryAssetKey(), p.catalogVersion(), pv, p.mediaVersion(), p.projectionVersion());
     }
 
     @Test void price_change_reflects_on_rebuild() {

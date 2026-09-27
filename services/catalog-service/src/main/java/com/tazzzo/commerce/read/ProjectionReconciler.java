@@ -18,20 +18,26 @@ import java.util.Set;
 
 /**
  * Bounded reconciliation / backfill for {@code product_card_base} (PR-10A) — the correctness
- * backstop behind the source hooks. It repairs the cases hooks cannot: an empty collection at
- * deployment, data predating the hooks, a dropped/failed work item, or drift. It NEVER rebuilds
- * synchronously and NEVER fans out thousands in one tick — it enqueues bounded batches of
- * {@link ProjectionRebuildQueue} requests and lets the worker do the derivation.
+ * backstop behind the source hooks. It NEVER rebuilds synchronously and NEVER fans out thousands
+ * in one tick — it enqueues bounded batches of {@link ProjectionRebuildQueue} requests and lets the
+ * worker do the derivation.
  *
- * <p><b>Keyset-paged, bounded:</b> each pass scans at most {@code limit} rows ordered by id from an
+ * <p><b>Drift reconciliation (PR-10A review, HIGH — Option A rolling rebuild):</b>
+ * {@link #reconcileDrift} keyset-pages consumer-eligible products and enqueues EVERY scanned SKU
+ * for re-derivation. This repairs the cases the hooks cannot: an empty collection at deployment,
+ * data predating the hooks, a dropped/failed queue request, and eventual content/source-version
+ * drift on an EXISTING row (the case a missing-only pass would miss). The worker's
+ * {@code rebuildOne} is idempotent — a fresh row rebuilds as a NOOP, a stale one is corrected — so
+ * re-enqueuing everything is safe and needs no per-SKU source-version read here.
+ *
+ * <p><b>Orphan reconciliation:</b> {@link #reconcileOrphans} keyset-pages projection rows whose
+ * product is no longer eligible and enqueues a rebuild (the worker's version-CAS delete removes it).
+ *
+ * <p><b>Bounded + rolling:</b> each pass scans at most {@code limit} rows ordered by id from an
  * in-memory checkpoint that advances and wraps at the end — no full-collection scan per tick, no
- * one-transaction mega-rebuild. Enqueues are idempotent, so re-scanning after a wrap or restart is
- * harmless (a still-pending request is not duplicated).
- *
- * <p><b>Two passes:</b> {@code reconcileMissing} finds consumer-eligible products with no
- * projection row and enqueues a build; {@code reconcileOrphans} finds projection rows whose product
- * is no longer eligible and enqueues a rebuild (the worker's {@code rebuildOne} version-CAS-deletes
- * it). Both reuse the ONE ratified {@link ConsumerEligibility} predicate — no second eligibility.
+ * one-transaction mega-rebuild, eventual full coverage. Enqueues are idempotent (they advance the
+ * request generation), so re-scanning after a wrap or a restart is harmless. Both passes reuse the
+ * ONE ratified {@link ConsumerEligibility} predicate — no second eligibility.
  */
 public class ProjectionReconciler {
 
@@ -41,7 +47,7 @@ public class ProjectionReconciler {
     private final MongoDatabase db;
     private final ProjectionRebuildQueue queue;
 
-    private String missingCheckpoint; // null = scan from start
+    private String driftCheckpoint;  // null = scan from start
     private String orphanCheckpoint;
 
     public ProjectionReconciler(MongoDatabase db, ProjectionRebuildQueue queue) {
@@ -49,27 +55,23 @@ public class ProjectionReconciler {
         this.queue = Objects.requireNonNull(queue);
     }
 
-    /** Enqueue rebuilds for eligible products missing a projection row. Returns count enqueued. */
-    public int reconcileMissing(int limit) {
+    /**
+     * Enqueue a rebuild for every consumer-eligible product in the next bounded page — repairs
+     * missing rows, dropped requests and stale/drifted existing rows alike. Returns count enqueued.
+     */
+    public int reconcileDrift(int limit) {
         requirePositive(limit);
-        List<String> productIds = eligiblePage(missingCheckpoint, limit);
+        List<String> productIds = eligiblePage(driftCheckpoint, limit);
         if (productIds.isEmpty()) {
-            missingCheckpoint = null; // reached the end; wrap next pass
+            driftCheckpoint = null; // reached the end; wrap next pass for eventual full coverage
             return 0;
         }
-        missingCheckpoint = productIds.get(productIds.size() - 1);
-        Set<String> covered = existingProjectionSkus(productIds);
-        int enqueued = 0;
-        for (String productId : productIds) {
-            if (!covered.contains(productId)) { // launch: product _id == sku id
-                queue.requestRebuild(productId, "reconcile_missing");
-                enqueued++;
-            }
+        driftCheckpoint = productIds.get(productIds.size() - 1);
+        for (String productId : productIds) { // launch: product _id == sku id
+            queue.requestRebuild(productId, "reconcile_drift");
         }
-        if (enqueued > 0) {
-            log.info("freshness_reconcile_missing enqueued={} scanned={}", enqueued, productIds.size());
-        }
-        return enqueued;
+        log.info("freshness_reconcile_drift enqueued={}", productIds.size());
+        return productIds.size();
     }
 
     /** Enqueue rebuilds for projection rows whose product is no longer eligible (worker removes). */
@@ -114,15 +116,6 @@ public class ProjectionReconciler {
             skus.add(d.getString("sku_id"));
         }
         return skus;
-    }
-
-    private Set<String> existingProjectionSkus(List<String> skuIds) {
-        Set<String> out = new HashSet<>();
-        for (Document d : db.getCollection(PROJECTION).find(Filters.in("sku_id", skuIds))
-                .projection(Projections.include("sku_id"))) {
-            out.add(d.getString("sku_id"));
-        }
-        return out;
     }
 
     private Set<String> eligibleSubset(List<String> productIds) {

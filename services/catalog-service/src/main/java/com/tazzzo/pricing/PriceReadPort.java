@@ -28,6 +28,18 @@ public interface PriceReadPort {
             java.util.Collection<String> skuIds, Currency currency) {
         java.util.Objects.requireNonNull(skuIds, "skuIds required");
         java.util.Objects.requireNonNull(currency, "currency required");
+        // VALIDATION PARITY with PricingService (PR-10A review): the same rejections, and ALL of
+        // them BEFORE any point read — currency must be the canonical INR (the point read is
+        // INR-only), and every id must be non-blank. A stub/default must not silently accept a
+        // currency or a blank id the real implementation rejects.
+        if (currency != Currency.INR) {
+            throw new IllegalArgumentException("only INR is supported: " + currency);
+        }
+        for (String skuId : skuIds) {
+            if (skuId == null || skuId.isBlank()) {
+                throw new IllegalArgumentException("skuId required in batch");
+            }
+        }
         java.util.Map<String, PriceLookup> out = new java.util.LinkedHashMap<>();
         for (String skuId : skuIds) {
             // NOT putIfAbsent(skuId, findCurrentPrice(...)): arguments evaluate eagerly, so that

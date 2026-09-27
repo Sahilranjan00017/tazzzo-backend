@@ -13,6 +13,7 @@ import org.slf4j.LoggerFactory;
 import java.time.Clock;
 import java.util.Date;
 import java.util.Objects;
+import java.util.UUID;
 
 /**
  * Background drain of {@link ProjectionRebuildQueue#TYPE} work items (PR-10A). Reuses the
@@ -20,20 +21,31 @@ import java.util.Objects;
  * parallel queue framework — and delegates the actual derivation to the ONE production seam
  * {@link ProductCardProjectionService#rebuildOne(String)} (no duplicated projection logic).
  *
- * <p><b>Claim / lease:</b> {@code findOneAndUpdate} takes one {@code pending} (or lease-expired)
- * item at a time, leases it for 60s to this worker. Bounded per drain by {@code maxItems}; never
- * an unbounded loop, never a busy spin (returns when the queue is drained).
+ * <p><b>Claim / lease (PR-10A review, HIGH):</b> every claim mints a globally-unique
+ * {@code lease_token} (a UUID), never a reusable thread name — correctness across pods/JVMs must
+ * not depend on {@code Thread.getName()}, which can repeat. {@code lease_owner} is retained as a
+ * human-readable observability tag only. {@code findOneAndUpdate} takes one {@code pending} (or
+ * lease-expired) item at a time, leases it for 60s, and increments {@code attempt_count}. Bounded
+ * per drain by {@code maxItems}; never an unbounded loop or busy spin.
  *
- * <p><b>Idempotent + race-safe completion:</b> {@code rebuildOne} is deterministic and safe to
- * replay. On success the item is deleted ONLY IF it is still {@code leased} by THIS worker — so a
- * fresh source mutation that re-enqueued during processing (the enqueue sets {@code status=pending}
- * again) is NOT lost: the delete no-ops and the item is reclaimed and reprocessed against the
- * newer sources. Two workers on the same SKU are safe because {@code rebuildOne}'s projection CAS
- * makes concurrent rebuilds converge (PR-07).
+ * <p><b>Generation-guarded completion (PR-10A review, BLOCKER):</b> the claim records the item's
+ * {@code request_generation}. On success the row is cleared ONLY IF it still carries THIS claim's
+ * {@code lease_token} AND the SAME {@code request_generation}. A source mutation that re-enqueued
+ * during processing bumped the generation (and re-armed {@code status=pending}), so the delete
+ * no-ops and the newer request survives to be reprocessed — a mutation after a claim is never lost.
+ * A stale worker whose lease expired and was reclaimed by another worker (different token) likewise
+ * cannot clear the newer claim.
  *
- * <p><b>Failure isolation:</b> a rebuild that throws is caught per item, logged, and left leased —
- * the lease expires and the item is retried later. One poison SKU never aborts the batch, and an
- * infrastructure outage is never turned into a business state (the item simply stays pending).
+ * <p><b>Result semantics (PR-10A review):</b> {@link DrainResult} distinguishes {@code rebuilt}
+ * (successful re-derivations) from {@code cleared} (items fully drained). A rebuild that succeeded
+ * but was SUPERSEDED by a newer generation counts as rebuilt-but-not-cleared — the item stays
+ * pending and is reprocessed — so observability never reports it as done.
+ *
+ * <p><b>Failure / retry:</b> a rebuild that throws is caught per item, logged (safe class only, no
+ * throwable/message), and left leased; the lease expires and the item is retried — the same
+ * retry-until-success policy as the existing work_queue workers (no dead-letter exists in the
+ * repository, so none is invented). {@code attempt_count} is tracked for observability. One poison
+ * SKU never aborts the batch, and an outage is never converted into a business state.
  */
 public class ProjectionRebuildWorker {
 
@@ -43,6 +55,7 @@ public class ProjectionRebuildWorker {
     private final MongoDatabase db;
     private final ProductCardProjectionService projectionService;
     private final Clock clock;
+    private final String workerId;
 
     public ProjectionRebuildWorker(MongoDatabase db,
                                    ProductCardProjectionService projectionService,
@@ -50,41 +63,52 @@ public class ProjectionRebuildWorker {
         this.db = Objects.requireNonNull(db);
         this.projectionService = Objects.requireNonNull(projectionService);
         this.clock = Objects.requireNonNull(clock);
+        // Observability tag only; correctness rides on the per-claim lease_token.
+        this.workerId = "cardw-" + UUID.randomUUID();
     }
 
-    /** Drain up to {@code maxItems} rebuild requests. Returns the number processed (success). */
-    public int drain(int maxItems) {
+    /** Rebuilt = successful re-derivations; cleared = items fully drained (not superseded). */
+    public record DrainResult(int rebuilt, int cleared) { }
+
+    /** Drain up to {@code maxItems} rebuild requests. */
+    public DrainResult drain(int maxItems) {
         if (maxItems <= 0) {
             throw new IllegalArgumentException("maxItems must be positive");
         }
-        String owner = Thread.currentThread().getName();
-        int processed = 0;
+        int rebuilt = 0;
+        int cleared = 0;
         for (int i = 0; i < maxItems; i++) {
-            Document item = claim(owner);
+            String leaseToken = UUID.randomUUID().toString();
+            Document item = claim(leaseToken);
             if (item == null) {
                 break; // queue drained
             }
             String skuId = item.getString("sku_id");
+            long claimedGeneration = asLong(item.get("request_generation"));
             try {
                 projectionService.rebuildOne(skuId);
-                // Delete ONLY if still leased by us — a re-enqueue (status->pending) or a re-lease
-                // by another worker during processing makes this a no-op, so the newer request is
-                // reprocessed rather than dropped.
-                db.getCollection(ProjectionRebuildQueue.COLLECTION).deleteOne(Filters.and(
+                rebuilt++;
+                // Clear ONLY if this exact claim still owns the row AND no newer mutation arrived
+                // (same generation). Otherwise the newer request stays pending and is reprocessed.
+                long deleted = db.getCollection(ProjectionRebuildQueue.COLLECTION).deleteOne(Filters.and(
                         Filters.eq("_id", item.get("_id")),
-                        Filters.eq("status", "leased"),
-                        Filters.eq("lease_owner", owner)));
-                processed++;
-                log.debug("freshness_rebuild_success sku={}", skuId);
+                        Filters.eq("lease_token", leaseToken),
+                        Filters.eq("request_generation", claimedGeneration))).getDeletedCount();
+                if (deleted == 1) {
+                    cleared++;
+                    log.debug("freshness_rebuild_cleared sku={}", skuId);
+                } else {
+                    log.debug("freshness_rebuild_superseded sku={} — newer request pending", skuId);
+                }
             } catch (RuntimeException e) {
-                // Left leased; lease expiry makes it reclaimable. Safe class only, no throwable.
-                log.warn("freshness_rebuild_failure sku={} type={}", skuId, e.getClass().getSimpleName());
+                log.warn("freshness_rebuild_failure sku={} attempt={} type={}",
+                        skuId, asLong(item.get("attempt_count")), e.getClass().getSimpleName());
             }
         }
-        return processed;
+        return new DrainResult(rebuilt, cleared);
     }
 
-    private Document claim(String owner) {
+    private Document claim(String leaseToken) {
         Date now = Date.from(clock.instant());
         return db.getCollection(ProjectionRebuildQueue.COLLECTION).findOneAndUpdate(
                 Filters.and(Filters.eq("type", ProjectionRebuildQueue.TYPE),
@@ -92,8 +116,14 @@ public class ProjectionRebuildWorker {
                                 Filters.and(Filters.eq("status", "leased"),
                                         Filters.lt("lease_until", now)))),
                 Updates.combine(Updates.set("status", "leased"),
-                        Updates.set("lease_owner", owner),
-                        Updates.set("lease_until", new Date(now.getTime() + LEASE_MS))),
+                        Updates.set("lease_owner", workerId),
+                        Updates.set("lease_token", leaseToken),
+                        Updates.set("lease_until", new Date(now.getTime() + LEASE_MS)),
+                        Updates.inc("attempt_count", 1)),
                 new FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER));
+    }
+
+    private static long asLong(Object v) {
+        return v == null ? 0L : ((Number) v).longValue();
     }
 }
