@@ -9,6 +9,7 @@ import com.tazzzo.catalog.consumer.ConsumerProjectionService;
 import com.tazzzo.catalog.consumer.ConsumerReleaseResolver;
 import com.tazzzo.catalog.consumer.ConsumerTaxonomyScopeResolver;
 import com.tazzzo.catalog.consumer.ConsumerVisibilityProbe;
+import com.tazzzo.catalog.repo.ProjectionRebuildQueue;
 import com.tazzzo.catalog.repo.WritePath;
 import com.tazzzo.catalog.schema.SnapshotTaxonomyReader;
 import com.tazzzo.catalog.tx.Tx;
@@ -18,6 +19,7 @@ import com.tazzzo.media.MediaUrlResolver;
 import com.tazzzo.inventory.InventoryService;
 import com.tazzzo.pricing.PricingService;
 import com.tazzzo.serviceability.ServiceabilityService;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -58,14 +60,22 @@ public class CommerceReadConfig {
                 ? MediaUrlResolver.unconfigured() : MediaUrlResolver.of(publicBaseUrl);
     }
 
+    /**
+     * PR-10B final review #3: this is a production Spring bean exposing BOTH read and write methods
+     * (used here only as a read port), so a future writer autowiring it must not be able to bypass
+     * projection freshness. When {@code tazzzo.freshness.enabled=true} the queue bean exists
+     * ({@link CommerceFreshnessConfig}) and is threaded through; otherwise the {@code ObjectProvider}
+     * resolves to null and the pre-PR-10A no-queue constructor behavior is preserved exactly — the
+     * context loads either way; only {@link CommerceListService} gates on the flag for reads.
+     */
     @Bean
-    public PricingService commercePricingService() {
-        return new PricingService(tx, writePath, clock);
+    public PricingService commercePricingService(ObjectProvider<ProjectionRebuildQueue> queue) {
+        return new PricingService(tx, writePath, clock, queue.getIfAvailable());
     }
 
     @Bean
-    public MediaService commerceMediaService() {
-        return new MediaService(tx, writePath, clock);
+    public MediaService commerceMediaService(ObjectProvider<ProjectionRebuildQueue> queue) {
+        return new MediaService(tx, writePath, clock, queue.getIfAvailable());
     }
 
     @Bean

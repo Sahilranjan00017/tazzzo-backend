@@ -98,6 +98,7 @@ public class CommerceListService {
             throw new ConsumerFailures.Unavailable("projection freshness not enabled");
         }
         cursors.requireReady();
+        String locationContext = locationContext(location);
 
         ConsumerCursorCodec.ListCursor cursor = null;
         int pageSize;
@@ -106,6 +107,11 @@ public class CommerceListService {
             cursor = cursors.decode(cursorParam);
             if (!cursor.nodeId().equals(nodeId)) {
                 throw new ConsumerFailures.InvalidCursor("cursor node");
+            }
+            // PR-10B review #1: a page must not continue under a different location/serviceability
+            // routing context. The comparison is on the FINGERPRINT, never the raw PIN.
+            if (!cursor.locationContext().equals(locationContext)) {
+                throw new ConsumerFailures.InvalidCursor("cursor location");
             }
             if (explicitRelease != null && !explicitRelease.isBlank()
                     && !explicitRelease.trim().equals(cursor.releaseId())) {
@@ -152,7 +158,8 @@ public class CommerceListService {
         for (ProductCardBaseProjection b : baseReader.findBySkuIds(skuIds)) {
             baseBySku.put(b.skuId(), b);
         }
-        Map<String, PriceLookup> priceBySku = prices.findCurrentPrices(skuIds, Currency.INR);
+        Map<String, PriceLookup> priceBySku =
+                DomainReadGuard.guard(() -> prices.findCurrentPrices(skuIds, Currency.INR));
 
         List<ProductCardBaseProjection> bases = new ArrayList<>(pageItems.size());
         for (Document item : pageItems) {
@@ -168,14 +175,27 @@ public class CommerceListService {
             }
         }
 
-        RuntimeProductPage runtimePage = enricher.enrichPage(bases, location);
+        RuntimeProductPage runtimePage = DomainReadGuard.guard(() -> enricher.enrichPage(bases, location));
 
         String next = null;
         if (more) {
             String last = pageItems.get(pageItems.size() - 1).getString("_id");
-            next = cursors.encode(new ConsumerCursorCodec.ListCursor(nodeId, release, pageSize, last));
+            next = cursors.encode(new ConsumerCursorCodec.ListCursor(nodeId, release, pageSize, last,
+                    locationContext));
         }
         return new CommerceProductPage(release, runtimePage, next);
+    }
+
+    /**
+     * The normalized location context bound into the commerce cursor (PR-10B review #1): anonymous
+     * browse binds the fixed {@link ConsumerCursorCodec#LOCATION_ANONYMOUS} sentinel; a PIN binds a
+     * non-reversible {@link ConsumerCursorCodec#fingerprint(String)} of the normalized PIN — the
+     * client can never recover the PIN from the cursor it carries.
+     */
+    private String locationContext(LocationQuery location) {
+        return location.pincode()
+                .map(pin -> cursors.fingerprint("pin:" + pin.value()))
+                .orElse(ConsumerCursorCodec.LOCATION_ANONYMOUS);
     }
 
     /**

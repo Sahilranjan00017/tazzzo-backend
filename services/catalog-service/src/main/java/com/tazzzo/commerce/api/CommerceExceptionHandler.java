@@ -77,7 +77,16 @@ public class CommerceExceptionHandler {
         return new ErrorEnvelopeDto(code, message, requestId(req), retryable, retryAfterSeconds, null);
     }
 
+    /**
+     * PR-10B final review #7: {@code RequestIdFilter} is mandatory and always runs first, so this
+     * is always populated; fail fast rather than let the literal string {@code "null"} masquerade
+     * as a real server-authoritative request id inside an error envelope.
+     */
     private static String requestId(HttpServletRequest req) {
-        return String.valueOf(req.getAttribute(RequestIdFilter.REQUEST_ID));
+        Object value = req.getAttribute(RequestIdFilter.REQUEST_ID);
+        if (!(value instanceof String id) || id.isBlank()) {
+            throw new IllegalStateException("request id not populated by RequestIdFilter");
+        }
+        return id;
     }
 }

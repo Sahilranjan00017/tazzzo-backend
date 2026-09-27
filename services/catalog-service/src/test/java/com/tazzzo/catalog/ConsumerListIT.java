@@ -252,7 +252,8 @@ class ConsumerListIT extends AbstractConsumerIT {
     @Test
     void a_visible_scope_with_an_exhausted_valid_cursor_is_200_empty_not_404() {
         // A real signed cursor positioned after the last eligible product of the scope.
-        String exhausted = codec.encode(new ConsumerCursorCodec.ListCursor(V_BASMATI, "R1", 20, "TZP-X-VP"));
+        String exhausted = codec.encode(new ConsumerCursorCodec.ListCursor(V_BASMATI, "R1", 20, "TZP-X-VP",
+                ConsumerCursorCodec.LOCATION_UNBOUND));
         JsonNode body = ok(V_BASMATI, "?cursor=" + exhausted);
 
         assertThat(body.get("items")).isEmpty();
@@ -454,7 +455,8 @@ class ConsumerListIT extends AbstractConsumerIT {
         raw = Base64.getUrlDecoder().decode(cursor);
         raw[raw.length - 1] ^= 0x01;                                     // inside the signature
         String tamperedSignature = Base64.getUrlEncoder().withoutPadding().encodeToString(raw);
-        String overMax = codec.encode(new ConsumerCursorCodec.ListCursor(V_BASMATI, "R1", 51, "TZP-L001"));
+        String overMax = codec.encode(new ConsumerCursorCodec.ListCursor(V_BASMATI, "R1", 51, "TZP-L001",
+                ConsumerCursorCodec.LOCATION_UNBOUND));
         String tooLong = "A".repeat(2049);
 
         resetCounters();

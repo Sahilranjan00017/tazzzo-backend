@@ -252,7 +252,7 @@ components:
       properties:
         serviceable: { type: boolean }
         serviceAreaId: { type: string, nullable: true }
-        serviceAreaVersion: { type: integer, nullable: true }
+        serviceAreaVersion: { type: integer, format: int64, nullable: true }
         etaMinutesMin: { type: integer, nullable: true }
         etaMinutesMax: { type: integer, nullable: true }
         requestId: { type: string }

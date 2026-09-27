@@ -31,7 +31,8 @@ class ConsumerCursorCodecTest {
         return new ConsumerCursorCodec(p);
     }
 
-    private static final ListCursor SAMPLE = new ListCursor("TZC-000001", "R1", 20, "TZP-L020");
+    private static final ListCursor SAMPLE =
+            new ListCursor("TZC-000001", "R1", 20, "TZP-L020", ConsumerCursorCodec.LOCATION_UNBOUND);
 
     @Test
     void round_trip_is_exact_and_deterministic() {
@@ -49,7 +50,7 @@ class ConsumerCursorCodecTest {
         byte[] raw = Base64.getUrlDecoder().decode(codec(KEY_A).encode(SAMPLE));
         String payload = new String(Arrays.copyOfRange(raw, 0, raw.length - 32), StandardCharsets.UTF_8);
 
-        assertThat(payload).isEqualTo("1|list|1|TZC-000001|R1|20|id|asc|TZP-L020");
+        assertThat(payload).isEqualTo("1|list|1|TZC-000001|R1|20|id|asc|TZP-L020|n%2Fa");
         assertThat(payload).doesNotContain("0123456789abcdef");
     }
 
@@ -57,7 +58,7 @@ class ConsumerCursorCodecTest {
     void a_tampered_payload_byte_is_rejected_on_the_signature() {
         ConsumerCursorCodec codec = codec(KEY_A);
         byte[] raw = Base64.getUrlDecoder().decode(codec.encode(SAMPLE));
-        raw[raw.length - 32 - 1] ^= 0x01;                  // last payload byte: the product id
+        raw[raw.length - 32 - 1] ^= 0x01;                  // last payload byte: the location context
         String tampered = Base64.getUrlEncoder().withoutPadding().encodeToString(raw);
 
         assertThatThrownBy(() -> codec.decode(tampered)).isInstanceOf(ConsumerFailures.InvalidCursor.class);
@@ -87,21 +88,22 @@ class ConsumerCursorCodecTest {
         // version checking happens after authentication and is still enforced.
         ConsumerCursorCodec codec = codec(KEY_A);
         for (String bad : new String[]{
-                "2|list|1|TZC-000001|R1|20|id|asc|TZP-L020",       // cursor version
-                "1|children|1|TZC-000001|R1|20|id|asc|TZP-L020",   // route
-                "1|list|2|TZC-000001|R1|20|id|asc|TZP-L020",       // query version
-                "1|list|1|TZC-000001|R1|20|name|asc|TZP-L020",     // sort
-                "1|list|1|TZC-000001|R1|20|id|desc|TZP-L020",      // direction
-                "1|list|1|TZC-000001|R1|zero|id|asc|TZP-L020",     // page size not a number
-                "1|list|1|TZC-000001|R1|0|id|asc|TZP-L020",        // page size < 1
-                "1|list|1||R1|20|id|asc|TZP-L020",                 // empty node
-                "1|list|1|TZC-000001|R1|20|id|asc",                // shape: too few fields
-                "1|list|1|TZC-000001|R1|20|id|asc|TZP-L020|extra"  // shape: too many
+                "2|list|1|TZC-000001|R1|20|id|asc|TZP-L020|n%2Fa",       // cursor version
+                "1|children|1|TZC-000001|R1|20|id|asc|TZP-L020|n%2Fa",   // route
+                "1|list|2|TZC-000001|R1|20|id|asc|TZP-L020|n%2Fa",       // query version
+                "1|list|1|TZC-000001|R1|20|name|asc|TZP-L020|n%2Fa",     // sort
+                "1|list|1|TZC-000001|R1|20|id|desc|TZP-L020|n%2Fa",      // direction
+                "1|list|1|TZC-000001|R1|zero|id|asc|TZP-L020|n%2Fa",     // page size not a number
+                "1|list|1|TZC-000001|R1|0|id|asc|TZP-L020|n%2Fa",        // page size < 1
+                "1|list|1||R1|20|id|asc|TZP-L020|n%2Fa",                 // empty node
+                "1|list|1|TZC-000001|R1|20|id|asc|TZP-L020",             // shape: too few fields
+                "1|list|1|TZC-000001|R1|20|id|asc|TZP-L020|n%2Fa|extra", // shape: too many
+                "1|list|1|TZC-000001|R1|20|id|asc|TZP-L020|"             // empty location context
         }) {
             assertThatThrownBy(() -> codec.decode(signedBy(KEY_A, bad)))
                     .as(bad).isInstanceOf(ConsumerFailures.InvalidCursor.class);
         }
-        assertThat(codec.decode(signedBy(KEY_A, "1|list|1|TZC-000001|R1|20|id|asc|TZP-L020")))
+        assertThat(codec.decode(signedBy(KEY_A, "1|list|1|TZC-000001|R1|20|id|asc|TZP-L020|n%2Fa")))
                 .as("the same payload, well-formed, is accepted -- so the refusals above are structural")
                 .isEqualTo(SAMPLE);
     }
@@ -122,9 +124,9 @@ class ConsumerCursorCodecTest {
     void fields_containing_the_separator_or_encoding_characters_survive_the_round_trip() {
         ConsumerCursorCodec codec = codec(KEY_A);
         for (ListCursor odd : new ListCursor[]{
-                new ListCursor("TZC-0|0001", "rel|1.0", 7, "TZP-|x"),
-                new ListCursor("TZP+1 %2", "R 1", 3, "a+b"),
-                new ListCursor("%7C", "%25", 1, "%2B%20")}) {
+                new ListCursor("TZC-0|0001", "rel|1.0", 7, "TZP-|x", "loc|A"),
+                new ListCursor("TZP+1 %2", "R 1", 3, "a+b", "loc %2"),
+                new ListCursor("%7C", "%25", 1, "%2B%20", "%7C%25")}) {
             assertThat(codec.decode(codec.encode(odd))).as(odd.toString()).isEqualTo(odd);
         }
     }
@@ -212,6 +214,21 @@ class ConsumerCursorCodecTest {
         }
         assertThat(codec(Base64.getEncoder().encodeToString(new byte[32])).isReady())
                 .as("exactly 32 bytes is the minimum").isTrue();
+    }
+
+    @Test
+    void fingerprint_is_deterministic_keyed_and_never_contains_the_input() {
+        ConsumerCursorCodec a = codec(KEY_A);
+        String fpA1 = a.fingerprint("pin:560001");
+        String fpA2 = a.fingerprint("pin:560001");
+        String fpAOther = a.fingerprint("pin:560002");
+        String fpB = codec(KEY_B).fingerprint("pin:560001");
+
+        assertThat(fpA1).as("deterministic under the same key").isEqualTo(fpA2);
+        assertThat(fpA1).as("distinguishes different inputs").isNotEqualTo(fpAOther);
+        assertThat(fpA1).as("keyed: a different key gives a different fingerprint").isNotEqualTo(fpB);
+        assertThat(fpA1).doesNotContain("560001");
+        assertThat(fpA1).matches("[0-9a-f]{32}");
     }
 
     /** Signs an arbitrary payload with the fixture key, to forge structurally-wrong cursors. */

@@ -91,8 +91,8 @@ final class RuntimeToDtoMapper {
     }
 
     static ServiceabilityResponseDto serviceability(CommerceServiceabilityService.View v, String requestId) {
-        Integer version = v.serviceAreaVersion() == null ? null : Math.toIntExact(v.serviceAreaVersion());
-        return new ServiceabilityResponseDto(v.serviceable(), v.serviceAreaId(), version,
+        // PR-10B final review #4: no int32 narrowing -- the authoritative version is a long.
+        return new ServiceabilityResponseDto(v.serviceable(), v.serviceAreaId(), v.serviceAreaVersion(),
                 null, null, requireStr(requestId, "requestId")); // etaMin/Max omitted (no source)
     }
 

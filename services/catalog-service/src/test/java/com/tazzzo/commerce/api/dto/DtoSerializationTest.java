@@ -64,7 +64,7 @@ class DtoSerializationTest {
                 List.of(new ProductAttributeDto("weight", "Net Weight", "5 kg", "kg")),
                 List.of(new ProductVariantDto("v-10kg", "TZP-100003", "10", "kg")),
                 new LegalInformationDto("ITC Ltd", "India", "5 kg", "10012345", null),
-                new ServiceabilityResponseDto(true, "SA-BLR-01", 7, 30, 45, "rq_1"),
+                new ServiceabilityResponseDto(true, "SA-BLR-01", 7L, 30, 45, "rq_1"),
                 "REL-000123", "rq_1");
         JsonNode n = mapper.readTree(mapper.writeValueAsString(d));
         // card fields are FLAT at top level (not nested under "card"):

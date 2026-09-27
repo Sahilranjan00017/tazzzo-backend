@@ -64,6 +64,16 @@ public class ConsumerTaxonomyService {
      * charged cost, the admission observation, and each probe.
      */
     public ConsumerDtos.NodeListResponse root(String explicitRelease, ConsumerIdentity identity) {
+        return root(explicitRelease, identity, ConsumerObservability.Route.ROOT);
+    }
+
+    /**
+     * PR-10B review #2 — the same topology walk and computed unit cost, observable under a caller
+     * chosen admission route (e.g. the public commerce surface's {@code COMMERCE_CATEGORIES}) so
+     * two surfaces sharing this ONE implementation are never double-counted under one label.
+     */
+    public ConsumerDtos.NodeListResponse root(String explicitRelease, ConsumerIdentity identity,
+                                              ConsumerObservability.Route admissionRoute) {
         String release = releases.resolve(explicitRelease);
 
         // Candidates are selected by TYPE. "parent_id == null" would return NINE nodes in the
@@ -88,11 +98,11 @@ public class ConsumerTaxonomyService {
             descendants.put(candidate, verticals);
             units += verticals.size();
         }
-        gate.charge(ConsumerObservability.Route.ROOT, identity, units);
+        gate.charge(admissionRoute, identity, units);
 
         List<Document> visible = new ArrayList<>();
         for (Map.Entry<Document, List<String>> entry : descendants.entrySet()) {
-            if (probe.hasEligibleProduct(ConsumerObservability.Route.ROOT,
+            if (probe.hasEligibleProduct(admissionRoute,
                     ConsumerObservability.ProbeScope.CHILD, entry.getValue())) {
                 visible.add(entry.getKey());
             }
@@ -127,6 +137,16 @@ public class ConsumerTaxonomyService {
      */
     public ConsumerDtos.NodeListResponse children(String nodeId, String explicitRelease,
                                                   ConsumerIdentity identity) {
+        return children(nodeId, explicitRelease, identity, ConsumerObservability.Route.CHILDREN);
+    }
+
+    /**
+     * PR-10B review #2 — same walk and computed unit cost as {@link #children(String, String,
+     * ConsumerIdentity)}, observable under a caller-chosen admission route.
+     */
+    public ConsumerDtos.NodeListResponse children(String nodeId, String explicitRelease,
+                                                  ConsumerIdentity identity,
+                                                  ConsumerObservability.Route admissionRoute) {
         String release = releases.resolve(explicitRelease);
 
         Document requested = snapshots.node(release, nodeId);
@@ -134,7 +154,7 @@ public class ConsumerTaxonomyService {
         // -- the branch ROOT would show. Absent, non-active and non-reachable are one answer (L-5),
         // the same as consumer-empty below; corrupt ancestry is a 503 raised inside the seam.
         if (!scopes.isReachable(release, requested)) {
-            gate.charge(ConsumerObservability.Route.CHILDREN, identity, 1);
+            gate.charge(admissionRoute, identity, 1);
             throw new ConsumerFailures.NotFound("node not consumer-reachable: " + nodeId);
         }
 
@@ -149,17 +169,17 @@ public class ConsumerTaxonomyService {
             childScopes.put(candidate, scope);
             units += scope.size();
         }
-        gate.charge(ConsumerObservability.Route.CHILDREN, identity, units);
+        gate.charge(admissionRoute, identity, units);
 
         // The parent's own visibility, FIRST. A hidden scope answers 404 without touching a child.
-        if (!probe.hasEligibleProduct(ConsumerObservability.Route.CHILDREN,
+        if (!probe.hasEligibleProduct(admissionRoute,
                 ConsumerObservability.ProbeScope.PARENT, parentScope)) {
             throw new ConsumerFailures.NotFound("node consumer-empty: " + nodeId);
         }
 
         List<Document> visible = new ArrayList<>();
         for (Map.Entry<Document, List<String>> entry : childScopes.entrySet()) {
-            if (probe.hasEligibleProduct(ConsumerObservability.Route.CHILDREN,
+            if (probe.hasEligibleProduct(admissionRoute,
                     ConsumerObservability.ProbeScope.CHILD, entry.getValue())) {
                 visible.add(entry.getKey());
             }

@@ -31,7 +31,7 @@ public class CommerceServiceabilityService {
 
     public View resolve(Pincode pin, ConsumerIdentity identity) {
         gate.charge(ConsumerObservability.Route.COMMERCE_SERVICEABILITY, identity, 1);
-        PublicServiceability r = serviceability.resolvePublic(pin);
+        PublicServiceability r = DomainReadGuard.guard(() -> serviceability.resolvePublic(pin));
         return new View(r.serviceable(), r.serviceAreaId(), r.serviceAreaVersion());
     }
 }

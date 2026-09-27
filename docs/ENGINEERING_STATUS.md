@@ -68,6 +68,20 @@ PR-01 through PR-08 are **MERGED**:
   OpenAPI corrected (404 on categories, 400 on products, internal projection schema removed);
   **OPENAPI-INTERNAL-PROJECTION-DEBT CLOSED**. No response cache / no AWS / no app integration
   (PR-10C). In review on `feature/pr10b-public-commerce-api`.
+  **Final production hardening pass:** the commerce cursor now binds a non-reversible
+  `fingerprint` of the request's normalized location (anonymous vs PIN) into the signed
+  payload, so a page continuation under a different location/routing context is `INVALID_CURSOR`
+  rather than silently served (`ConsumerCursorCodec.LOCATION_ANONYMOUS`/`LOCATION_UNBOUND`); the
+  legacy `/catalog/v1` taxonomy walk and the public commerce categories/children now share the ONE
+  computed-unit-cost implementation while charging distinct admission labels
+  (`ConsumerTaxonomyService.root/children(..., Route)`); `commercePricingService`/
+  `commerceMediaService` are wired to the shared `ProjectionRebuildQueue` via an
+  `ObjectProvider` so a future writer through either bean cannot bypass freshness;
+  `serviceAreaVersion` is `long` end-to-end (no int32 narrowing); a `DomainReadGuard` in
+  `commerce.read` translates Pricing/Inventory/Media/Serviceability domain exceptions and Mongo
+  outages into `SERVICE_UNAVAILABLE` (never an unmapped 500) at the PDP/list/serviceability seams;
+  `requestId()` fails fast rather than ever returning the literal string `"null"`. Regression grew
+  to **989 tests**, 0 failures/errors/skipped, on this pass.
 - **PR-10C — Cache / observability hardening** (planned).
 
 ## Blocked

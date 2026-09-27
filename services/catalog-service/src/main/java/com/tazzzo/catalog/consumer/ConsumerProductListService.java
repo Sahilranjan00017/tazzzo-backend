@@ -169,7 +169,8 @@ public class ConsumerProductListService {
         String next = null;
         if (more) {
             String lastReturned = pageItems.get(pageItems.size() - 1).getString("_id");
-            next = cursors.encode(new ConsumerCursorCodec.ListCursor(nodeId, release, pageSize, lastReturned));
+            next = cursors.encode(new ConsumerCursorCodec.ListCursor(nodeId, release, pageSize, lastReturned,
+                    ConsumerCursorCodec.LOCATION_UNBOUND));
         }
         return new ConsumerDtos.ProductListResponse(release, items, next);
     }

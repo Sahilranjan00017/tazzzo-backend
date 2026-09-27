@@ -72,7 +72,8 @@ public class CommerceReadController {
                                        HttpServletRequest request, HttpServletResponse response) {
         response.setHeader(HttpHeaders.CACHE_CONTROL, CACHE_PUBLIC);
         return measured(ConsumerObservability.Route.COMMERCE_CATEGORIES, () ->
-                RuntimeToDtoMapper.nodes(taxonomy.root(release, identity(request)), requestId(request)));
+                RuntimeToDtoMapper.nodes(taxonomy.root(release, identity(request),
+                        ConsumerObservability.Route.COMMERCE_CATEGORIES), requestId(request)));
     }
 
     @GetMapping("/categories/{id}/children")
@@ -81,7 +82,8 @@ public class CommerceReadController {
                                      HttpServletRequest request, HttpServletResponse response) {
         response.setHeader(HttpHeaders.CACHE_CONTROL, CACHE_PUBLIC);
         return measured(ConsumerObservability.Route.COMMERCE_CHILDREN, () ->
-                RuntimeToDtoMapper.nodes(taxonomy.children(nodeId, release, identity(request)), requestId(request)));
+                RuntimeToDtoMapper.nodes(taxonomy.children(nodeId, release, identity(request),
+                        ConsumerObservability.Route.COMMERCE_CHILDREN), requestId(request)));
     }
 
     @GetMapping("/categories/{id}/products")
@@ -171,7 +173,17 @@ public class CommerceReadController {
         }
     }
 
-    private static String requestId(HttpServletRequest request) {
-        return String.valueOf(request.getAttribute(REQUEST_ID_ATTR));
+    /**
+     * PR-10B final review #7 — {@code RequestIdFilter} is mandatory and always runs first
+     * ({@code @Order(HIGHEST_PRECEDENCE)}), so this attribute is always populated in production; if
+     * it is ever absent, fail fast rather than silently return the literal string {@code "null"} as
+     * though it were a real, valid server-authoritative request id.
+     */
+    static String requestId(HttpServletRequest request) {
+        Object value = request.getAttribute(REQUEST_ID_ATTR);
+        if (!(value instanceof String id) || id.isBlank()) {
+            throw new IllegalStateException("request id not populated by RequestIdFilter");
+        }
+        return id;
     }
 }

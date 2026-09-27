@@ -12,6 +12,7 @@ import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.HexFormat;
 
 /**
  * LIST-CURSOR-1 — the v1 product-list cursor: stateless, versioned, HMAC-SHA256 signed,
@@ -21,12 +22,18 @@ import java.util.Base64;
  * canonical, unambiguous text — each field percent-encoded (so no field can contain the separator)
  * and joined with {@code |} in a FIXED order:
  * <pre>
- *   1 | list | 1 | node_id | resolved_release_id | page_size | id | asc | last_product_id
- *   ^cursor    ^query                                          ^sort ^direction
- *    version    version
+ *   1 | list | 1 | node_id | resolved_release_id | page_size | id | asc | last_product_id | location_context
+ *   ^cursor    ^query                                          ^sort ^direction              ^PR-10B: bound
+ *    version    version                                                                       location
  * </pre>
  * Everything the listing's identity depends on is bound and signed (L-7): a cursor from another
- * node, release, page size, sort or direction is rejected, and a client cannot edit any of it.
+ * node, release, page size, sort, direction or LOCATION CONTEXT is rejected, and a client cannot
+ * edit any of it. {@code location_context} is a caller-supplied opaque token (never the raw PIN —
+ * callers must fingerprint it, e.g. via {@link #fingerprint(String)}) so continuing a page under a
+ * different location/serviceability/inventory routing context is impossible: the caller compares
+ * its current location context against {@link ListCursor#locationContext()} and rejects a mismatch
+ * as {@code INVALID_CURSOR} before this codec is even involved. Callers with no location concept
+ * (the legacy consumer list) use the fixed {@link #LOCATION_UNBOUND} sentinel.
  * It does NOT bind {@code projectionVersion}, prices, inventory or the current-release pointer —
  * projection stays live and pagination stays on the release that started it.
  *
@@ -67,10 +74,17 @@ public class ConsumerCursorCodec {
     static final String DIRECTION = "asc";
     private static final String MAC_ALGORITHM = "HmacSHA256";
     private static final int MAC_BYTES = 32;
-    private static final int FIELD_COUNT = 9;
+    private static final int FIELD_COUNT = 10;
+    private static final int FINGERPRINT_BYTES = 16;   // 128 bits: not reversible without the key
 
-    /** The bound position of one continuation. */
-    public record ListCursor(String nodeId, String releaseId, int pageSize, String lastProductId) { }
+    /** Callers with no location concept (legacy consumer list) bind this fixed sentinel. */
+    public static final String LOCATION_UNBOUND = "n/a";
+    /** Anonymous browse (no location supplied) binds this fixed, non-secret sentinel. */
+    public static final String LOCATION_ANONYMOUS = "anon";
+
+    /** The bound position of one continuation, including the location context it started under. */
+    public record ListCursor(String nodeId, String releaseId, int pageSize, String lastProductId,
+                              String locationContext) { }
 
     private final SecretKeySpec key;          // null when not configured or malformed
     private final String unavailableReason;   // generic; carries no key material
@@ -127,7 +141,8 @@ public class ConsumerCursorCodec {
         String payload = String.join("|",
                 Integer.toString(CURSOR_VERSION), route, Integer.toString(queryVersion),
                 field(cursor.nodeId()), field(cursor.releaseId()),
-                Integer.toString(cursor.pageSize()), SORT, DIRECTION, field(cursor.lastProductId()));
+                Integer.toString(cursor.pageSize()), SORT, DIRECTION, field(cursor.lastProductId()),
+                field(cursor.locationContext()));
         byte[] payloadBytes = payload.getBytes(StandardCharsets.UTF_8);
         byte[] signature = sign(payloadBytes);
         byte[] token = new byte[payloadBytes.length + signature.length];
@@ -189,10 +204,26 @@ public class ConsumerCursorCodec {
         String nodeId = unfield(parts[3]);
         String releaseId = unfield(parts[4]);
         String lastProductId = unfield(parts[8]);
-        if (nodeId.isEmpty() || releaseId.isEmpty() || lastProductId.isEmpty() || pageSize < 1) {
+        String locationContext = unfield(parts[9]);
+        if (nodeId.isEmpty() || releaseId.isEmpty() || lastProductId.isEmpty() || pageSize < 1
+                || locationContext.isEmpty()) {
             throw new ConsumerFailures.InvalidCursor("cursor fields");
         }
-        return new ListCursor(nodeId, releaseId, pageSize, lastProductId);
+        return new ListCursor(nodeId, releaseId, pageSize, lastProductId, locationContext);
+    }
+
+    /**
+     * A keyed, non-reversible fingerprint of an arbitrary normalized value (PR-10B): the same MAC
+     * key that signs the cursor, applied to a caller-namespaced string (e.g. {@code "pin:560001"}),
+     * truncated to {@value #FINGERPRINT_BYTES} bytes. A client cannot recover the input from the
+     * fingerprint; only the party holding this key can. This is NOT encryption of the cursor payload
+     * (the payload stays plainly readable, opaque-by-contract only) — it is how a value can be
+     * BOUND into the signed payload without ever appearing in it.
+     */
+    public String fingerprint(String normalizedValue) {
+        requireReady();
+        byte[] mac = sign(normalizedValue.getBytes(StandardCharsets.UTF_8));
+        return HexFormat.of().formatHex(mac, 0, FINGERPRINT_BYTES);
     }
 
     private byte[] sign(byte[] payload) {

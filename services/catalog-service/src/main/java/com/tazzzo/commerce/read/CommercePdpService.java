@@ -41,7 +41,8 @@ public class CommercePdpService {
                          ConsumerIdentity identity) {
         String release = releases.resolve(explicitRelease);                                   // 1
         gate.charge(ConsumerObservability.Route.COMMERCE_PDP, identity, 1);                    // 2
-        RuntimeProductDetailLookup lookup = composer.composeDetail(productId, location);       // 3-6
+        RuntimeProductDetailLookup lookup =
+                DomainReadGuard.guard(() -> composer.composeDetail(productId, location));       // 3-6
         switch (lookup.status()) {
             case NOT_FOUND -> {
                 return new Result(Status.NOT_FOUND, release, null);
