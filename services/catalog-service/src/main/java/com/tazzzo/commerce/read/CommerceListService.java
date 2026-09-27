@@ -52,6 +52,23 @@ import java.util.Objects;
  *
  * <p>Read-only: no {@code rebuildOne}, no writes. Commerce cursors are signed with a distinct route
  * so they can never be replayed across the {@code /catalog/v1} and {@code /v1} surfaces.
+ *
+ * <p><b>Design review (compatibility gate, final review #3) — direct {@code products} read kept.</b>
+ * The keyset membership query below duplicates {@code ConsumerProductListService}'s identical
+ * {@code within(scope)} + {@code _id > cursor} + {@code limit(pageSize+1)} shape rather than calling
+ * through a new shared Catalog read seam. Considered and rejected for THIS PR: extracting it would
+ * require moving the query out of {@code ConsumerProductListService.java}, whose exact literal
+ * shape ({@code db.getCollection("products")}, {@code .limit(pageSize+1)},
+ * {@code Projections.include(PAGE_FIELDS)}) is pinned by {@code ConsumerListGuardIT} as a
+ * structural guard on the legacy {@code /catalog/v1} surface — moving it is a legacy-surface change
+ * outside this PR's authorized scope ("do not change unrelated public contracts"), for a read-only
+ * de-duplication that carries no behavioral risk today. The read is not left unguarded, though: any
+ * {@code MongoException} it raises propagates to {@code CommerceExceptionHandler}, which maps it to
+ * {@code SERVICE_UNAVAILABLE} (503) — never an unmapped 500 — exactly like every other Mongo-backed
+ * read reachable from {@code /v1} (release resolution, snapshot taxonomy reads, {@code
+ * product_card_base} reads). A future PR MAY extract a shared {@code catalog.consumer} membership
+ * page reader once the legacy guard is updated alongside it; eligibility and pagination semantics
+ * must not fork in the meantime, and they do not.
  */
 public class CommerceListService {
 

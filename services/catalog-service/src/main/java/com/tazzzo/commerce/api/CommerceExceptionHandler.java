@@ -51,8 +51,19 @@ public class CommerceExceptionHandler {
                 .body(envelope(PublicErrorCode.RATE_LIMITED, "too many requests", true, retryAfter, req));
     }
 
-    @ExceptionHandler({ConsumerFailures.Unavailable.class, ProductDetailCompositionException.class})
+    @ExceptionHandler({ConsumerFailures.Unavailable.class, ProductDetailCompositionException.class,
+            com.mongodb.MongoException.class})
     public ResponseEntity<ErrorEnvelopeDto> unavailable(RuntimeException e, HttpServletRequest req) {
+        // Compatibility gate final review #2: com.mongodb.MongoException (and every driver subtype
+        // -- socket, timeout, not-primary, ...) is a NEUTRAL third-party type, not a domain internal
+        // ArchUnit forbids commerce.api from touching, so it is handled here directly. This is the
+        // ONE place that covers every /v1 route's raw datastore reads uniformly -- release
+        // resolution, snapshot taxonomy reads (categories/children), product membership reads and
+        // product_card_base reads (list), and the PDP/serviceability composers -- without needing a
+        // domain-internal import. Domain-typed failures (Pricing/Inventory/Media/Serviceability
+        // exceptions) are translated to ConsumerFailures.Unavailable at the commerce.read seam
+        // (DomainReadGuard) before they would ever reach here, since commerce.api cannot import
+        // those domain exception types itself.
         log.warn("commerce_request_unavailable type={} request_id={}",
                 e.getClass().getSimpleName(), requestId(req));
         return body(HttpStatus.SERVICE_UNAVAILABLE, PublicErrorCode.SERVICE_UNAVAILABLE,

@@ -20,20 +20,27 @@ import java.util.HexFormat;
  *
  * <p><b>Wire form:</b> {@code base64url( payload || HMAC-SHA256(key, payload) )}. The payload is a
  * canonical, unambiguous text — each field percent-encoded (so no field can contain the separator)
- * and joined with {@code |} in a FIXED order:
+ * and joined with {@code |} in a FIXED order. The shape is PER-ROUTE (final review, compatibility
+ * gate): the legacy {@code /catalog/v1} route ({@link #ROUTE}) keeps the ORIGINAL, pre-PR-10B
+ * 9-field shape byte-for-byte — a cursor issued before PR-10B decodes unchanged after it — while
+ * the commerce {@link #COMMERCE_ROUTE} route uses a 10th, location-bound field:
  * <pre>
- *   1 | list | 1 | node_id | resolved_release_id | page_size | id | asc | last_product_id | location_context
- *   ^cursor    ^query                                          ^sort ^direction              ^PR-10B: bound
- *    version    version                                                                       location
+ *   legacy (route=list):     1 | list          | 1 | node_id | release | page_size | id | asc | last_product_id
+ *   commerce (route=commerce-list):
+ *                            1 | commerce-list | 1 | node_id | release | page_size | id | asc | last_product_id | location_context
+ *   ^cursor                     ^query                                              ^sort ^direction              ^PR-10B: bound
+ *    version                    version                                                                           location
  * </pre>
  * Everything the listing's identity depends on is bound and signed (L-7): a cursor from another
- * node, release, page size, sort, direction or LOCATION CONTEXT is rejected, and a client cannot
- * edit any of it. {@code location_context} is a caller-supplied opaque token (never the raw PIN —
- * callers must fingerprint it, e.g. via {@link #fingerprint(String)}) so continuing a page under a
- * different location/serviceability/inventory routing context is impossible: the caller compares
- * its current location context against {@link ListCursor#locationContext()} and rejects a mismatch
- * as {@code INVALID_CURSOR} before this codec is even involved. Callers with no location concept
- * (the legacy consumer list) use the fixed {@link #LOCATION_UNBOUND} sentinel.
+ * node, release, page size, sort, direction — or, on the commerce route, LOCATION CONTEXT — is
+ * rejected, and a client cannot edit any of it. {@code location_context} is a caller-supplied
+ * opaque token (never the raw PIN — callers must fingerprint it, e.g. via {@link #fingerprint(String)})
+ * so continuing a page under a different location/serviceability/inventory routing context is
+ * impossible: the caller compares its current location context against
+ * {@link ListCursor#locationContext()} and rejects a mismatch as {@code INVALID_CURSOR} before this
+ * codec is even involved. The legacy route has no location concept at all — it never reads or
+ * writes a 10th field — so {@link ListCursor#locationContext()} on a legacy-decoded cursor is
+ * always the fixed {@link #LOCATION_UNBOUND} sentinel, never carried on the wire.
  * It does NOT bind {@code projectionVersion}, prices, inventory or the current-release pointer —
  * projection stays live and pagination stays on the release that started it.
  *
@@ -74,7 +81,10 @@ public class ConsumerCursorCodec {
     static final String DIRECTION = "asc";
     private static final String MAC_ALGORITHM = "HmacSHA256";
     private static final int MAC_BYTES = 32;
-    private static final int FIELD_COUNT = 10;
+    /** Original, pre-PR-10B shape — the legacy {@code /catalog/v1} wire format, byte-for-byte. */
+    private static final int LEGACY_FIELD_COUNT = 9;
+    /** PR-10B commerce shape: the 9 legacy fields plus the signed {@code location_context}. */
+    private static final int COMMERCE_FIELD_COUNT = 10;
     private static final int FINGERPRINT_BYTES = 16;   // 128 bits: not reversible without the key
 
     /** Callers with no location concept (legacy consumer list) bind this fixed sentinel. */
@@ -90,6 +100,13 @@ public class ConsumerCursorCodec {
     private final String unavailableReason;   // generic; carries no key material
     private final String route;               // signed+validated surface discriminator
     private final int queryVersion;
+    /**
+     * Compatibility gate (final review): ONLY the commerce route carries the location-bound 10th
+     * field. Derived from the route literal so the legacy {@code @Component} constructor — and
+     * any future caller that reuses {@link #ROUTE} — automatically stays on the original 9-field
+     * shape without needing its own flag.
+     */
+    private final boolean locationBound;
 
     @org.springframework.beans.factory.annotation.Autowired
     public ConsumerCursorCodec(ConsumerCursorProperties properties) {
@@ -99,6 +116,7 @@ public class ConsumerCursorCodec {
     public ConsumerCursorCodec(ConsumerCursorProperties properties, String route, int queryVersion) {
         this.route = route;
         this.queryVersion = queryVersion;
+        this.locationBound = COMMERCE_ROUTE.equals(route);
         SecretKeySpec resolved = null;
         String reason = null;
         String configured = properties.getCursorHmacKeyB64();
@@ -138,11 +156,16 @@ public class ConsumerCursorCodec {
 
     public String encode(ListCursor cursor) {
         requireReady();
-        String payload = String.join("|",
-                Integer.toString(CURSOR_VERSION), route, Integer.toString(queryVersion),
-                field(cursor.nodeId()), field(cursor.releaseId()),
-                Integer.toString(cursor.pageSize()), SORT, DIRECTION, field(cursor.lastProductId()),
-                field(cursor.locationContext()));
+        String payload = locationBound
+                ? String.join("|",
+                        Integer.toString(CURSOR_VERSION), route, Integer.toString(queryVersion),
+                        field(cursor.nodeId()), field(cursor.releaseId()),
+                        Integer.toString(cursor.pageSize()), SORT, DIRECTION, field(cursor.lastProductId()),
+                        field(cursor.locationContext()))
+                : String.join("|",
+                        Integer.toString(CURSOR_VERSION), route, Integer.toString(queryVersion),
+                        field(cursor.nodeId()), field(cursor.releaseId()),
+                        Integer.toString(cursor.pageSize()), SORT, DIRECTION, field(cursor.lastProductId()));
         byte[] payloadBytes = payload.getBytes(StandardCharsets.UTF_8);
         byte[] signature = sign(payloadBytes);
         byte[] token = new byte[payloadBytes.length + signature.length];
@@ -185,7 +208,8 @@ public class ConsumerCursorCodec {
 
     private ListCursor parse(String payload) {
         String[] parts = payload.split("\\|", -1);
-        if (parts.length != FIELD_COUNT) {
+        int expected = locationBound ? COMMERCE_FIELD_COUNT : LEGACY_FIELD_COUNT;
+        if (parts.length != expected) {
             throw new ConsumerFailures.InvalidCursor("cursor shape");
         }
         if (!Integer.toString(CURSOR_VERSION).equals(parts[0])) {
@@ -204,7 +228,7 @@ public class ConsumerCursorCodec {
         String nodeId = unfield(parts[3]);
         String releaseId = unfield(parts[4]);
         String lastProductId = unfield(parts[8]);
-        String locationContext = unfield(parts[9]);
+        String locationContext = locationBound ? unfield(parts[9]) : LOCATION_UNBOUND;
         if (nodeId.isEmpty() || releaseId.isEmpty() || lastProductId.isEmpty() || pageSize < 1
                 || locationContext.isEmpty()) {
             throw new ConsumerFailures.InvalidCursor("cursor fields");

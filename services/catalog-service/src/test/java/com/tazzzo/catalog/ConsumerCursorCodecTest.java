@@ -31,8 +31,19 @@ class ConsumerCursorCodecTest {
         return new ConsumerCursorCodec(p);
     }
 
+    /** The commerce /v1 instance: same key, distinct route, the location-bound 10-field shape. */
+    static ConsumerCursorCodec commerceCodec(String keyB64) {
+        ConsumerCursorProperties p = new ConsumerCursorProperties();
+        p.setCursorHmacKeyB64(keyB64);
+        return new ConsumerCursorCodec(p, ConsumerCursorCodec.COMMERCE_ROUTE, 1);
+    }
+
+    /** Legacy /catalog/v1 has no location concept; LOCATION_UNBOUND is ignored on the wire. */
     private static final ListCursor SAMPLE =
             new ListCursor("TZC-000001", "R1", 20, "TZP-L020", ConsumerCursorCodec.LOCATION_UNBOUND);
+
+    private static final ListCursor COMMERCE_SAMPLE =
+            new ListCursor("TZC-000001", "R1", 20, "TZP-L020", "anon");
 
     @Test
     void round_trip_is_exact_and_deterministic() {
@@ -50,14 +61,33 @@ class ConsumerCursorCodecTest {
         byte[] raw = Base64.getUrlDecoder().decode(codec(KEY_A).encode(SAMPLE));
         String payload = new String(Arrays.copyOfRange(raw, 0, raw.length - 32), StandardCharsets.UTF_8);
 
-        assertThat(payload).isEqualTo("1|list|1|TZC-000001|R1|20|id|asc|TZP-L020|n%2Fa");
+        assertThat(payload).as("the ORIGINAL, pre-PR-10B 9-field legacy shape -- byte for byte")
+                .isEqualTo("1|list|1|TZC-000001|R1|20|id|asc|TZP-L020");
         assertThat(payload).doesNotContain("0123456789abcdef");
+    }
+
+    @Test
+    void the_commerce_wire_form_carries_the_location_bound_10th_field() {
+        byte[] raw = Base64.getUrlDecoder().decode(commerceCodec(KEY_A).encode(COMMERCE_SAMPLE));
+        String payload = new String(Arrays.copyOfRange(raw, 0, raw.length - 32), StandardCharsets.UTF_8);
+
+        assertThat(payload).isEqualTo("1|commerce-list|1|TZC-000001|R1|20|id|asc|TZP-L020|anon");
     }
 
     @Test
     void a_tampered_payload_byte_is_rejected_on_the_signature() {
         ConsumerCursorCodec codec = codec(KEY_A);
         byte[] raw = Base64.getUrlDecoder().decode(codec.encode(SAMPLE));
+        raw[raw.length - 32 - 1] ^= 0x01;                  // last payload byte: the product id
+        String tampered = Base64.getUrlEncoder().withoutPadding().encodeToString(raw);
+
+        assertThatThrownBy(() -> codec.decode(tampered)).isInstanceOf(ConsumerFailures.InvalidCursor.class);
+    }
+
+    @Test
+    void a_tampered_commerce_location_context_byte_is_rejected() {
+        ConsumerCursorCodec codec = commerceCodec(KEY_A);
+        byte[] raw = Base64.getUrlDecoder().decode(codec.encode(COMMERCE_SAMPLE));
         raw[raw.length - 32 - 1] ^= 0x01;                  // last payload byte: the location context
         String tampered = Base64.getUrlEncoder().withoutPadding().encodeToString(raw);
 
@@ -88,24 +118,71 @@ class ConsumerCursorCodecTest {
         // version checking happens after authentication and is still enforced.
         ConsumerCursorCodec codec = codec(KEY_A);
         for (String bad : new String[]{
-                "2|list|1|TZC-000001|R1|20|id|asc|TZP-L020|n%2Fa",       // cursor version
-                "1|children|1|TZC-000001|R1|20|id|asc|TZP-L020|n%2Fa",   // route
-                "1|list|2|TZC-000001|R1|20|id|asc|TZP-L020|n%2Fa",       // query version
-                "1|list|1|TZC-000001|R1|20|name|asc|TZP-L020|n%2Fa",     // sort
-                "1|list|1|TZC-000001|R1|20|id|desc|TZP-L020|n%2Fa",      // direction
-                "1|list|1|TZC-000001|R1|zero|id|asc|TZP-L020|n%2Fa",     // page size not a number
-                "1|list|1|TZC-000001|R1|0|id|asc|TZP-L020|n%2Fa",        // page size < 1
-                "1|list|1||R1|20|id|asc|TZP-L020|n%2Fa",                 // empty node
-                "1|list|1|TZC-000001|R1|20|id|asc|TZP-L020",             // shape: too few fields
-                "1|list|1|TZC-000001|R1|20|id|asc|TZP-L020|n%2Fa|extra", // shape: too many
-                "1|list|1|TZC-000001|R1|20|id|asc|TZP-L020|"             // empty location context
+                "2|list|1|TZC-000001|R1|20|id|asc|TZP-L020",       // cursor version
+                "1|children|1|TZC-000001|R1|20|id|asc|TZP-L020",   // route
+                "1|list|2|TZC-000001|R1|20|id|asc|TZP-L020",       // query version
+                "1|list|1|TZC-000001|R1|20|name|asc|TZP-L020",     // sort
+                "1|list|1|TZC-000001|R1|20|id|desc|TZP-L020",      // direction
+                "1|list|1|TZC-000001|R1|zero|id|asc|TZP-L020",     // page size not a number
+                "1|list|1|TZC-000001|R1|0|id|asc|TZP-L020",        // page size < 1
+                "1|list|1||R1|20|id|asc|TZP-L020",                 // empty node
+                "1|list|1|TZC-000001|R1|20|id|asc",                // shape: too few fields
+                "1|list|1|TZC-000001|R1|20|id|asc|TZP-L020|extra"  // shape: too many (10 -- the commerce shape)
         }) {
             assertThatThrownBy(() -> codec.decode(signedBy(KEY_A, bad)))
                     .as(bad).isInstanceOf(ConsumerFailures.InvalidCursor.class);
         }
-        assertThat(codec.decode(signedBy(KEY_A, "1|list|1|TZC-000001|R1|20|id|asc|TZP-L020|n%2Fa")))
+        assertThat(codec.decode(signedBy(KEY_A, "1|list|1|TZC-000001|R1|20|id|asc|TZP-L020")))
                 .as("the same payload, well-formed, is accepted -- so the refusals above are structural")
                 .isEqualTo(SAMPLE);
+    }
+
+    @Test
+    void a_correctly_signed_commerce_payload_with_a_wrong_version_or_identity_is_refused() {
+        ConsumerCursorCodec codec = commerceCodec(KEY_A);
+        for (String bad : new String[]{
+                "1|list|1|TZC-000001|R1|20|id|asc|TZP-L020|anon",                  // route (legacy 9-shape too)
+                "1|commerce-list|1|TZC-000001|R1|20|id|asc|TZP-L020",              // shape: too few (legacy 9)
+                "1|commerce-list|1|TZC-000001|R1|20|id|asc|TZP-L020|anon|extra",   // shape: too many
+                "1|commerce-list|1|TZC-000001|R1|20|id|asc|TZP-L020|",             // empty location context
+        }) {
+            assertThatThrownBy(() -> codec.decode(signedBy(KEY_A, bad)))
+                    .as(bad).isInstanceOf(ConsumerFailures.InvalidCursor.class);
+        }
+        assertThat(codec.decode(signedBy(KEY_A, "1|commerce-list|1|TZC-000001|R1|20|id|asc|TZP-L020|anon")))
+                .isEqualTo(COMMERCE_SAMPLE);
+    }
+
+    /**
+     * Compatibility gate (final review #1): a cursor minted by the EXACT pre-PR-10B codec (9-field
+     * legacy shape, same key) must still decode after this change -- the legacy wire format was
+     * never redefined, only the commerce route gained a new field.
+     */
+    @Test
+    void an_exact_pre_pr10b_9_field_legacy_cursor_still_decodes() {
+        String preExistingLegacyPayload = "1|list|1|TZC-000001|R1|20|id|asc|TZP-L020";
+        String oldCursor = signedBy(KEY_A, preExistingLegacyPayload);
+
+        ConsumerCursorCodec legacy = codec(KEY_A);
+        assertThat(legacy.decode(oldCursor))
+                .as("a cursor issued before this change decodes unchanged after it")
+                .isEqualTo(SAMPLE);
+
+        // and re-encoding the same logical cursor reproduces the identical historical bytes
+        assertThat(legacy.encode(SAMPLE)).isEqualTo(oldCursor);
+    }
+
+    @Test
+    void legacy_and_commerce_cursors_remain_mutually_unreplayable() {
+        String legacyCursor = codec(KEY_A).encode(SAMPLE);
+        String commerceCursor = commerceCodec(KEY_A).encode(COMMERCE_SAMPLE);
+
+        assertThatThrownBy(() -> commerceCodec(KEY_A).decode(legacyCursor))
+                .as("a 9-field legacy cursor is structurally wrong on the 10-field commerce route")
+                .isInstanceOf(ConsumerFailures.InvalidCursor.class);
+        assertThatThrownBy(() -> codec(KEY_A).decode(commerceCursor))
+                .as("a 10-field commerce cursor is structurally wrong on the 9-field legacy route")
+                .isInstanceOf(ConsumerFailures.InvalidCursor.class);
     }
 
     @Test
@@ -123,6 +200,20 @@ class ConsumerCursorCodecTest {
     @Test
     void fields_containing_the_separator_or_encoding_characters_survive_the_round_trip() {
         ConsumerCursorCodec codec = codec(KEY_A);
+        // legacy has no location concept: the location field is never on the wire, so it always
+        // comes back as LOCATION_UNBOUND regardless of what a caller happened to pass in.
+        String u = ConsumerCursorCodec.LOCATION_UNBOUND;
+        for (ListCursor odd : new ListCursor[]{
+                new ListCursor("TZC-0|0001", "rel|1.0", 7, "TZP-|x", u),
+                new ListCursor("TZP+1 %2", "R 1", 3, "a+b", u),
+                new ListCursor("%7C", "%25", 1, "%2B%20", u)}) {
+            assertThat(codec.decode(codec.encode(odd))).as(odd.toString()).isEqualTo(odd);
+        }
+    }
+
+    @Test
+    void commerce_fields_containing_the_separator_or_encoding_characters_survive_the_round_trip() {
+        ConsumerCursorCodec codec = commerceCodec(KEY_A);
         for (ListCursor odd : new ListCursor[]{
                 new ListCursor("TZC-0|0001", "rel|1.0", 7, "TZP-|x", "loc|A"),
                 new ListCursor("TZP+1 %2", "R 1", 3, "a+b", "loc %2"),
