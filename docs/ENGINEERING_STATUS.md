@@ -69,13 +69,24 @@ PR-01 through PR-08 are **MERGED**:
   categories, 400 on products, internal projection schema removed) —
   **OPENAPI-INTERNAL-PROJECTION-DEBT CLOSED**. No response cache / no AWS / no app integration
   (deferred to PR-10C). Squash merge `25bbe7f` — **1003-test regression floor**.
+- **PR-10C** — **Commerce cache and observability hardening** (`commerce.api`/`commerce.read`):
+  operational hardening only, no public business-semantics change. Cache-header correctness (a
+  real bug fixed: categories/children no longer risk inheriting a public cache header on an error
+  response — `Cache-Control` is set only after success, and every error response forces
+  `no-store`); deterministic, structurally-unambiguous `TaxonomyETag` for categories/children with
+  correct RFC 7232 weak `If-None-Match` comparison; bounded `ConsumerObservability` failure
+  classification (`Outcome.INTERNAL_ERROR` distinct from `UNAVAILABLE`, closed `FailureClass`
+  vocabulary); `FreshnessObservability` (`catalog.repo`) instrumenting the PR-10A rebuild
+  queue/worker/reconciler with a typed `RebuildResult` enum (no arbitrary-`String` tag API);
+  `CommerceReadReadiness` internal readiness seam (`baseReady`/`listReady` split, no new public
+  endpoint). No response cache, no AWS infra, no app integration. Squash merge `4718d51` —
+  **1051-test regression floor**.
 
-`main` = `25bbe7f9336654046db81e8b60331c48dd2d9ffc`.
+`main` = `4718d51682b8ee946d0738ae9223809a6a964255`.
 
 ## In review (NOT merged)
 
-- **PR-10C — Commerce cache and observability hardening** (`commerce.api`/`commerce.read`):
-  operational hardening only, no business-behavior change, on `feature/pr10c-cache-observability`.
+- (none tracked)
 
 ## Blocked
 
@@ -92,11 +103,15 @@ PR-01 through PR-08 are **MERGED**:
   → 503), not left unguarded. A future PR may extract the shared seam alongside updating that
   guard test.
 
+## Milestones
+
+- **Public Commerce Read (PR-10A/B/C): COMPLETE.** The public `/v1` read surface (categories,
+  children, category-products, product detail, serviceability) is live on `main`, operationally
+  hardened (cache/ETag/observability/readiness), with a 1051-test regression floor.
+
 ## Next (ratified sequence)
 
-1. **PR-10C** — Cache-header verification, bounded commerce/freshness metrics, readiness
-   visibility, logging/security audit (in review).
-2. **PR-10D+** — App integration / Auth / Cart / Checkout / Orders / Search / Notifications:
+1. **PR-10D+** — App integration / Auth / Cart / Checkout / Orders / Search / Notifications:
    not started, not scoped yet.
 
 ## Not started (honest boundary)
@@ -131,6 +146,6 @@ is FUTURE work and not required for the production modular monolith.
 ## Last verification
 
 - **2026-09-27** — `./mvnw clean test` in `services/catalog-service` on Java 21.0.12 +
-  Docker (MongoDB 7, Redis via Testcontainers), on `main` at squash merge `25bbe7f`
-  (post-PR-10B baseline): **BUILD SUCCESS**, **1003 tests, 0 failures / 0 errors / 0 skipped**,
-  ~2:13 min.
+  Docker (MongoDB 7, Redis via Testcontainers), on `main` at squash merge `4718d51`
+  (post-PR-10C baseline): **BUILD SUCCESS**, **1051 tests, 0 failures / 0 errors / 0 skipped**,
+  ~1:45 min.
