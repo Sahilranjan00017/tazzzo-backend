@@ -22,19 +22,24 @@ import java.time.Clock;
  * {@code catalog_does_not_depend_on_other_modules}) — so it is a SEPARATE scheduler from
  * {@link com.tazzzo.catalog.ops.CatalogSchedulers}.
  *
- * <p><b>Dedicated activation flag (PR-10A review #12):</b> gated by
- * {@code tazzzo.scheduler.card-projection-enabled}, NOT the master {@code tazzzo.scheduler.enabled}
- * — so enabling this projection loop never unintentionally starts the unrelated Catalog
- * merge/taint/rollup workers, and vice-versa. Off in every test profile, so it adds no wiring or
- * work_queue activity to the suite; production turns it on. Derivation is delegated to
- * {@link ProductCardProjectionService#rebuildOne} via {@link ProjectionRebuildWorker}.
+ * <p><b>Activation requires BOTH flags (PR-10A review #12 / final gate):</b> the master
+ * {@code tazzzo.scheduler.enabled} stays the global operational kill switch for ALL scheduled
+ * jobs, and the dedicated subordinate {@code tazzzo.scheduler.card-projection-enabled} turns on
+ * THIS loop specifically — so a dedicated worker instance can run projection rebuilds without
+ * starting the unrelated Catalog merge/taint/rollup workers, yet {@code tazzzo.scheduler.enabled=false}
+ * still stops everything. {@code @ConditionalOnProperty} with multiple {@code name}s requires ALL
+ * of them to be {@code true}, giving exactly: (master=true AND card=true) ⇒ ON, otherwise OFF.
+ * Off in every test profile. {@code tazzzo.freshness.enabled} (the source-hook/queue switch) is
+ * deliberately INDEPENDENT — an app instance may produce rebuild requests without being a worker.
  *
  * <p>Two ticks: a frequent DRAIN of the rebuild queue, and a slower bounded RECONCILE (rolling
  * drift re-derivation + orphan cleanup). Both are guarded so a tick failure leaves work pending for
  * retry and never crashes the scheduler.
  */
 @Component
-@ConditionalOnProperty(value = "tazzzo.scheduler.card-projection-enabled", havingValue = "true")
+@ConditionalOnProperty(
+        name = {"tazzzo.scheduler.enabled", "tazzzo.scheduler.card-projection-enabled"},
+        havingValue = "true")
 public class CommerceProjectionScheduler {
 
     private static final Logger log = LoggerFactory.getLogger(CommerceProjectionScheduler.class);
