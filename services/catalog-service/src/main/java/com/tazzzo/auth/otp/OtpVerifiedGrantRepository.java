@@ -90,8 +90,26 @@ public class OtpVerifiedGrantRepository {
      * unknown, already consumed, expired, or issued for a different purpose — all of which PR-11C
      * must treat as the SAME generic failure so a caller cannot enumerate grant state.
      *
+     * <p>PR-11C: run as the FIRST write inside the session-establishment transaction (see
+     * {@code CustomerSessionService#establishSession}) — a {@code null} result here means nothing
+     * has been written yet in that transaction, so the caller may simply throw to abort with no
+     * rollback burden (mirrors the PR-11B lesson: only a write AFTER this one would need the
+     * throw-inside-the-callback discipline).
+     */
+    public Document consume(ClientSession session, String grantId, OtpPurpose purpose, Instant now) {
+        return collection().findOneAndUpdate(session,
+                Filters.and(Filters.eq("_id", grantId), Filters.eq("purpose", purpose.name()),
+                        Filters.eq("consumedAt", null), Filters.gt("expiresAt", now)),
+                Updates.set("consumedAt", now),
+                new FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER));
+    }
+
+    /**
+     * Non-transactional convenience overload — used by tests seeding/consuming a grant directly
+     * without a live transaction.
+     *
      * <p>Intentionally package-private in spirit (public only because this repository style has no
-     * narrower Java visibility across the {@code auth.otp} package boundary) — PR-11B exposes no
+     * narrower Java visibility across the {@code auth.otp} package boundary) — PR-11B/11C expose no
      * public HTTP surface for this operation.
      */
     public Document consume(String grantId, OtpPurpose purpose, Instant now) {

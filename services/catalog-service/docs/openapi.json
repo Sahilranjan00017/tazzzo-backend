@@ -5,6 +5,62 @@
     "version" : "v0"
   },
   "paths" : {
+    "/v1/auth/session" : {
+      "post" : {
+        "tags" : [ "session-controller" ],
+        "operationId" : "establish",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/SessionEstablishRequestDto"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SessionEstablishResponseDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/refresh" : {
+      "post" : {
+        "tags" : [ "session-controller" ],
+        "operationId" : "refresh",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/RefreshRequestDto"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RefreshResponseDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/auth/otp/verify" : {
       "post" : {
         "tags" : [ "otp-controller" ],
@@ -57,6 +113,17 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/v1/auth/logout" : {
+      "post" : {
+        "tags" : [ "session-controller" ],
+        "operationId" : "logout",
+        "responses" : {
+          "200" : {
+            "description" : "OK"
           }
         }
       }
@@ -1432,6 +1499,61 @@
   },
   "components" : {
     "schemas" : {
+      "SessionEstablishRequestDto" : {
+        "type" : "object",
+        "properties" : {
+          "grantId" : {
+            "type" : "string"
+          }
+        }
+      },
+      "SessionEstablishResponseDto" : {
+        "type" : "object",
+        "properties" : {
+          "customerId" : {
+            "type" : "string"
+          },
+          "accessToken" : {
+            "type" : "string"
+          },
+          "accessTokenExpiresIn" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "refreshToken" : {
+            "type" : "string"
+          },
+          "requestId" : {
+            "type" : "string"
+          }
+        }
+      },
+      "RefreshRequestDto" : {
+        "type" : "object",
+        "properties" : {
+          "refreshToken" : {
+            "type" : "string"
+          }
+        }
+      },
+      "RefreshResponseDto" : {
+        "type" : "object",
+        "properties" : {
+          "accessToken" : {
+            "type" : "string"
+          },
+          "accessTokenExpiresIn" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "refreshToken" : {
+            "type" : "string"
+          },
+          "requestId" : {
+            "type" : "string"
+          }
+        }
+      },
       "OtpVerifyRequestDto" : {
         "type" : "object",
         "properties" : {
