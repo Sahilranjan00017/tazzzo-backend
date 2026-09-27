@@ -109,11 +109,46 @@ PR-01 through PR-08 are **MERGED**:
   merges `375d02e` (foundation) + `0ecae78` (deny-by-default hardening) → `4ce798f` —
   **1142-test regression floor**.
 
-`main` = `4ce798f013f6fa6380e1155e5b88461607b1e4a3` (PR-11A squash `4ce798f`).
+- **docs** — status-doc-only correction folding PR-11A into "Merged on main". Squash `806d106`.
+
+`main` = `806d1069b2da7c49b7ee7bddf1013f81511cee5d` (PR-11A squash `4ce798f` + status-doc squash `806d106`).
 
 ## In review (NOT merged)
 
-- (none tracked)
+- **PR-11B — OTP challenge lifecycle and provider abstraction** (`com.tazzzo.auth.otp`): OTP
+  request/verify only. Does **NOT** create a customer, a session, or issue any access/refresh
+  token — see PR-11C. `Phone`: strict India-only value object (E.164 `+91XXXXXXXXXX` plus two
+  explicitly-normalized domestic shorthands; every other shape/country rejected). `OtpVerifierCodec`:
+  a keyed HMAC-SHA256 verifier persisted INSTEAD OF the plaintext OTP (a plain hash of a 6-digit
+  code is offline-brute-forceable in ~1M guesses; the keyed verifier is not), a SEPARATE secret
+  from the customer access-token key (`tazzzo.customer-auth.otp.hmac-key-b64`, no default,
+  fail-closed `NOT_READY`), plus a non-reversible keyed phone digest for rate-limit bucket keys
+  (never the raw phone). `customer_otp_challenges`: typed state machine
+  (`PENDING_DELIVERY → ACTIVE → VERIFIED/LOCKED/EXPIRED/SUPERSEDED`, `PENDING_DELIVERY →
+  DELIVERY_FAILED`), every transition an atomic Mongo CAS (`findOneAndUpdate` filtered on
+  expected status — never read-then-write-back); a partial unique index on
+  `(phoneNormalized, purpose)` filtered by `active=true` is the create-race guard for "at most
+  one usable challenge per phone" (the same idiom as `service_areas.pincode`/
+  `catalogue_releases.gate`); application logic enforces expiry itself, the Mongo TTL index is
+  cleanup-only. Resend re-arms within cooldown idempotently (no duplicate send) and supersedes
+  the previous code after cooldown (old code stops working immediately). Wrong-OTP attempts
+  increment atomically and lock the challenge at the configured maximum; every OTP outcome —
+  unknown/wrong/locked/superseded/already-verified challenge — collapses to the SAME generic
+  `OTP_INVALID` (no enumeration). A successful verify produces a `customer_otp_verified_grants`
+  one-time login grant (`GRANT_*`, opaque, no PII) — the client receives ONLY the grant id, never
+  the phone; consumption is atomic and exactly-once, and is a narrow internal contract with
+  **no public HTTP endpoint** — PR-11C is its only intended caller. `OtpDeliveryProvider`:
+  interface abstraction, no default production implementation (missing provider ⇒ 503, never a
+  silent discard); a `LOGGING` dev-only provider exists behind explicit opt-in
+  (`tazzzo.customer-auth.otp.provider-mode`), never logging the plaintext OTP; production
+  SMS/WhatsApp integration is explicitly out of scope. Rate limiting reuses the SAME
+  `RateLimitStore` the consumer surface uses (no separate Redis wiring) with IP+phone-digest
+  buckets on request and IP+challenge-id buckets on verify. `POST /v1/auth/otp/request` and
+  `POST /v1/auth/otp/verify` are on the PRE-EXISTING `/v1/auth/**` `PUBLIC_CONSUMER` allowlist
+  entry (no `SurfaceClassifier` change needed) — any `Authorization` header is irrelevant to
+  these endpoints; every response is `Cache-Control: no-store`. **No real production SMS
+  provider, no login/session creation, no refresh token, no logout, no Profile/Address/Cart, no
+  app integration, no AWS work.** On `feature/pr11b-otp-lifecycle`.
 
 ## Blocked
 
@@ -139,15 +174,17 @@ PR-01 through PR-08 are **MERGED**:
   - **PR-11A — customer auth security boundary: MERGED.** Fourth HTTP surface + principal/
     token cryptographic verification foundation, deny-by-default `/v1` classification. No
     business auth flow yet.
-  - **PR-11B — OTP challenge lifecycle + provider abstraction: PLANNED.** Not started.
+  - **PR-11B — OTP challenge lifecycle + provider abstraction: IN REVIEW.** OTP request/verify
+    only; produces an internal one-time login grant. **Login/session flow is still incomplete
+    until PR-11C** — no customer, session, or access/refresh token exists yet.
   - **PR-11C — login/session/refresh/logout endpoints: PLANNED.** Not started. Session
     persistence and revocation do not exist before this lands.
 
 ## Next (ratified sequence)
 
-1. **PR-11B** — OTP challenge lifecycle + provider abstraction (planned, not started).
-2. **PR-11C** — login/session/refresh/logout endpoints (planned, not started).
-3. **PR-11D+** — Customer/Profile/Address, Cart, Checkout, Orders, Search, Notifications, app
+1. **PR-11C** — login/session/refresh/logout endpoints, consuming PR-11B's verified grant
+   (planned, not started).
+2. **PR-11D+** — Customer/Profile/Address, Cart, Checkout, Orders, Search, Notifications, app
    integration, AWS infrastructure: not started, not scoped yet.
 
 ## Not started (honest boundary)

@@ -60,7 +60,12 @@ public class SchemaBootstrap {
             // RESP-PROJ RP-6: consumer PRESENTATION policy, keyed per vertical. Deliberately
             // separate from the governance registry — it changes nothing about attribute
             // semantics, validation or identity. Absence is a valid state (RP-6b).
-            "consumer_projection_policy");
+            "consumer_projection_policy",
+            // PR-11B: OTP challenge lifecycle (customer auth). Ephemeral by design; TTL-indexed.
+            "customer_otp_challenges",
+            // PR-11B: one-time login grant produced by a successful OTP verification. PR-11C's
+            // exclusive consumption contract; ephemeral, TTL-indexed.
+            "customer_otp_verified_grants");
 
     /**
      * PAG-2-SORT-1 transport support: the equality prefix the consumer-eligibility predicate uses,
@@ -180,6 +185,44 @@ public class SchemaBootstrap {
                         new Document("gate", "OPEN")));
         db.getCollection("price_rollups").createIndex(
                 Indexes.ascending("product_id", "seller"), new IndexOptions().unique(true));
+        // PR-11B (hardening pass): TWO independent partial-unique guards, not one. "delivering" is
+        // present ONLY while a challenge is PENDING_DELIVERY (at most one delivery attempt in
+        // flight per phone+purpose); "active" is present ONLY while a challenge is ACTIVE (at most
+        // one guessable code per phone+purpose). Deliberately separate: a resend's replacement
+        // challenge occupies the "delivering" slot WITHOUT touching the previous ACTIVE code, so a
+        // failed resend never destroys a working code. Same create-race-guard idiom as
+        // service_areas.pincode and catalogue_releases.gate above.
+        db.getCollection("customer_otp_challenges").createIndex(
+                Indexes.ascending("phoneNormalized", "purpose"),
+                new IndexOptions().name("otp_one_delivering_per_phone").unique(true)
+                        .partialFilterExpression(new Document("delivering", true)));
+        db.getCollection("customer_otp_challenges").createIndex(
+                Indexes.ascending("phoneNormalized", "purpose"),
+                new IndexOptions().name("otp_one_active_per_phone").unique(true)
+                        .partialFilterExpression(new Document("active", true)));
+        // Cleanup only — application logic enforces expiry itself (markExpiredIfPastDeadline);
+        // this TTL sweep is asynchronous and must never be the sole expiry mechanism. NOTE:
+        // expiresAt is null until activateAfterDelivery finalizes it (durability §6 — the OTP's
+        // validity window starts at confirmed delivery, not creation), and the Mongo TTL monitor
+        // never expires a null/missing date field — so a PENDING_DELIVERY/DELIVERY_FAILED document
+        // that never reaches ACTIVE would live forever under this index alone.
+        db.getCollection("customer_otp_challenges").createIndex(
+                Indexes.ascending("expiresAt"), new IndexOptions().expireAfter(0L, java.util.concurrent.TimeUnit.SECONDS));
+        // Backstop cleanup net for exactly that gap: createdAt is ALWAYS set, so every document —
+        // however it ends its life — is swept within a day regardless of whether expiresAt was ever
+        // populated. Generous window: this is cleanup only, never a business-logic deadline.
+        db.getCollection("customer_otp_challenges").createIndex(
+                Indexes.ascending("createdAt"), new IndexOptions().name("otp_challenge_createdat_backstop_ttl")
+                        .expireAfter(1L, java.util.concurrent.TimeUnit.DAYS));
+        // PR-11B: one-time login grant, cleaned up on the same TTL discipline. consume() enforces
+        // expiry/one-time-use atomically; this index is cleanup only.
+        db.getCollection("customer_otp_verified_grants").createIndex(
+                Indexes.ascending("expiresAt"), new IndexOptions().expireAfter(0L, java.util.concurrent.TimeUnit.SECONDS));
+        // PR-11B (hardening §7): defense-in-depth — _id uniqueness alone protects grantId, not
+        // challengeId. This structurally forbids a second grant document ever being created for the
+        // same challenge, even if application logic regressed.
+        db.getCollection("customer_otp_verified_grants").createIndex(
+                Indexes.ascending("challengeId"), new IndexOptions().unique(true));
     }
 
     /**

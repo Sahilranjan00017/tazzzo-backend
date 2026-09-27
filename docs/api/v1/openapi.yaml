@@ -14,6 +14,13 @@ servers:
 tags:
   - name: commerce-read
     description: Composed, consumer-ready browse contract (ADR-001, ADR-003.1).
+  - name: customer-auth-otp
+    description: >
+      PR-11B — OTP challenge lifecycle only. Public (no bearer token required or honoured).
+      Does NOT create a customer, a session, or issue any access/refresh token — a successful
+      verify proves phone possession and produces a one-time internal login grant that a future
+      phase (PR-11C) consumes to create a session. No login/session/refresh/logout endpoint is
+      documented here yet.
 paths:
   /v1/categories:
     get:
@@ -124,6 +131,54 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '429': { $ref: '#/components/responses/RateLimited' }
         '503': { $ref: '#/components/responses/Unavailable' }
+  /v1/auth/otp/request:
+    post:
+      tags: [customer-auth-otp]
+      operationId: requestOtp
+      summary: >
+        Request (or idempotently re-arm, within the resend cooldown) an OTP challenge for an
+        India phone number. The response is IDENTICAL regardless of whether the phone belongs to
+        an existing customer — this endpoint queries no customer data at all.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OtpRequestRequest' }
+      responses:
+        '202':
+          description: Challenge created or re-armed. Never contains the OTP or the phone.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OtpRequestResponse' }
+        '400': { $ref: '#/components/responses/OtpBadRequest' }
+        '429': { $ref: '#/components/responses/OtpRateLimited' }
+        '503': { $ref: '#/components/responses/OtpUnavailable' }
+  /v1/auth/otp/verify:
+    post:
+      tags: [customer-auth-otp]
+      operationId: verifyOtp
+      summary: >
+        Verify a 6-digit OTP against an active challenge. Success produces an opaque, one-time
+        internal login grant id — NOT a customer access or refresh token, and no session or
+        customer is created by this call.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OtpVerifyRequest' }
+      responses:
+        '200':
+          description: OTP verified. grantId is opaque and carries no phone/PII.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OtpVerifyResponse' }
+        '400': { $ref: '#/components/responses/OtpBadRequest' }
+        '429': { $ref: '#/components/responses/OtpRateLimited' }
+        '503': { $ref: '#/components/responses/OtpUnavailable' }
 components:
   parameters:
     Release:
@@ -187,6 +242,9 @@ components:
     CacheControlPrivate:
       description: Location-enriched response; never shared across locations.
       schema: { type: string, example: "private, max-age=15" }
+    CacheControlNoStore:
+      description: Per-request auth state; never cacheable by any intermediary.
+      schema: { type: string, example: "no-store" }
   schemas:
     Node:
       type: object
@@ -330,6 +388,57 @@ components:
         nextCursor: { type: string, nullable: true, description: Omitted at end of list. }
         hasMore: { type: boolean }
         requestId: { type: string }
+    OtpRequestRequest:
+      type: object
+      required: [phone]
+      properties:
+        phone:
+          type: string
+          description: >
+            India phone number. E.164 (+91XXXXXXXXXX) preferred; bare 10-digit or leading-zero
+            domestic forms are also normalized. No other country is accepted.
+          example: "+919876543210"
+    OtpRequestResponse:
+      type: object
+      required: [challengeId, expiresInSeconds, resendAfterSeconds, requestId]
+      properties:
+        challengeId: { type: string, pattern: '^OTP_[A-Za-z0-9_-]+$' }
+        expiresInSeconds: { type: integer, format: int64 }
+        resendAfterSeconds: { type: integer, format: int64 }
+        requestId: { type: string }
+    OtpVerifyRequest:
+      type: object
+      required: [challengeId, otp]
+      properties:
+        challengeId: { type: string, pattern: '^OTP_[A-Za-z0-9_-]+$' }
+        otp: { type: string, pattern: '^[0-9]{6}$' }
+    OtpVerifyResponse:
+      type: object
+      required: [challengeId, verified, grantId, requestId]
+      properties:
+        challengeId: { type: string }
+        verified: { type: boolean }
+        grantId:
+          type: string
+          pattern: '^GRANT_[A-Za-z0-9_-]+$'
+          description: >
+            Opaque one-time login grant. NOT an access or refresh token; carries no phone/PII.
+            A future phase atomically consumes it to create a customer session.
+        requestId: { type: string }
+    OtpErrorEnvelope:
+      type: object
+      description: >
+        Independent of ErrorEnvelope (the frozen commerce-read contract) — a deliberately small,
+        stable OTP-specific vocabulary that never distinguishes "unknown challenge" from "wrong
+        code" from "locked" from "superseded" (all OTP_INVALID).
+      required: [code, message, requestId]
+      properties:
+        code:
+          type: string
+          enum: [OTP_INVALID_REQUEST, OTP_INVALID, OTP_EXPIRED, OTP_RATE_LIMITED, SERVICE_UNAVAILABLE, INTERNAL]
+        message: { type: string, description: "Safe, generic. No internals, no OTP, no phone." }
+        requestId: { type: string }
+        retryAfterSeconds: { type: integer, nullable: true }
     ErrorEnvelope:
       type: object
       required: [code, message, requestId, retryable]
@@ -367,3 +476,25 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    OtpBadRequest:
+      description: Malformed request, or an invalid/expired/locked/unknown/superseded challenge.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/OtpErrorEnvelope' }
+    OtpRateLimited:
+      description: Rate limited
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+        Retry-After: { schema: { type: integer }, description: seconds }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/OtpErrorEnvelope' }
+    OtpUnavailable:
+      description: OTP signing key, provider, or rate limiter not configured/ready, or delivery failed.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/OtpErrorEnvelope' }

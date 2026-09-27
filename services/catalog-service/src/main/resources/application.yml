@@ -38,6 +38,46 @@ tazzzo:
     # invented here. Missing or malformed => CustomerAccessTokenCodec is NOT READY and every
     # /v1/customer/** request fails closed with 401 -- there is no anonymous fallback.
     access-token-hmac-key-b64: ${TAZZZO_CUSTOMER_AUTH_ACCESS_TOKEN_HMAC_KEY_B64:}
+    otp:
+      # PR-11B. Base64 of >= 32 random bytes; a SEPARATE secret from the access-token key above —
+      # it signs the keyed OTP verifier persisted instead of a plaintext code, and the keyed phone
+      # rate-limit digest. NO DEFAULT BY DESIGN. Missing or malformed => OtpVerifierCodec is NOT
+      # READY and every OTP request/verify call fails closed with 503.
+      hmac-key-b64: ${TAZZZO_CUSTOMER_AUTH_OTP_HMAC_KEY_B64:}
+      # Production policy target (mission-ratified): 5 minute validity, 30s resend cooldown, 5
+      # verification attempts. Validated at startup (> 0 / >= 0) — see OtpAuthProperties.
+      ttl-seconds: ${TAZZZO_OTP_TTL_SECONDS:300}
+      resend-cooldown-seconds: ${TAZZZO_OTP_RESEND_COOLDOWN_SECONDS:30}
+      max-attempts: ${TAZZZO_OTP_MAX_ATTEMPTS:5}
+      # How long a successful-verification login grant remains consumable by PR-11C.
+      grant-ttl-seconds: ${TAZZZO_OTP_GRANT_TTL_SECONDS:300}
+      # Durability hardening: how long a PENDING_DELIVERY challenge may hold the "delivering" slot
+      # before it is considered stale (e.g. the process crashed before recording a provider
+      # outcome). Independent of ttl-seconds — the OTP's own validity window starts at CONFIRMED
+      # delivery, not at challenge creation.
+      delivery-timeout-seconds: ${TAZZZO_OTP_DELIVERY_TIMEOUT_SECONDS:60}
+      # NO DEFAULT PRODUCTION PROVIDER BY DESIGN. Unset => no OtpDeliveryProvider bean => the
+      # request endpoint fails closed with 503 rather than silently discarding an OTP. LOGGING
+      # wires the dev-only LoggingOtpDeliveryProvider (never logs the plaintext OTP). A real
+      # SMS/WhatsApp vendor integration is explicitly out of scope for PR-11B.
+      provider-mode: ${TAZZZO_OTP_PROVIDER_MODE:}
+      # Rate-limit buckets share the SAME RateLimitStore the consumer surface uses (no separate
+      # Redis wiring). No production default. Left unconfigured, the OTP endpoints fail closed
+      # with 503 at request time (never "unlimited") — this is a REQUEST-TIME, not startup-time,
+      # fail-closed state, because a RateLimitStore may legitimately be wired for the consumer
+      # surface alone without ever intending to serve OTP traffic.
+      request-ip:
+        capacity: ${TAZZZO_OTP_REQUEST_IP_CAPACITY:0}
+        refill-per-second: ${TAZZZO_OTP_REQUEST_IP_REFILL:0}
+      request-phone:
+        capacity: ${TAZZZO_OTP_REQUEST_PHONE_CAPACITY:0}
+        refill-per-second: ${TAZZZO_OTP_REQUEST_PHONE_REFILL:0}
+      verify-ip:
+        capacity: ${TAZZZO_OTP_VERIFY_IP_CAPACITY:0}
+        refill-per-second: ${TAZZZO_OTP_VERIFY_IP_REFILL:0}
+      verify-challenge:
+        capacity: ${TAZZZO_OTP_VERIFY_CHALLENGE_CAPACITY:0}
+        refill-per-second: ${TAZZZO_OTP_VERIFY_CHALLENGE_REFILL:0}
   consumer-rate-limit:
     # NO PRODUCTION DEFAULT BY DESIGN (Q5-c). Unset or unrecognised is a STARTUP FAILURE, because a
     # permissive default is worse than none: it looks like a decision. DISABLED is an intentional
