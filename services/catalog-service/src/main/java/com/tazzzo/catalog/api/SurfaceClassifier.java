@@ -42,6 +42,12 @@ public final class SurfaceClassifier {
         if (uri.equals("/catalog/v1") || uri.startsWith("/catalog/v1/")) {
             return Surface.PUBLIC_CONSUMER;
         }
+        // PR-10B: the public commerce read surface. EXACT-prefix like /catalog/v1 — "/v1" and
+        // "/v1/**" only, so "/v10", "/v1x", "/v2/**" stay UNKNOWN. Path-normalization guard above
+        // still applies. Framework errors here flatten to the public envelope (ApiExceptionHandler).
+        if (uri.equals("/v1") || uri.startsWith("/v1/")) {
+            return Surface.PUBLIC_CONSUMER;
+        }
         if (uri.equals("/api") || uri.startsWith("/api/") || isOpenApiSurface(uri)) {
             return Surface.INTERNAL;
         }

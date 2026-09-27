@@ -46,23 +46,29 @@ PR-01 through PR-08 are **MERGED**:
 - **PR-09** — **Runtime product detail composition** (`commerce.read`): internal PDP composer
   sharing the ONE `ConsumerProductResolver` with the legacy consumer PDP (no forked
   merge/eligibility semantics), catalog-version freshness gate, no truncation of authoritative
-  data. Squash merge `cc23c88` — **897-test regression floor**.
+  data. Squash merge `cc23c88`.
+- **PR-10A** — **Production projection freshness foundation** (`commerce.read` + neutral queue):
+  async work-queue-driven `product_card_base` rebuild (generation-guarded `ProjectionRebuildQueue`;
+  Pricing/Media/Catalog source hooks; unique-lease worker; drift reconciler; gated scheduler),
+  Pricing batch read + ephemeral `CurrentPriceOverlay`, CAS-guarded source-version watermark.
+  Squash merge `4560a55` — **931-test regression floor**.
 
-`main` = `cc23c88a81ae683df1c67a893602fdd857c4261b`.
+`main` = `4560a55360b5f25df069f1d47c4671628510f76f`.
 
 ## In review (NOT merged)
 
-- **PR-10 milestone — Public commerce API** (IN PROGRESS, phased):
-  - **PR-10A — Production projection freshness foundation** (in review): async
-    work-queue-driven `product_card_base` rebuild (neutral `ProjectionRebuildQueue` producer;
-    Pricing/Media/Catalog source hooks, opt-in and off in existing tests; `commerce.read`
-    `ProjectionRebuildWorker` + `ProjectionReconciler` + gated `CommerceProjectionScheduler`),
-    a Pricing batch read (`findCurrentPrices`) and an ephemeral `CurrentPriceOverlay` seam so
-    public serving never shows stale price, and truthful source-version watermarks.
-    **INTERNAL ONLY — no `/v1`, no controller, no `SurfaceClassifier` change.**
-  - **PR-10B — Public API exposure** (planned): `/v1` controllers, Runtime→DTO mapping,
-    release reachability, location/error/requestId, closes OPENAPI-INTERNAL-PROJECTION-DEBT.
-  - **PR-10C — Cache / observability hardening** (planned).
+- **PR-10B — Public commerce read API** (`commerce.api`): the public `/v1` surface goes live —
+  `CommerceReadController` (categories, children, category-products, product detail,
+  serviceability) delegating to reused consumer taxonomy + new commerce.read services;
+  `SurfaceClassifier` exposes `/v1` as PUBLIC_CONSUMER; `RuntimeToDtoMapper` (omit unsupported,
+  fail-fast on required); list uses batch canonical price + `CurrentPriceOverlay`; PDP overlays
+  current price + release-scoped reachability; serviceability threads `serviceAreaVersion` (never
+  fulfillmentLocationId); commerce-route signed cursor; `CommerceExceptionHandler` → frozen
+  `ErrorEnvelopeDto`; freshness-readiness gate on lists; no request-time writes. Frozen `/v1`
+  OpenAPI corrected (404 on categories, 400 on products, internal projection schema removed);
+  **OPENAPI-INTERNAL-PROJECTION-DEBT CLOSED**. No response cache / no AWS / no app integration
+  (PR-10C). In review on `feature/pr10b-public-commerce-api`.
+- **PR-10C — Cache / observability hardening** (planned).
 
 ## Blocked
 

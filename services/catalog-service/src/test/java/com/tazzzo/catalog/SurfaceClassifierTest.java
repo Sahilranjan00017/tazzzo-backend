@@ -24,6 +24,21 @@ class SurfaceClassifierTest {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = {"/v1", "/v1/", "/v1/categories", "/v1/categories/TZS-000001/products",
+            "/v1/products/TZP-1", "/v1/serviceability"})
+    void exact_commerce_v1_namespace_is_public(String uri) {
+        assertThat(SurfaceClassifier.classify(uri))
+                .as(uri + " is the PR-10B public commerce surface").isEqualTo(PUBLIC_CONSUMER);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"/v10", "/v10/foo", "/v1x", "/v1x/foo", "/v2/foo", "/v", "/xv1/foo"})
+    void near_miss_commerce_v1_namespaces_are_never_public(String uri) {
+        assertThat(SurfaceClassifier.classify(uri))
+                .as(uri + " must not be public by /v1 prefix accident").isEqualTo(UNKNOWN);
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = {"/catalog", "/catalog/", "/catalog/v1x", "/catalog/v1x/foo",
             "/catalog/v10", "/catalog/v10/foo", "/catalog/v2/foo", "/catalog-public/foo",
             "/catalogv1", "/Catalog/v1/foo", "/xcatalog/v1/foo"})

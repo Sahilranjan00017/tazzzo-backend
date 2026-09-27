@@ -54,6 +54,15 @@ public class ConsumerCursorCodec {
     static final int CURSOR_VERSION = 1;
     static final int QUERY_VERSION = 1;
     static final String ROUTE = "list";
+    /**
+     * PR-10B: the commerce /v1 list surface signs cursors with a DISTINCT route literal so a
+     * cursor minted for {@code /catalog/v1} is rejected on {@code /v1} and vice-versa (the
+     * route literal is part of the signed, validated payload). Same HMAC key, same crypto — only
+     * the namespacing literal differs, injected via the {@code (properties, route, queryVersion)}
+     * constructor. The default {@code @Component} keeps {@code "list"} so the consumer surface is
+     * byte-for-byte unchanged.
+     */
+    public static final String COMMERCE_ROUTE = "commerce-list";
     static final String SORT = "id";
     static final String DIRECTION = "asc";
     private static final String MAC_ALGORITHM = "HmacSHA256";
@@ -65,8 +74,17 @@ public class ConsumerCursorCodec {
 
     private final SecretKeySpec key;          // null when not configured or malformed
     private final String unavailableReason;   // generic; carries no key material
+    private final String route;               // signed+validated surface discriminator
+    private final int queryVersion;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public ConsumerCursorCodec(ConsumerCursorProperties properties) {
+        this(properties, ROUTE, QUERY_VERSION);
+    }
+
+    public ConsumerCursorCodec(ConsumerCursorProperties properties, String route, int queryVersion) {
+        this.route = route;
+        this.queryVersion = queryVersion;
         SecretKeySpec resolved = null;
         String reason = null;
         String configured = properties.getCursorHmacKeyB64();
@@ -107,7 +125,7 @@ public class ConsumerCursorCodec {
     public String encode(ListCursor cursor) {
         requireReady();
         String payload = String.join("|",
-                Integer.toString(CURSOR_VERSION), ROUTE, Integer.toString(QUERY_VERSION),
+                Integer.toString(CURSOR_VERSION), route, Integer.toString(queryVersion),
                 field(cursor.nodeId()), field(cursor.releaseId()),
                 Integer.toString(cursor.pageSize()), SORT, DIRECTION, field(cursor.lastProductId()));
         byte[] payloadBytes = payload.getBytes(StandardCharsets.UTF_8);
@@ -150,7 +168,7 @@ public class ConsumerCursorCodec {
         return parse(new String(payloadBytes, StandardCharsets.UTF_8));
     }
 
-    private static ListCursor parse(String payload) {
+    private ListCursor parse(String payload) {
         String[] parts = payload.split("\\|", -1);
         if (parts.length != FIELD_COUNT) {
             throw new ConsumerFailures.InvalidCursor("cursor shape");
@@ -158,7 +176,7 @@ public class ConsumerCursorCodec {
         if (!Integer.toString(CURSOR_VERSION).equals(parts[0])) {
             throw new ConsumerFailures.InvalidCursor("cursor version");
         }
-        if (!ROUTE.equals(parts[1]) || !Integer.toString(QUERY_VERSION).equals(parts[2])
+        if (!route.equals(parts[1]) || !Integer.toString(queryVersion).equals(parts[2])
                 || !SORT.equals(parts[6]) || !DIRECTION.equals(parts[7])) {
             throw new ConsumerFailures.InvalidCursor("cursor identity");
         }

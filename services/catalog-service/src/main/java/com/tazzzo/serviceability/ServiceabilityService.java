@@ -103,6 +103,25 @@ public class ServiceabilityService implements ServiceabilityReadPort {
     }
 
     /**
+     * PR-10B public read: resolve a PIN to the customer-facing {@link PublicServiceability},
+     * threading the authoritative {@link ServiceArea#version()} while NEVER exposing the internal
+     * fulfillment location. Reuses the same one-row read as {@link #resolveByPincode}. Serviceable
+     * only when the area is active AND has an active route; otherwise the area id + version are
+     * still reported (so an inactive/no-route area is distinguishable from outside-coverage) but
+     * {@code serviceable=false}.
+     */
+    public PublicServiceability resolvePublic(Pincode pin) {
+        Objects.requireNonNull(pin, "pin required");
+        Document d = db.getCollection(COLLECTION).find(Filters.eq("pincode", pin.value())).first();
+        if (d == null) {
+            return new PublicServiceability(false, null, null);
+        }
+        ServiceArea area = fromDocument(d);
+        boolean serviceable = area.active() && area.activeRoute().isPresent();
+        return new PublicServiceability(serviceable, area.serviceAreaId(), area.version());
+    }
+
+    /**
      * Atomically create or CAS-replace one pincode's complete routing config.
      *
      * @return the new version.
