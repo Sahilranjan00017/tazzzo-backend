@@ -134,17 +134,34 @@ public class OtpService {
         Instant expiresAt = sentAt.plusSeconds(properties.getTtlSeconds());
         Instant resendAvailableAt = sentAt.plusSeconds(properties.getResendCooldownSeconds());
         Document[] activatedHolder = new Document[1];
-        tx.run(session -> activatedHolder[0] = challenges.activateAfterDelivery(session, challengeId, phone,
-                OtpPurpose.LOGIN, sentAt, expiresAt, resendAvailableAt));
-        Document activated = activatedHolder[0];
-        if (activated == null) {
+        try {
+            tx.run(session -> {
+                // activateAfterDelivery performs TWO writes in this transaction: (1) supersede the
+                // old ACTIVE challenge, (2) activate this PENDING_DELIVERY one. If (2) does not
+                // apply, (1) MUST be rolled back too — checking the result only AFTER tx.run()
+                // returns would be too late: the transaction would already have committed (1) alone,
+                // recreating the exact durable zero-usable-code state this transaction exists to
+                // prevent. Throwing HERE, inside the callback, is what forces the abort.
+                Document activated = challenges.activateAfterDelivery(session, challengeId, phone,
+                        OtpPurpose.LOGIN, sentAt, expiresAt, resendAvailableAt);
+                if (activated == null) {
+                    throw new OtpTransactionAbortedException("otp activation transition did not apply");
+                }
+                activatedHolder[0] = activated;
+            });
+        } catch (OtpTransactionAbortedException e) {
             // Durability §2/§3: the confirmed-delivered code must never be silently unusable. This
             // "should never happen" in the normal flow (nothing else can touch a delivering-owned
             // PENDING_DELIVERY except this same call), so treat it as a hard failure rather than
-            // fabricating a 202 the server cannot actually back.
+            // fabricating a 202 the server cannot actually back. Because the transaction aborted,
+            // the OLD challenge (if any) was NEVER superseded — it remains exactly as it was.
             log.error("otp_activation_transition_missing challenge_present=true");
             throw new OtpFailure(OtpFailure.Reason.UNAVAILABLE);
+        } catch (RuntimeException e) {
+            log.error("otp_activation_transaction_failed", e);
+            throw new OtpFailure(OtpFailure.Reason.UNAVAILABLE);
         }
+        Document activated = activatedHolder[0];
         return new OtpRequestResult(challengeId,
                 Duration.between(sentAt, activated.getDate("expiresAt").toInstant()).getSeconds(),
                 Duration.between(sentAt, activated.getDate("resendAvailableAt").toInstant()).getSeconds());

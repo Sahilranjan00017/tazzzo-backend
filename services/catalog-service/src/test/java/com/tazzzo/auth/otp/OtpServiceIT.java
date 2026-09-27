@@ -162,6 +162,24 @@ class OtpServiceIT extends AbstractMongoIT {
         }
     }
 
+    /**
+     * Forces {@code activateAfterDelivery}'s SECOND write (PENDING_DELIVERY -&gt; ACTIVE) to report
+     * "did not apply", while its FIRST write (superseding the old ACTIVE challenge) runs for real —
+     * exercising the exact failure window the transaction-abort fix closes: if step 2 fails, step 1
+     * must roll back too.
+     */
+    static class ForceActivationFailureChallengeRepository extends OtpChallengeRepository {
+        ForceActivationFailureChallengeRepository(MongoDatabase db) {
+            super(db);
+        }
+
+        @Override
+        Document activatePendingToActive(ClientSession session, String challengeId, Instant sentAt,
+                                         Instant expiresAt, Instant resendAvailableAt) {
+            return null;
+        }
+    }
+
     @Autowired OtpService service;
     @Autowired OtpChallengeRepository challenges;
     @Autowired OtpVerifiedGrantRepository grants;
@@ -686,6 +704,44 @@ class OtpServiceIT extends AbstractMongoIT {
         assertThat(grant.getDate("createdAt").toInstant()).isEqualTo(CLOCK_NOW.get());
         assertThat(grant.getDate("expiresAt").toInstant())
                 .isEqualTo(CLOCK_NOW.get().plusSeconds(activeTestProperties().getGrantTtlSeconds()));
+    }
+
+    /**
+     * The transaction-abort correctness fix: if the confirmed-delivery hand-off's SECOND write
+     * (activating the replacement) does not apply, the FIRST write (superseding the old ACTIVE
+     * challenge) — which genuinely ran, inside the SAME transaction — must be rolled back too.
+     * Exercises this through a REAL transaction abort (not merely calling
+     * {@code activateAfterDelivery} directly and inspecting its null return).
+     */
+    @Test void activation_failure_rolls_back_the_old_active_supersede_too() {
+        String phone = uniquePhone("40600");
+        OtpRequestResult oldReq = service.request(phone, "203.0.113.1");
+        String oldOtp = provider.lastOtpByPhone.get("+91" + phone);
+        CLOCK_NOW.set(CLOCK_NOW.get().plusSeconds(31)); // past cooldown -> next request is a resend
+
+        ForceActivationFailureChallengeRepository failingChallenges =
+                new ForceActivationFailureChallengeRepository(db);
+        OtpService failingService = new OtpService(failingChallenges, grants, readyTestCodec(),
+                activeTestProperties(), clock, tx, fixedProvider(sharedAllowLimiter()), fixedDeliveryProvider(provider));
+
+        assertThatThrownBy(() -> failingService.request(phone, "203.0.113.1"))
+                .isInstanceOf(OtpFailure.class)
+                .satisfies(e -> assertThat(((OtpFailure) e).reason()).isEqualTo(OtpFailure.Reason.UNAVAILABLE));
+
+        // The OLD challenge's supersede genuinely ran inside the transaction, then must have been
+        // rolled back: it is exactly as it was before this failed request, never SUPERSEDED.
+        Document oldDoc = challenges.findById(oldReq.challengeId());
+        assertThat(oldDoc.getString("status")).as("rollback must restore the old challenge to ACTIVE")
+                .isEqualTo("ACTIVE");
+        assertThat(oldDoc.getBoolean("active", false)).isTrue();
+
+        // It is genuinely the CURRENT usable code — never a state where both codes are unusable.
+        Document active = challenges.findActive(Phone.parse(phone), OtpPurpose.LOGIN);
+        assertThat(active.getString("_id")).isEqualTo(oldReq.challengeId());
+
+        // And it still verifies successfully with the ORIGINAL otp.
+        OtpVerifyResult verify = service.verify(oldReq.challengeId(), oldOtp, "203.0.113.1");
+        assertThat(verify.grantId()).isNotNull();
     }
 
     @Test void activation_transition_result_is_checked_never_blindly_assumed_to_have_applied() {

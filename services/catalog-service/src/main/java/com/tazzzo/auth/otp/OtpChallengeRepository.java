@@ -128,11 +128,27 @@ public class OtpChallengeRepository {
      */
     public Document activateAfterDelivery(ClientSession session, String challengeId, Phone phone, OtpPurpose purpose,
                                           Instant sentAt, Instant expiresAt, Instant resendAvailableAt) {
+        supersedeExistingActive(session, phone, purpose);
+        return activatePendingToActive(session, challengeId, sentAt, expiresAt, resendAvailableAt);
+    }
+
+    /**
+     * Step 1 of {@link #activateAfterDelivery}, split out ONLY so a test can exercise the exact
+     * failure window it protects against (step 1 genuinely applies, step 2 does not) without
+     * duplicating the query — see {@code OtpServiceIT}'s transaction-rollback test. Not meant to be
+     * called independently of step 2 in production code.
+     */
+    void supersedeExistingActive(ClientSession session, Phone phone, OtpPurpose purpose) {
         collection().updateMany(session,
                 Filters.and(Filters.eq("phoneNormalized", phone.value()), Filters.eq("purpose", purpose.name()),
                         Filters.eq("active", true)),
                 Updates.combine(Updates.set("status", OtpChallengeStatus.SUPERSEDED.name()),
                         Updates.unset("active")));
+    }
+
+    /** Step 2 of {@link #activateAfterDelivery} — see step 1's javadoc. */
+    Document activatePendingToActive(ClientSession session, String challengeId, Instant sentAt, Instant expiresAt,
+                                     Instant resendAvailableAt) {
         return collection().findOneAndUpdate(session,
                 Filters.and(Filters.eq("_id", challengeId),
                         Filters.eq("status", OtpChallengeStatus.PENDING_DELIVERY.name())),
