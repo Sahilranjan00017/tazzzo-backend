@@ -47,6 +47,16 @@ public class FreshnessObservability {
 
     public enum ReconcilePass { DRIFT, ORPHAN }
 
+    /**
+     * PR-10C final review #3 — the bounded derivation-result vocabulary, typed here (not a
+     * caller-supplied {@code String}) so the cardinality contract is enforced by the compiler, not
+     * just documentation. Mirrors {@code commerce.read.RebuildOutcome} one-for-one; this class
+     * cannot import that type (ArchUnit: {@code domains ↛ commerce.read}), so the CALLER
+     * ({@link com.tazzzo.commerce.read.ProjectionRebuildWorker}, which may depend on catalog.repo)
+     * maps its own enum to this one explicitly.
+     */
+    public enum RebuildResult { CREATED, UPDATED, NOOP, REMOVED, MISSING }
+
     private final MeterRegistry registry;
 
     public FreshnessObservability(MeterRegistry registry) {
@@ -63,15 +73,10 @@ public class FreshnessObservability {
         safely(() -> Counter.builder(REBUILD_ATTEMPTED).register(registry).increment());
     }
 
-    /**
-     * The bounded derivation result — {@code created}/{@code updated}/{@code noop}/{@code removed}/
-     * {@code missing} (the caller's own {@code RebuildOutcome} enum, lowercased). Takes a
-     * {@code String}, not that enum type, so this class (in the neutral {@code catalog.repo} leaf)
-     * never depends on {@code commerce.read} (ArchUnit: {@code domains ↛ commerce.read}).
-     */
-    public void rebuildResult(String result) {
+    /** The bounded derivation result. See {@link RebuildResult}. */
+    public void rebuildResult(RebuildResult result) {
         safely(() -> Counter.builder(REBUILD_RESULT)
-                .tag("result", result)
+                .tag("result", result.name().toLowerCase(Locale.ROOT))
                 .register(registry).increment());
     }
 
@@ -116,7 +121,9 @@ public class FreshnessObservability {
         try {
             recording.run();
         } catch (RuntimeException e) {
-            log.warn("freshness metric recording failed and was ignored: {}", e.toString());
+            // PR-10C final review #4: class only, never the message (which could embed a raw tag
+            // value or registry-internal detail we don't control).
+            log.warn("freshness metric recording failed and was ignored: {}", e.getClass().getSimpleName());
         }
     }
 }

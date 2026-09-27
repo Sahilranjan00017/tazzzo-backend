@@ -232,7 +232,8 @@ public class ConsumerObservability {
         try {
             recording.run();
         } catch (RuntimeException e) {
-            log.warn("consumer metric recording failed and was ignored: {}", e.toString());
+            // PR-10C final review #4: class only, never the message.
+            log.warn("consumer metric recording failed and was ignored: {}", e.getClass().getSimpleName());
         }
     }
 }

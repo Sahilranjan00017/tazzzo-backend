@@ -41,14 +41,41 @@ class CommerceReadReadinessIT extends AbstractConsumerIT {
         r.add("tazzzo.consumer-rate-limit.installation.refill-per-second", () -> "100000");
     }
 
-    @Test void reports_core_ready_when_every_minimum_dependency_is_present() {
+    @Test void reports_base_and_list_ready_when_every_dependency_is_present() {
         CommerceReadReadiness.Report report = readiness.check();
         assertThat(report.mongoReachable()).isTrue();
         assertThat(report.cursorSigningConfigured()).isTrue();
         assertThat(report.listServingReady()).as("tazzzo.freshness.enabled=true").isTrue();
         assertThat(report.mediaConfigured()).isTrue();
         assertThat(report.rateLimiterConfigured()).as("REDIS mode, not DISABLED").isTrue();
-        assertThat(report.coreReady()).isTrue();
+        assertThat(report.baseReady())
+                .as("categories/children/PDP/serviceability need no cursor or freshness").isTrue();
+        assertThat(report.listReady()).as("category-products additionally needs cursor + freshness").isTrue();
+    }
+
+    @Test void base_ready_does_not_require_cursor_signing_or_freshness() {
+        // PR-10C final review #5: categories/children/PDP/serviceability never touch the cursor
+        // codec or freshness -- a pure Report construction proves the split without a real outage.
+        CommerceReadReadiness.Report cursorAndFreshnessMissing =
+                new CommerceReadReadiness.Report(true, false, false, true, true);
+        assertThat(cursorAndFreshnessMissing.baseReady())
+                .as("Mongo + rate limiter is all base routes need").isTrue();
+        assertThat(cursorAndFreshnessMissing.listReady())
+                .as("category-products additionally needs cursor signing + freshness").isFalse();
+    }
+
+    @Test void mongo_down_fails_both_base_and_list_readiness() {
+        CommerceReadReadiness.Report mongoDown =
+                new CommerceReadReadiness.Report(false, true, true, true, true);
+        assertThat(mongoDown.baseReady()).isFalse();
+        assertThat(mongoDown.listReady()).isFalse();
+    }
+
+    @Test void media_unconfigured_never_gates_either_readiness_level() {
+        CommerceReadReadiness.Report mediaMissing =
+                new CommerceReadReadiness.Report(true, true, true, false, true);
+        assertThat(mediaMissing.baseReady()).isTrue();
+        assertThat(mediaMissing.listReady()).as("imagery degrades safely, never gates readiness").isTrue();
     }
 
     @Test void the_report_never_carries_a_uri_url_or_key_shaped_value() {

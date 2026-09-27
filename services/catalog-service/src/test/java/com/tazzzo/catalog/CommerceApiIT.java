@@ -161,6 +161,30 @@ class CommerceApiIT extends AbstractConsumerIT {
         assertThat(res.getHeaders().getFirst("Cache-Control")).contains("public").contains("max-age=300");
     }
 
+    @Test void a_weak_prefixed_if_none_match_still_yields_304() {
+        // PR-10C final review #2: GET conditional requests use WEAK comparison
+        String etag = get("/v1/categories", JsonNode.class).getHeaders().getFirst("ETag");
+        org.springframework.http.HttpHeaders reqHeaders = new org.springframework.http.HttpHeaders();
+        reqHeaders.set("If-None-Match", "W/" + etag);
+        ResponseEntity<JsonNode> res = get("/v1/categories", reqHeaders, JsonNode.class);
+        assertThat(res.getStatusCode().value()).isEqualTo(304);
+    }
+
+    @Test void a_multi_value_if_none_match_matches_if_any_entry_matches() {
+        String etag = get("/v1/categories", JsonNode.class).getHeaders().getFirst("ETag");
+        org.springframework.http.HttpHeaders reqHeaders = new org.springframework.http.HttpHeaders();
+        reqHeaders.set("If-None-Match", "\"not-it\", " + etag);
+        ResponseEntity<JsonNode> res = get("/v1/categories", reqHeaders, JsonNode.class);
+        assertThat(res.getStatusCode().value()).isEqualTo(304);
+    }
+
+    @Test void a_wildcard_if_none_match_yields_304() {
+        org.springframework.http.HttpHeaders reqHeaders = new org.springframework.http.HttpHeaders();
+        reqHeaders.set("If-None-Match", "*");
+        ResponseEntity<JsonNode> res = get("/v1/categories", reqHeaders, JsonNode.class);
+        assertThat(res.getStatusCode().value()).isEqualTo(304);
+    }
+
     @Test void categories_non_matching_if_none_match_is_a_normal_200() {
         org.springframework.http.HttpHeaders reqHeaders = new org.springframework.http.HttpHeaders();
         reqHeaders.set("If-None-Match", "\"not-the-real-etag\"");

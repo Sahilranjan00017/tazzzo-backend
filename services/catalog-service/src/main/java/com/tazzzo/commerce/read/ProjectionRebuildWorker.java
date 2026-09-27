@@ -106,7 +106,7 @@ public class ProjectionRebuildWorker {
                 RebuildOutcome outcome = projectionService.rebuildOne(skuId);
                 rebuilt++;
                 if (observability != null) {
-                    observability.rebuildResult(outcome.name().toLowerCase(java.util.Locale.ROOT));
+                    observability.rebuildResult(toObservedResult(outcome));
                 }
                 // Clear ONLY if this exact claim still owns the row AND no newer mutation arrived
                 // (same generation). Otherwise the newer request stays pending and is reprocessed.
@@ -154,5 +154,21 @@ public class ProjectionRebuildWorker {
 
     private static long asLong(Object v) {
         return v == null ? 0L : ((Number) v).longValue();
+    }
+
+    /**
+     * PR-10C final review #3 — the explicit, one-way mapping from this module's own
+     * {@link RebuildOutcome} to the neutral {@code catalog.repo} vocabulary. {@code catalog.repo}
+     * cannot import {@code commerce.read.RebuildOutcome} (ArchUnit), so the mapping direction stays
+     * {@code commerce.read → catalog.repo}, never the reverse.
+     */
+    private static FreshnessObservability.RebuildResult toObservedResult(RebuildOutcome outcome) {
+        return switch (outcome) {
+            case CREATED -> FreshnessObservability.RebuildResult.CREATED;
+            case UPDATED -> FreshnessObservability.RebuildResult.UPDATED;
+            case NOOP -> FreshnessObservability.RebuildResult.NOOP;
+            case REMOVED -> FreshnessObservability.RebuildResult.REMOVED;
+            case MISSING -> FreshnessObservability.RebuildResult.MISSING;
+        };
     }
 }

@@ -31,21 +31,36 @@ public class CommerceReadReadiness {
     private static final Logger log = LoggerFactory.getLogger(CommerceReadReadiness.class);
 
     /**
-     * @param mongoReachable a cheap {@code ping} succeeded — the minimum for ANY /v1 route
+     * PR-10C final review #5 — {@code cursorSigningConfigured} is required for category-products
+     * PAGINATION specifically, not for every {@code /v1} route: categories/children/PDP/
+     * serviceability never touch the cursor codec and can serve without it. A single
+     * {@code coreReady} that included cursor readiness would therefore be FALSE while those routes
+     * are actually still serving traffic — a misleading signal. Split into two levels instead:
+     *
+     * @param mongoReachable a cheap {@code ping} succeeded
      * @param cursorSigningConfigured the commerce list cursor's HMAC key is configured and usable
+     *        (needed by category-products pagination only)
      * @param listServingReady {@code tazzzo.freshness.enabled} — category-products specifically;
      *        categories/children/PDP/serviceability do not need this
      * @param mediaConfigured informational ONLY — imagery degrades safely (no thumbnail) when
-     *        unconfigured, so this never gates {@link #coreReady()}
+     *        unconfigured, so this never gates {@link #baseReady()} or {@link #listReady()}
      * @param rateLimiterConfigured the consumer rate limiter is not in its fail-closed DISABLED
      *        mode (the existing ratified policy: DISABLED means the surface must not be exposed)
      */
     public record Report(boolean mongoReachable, boolean cursorSigningConfigured, boolean listServingReady,
                          boolean mediaConfigured, boolean rateLimiterConfigured) {
 
-        /** The minimum operational dependencies for the /v1 surface to serve ANY route at all. */
-        public boolean coreReady() {
-            return mongoReachable && cursorSigningConfigured && rateLimiterConfigured;
+        /**
+         * The minimum for categories/children/PDP/serviceability to serve at all — none of them
+         * need cursor signing or projection freshness.
+         */
+        public boolean baseReady() {
+            return mongoReachable && rateLimiterConfigured;
+        }
+
+        /** Category-products additionally needs cursor signing (pagination) and freshness. */
+        public boolean listReady() {
+            return baseReady() && cursorSigningConfigured && listServingReady;
         }
     }
 

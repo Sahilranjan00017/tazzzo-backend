@@ -32,12 +32,24 @@ class FreshnessObservabilityTest {
         assertThat(registry.find(FreshnessObservability.REBUILD_ATTEMPTED).counter().count()).isEqualTo(1.0);
     }
 
+    /**
+     * PR-10C final review #3 — {@code rebuildResult} takes the typed enum, not a {@code String}:
+     * only these five values can ever exist as a compiled reference, so an arbitrary tag (a SKU, an
+     * exception message, anything else) is a COMPILE ERROR, not a runtime risk.
+     */
+    @Test void only_the_five_allowed_rebuild_results_can_be_constructed() {
+        assertThat(FreshnessObservability.RebuildResult.values()).containsExactlyInAnyOrder(
+                FreshnessObservability.RebuildResult.CREATED, FreshnessObservability.RebuildResult.UPDATED,
+                FreshnessObservability.RebuildResult.NOOP, FreshnessObservability.RebuildResult.REMOVED,
+                FreshnessObservability.RebuildResult.MISSING);
+    }
+
     @Test void rebuild_result_is_tagged_by_the_bounded_result_value() {
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
         FreshnessObservability obs = new FreshnessObservability(registry);
-        obs.rebuildResult("created");
-        obs.rebuildResult("noop");
-        obs.rebuildResult("noop");
+        obs.rebuildResult(FreshnessObservability.RebuildResult.CREATED);
+        obs.rebuildResult(FreshnessObservability.RebuildResult.NOOP);
+        obs.rebuildResult(FreshnessObservability.RebuildResult.NOOP);
         assertThat(registry.find(FreshnessObservability.REBUILD_RESULT).tags("result", "created")
                 .counter().count()).isEqualTo(1.0);
         assertThat(registry.find(FreshnessObservability.REBUILD_RESULT).tags("result", "noop")
@@ -96,7 +108,7 @@ class FreshnessObservabilityTest {
         FreshnessObservability obs = new FreshnessObservability(registry);
         obs.rebuildRequested();
         obs.rebuildAttempted();
-        obs.rebuildResult("updated");
+        obs.rebuildResult(FreshnessObservability.RebuildResult.UPDATED);
         obs.rebuildFailure();
         obs.rebuildCompletion(FreshnessObservability.Completion.CLEARED);
         obs.reconcileEnqueued(FreshnessObservability.ReconcilePass.DRIFT, 3);
