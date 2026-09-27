@@ -141,6 +141,24 @@ class HttpSurfaceBoundaryIT extends AbstractApiIT {
         }
     }
 
+    /**
+     * PR-11A hardening — with the blanket {@code /v1/**} public rule removed, a route not yet on
+     * the explicit allowlist is denied exactly like any other UNKNOWN surface: no credential turns
+     * it into either a public 200-family response or a customer 401. It is 404 NO_SUCH_ENDPOINT,
+     * for every identity, same as today's unknown-surface convention.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"/v1", "/v1/cart", "/v1/orders", "/v1/checkout", "/v1/admin-test"})
+    void unclassified_v1_routes_are_404_for_every_identity_never_public_or_customer_gated(String path) {
+        for (String token : new String[]{null, "bogus", READ_TOKEN, CMS_TOKEN}) {
+            ResponseEntity<JsonNode> res = get(path, token, JsonNode.class);
+            assertThat(res.getStatusCode().value())
+                    .as(path + " with token=" + token + " must be denied-by-default, not public")
+                    .isEqualTo(404);
+            assertThat(res.getBody().at("/error/code").asText()).isEqualTo("NO_SUCH_ENDPOINT");
+        }
+    }
+
     // ---------- 5. near-miss consumer namespaces are UNKNOWN, never public ----------
 
     @ParameterizedTest

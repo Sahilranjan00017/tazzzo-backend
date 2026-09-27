@@ -25,11 +25,26 @@ class SurfaceClassifierTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"/v1", "/v1/", "/v1/categories", "/v1/categories/TZS-000001/products",
-            "/v1/products/TZP-1", "/v1/serviceability"})
+    @ValueSource(strings = {"/v1/categories", "/v1/categories/TZS-000001/products",
+            "/v1/categories/TZS-000001/children", "/v1/products/TZP-1", "/v1/serviceability"})
     void exact_commerce_v1_namespace_is_public(String uri) {
         assertThat(SurfaceClassifier.classify(uri))
-                .as(uri + " is the PR-10B public commerce surface").isEqualTo(PUBLIC_CONSUMER);
+                .as(uri + " is the PR-11A explicit public commerce allowlist").isEqualTo(PUBLIC_CONSUMER);
+    }
+
+    /**
+     * PR-11A hardening — the blanket {@code /v1/**} rule is GONE. The bare {@code /v1} root and any
+     * {@code /v1} path not on the explicit public allowlist is UNKNOWN, never public by default.
+     * This is the "a new /v1 route must be deliberately classified" invariant.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"/v1", "/v1/", "/v1/foo", "/v1/cart", "/v1/orders", "/v1/checkout",
+            "/v1/profile", "/v1/debug", "/v1/admin-test", "/v1/search-private-test",
+            "/v1/whatever-future-feature"})
+    void unclassified_v1_routes_are_never_public_by_default(String uri) {
+        assertThat(SurfaceClassifier.classify(uri))
+                .as(uri + " must be UNKNOWN — a future /v1 route is never public until ratified here")
+                .isEqualTo(UNKNOWN);
     }
 
     @ParameterizedTest
@@ -116,18 +131,18 @@ class SurfaceClassifierTest {
     }
 
     /**
-     * PR-11A — the authenticated prefix must be checked BEFORE the generic {@code /v1} public
-     * rule, so these near-misses fall through to PUBLIC_CONSUMER (they are still under the broad
-     * {@code /v1/**} umbrella) rather than being swallowed as authenticated by loose prefix
-     * matching. None of these is a real endpoint; the point is the SURFACE, not the route.
+     * PR-11A hardening — with the blanket {@code /v1/**} public rule removed, a near-miss of the
+     * customer namespace is no longer swallowed by a broad public fallback either: it is simply not
+     * on the explicit public allowlist, so it is UNKNOWN. None of these is a real endpoint; the
+     * point is the SURFACE, not the route.
      */
     @ParameterizedTest
     @ValueSource(strings = {"/v1/customers", "/v1/customerx", "/v1/customer-public",
             "/v1/customer-x/foo", "/v1/CUSTOMER", "/v1/Customer/profile"})
-    void near_miss_customer_namespaces_are_never_authenticated_by_loose_prefix(String uri) {
+    void near_miss_customer_namespaces_are_never_authenticated_or_public(String uri) {
         assertThat(SurfaceClassifier.classify(uri))
-                .as(uri + " must fall through to the generic /v1 public rule, never CUSTOMER_AUTHENTICATED")
-                .isEqualTo(PUBLIC_CONSUMER);
+                .as(uri + " is neither CUSTOMER_AUTHENTICATED nor a named public family — UNKNOWN")
+                .isEqualTo(UNKNOWN);
     }
 
     @ParameterizedTest

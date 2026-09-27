@@ -239,6 +239,51 @@ class CustomerAccessTokenCodecTest {
                         .isEqualTo(CustomerAuthFailure.Reason.MALFORMED_CLAIMS));
     }
 
+    @Test void issue_rejects_zero_or_negative_ttl_as_programmer_misuse() {
+        CustomerAccessTokenCodec codec = codec(KEY_A);
+        CustomerPrincipal principal = new CustomerPrincipal(CUSTOMER, SESSION);
+        assertThatThrownBy(() -> codec.issue(principal, Duration.ZERO))
+                .as("a zero TTL would mint a token verify() immediately refuses — issuer bug, not an auth failure")
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> codec.issue(principal, Duration.ofSeconds(-1)))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    /**
+     * A correctly-signed payload can still carry a pathological epoch value outside Instant's
+     * representable range. This must stay a 401 (MALFORMED_CLAIMS), never an uncaught
+     * DateTimeException / 500 at the public boundary.
+     */
+    @Test void pathological_signed_epoch_values_are_malformed_claims_not_a_crash() throws Exception {
+        CustomerAccessTokenCodec codec = codec(KEY_A);
+        assertThatThrownBy(() -> codec.verify(forgeWithEpochs(Long.MAX_VALUE, Long.MAX_VALUE)))
+                .isInstanceOf(CustomerAuthFailure.class)
+                .satisfies(e -> assertThat(((CustomerAuthFailure) e).reason())
+                        .isEqualTo(CustomerAuthFailure.Reason.MALFORMED_CLAIMS));
+        assertThatThrownBy(() -> codec.verify(forgeWithEpochs(Long.MIN_VALUE, 0L)))
+                .isInstanceOf(CustomerAuthFailure.class)
+                .satisfies(e -> assertThat(((CustomerAuthFailure) e).reason())
+                        .isEqualTo(CustomerAuthFailure.Reason.MALFORMED_CLAIMS));
+    }
+
+    private static String forgeWithEpochs(long issuedAtEpoch, long expiresAtEpoch) throws Exception {
+        java.io.ByteArrayOutputStream buffer = new java.io.ByteArrayOutputStream();
+        java.io.DataOutputStream out = new java.io.DataOutputStream(buffer);
+        out.writeInt(1);
+        out.writeUTF(CUSTOMER.value());
+        out.writeUTF(SESSION.value());
+        out.writeLong(issuedAtEpoch);
+        out.writeLong(expiresAtEpoch);
+        out.flush();
+        byte[] payload = buffer.toByteArray();
+        javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
+        mac.init(new javax.crypto.spec.SecretKeySpec(Base64.getDecoder().decode(KEY_A), "HmacSHA256"));
+        byte[] sig = mac.doFinal(payload);
+        byte[] full = Arrays.copyOf(payload, payload.length + sig.length);
+        System.arraycopy(sig, 0, full, payload.length, sig.length);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(full);
+    }
+
     @Test void constant_time_comparison_and_no_key_material_in_rejection() {
         CustomerAccessTokenCodec codec = codec(KEY_A);
         String source = codec.encode(CUSTOMER, SESSION, NOW, NOW.plusSeconds(900));

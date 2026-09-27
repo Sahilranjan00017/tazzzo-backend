@@ -13,6 +13,7 @@ import java.io.UncheckedIOException;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.time.Clock;
+import java.time.DateTimeException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
@@ -103,10 +104,21 @@ public class CustomerAccessTokenCodec {
         }
     }
 
-    /** Issue a token for {@code principal}, valid from now for {@code ttl}. */
+    /**
+     * Issue a token for {@code principal}, valid from now for {@code ttl}.
+     *
+     * @throws IllegalArgumentException {@code ttl} is zero or negative — this is an issuer-call
+     *         bug (programmer misuse), not an untrusted-input failure, so it is NOT a
+     *         {@link CustomerAuthFailure}: minting a token that {@code verify()} would immediately
+     *         refuse is never a legitimate caller intent. This PR does not ratify a maximum
+     *         lifetime — that is a PR-11C concern once the production access-token TTL is decided.
+     */
     public String issue(CustomerPrincipal principal, Duration ttl) {
         Objects.requireNonNull(principal, "principal required");
         Objects.requireNonNull(ttl, "ttl required");
+        if (ttl.isZero() || ttl.isNegative()) {
+            throw new IllegalArgumentException("ttl must be strictly positive: " + ttl);
+        }
         Instant now = clock.instant();
         return encode(principal.customerId(), principal.sessionId(), now, now.plus(ttl));
     }
@@ -199,8 +211,17 @@ public class CustomerAccessTokenCodec {
             throw new CustomerAuthFailure(CustomerAuthFailure.Reason.MALFORMED_CLAIMS);
         }
         Instant now = clock.instant();
-        Instant issuedAt = Instant.ofEpochSecond(issuedAtEpoch);
-        Instant expiresAt = Instant.ofEpochSecond(expiresAtEpoch);
+        Instant issuedAt;
+        Instant expiresAt;
+        try {
+            // A correctly-signed payload can still carry a pathological epoch value (Long.MAX_VALUE/
+            // MIN_VALUE) outside Instant's representable range. That is a claims problem, not a
+            // signature problem, and must stay a 401 — never an uncaught DateTimeException/500.
+            issuedAt = Instant.ofEpochSecond(issuedAtEpoch);
+            expiresAt = Instant.ofEpochSecond(expiresAtEpoch);
+        } catch (DateTimeException e) {
+            throw new CustomerAuthFailure(CustomerAuthFailure.Reason.MALFORMED_CLAIMS);
+        }
         if (issuedAt.isAfter(now.plus(FUTURE_ISSUED_TOLERANCE))) {
             throw new CustomerAuthFailure(CustomerAuthFailure.Reason.FUTURE_ISSUED);
         }

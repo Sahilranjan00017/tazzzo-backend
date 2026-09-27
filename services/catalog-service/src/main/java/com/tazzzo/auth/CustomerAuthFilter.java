@@ -33,7 +33,7 @@ import java.io.IOException;
  * bounded {@link CustomerAuthFailure.Reason} is logged internally only, never in the response.
  */
 @Component
-@Order(Ordered.HIGHEST_PRECEDENCE + 1)
+@Order(Ordered.HIGHEST_PRECEDENCE + 2)
 public class CustomerAuthFilter extends OncePerRequestFilter {
 
     private static final Logger log = LoggerFactory.getLogger(CustomerAuthFilter.class);
@@ -75,6 +75,11 @@ public class CustomerAuthFilter extends OncePerRequestFilter {
         String requestId = requestId(request);
         log.warn("customer_auth_rejected reason={} request_id={}", reason, requestId);
         response.setStatus(401);
+        // Generic challenge only — never the bounded internal reason (expired/bad_signature/
+        // not_ready/...). A client learns nothing beyond "present a bearer token".
+        response.setHeader("WWW-Authenticate", "Bearer");
+        // Per-request authentication state must never be served from an intermediary cache.
+        response.setHeader("Cache-Control", "no-store");
         response.setContentType("application/json");
         mapper.writeValue(response.getWriter(),
                 new CustomerAuthErrorDto("UNAUTHENTICATED", "authentication required", requestId));

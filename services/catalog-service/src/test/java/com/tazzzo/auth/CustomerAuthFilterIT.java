@@ -22,6 +22,7 @@ import org.testcontainers.containers.MongoDBContainer;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Base64;
 import java.util.Map;
 
@@ -105,12 +106,17 @@ class CustomerAuthFilterIT {
         assertThat(res.getBody().at("/code").asText()).isEqualTo("UNAUTHENTICATED");
         assertThat(res.getBody().at("/message").asText()).isEqualTo("authentication required");
         assertThat(res.getBody().at("/requestId").asText()).startsWith("req_");
+        assertThat(res.getHeaders().getFirst("WWW-Authenticate"))
+                .as("challenge is generic, never a reason").isEqualTo("Bearer");
+        assertThat(res.getHeaders().getFirst("Cache-Control")).contains("no-store");
     }
 
     @Test void bogus_bearer_is_401() {
         ResponseEntity<JsonNode> res = get("/v1/customer/_probe", "Bearer definitely-not-a-token");
         assertThat(res.getStatusCode().value()).isEqualTo(401);
         assertThat(res.getBody().at("/code").asText()).isEqualTo("UNAUTHENTICATED");
+        assertThat(res.getHeaders().getFirst("WWW-Authenticate")).isEqualTo("Bearer");
+        assertThat(res.getHeaders().getFirst("Cache-Control")).contains("no-store");
     }
 
     @Test void malformed_bearer_header_is_401() {
@@ -119,11 +125,16 @@ class CustomerAuthFilterIT {
     }
 
     @Test void expired_token_is_401() {
-        // an already-expired token, minted directly by the codec (no login endpoint exists yet)
-        String expired = codec.issue(new CustomerPrincipal(new CustomerId("CUS_alice001"),
-                new SessionId("SES_sess0001")), Duration.ofSeconds(-1));
+        // an already-expired token, built directly via the package-private encode() seam with
+        // explicit timestamps (issue() now rejects a non-positive TTL — PR-11A hardening §7).
+        Instant past = Instant.now().minusSeconds(3600);
+        String expired = codec.encode(new CustomerId("CUS_alice001"), new SessionId("SES_sess0001"),
+                past, past.plusSeconds(60));
         ResponseEntity<JsonNode> res = get("/v1/customer/_probe", "Bearer " + expired);
         assertThat(res.getStatusCode().value()).isEqualTo(401);
+        assertThat(res.getHeaders().getFirst("WWW-Authenticate"))
+                .as("still a generic challenge — never reveals 'expired'").isEqualTo("Bearer");
+        assertThat(res.getHeaders().getFirst("Cache-Control")).contains("no-store");
     }
 
     // ---------- valid token reaches downstream ----------
