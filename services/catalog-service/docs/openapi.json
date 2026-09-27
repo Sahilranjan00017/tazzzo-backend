@@ -5,6 +5,62 @@
     "version" : "v0"
   },
   "paths" : {
+    "/v1/auth/otp/verify" : {
+      "post" : {
+        "tags" : [ "otp-controller" ],
+        "operationId" : "verify",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/OtpVerifyRequestDto"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/OtpVerifyResponseDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/otp/request" : {
+      "post" : {
+        "tags" : [ "otp-controller" ],
+        "operationId" : "request",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/OtpRequestRequestDto"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/OtpRequestResponseDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/taxonomy/releases" : {
       "post" : {
         "tags" : [ "taxonomy-controller" ],
@@ -1376,6 +1432,61 @@
   },
   "components" : {
     "schemas" : {
+      "OtpVerifyRequestDto" : {
+        "type" : "object",
+        "properties" : {
+          "challengeId" : {
+            "type" : "string"
+          },
+          "otp" : {
+            "type" : "string"
+          }
+        }
+      },
+      "OtpVerifyResponseDto" : {
+        "type" : "object",
+        "properties" : {
+          "challengeId" : {
+            "type" : "string"
+          },
+          "verified" : {
+            "type" : "boolean"
+          },
+          "grantId" : {
+            "type" : "string"
+          },
+          "requestId" : {
+            "type" : "string"
+          }
+        }
+      },
+      "OtpRequestRequestDto" : {
+        "type" : "object",
+        "properties" : {
+          "phone" : {
+            "type" : "string"
+          }
+        }
+      },
+      "OtpRequestResponseDto" : {
+        "type" : "object",
+        "properties" : {
+          "challengeId" : {
+            "type" : "string"
+          },
+          "expiresInSeconds" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "resendAfterSeconds" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "requestId" : {
+            "type" : "string"
+          }
+        }
+      },
       "OpenReleaseRequest" : {
         "type" : "object",
         "properties" : {

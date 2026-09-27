@@ -60,7 +60,12 @@ public class SchemaBootstrap {
             // RESP-PROJ RP-6: consumer PRESENTATION policy, keyed per vertical. Deliberately
             // separate from the governance registry — it changes nothing about attribute
             // semantics, validation or identity. Absence is a valid state (RP-6b).
-            "consumer_projection_policy");
+            "consumer_projection_policy",
+            // PR-11B: OTP challenge lifecycle (customer auth). Ephemeral by design; TTL-indexed.
+            "customer_otp_challenges",
+            // PR-11B: one-time login grant produced by a successful OTP verification. PR-11C's
+            // exclusive consumption contract; ephemeral, TTL-indexed.
+            "customer_otp_verified_grants");
 
     /**
      * PAG-2-SORT-1 transport support: the equality prefix the consumer-eligibility predicate uses,
@@ -180,6 +185,21 @@ public class SchemaBootstrap {
                         new Document("gate", "OPEN")));
         db.getCollection("price_rollups").createIndex(
                 Indexes.ascending("product_id", "seller"), new IndexOptions().unique(true));
+        // PR-11B: at most one active (PENDING_DELIVERY/ACTIVE) challenge per phone+purpose. The
+        // partial unique index is the create-race guard — the SAME idiom as service_areas.pincode
+        // and catalogue_releases.gate above. "active" is present ONLY while a challenge is usable;
+        // every terminal transition unsets it, freeing the slot for the next challenge.
+        db.getCollection("customer_otp_challenges").createIndex(
+                Indexes.ascending("phoneNormalized", "purpose"),
+                new IndexOptions().unique(true).partialFilterExpression(new Document("active", true)));
+        // Cleanup only — application logic enforces expiry itself (markExpiredIfPastDeadline);
+        // this TTL sweep is asynchronous and must never be the sole expiry mechanism.
+        db.getCollection("customer_otp_challenges").createIndex(
+                Indexes.ascending("expiresAt"), new IndexOptions().expireAfter(0L, java.util.concurrent.TimeUnit.SECONDS));
+        // PR-11B: one-time login grant, cleaned up on the same TTL discipline. consume() enforces
+        // expiry/one-time-use atomically; this index is cleanup only.
+        db.getCollection("customer_otp_verified_grants").createIndex(
+                Indexes.ascending("expiresAt"), new IndexOptions().expireAfter(0L, java.util.concurrent.TimeUnit.SECONDS));
     }
 
     /**
