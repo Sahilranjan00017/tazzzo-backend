@@ -2,6 +2,8 @@ package com.tazzzo.commerce.read;
 
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoDatabase;
+import com.tazzzo.catalog.repo.FreshnessObservability;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
@@ -24,6 +26,7 @@ class CommerceProjectionSchedulerConfigTest {
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
             .withBean(MongoClient.class, () -> stub(MongoClient.class))
             .withBean(MongoDatabase.class, () -> stub(MongoDatabase.class))
+            .withBean(FreshnessObservability.class, () -> new FreshnessObservability(new SimpleMeterRegistry()))
             .withUserConfiguration(CommerceProjectionScheduler.class);
 
     @Test void off_when_master_off_and_card_off() {

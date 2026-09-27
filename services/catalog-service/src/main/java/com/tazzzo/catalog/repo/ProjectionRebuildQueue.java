@@ -49,10 +49,17 @@ public class ProjectionRebuildQueue {
 
     private final MongoDatabase db;
     private final Clock clock;
+    private final FreshnessObservability observability; // nullable: PR-10C, optional by design
 
     public ProjectionRebuildQueue(MongoDatabase db, Clock clock) {
+        this(db, clock, null);
+    }
+
+    /** PR-10C: with observability, every enqueue records the bounded {@code rebuild.requested} signal. */
+    public ProjectionRebuildQueue(MongoDatabase db, Clock clock, FreshnessObservability observability) {
         this.db = Objects.requireNonNull(db);
         this.clock = Objects.requireNonNull(clock);
+        this.observability = observability;
     }
 
     /**
@@ -63,6 +70,9 @@ public class ProjectionRebuildQueue {
         Objects.requireNonNull(session, "session required");
         db.getCollection(COLLECTION).updateOne(session, Filters.eq("_id", ID_PREFIX + require(skuId)),
                 wake(skuId, reason), new UpdateOptions().upsert(true));
+        if (observability != null) {
+            observability.rebuildRequested();
+        }
     }
 
     /**
@@ -71,6 +81,9 @@ public class ProjectionRebuildQueue {
     public void requestRebuild(String skuId, String reason) {
         db.getCollection(COLLECTION).updateOne(Filters.eq("_id", ID_PREFIX + require(skuId)),
                 wake(skuId, reason), new UpdateOptions().upsert(true));
+        if (observability != null) {
+            observability.rebuildRequested();
+        }
     }
 
     /**

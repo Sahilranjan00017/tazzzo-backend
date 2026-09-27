@@ -1,6 +1,7 @@
 package com.tazzzo.commerce.read;
 
 import com.mongodb.client.MongoDatabase;
+import com.tazzzo.catalog.repo.FreshnessObservability;
 import com.tazzzo.catalog.repo.ProjectionRebuildQueue;
 import com.tazzzo.catalog.repo.WritePath;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -33,8 +34,8 @@ import java.time.Clock;
 public class CommerceFreshnessConfig {
 
     @Bean
-    public ProjectionRebuildQueue projectionRebuildQueue(MongoDatabase db) {
-        return new ProjectionRebuildQueue(db, Clock.systemUTC());
+    public ProjectionRebuildQueue projectionRebuildQueue(MongoDatabase db, FreshnessObservability observability) {
+        return new ProjectionRebuildQueue(db, Clock.systemUTC(), observability);
     }
 
     @Bean

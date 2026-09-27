@@ -3,7 +3,7 @@
 Single source of truth for what is actually built and verified in `tazzzo-backend`.
 Reflects **current reality only** — nothing is marked complete unless verified from existing code.
 
-Last updated: 2026-09-26
+Last updated: 2026-09-27
 
 ---
 
@@ -52,37 +52,30 @@ PR-01 through PR-08 are **MERGED**:
   Pricing/Media/Catalog source hooks; unique-lease worker; drift reconciler; gated scheduler),
   Pricing batch read + ephemeral `CurrentPriceOverlay`, CAS-guarded source-version watermark.
   Squash merge `4560a55` — **931-test regression floor**.
-
-`main` = `4560a55360b5f25df069f1d47c4671628510f76f`.
-
-## In review (NOT merged)
-
-- **PR-10B — Public commerce read API** (`commerce.api`): the public `/v1` surface goes live —
+- **PR-10B** — **Public commerce read API** (`commerce.api`): the public `/v1` surface —
   `CommerceReadController` (categories, children, category-products, product detail,
   serviceability) delegating to reused consumer taxonomy + new commerce.read services;
   `SurfaceClassifier` exposes `/v1` as PUBLIC_CONSUMER; `RuntimeToDtoMapper` (omit unsupported,
   fail-fast on required); list uses batch canonical price + `CurrentPriceOverlay`; PDP overlays
-  current price + release-scoped reachability; serviceability threads `serviceAreaVersion` (never
-  fulfillmentLocationId); commerce-route signed cursor; `CommerceExceptionHandler` → frozen
-  `ErrorEnvelopeDto`; freshness-readiness gate on lists; no request-time writes. Frozen `/v1`
-  OpenAPI corrected (404 on categories, 400 on products, internal projection schema removed);
+  current price + release-scoped reachability; serviceability threads `serviceAreaVersion` as
+  `long` end-to-end (never fulfillmentLocationId); commerce-route signed cursor preserving the
+  legacy `/catalog/v1` 9-field wire format byte-for-byte while the commerce route binds a
+  non-reversible location fingerprint into a 10th field (a location change on continuation is
+  `INVALID_CURSOR`); `CommerceExceptionHandler` → frozen `ErrorEnvelopeDto`, with Mongo outages and
+  Pricing/Inventory/Media/Serviceability domain exceptions (via `commerce.read`'s
+  `DomainReadGuard`) mapped to `SERVICE_UNAVAILABLE` and unexpected programming failures left at
+  500; freshness-readiness gate on lists; no request-time writes; `requestId()` fails fast rather
+  than ever returning the literal string `"null"`. Frozen `/v1` OpenAPI corrected (404 on
+  categories, 400 on products, internal projection schema removed) —
   **OPENAPI-INTERNAL-PROJECTION-DEBT CLOSED**. No response cache / no AWS / no app integration
-  (PR-10C). In review on `feature/pr10b-public-commerce-api`.
-  **Final production hardening pass:** the commerce cursor now binds a non-reversible
-  `fingerprint` of the request's normalized location (anonymous vs PIN) into the signed
-  payload, so a page continuation under a different location/routing context is `INVALID_CURSOR`
-  rather than silently served (`ConsumerCursorCodec.LOCATION_ANONYMOUS`/`LOCATION_UNBOUND`); the
-  legacy `/catalog/v1` taxonomy walk and the public commerce categories/children now share the ONE
-  computed-unit-cost implementation while charging distinct admission labels
-  (`ConsumerTaxonomyService.root/children(..., Route)`); `commercePricingService`/
-  `commerceMediaService` are wired to the shared `ProjectionRebuildQueue` via an
-  `ObjectProvider` so a future writer through either bean cannot bypass freshness;
-  `serviceAreaVersion` is `long` end-to-end (no int32 narrowing); a `DomainReadGuard` in
-  `commerce.read` translates Pricing/Inventory/Media/Serviceability domain exceptions and Mongo
-  outages into `SERVICE_UNAVAILABLE` (never an unmapped 500) at the PDP/list/serviceability seams;
-  `requestId()` fails fast rather than ever returning the literal string `"null"`. Regression grew
-  to **989 tests**, 0 failures/errors/skipped, on this pass.
-- **PR-10C — Cache / observability hardening** (planned).
+  (deferred to PR-10C). Squash merge `25bbe7f` — **1003-test regression floor**.
+
+`main` = `25bbe7f9336654046db81e8b60331c48dd2d9ffc`.
+
+## In review (NOT merged)
+
+- **PR-10C — Commerce cache and observability hardening** (`commerce.api`/`commerce.read`):
+  operational hardening only, no business-behavior change, on `feature/pr10c-cache-observability`.
 
 ## Blocked
 
@@ -90,17 +83,21 @@ PR-01 through PR-08 are **MERGED**:
 
 ## Tracked debt
 
-- See [`docs/architecture/DEBT-REGISTER.md`](architecture/DEBT-REGISTER.md). Currently OPEN:
-  **OPENAPI-INTERNAL-PROJECTION-DEBT** — the frozen `/v1` file's internal
-  `ProductCardBaseProjection` schema has drifted from the implemented projection;
-  **MUST FIX BEFORE PR-10** exposes any public endpoint.
+- See [`docs/architecture/DEBT-REGISTER.md`](architecture/DEBT-REGISTER.md). No open entries —
+  `OPENAPI-INTERNAL-PROJECTION-DEBT` closed in PR-10B.
+- **Deferred (PR-10C review):** `CommerceListService` still performs its own direct `products`
+  membership Mongo read rather than sharing a Catalog read seam with `ConsumerProductListService`;
+  extracting it would require touching `ConsumerListGuardIT`'s structural pin on the legacy
+  surface, judged out of scope for both PR-10B and PR-10C. The read is guarded (`MongoException`
+  → 503), not left unguarded. A future PR may extract the shared seam alongside updating that
+  guard test.
 
 ## Next (ratified sequence)
 
-1. **PR-09** — PDP / runtime detail composition (in review, builds on the `enrichOne` seam).
-2. **PR-10** — Public API / gateway / cache / observability / freshness gate. Must close
-   OPENAPI-INTERNAL-PROJECTION-DEBT; cache keys must derive from routing topology
-   (serviceAreaId alone is proven insufficient).
+1. **PR-10C** — Cache-header verification, bounded commerce/freshness metrics, readiness
+   visibility, logging/security audit (in review).
+2. **PR-10D+** — App integration / Auth / Cart / Checkout / Orders / Search / Notifications:
+   not started, not scoped yet.
 
 ## Not started (honest boundary)
 
@@ -133,7 +130,7 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
-- **2026-09-26** — `./mvnw clean test` in `services/catalog-service` on Java 21.0.12 +
-  Docker (MongoDB 7, Redis via Testcontainers), on `main` at merge commit `f9c8899`
-  (post-PR-08 baseline): **BUILD SUCCESS**, **842 tests, 0 failures / 0 errors / 0 skipped**,
-  ~2:00 min.
+- **2026-09-27** — `./mvnw clean test` in `services/catalog-service` on Java 21.0.12 +
+  Docker (MongoDB 7, Redis via Testcontainers), on `main` at squash merge `25bbe7f`
+  (post-PR-10B baseline): **BUILD SUCCESS**, **1003 tests, 0 failures / 0 errors / 0 skipped**,
+  ~2:13 min.
