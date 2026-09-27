@@ -31,7 +31,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 class SessionControllerHttpIT extends AbstractApiIT {
 
     static final String ACCESS_KEY = Base64.getEncoder().encodeToString(new byte[32]);
-    static final String REFRESH_KEY = Base64.getEncoder().encodeToString(new byte[32]);
+    // Deliberately DIFFERENT from ACCESS_KEY — Finding 3's key-separation invariant rejects
+    // startup if the access-token and refresh-token domains share the same secret material.
+    static final String REFRESH_KEY = Base64.getEncoder().encodeToString(fill((byte) 1));
+
+    private static byte[] fill(byte value) {
+        byte[] bytes = new byte[32];
+        java.util.Arrays.fill(bytes, value);
+        return bytes;
+    }
     // AbstractApiIT.CMS_TOKEN is package-private in com.tazzzo.catalog; same literal value it
     // configures tazzzo.auth.cms-token to.
     static final String CMS_TOKEN = "cms-test-token";

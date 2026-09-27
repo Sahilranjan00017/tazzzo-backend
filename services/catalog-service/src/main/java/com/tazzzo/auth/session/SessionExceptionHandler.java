@@ -2,6 +2,7 @@ package com.tazzzo.auth.session;
 
 import com.tazzzo.auth.CustomerAuthErrorDto;
 import com.tazzzo.auth.CustomerAuthFailure;
+import com.tazzzo.auth.CustomerAuthObservability;
 import com.tazzzo.catalog.api.RequestIdFilter;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -29,6 +30,12 @@ public class SessionExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(SessionExceptionHandler.class);
 
+    private final CustomerAuthObservability observability;
+
+    public SessionExceptionHandler(CustomerAuthObservability observability) {
+        this.observability = observability;
+    }
+
     @ExceptionHandler(SessionAuthFailure.class)
     public ResponseEntity<SessionErrorDto> sessionFailure(SessionAuthFailure e, HttpServletRequest req) {
         String requestId = requestId(req);
@@ -41,11 +48,22 @@ public class SessionExceptionHandler {
         };
     }
 
-    /** Logout's inline bearer authentication — same flat shape {@code CustomerAuthFilter} produces. */
+    /**
+     * Logout's inline bearer authentication. Credential failures get the SAME flat shape
+     * {@code CustomerAuthFilter} produces; {@code NOT_READY} (signing key unavailable) is a SERVER
+     * misconfiguration and is mapped to 503, never a fake 401 — the same distinction the filter
+     * itself makes.
+     */
     @ExceptionHandler(CustomerAuthFailure.class)
     public ResponseEntity<CustomerAuthErrorDto> customerAuthFailure(CustomerAuthFailure e, HttpServletRequest req) {
         String requestId = requestId(req);
         log.warn("session_logout_auth_rejected reason={} request_id={}", e.reason(), requestId);
+        observability.authRejected(e.reason());
+        if (e.reason() == CustomerAuthFailure.Reason.NOT_READY) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .header(HttpHeaders.CACHE_CONTROL, "no-store")
+                    .body(new CustomerAuthErrorDto("SERVICE_UNAVAILABLE", "service unavailable", requestId));
+        }
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                 .header(HttpHeaders.WWW_AUTHENTICATE, "Bearer")
                 .header(HttpHeaders.CACHE_CONTROL, "no-store")

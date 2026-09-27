@@ -46,11 +46,12 @@ public class CustomerSessionService {
     private final CustomerSessionProperties properties;
     private final Clock clock;
     private final Tx tx;
+    private final SessionObservability observability;
 
     public CustomerSessionService(OtpVerifiedGrantRepository grants, CustomerRepository customers,
                                   CustomerSessionRepository sessions, RefreshTokenCodec refreshCodec,
                                   CustomerAccessTokenCodec accessCodec, CustomerSessionProperties properties,
-                                  Clock clock, Tx tx) {
+                                  Clock clock, Tx tx, SessionObservability observability) {
         this.grants = grants;
         this.customers = customers;
         this.sessions = sessions;
@@ -59,9 +60,20 @@ public class CustomerSessionService {
         this.properties = properties;
         this.clock = clock;
         this.tx = tx;
+        this.observability = observability;
     }
 
     public SessionEstablishResult establishSession(String grantId) {
+        try {
+            return doEstablishSession(grantId);
+        } catch (SessionAuthFailure e) {
+            log.warn("session_create_failure reason={}", e.reason());
+            observability.sessionCreateFailure(e.reason());
+            throw e;
+        }
+    }
+
+    private SessionEstablishResult doEstablishSession(String grantId) {
         if (grantId == null || grantId.isBlank() || grantId.length() > 128) {
             throw new SessionAuthFailure(SessionAuthFailure.Reason.INVALID_REQUEST);
         }
@@ -94,7 +106,6 @@ public class CustomerSessionService {
                 resultHolder[1] = sessionDoc;
             });
         } catch (SessionAuthFailure e) {
-            log.warn("session_create_failure reason={}", e.reason());
             throw e;
         } catch (RuntimeException e) {
             log.error("session_create_transaction_failed", e);
@@ -106,11 +117,22 @@ public class CustomerSessionService {
         String accessToken = accessCodec.issue(principal, Duration.ofSeconds(properties.getAccessTokenTtlSeconds()));
         String refreshToken = refreshCodec.format(sessionId, refreshSecret);
         log.info("session_create_success");
+        observability.sessionCreateSuccess();
         return new SessionEstablishResult(customerId.value(), accessToken,
                 properties.getAccessTokenTtlSeconds(), refreshToken);
     }
 
     public RefreshResult refresh(String refreshToken) {
+        try {
+            return doRefresh(refreshToken);
+        } catch (SessionAuthFailure e) {
+            log.warn("refresh_failure reason={}", e.reason());
+            observability.refreshFailure(e.reason());
+            throw e;
+        }
+    }
+
+    private RefreshResult doRefresh(String refreshToken) {
         RefreshTokenCodec.ParsedRefreshToken parsed = refreshCodec.parse(refreshToken);
         refreshCodec.requireReady();
         accessCodec.requireReady();
@@ -142,7 +164,6 @@ public class CustomerSessionService {
                 rotatedHolder[0] = rotated;
             });
         } catch (SessionAuthFailure e) {
-            log.warn("refresh_failure reason={}", e.reason());
             throw e;
         } catch (RuntimeException e) {
             log.error("refresh_transaction_failed", e);
@@ -154,6 +175,7 @@ public class CustomerSessionService {
         String accessToken = accessCodec.issue(principal, Duration.ofSeconds(properties.getAccessTokenTtlSeconds()));
         String newRefreshToken = refreshCodec.format(parsed.sessionId(), newSecret);
         log.info("refresh_success");
+        observability.refreshSuccess();
         return new RefreshResult(accessToken, properties.getAccessTokenTtlSeconds(), newRefreshToken);
     }
 
@@ -161,6 +183,7 @@ public class CustomerSessionService {
     public void logout(CustomerPrincipal principal) {
         sessions.revoke(principal.sessionId().value(), clock.instant());
         log.info("logout");
+        observability.logout();
     }
 
     public record SessionEstablishResult(String customerId, String accessToken, long accessTokenExpiresIn,

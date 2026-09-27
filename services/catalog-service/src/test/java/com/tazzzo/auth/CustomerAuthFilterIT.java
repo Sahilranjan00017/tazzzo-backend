@@ -49,6 +49,10 @@ class CustomerAuthFilterIT {
 
     static final String FIXTURE_KEY_B64 = Base64.getEncoder().encodeToString(
             "customer-auth-fixture-key-32byte!".getBytes(StandardCharsets.UTF_8));
+    // Deliberately DIFFERENT from FIXTURE_KEY_B64 — Finding 3's key-separation invariant rejects
+    // startup if the access-token and refresh-token domains share the same secret material.
+    static final String REFRESH_FIXTURE_KEY_B64 = Base64.getEncoder().encodeToString(
+            "customer-session-fixture-key-32b".getBytes(StandardCharsets.UTF_8));
     static final String CMS_TOKEN = "cms-test-token";
     static final String READ_TOKEN = "read-test-token";
 
@@ -62,7 +66,7 @@ class CustomerAuthFilterIT {
         r.add("tazzzo.auth.cms-token", () -> CMS_TOKEN);
         r.add("tazzzo.auth.read-token", () -> READ_TOKEN);
         r.add("tazzzo.customer-auth.access-token-hmac-key-b64", () -> FIXTURE_KEY_B64);
-        r.add("tazzzo.customer-auth.session.refresh-token-hmac-key-b64", () -> FIXTURE_KEY_B64);
+        r.add("tazzzo.customer-auth.session.refresh-token-hmac-key-b64", () -> REFRESH_FIXTURE_KEY_B64);
     }
 
     @LocalServerPort int port;

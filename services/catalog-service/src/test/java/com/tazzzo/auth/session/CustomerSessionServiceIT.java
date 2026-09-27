@@ -48,8 +48,16 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class CustomerSessionServiceIT extends AbstractMongoIT {
 
     static final String ACCESS_KEY = Base64.getEncoder().encodeToString(new byte[32]);
-    static final String REFRESH_KEY = Base64.getEncoder().encodeToString(new byte[32]);
+    // Deliberately DIFFERENT from ACCESS_KEY — Finding 3's key-separation invariant rejects
+    // startup if the access-token and refresh-token domains share the same secret material.
+    static final String REFRESH_KEY = Base64.getEncoder().encodeToString(fill((byte) 1));
     static final AtomicReference<Instant> CLOCK_NOW = new AtomicReference<>(Instant.parse("2026-06-01T00:00:00Z"));
+
+    private static byte[] fill(byte value) {
+        byte[] bytes = new byte[32];
+        java.util.Arrays.fill(bytes, value);
+        return bytes;
+    }
 
     @DynamicPropertySource
     static void props(DynamicPropertyRegistry r) {
@@ -100,6 +108,7 @@ class CustomerSessionServiceIT extends AbstractMongoIT {
     @Autowired CustomerSessionProperties properties;
     @Autowired Clock clock;
     @Autowired Tx tx;
+    @Autowired SessionObservability observability;
 
     @BeforeEach
     void resetClock() {
@@ -393,7 +402,7 @@ class CustomerSessionServiceIT extends AbstractMongoIT {
 
         FailOnceSessionRepository failingSessions = new FailOnceSessionRepository(db);
         CustomerSessionService failingService = new CustomerSessionService(grants, customers, failingSessions,
-                refreshCodec, accessCodec, properties, clock, tx);
+                refreshCodec, accessCodec, properties, clock, tx, observability);
 
         assertThatThrownBy(() -> failingService.establishSession(grantId))
                 .isInstanceOf(SessionAuthFailure.class)

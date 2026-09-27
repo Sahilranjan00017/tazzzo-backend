@@ -36,10 +36,14 @@ import java.io.IOException;
  * bean is NOT treated as "skip the check" — it fails closed exactly like a missing signing key,
  * because silently bypassing revocation would be a security regression, not a graceful degradation.
  *
- * <p>Every failure — missing header, malformed bearer, bad signature, expired token, wrong key,
- * not-ready codec, revoked/unknown session — flattens to the SAME {@code 401 UNAUTHENTICATED} with
- * a generic message; the bounded {@link CustomerAuthFailure.Reason} is logged internally only,
- * never in the response.
+ * <p><b>401 vs 503.</b> Every CREDENTIAL failure — missing header, malformed bearer, bad signature,
+ * expired token, revoked/unknown session — flattens to the SAME {@code 401 UNAUTHENTICATED} with a
+ * generic message. But {@link CustomerAuthFailure.Reason#NOT_READY} (the signing key is
+ * missing/malformed, or the {@link SessionAuthority} dependency is absent or itself failing) is a
+ * SERVER misconfiguration, not a bad credential, and is deliberately mapped to
+ * {@code 503 SERVICE_UNAVAILABLE} instead — presenting a perfectly valid token to a broken
+ * deployment must never look identical to presenting an invalid one. The bounded
+ * {@link CustomerAuthFailure.Reason} is logged internally only, never in either response body.
  */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 2)
@@ -50,11 +54,14 @@ public class CustomerAuthFilter extends OncePerRequestFilter {
 
     private final CustomerAccessTokenCodec codec;
     private final ObjectProvider<SessionAuthority> sessionAuthority;
+    private final CustomerAuthObservability observability;
     private final ObjectMapper mapper = new ObjectMapper();
 
-    public CustomerAuthFilter(CustomerAccessTokenCodec codec, ObjectProvider<SessionAuthority> sessionAuthority) {
+    public CustomerAuthFilter(CustomerAccessTokenCodec codec, ObjectProvider<SessionAuthority> sessionAuthority,
+                              CustomerAuthObservability observability) {
         this.codec = codec;
         this.sessionAuthority = sessionAuthority;
+        this.observability = observability;
     }
 
     @Override
@@ -77,11 +84,22 @@ public class CustomerAuthFilter extends OncePerRequestFilter {
             SessionAuthority authority = sessionAuthority.getIfAvailable();
             if (authority == null) {
                 // Fail closed — a missing revocation authority must never be treated as "no
-                // sessions to revoke". This mirrors the codec's own NOT_READY posture.
+                // sessions to revoke". This mirrors the codec's own NOT_READY posture: a SERVER
+                // misconfiguration, mapped to 503, never a fake 401.
                 reject(request, response, CustomerAuthFailure.Reason.NOT_READY);
                 return;
             }
-            if (!authority.isSessionActive(principal.customerId(), principal.sessionId())) {
+            boolean active;
+            try {
+                active = authority.isSessionActive(principal.customerId(), principal.sessionId());
+            } catch (RuntimeException e) {
+                // The authority's backing dependency (Mongo, etc) itself failed — this is STILL a
+                // server-readiness problem, not evidence the credential is bad.
+                log.error("session_authority_failed type={}", e.getClass().getSimpleName());
+                reject(request, response, CustomerAuthFailure.Reason.NOT_READY);
+                return;
+            }
+            if (!active) {
                 reject(request, response, CustomerAuthFailure.Reason.SESSION_INACTIVE);
                 return;
             }
@@ -96,13 +114,21 @@ public class CustomerAuthFilter extends OncePerRequestFilter {
                         CustomerAuthFailure.Reason reason) throws IOException {
         String requestId = requestId(request);
         log.warn("customer_auth_rejected reason={} request_id={}", reason, requestId);
-        response.setStatus(401);
-        // Generic challenge only — never the bounded internal reason (expired/bad_signature/
-        // not_ready/...). A client learns nothing beyond "present a bearer token".
-        response.setHeader("WWW-Authenticate", "Bearer");
-        // Per-request authentication state must never be served from an intermediary cache.
+        observability.authRejected(reason);
         response.setHeader("Cache-Control", "no-store");
         response.setContentType("application/json");
+        if (reason == CustomerAuthFailure.Reason.NOT_READY) {
+            // Server misconfiguration/dependency-unavailable — never a fake 401. Body stays
+            // generic: no hint of WHICH dependency (signing key vs session authority) failed.
+            response.setStatus(503);
+            mapper.writeValue(response.getWriter(),
+                    new CustomerAuthErrorDto("SERVICE_UNAVAILABLE", "service unavailable", requestId));
+            return;
+        }
+        response.setStatus(401);
+        // Generic challenge only — never the bounded internal reason (expired/bad_signature/...).
+        // A client learns nothing beyond "present a bearer token".
+        response.setHeader("WWW-Authenticate", "Bearer");
         mapper.writeValue(response.getWriter(),
                 new CustomerAuthErrorDto("UNAUTHENTICATED", "authentication required", requestId));
     }
