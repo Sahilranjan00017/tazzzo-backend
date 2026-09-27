@@ -38,6 +38,21 @@ tazzzo:
     # invented here. Missing or malformed => CustomerAccessTokenCodec is NOT READY and every
     # /v1/customer/** request fails closed with 401 -- there is no anonymous fallback.
     access-token-hmac-key-b64: ${TAZZZO_CUSTOMER_AUTH_ACCESS_TOKEN_HMAC_KEY_B64:}
+    # PR-11C key rotation. Comma-separated list of PREVIOUS access-token signing keys,
+    # VERIFICATION-ONLY -- new tokens are always signed with the key above. Empty by default. To
+    # rotate: deploy the new key as access-token-hmac-key-b64 and the OLD key here; remove it once
+    # every token issued under it has expired (bounded by the access-token TTL).
+    previous-access-token-hmac-keys-b64: ${TAZZZO_CUSTOMER_AUTH_PREVIOUS_ACCESS_TOKEN_HMAC_KEYS_B64:}
+    session:
+      # PR-11C. Base64 of >= 32 random bytes; signs the refresh-token verifier. A SEPARATE secret
+      # from BOTH the access-token key above and the OTP key below -- no key reuse across trust
+      # domains. NO DEFAULT BY DESIGN. Missing/malformed => refresh-token issuance/verification is
+      # NOT READY and session establishment/refresh fails closed with 503.
+      refresh-token-hmac-key-b64: ${TAZZZO_CUSTOMER_SESSION_REFRESH_HMAC_KEY_B64:}
+      # Short-lived access token, reusing PR-11A's CustomerAccessTokenCodec.
+      access-token-ttl-seconds: ${TAZZZO_CUSTOMER_SESSION_ACCESS_TOKEN_TTL_SECONDS:900}
+      # Session (and therefore max refresh) lifetime -- independent of access-token TTL.
+      session-ttl-seconds: ${TAZZZO_CUSTOMER_SESSION_TTL_SECONDS:2592000}
     otp:
       # PR-11B. Base64 of >= 32 random bytes; a SEPARATE secret from the access-token key above —
       # it signs the keyed OTP verifier persisted instead of a plaintext code, and the keyed phone

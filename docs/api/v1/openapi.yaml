@@ -18,9 +18,15 @@ tags:
     description: >
       PR-11B — OTP challenge lifecycle only. Public (no bearer token required or honoured).
       Does NOT create a customer, a session, or issue any access/refresh token — a successful
-      verify proves phone possession and produces a one-time internal login grant that a future
-      phase (PR-11C) consumes to create a session. No login/session/refresh/logout endpoint is
-      documented here yet.
+      verify proves phone possession and produces a one-time internal login grant that PR-11C
+      consumes to create a session.
+  - name: customer-auth-session
+    description: >
+      PR-11C — completes customer authentication: OTP verified grant -> customer resolution/
+      creation -> session -> access/refresh tokens -> refresh rotation -> logout. Session
+      establishment and refresh are PUBLIC (no bearer required — that is how a client obtains one);
+      logout REQUIRES a valid customer access token. Does NOT cover customer profile, addresses,
+      cart, checkout, or orders — those are future phases.
 paths:
   /v1/categories:
     get:
@@ -179,6 +185,71 @@ paths:
         '400': { $ref: '#/components/responses/OtpBadRequest' }
         '429': { $ref: '#/components/responses/OtpRateLimited' }
         '503': { $ref: '#/components/responses/OtpUnavailable' }
+  /v1/auth/session:
+    post:
+      tags: [customer-auth-session]
+      operationId: establishSession
+      summary: >
+        Consume an OTP verified grant to resolve-or-create the customer, create a login session,
+        and issue an access token + refresh token. PUBLIC — this is how a client obtains its
+        first token. sessionId and the phone number are never returned.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SessionEstablishRequest' }
+      responses:
+        '200':
+          description: Session established.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SessionEstablishResponse' }
+        '400': { $ref: '#/components/responses/SessionBadRequest' }
+        '401': { $ref: '#/components/responses/SessionUnauthenticated' }
+        '503': { $ref: '#/components/responses/SessionUnavailable' }
+  /v1/auth/refresh:
+    post:
+      tags: [customer-auth-session]
+      operationId: refreshSession
+      summary: >
+        Rotate a refresh token for a new access token + a NEW refresh token. The presented refresh
+        token is invalidated by this call, whether or not it is ever used again — atomic rotation
+        (a race between two callers presenting the SAME token lets exactly one win). PUBLIC.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RefreshRequest' }
+      responses:
+        '200':
+          description: Rotated. A brand-new refresh token is always returned.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RefreshResponse' }
+        '400': { $ref: '#/components/responses/SessionBadRequest' }
+        '401': { $ref: '#/components/responses/SessionUnauthenticated' }
+        '503': { $ref: '#/components/responses/SessionUnavailable' }
+  /v1/auth/logout:
+    post:
+      tags: [customer-auth-session]
+      operationId: logout
+      summary: >
+        Revoke the CURRENT session (identified by the presented access token). REQUIRES a valid
+        customer access token — despite living under the public /v1/auth/** namespace, this
+        endpoint performs its own explicit bearer authentication. Repeated logout is safe. Does
+        not delete the customer. No logout-all in this phase.
+      security:
+        - customerBearerAuth: []
+      responses:
+        '204':
+          description: Session revoked (or was already revoked — never distinguished).
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+        '401': { $ref: '#/components/responses/SessionUnauthenticated' }
 components:
   parameters:
     Release:
@@ -451,6 +522,50 @@ components:
         retryable: { type: boolean }
         retryAfterSeconds: { type: integer, nullable: true }
         details: { type: object, nullable: true, description: Only when safe. }
+    SessionEstablishRequest:
+      type: object
+      required: [grantId]
+      properties:
+        grantId: { type: string, pattern: '^GRANT_[A-Za-z0-9_-]+$' }
+    SessionEstablishResponse:
+      type: object
+      description: >
+        sessionId and the phone number are DELIBERATELY OMITTED — the client never needs either
+        directly; the access token carries the session internally and the refresh token embeds it
+        as an opaque routing prefix.
+      required: [customerId, accessToken, accessTokenExpiresIn, refreshToken, requestId]
+      properties:
+        customerId: { type: string, pattern: '^CUS_[A-Za-z0-9_-]+$' }
+        accessToken: { type: string }
+        accessTokenExpiresIn: { type: integer, format: int64, description: Seconds. }
+        refreshToken: { type: string }
+        requestId: { type: string }
+    RefreshRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken: { type: string }
+    RefreshResponse:
+      type: object
+      description: A brand-new refresh token every time — the presented one is rotated away and
+        never usable again, whether or not this response is ever received by the client.
+      required: [accessToken, accessTokenExpiresIn, refreshToken, requestId]
+      properties:
+        accessToken: { type: string }
+        accessTokenExpiresIn: { type: integer, format: int64, description: Seconds. }
+        refreshToken: { type: string }
+        requestId: { type: string }
+    SessionErrorEnvelope:
+      type: object
+      description: >
+        Independent of ErrorEnvelope/OtpErrorEnvelope/CustomerAuthError (different trust domains).
+        INVALID grant/refresh-token states — unknown, consumed, expired, wrong purpose, digest
+        mismatch, revoked, rotated-away — all collapse to the SAME UNAUTHENTICATED outcome.
+      required: [code, message, requestId]
+      properties:
+        code: { type: string, enum: [INVALID_REQUEST, UNAUTHENTICATED, SERVICE_UNAVAILABLE, INTERNAL] }
+        message: { type: string, description: "Safe, generic. No internals, no tokens, no phone." }
+        requestId: { type: string }
   responses:
     BadRequest:
       description: Invalid request or cursor
@@ -498,3 +613,37 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/OtpErrorEnvelope' }
+    SessionBadRequest:
+      description: Malformed grantId/refreshToken shape.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/SessionErrorEnvelope' }
+    SessionUnauthenticated:
+      description: >
+        Generic authentication failure — an invalid/consumed/expired/wrong-purpose grant, an
+        invalid/expired/revoked/rotated-away/digest-mismatched refresh token, or (logout only) a
+        missing/invalid customer access token. Never distinguishes which.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+        WWW-Authenticate: { schema: { type: string, example: "Bearer" } }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/SessionErrorEnvelope' }
+    SessionUnavailable:
+      description: Access-token/refresh-token signing key or a required dependency not ready.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/SessionErrorEnvelope' }
+  securitySchemes:
+    customerBearerAuth:
+      type: http
+      scheme: bearer
+      description: >
+        A customer access token issued by POST /v1/auth/session or POST /v1/auth/refresh. Used
+        ONLY by POST /v1/auth/logout in this document — no other endpoint here requires it, and
+        this scheme is NOT applied globally (adding it here does not mark any existing PUBLIC /v1
+        route as authenticated).

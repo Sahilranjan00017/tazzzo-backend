@@ -1,8 +1,10 @@
 package com.tazzzo.auth;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.tazzzo.auth.session.CustomerSessionRepository;
 import com.tazzzo.catalog.CatalogApplication;
 import jakarta.servlet.http.HttpServletRequest;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -60,11 +62,25 @@ class CustomerAuthFilterIT {
         r.add("tazzzo.auth.cms-token", () -> CMS_TOKEN);
         r.add("tazzzo.auth.read-token", () -> READ_TOKEN);
         r.add("tazzzo.customer-auth.access-token-hmac-key-b64", () -> FIXTURE_KEY_B64);
+        r.add("tazzzo.customer-auth.session.refresh-token-hmac-key-b64", () -> FIXTURE_KEY_B64);
     }
 
     @LocalServerPort int port;
     @Autowired TestRestTemplate rest;
     @Autowired CustomerAccessTokenCodec codec;
+    @Autowired CustomerSessionRepository sessions;
+
+    /**
+     * PR-11C — {@code CustomerAuthFilter} now also consults {@code SessionAuthority}: a
+     * cryptographically valid token alone no longer reaches the downstream controller unless a
+     * matching, active session actually exists. Every "valid token" fixture in this suite needs a
+     * real session record for CUS_alice001/SES_sess0001.
+     */
+    @BeforeAll
+    void seedActiveSession() {
+        sessions.create(new SessionId("SES_sess0001"), new CustomerId("CUS_alice001"), Instant.now(),
+                Instant.now().plusSeconds(3600), "fixture-digest-unused-by-filter".getBytes(StandardCharsets.UTF_8));
+    }
 
     /** Test-only fixture — never a production customer endpoint. */
     @RestController
@@ -198,5 +214,42 @@ class CustomerAuthFilterIT {
         ResponseEntity<JsonNode> res = getWithHeaders("/v1/customer/_probe", headers);
         assertThat(res.getStatusCode().value()).isEqualTo(200);
         assertThat(res.getBody().at("/customerId").asText()).isEqualTo("CUS_alice001");
+    }
+
+    // ---------- PR-11C: session-revocation authority ----------
+
+    @Test void a_cryptographically_valid_token_for_an_unknown_session_is_401() {
+        String token = codec.issue(new CustomerPrincipal(new CustomerId("CUS_ghost001"),
+                new SessionId("SES_ghost0001")), Duration.ofMinutes(15));
+        ResponseEntity<JsonNode> res = get("/v1/customer/_probe", "Bearer " + token);
+        assertThat(res.getStatusCode().value())
+                .as("crypto/time validity alone is not enough -- the session must actually exist").isEqualTo(401);
+    }
+
+    @Test void a_valid_token_for_a_revoked_session_is_401() {
+        SessionId sessionId = new SessionId("SES_revoked01");
+        CustomerId customerId = new CustomerId("CUS_revoked01");
+        sessions.create(sessionId, customerId, Instant.now(), Instant.now().plusSeconds(3600),
+                "fixture-digest".getBytes(StandardCharsets.UTF_8));
+        sessions.revoke(sessionId.value(), Instant.now());
+
+        String token = codec.issue(new CustomerPrincipal(customerId, sessionId), Duration.ofMinutes(15));
+        ResponseEntity<JsonNode> res = get("/v1/customer/_probe", "Bearer " + token);
+        assertThat(res.getStatusCode().value())
+                .as("a structurally valid token for a REVOKED session must stop working").isEqualTo(401);
+        assertThat(res.getBody().at("/code").asText()).isEqualTo("UNAUTHENTICATED");
+    }
+
+    @Test void a_valid_token_for_an_expired_session_record_is_401() {
+        SessionId sessionId = new SessionId("SES_dbexpired1");
+        CustomerId customerId = new CustomerId("CUS_dbexpired1");
+        // The SESSION record itself has already expired (independent of the access token's own,
+        // separately-configured, shorter TTL).
+        sessions.create(sessionId, customerId, Instant.now().minusSeconds(7200), Instant.now().minusSeconds(3600),
+                "fixture-digest".getBytes(StandardCharsets.UTF_8));
+
+        String token = codec.issue(new CustomerPrincipal(customerId, sessionId), Duration.ofMinutes(15));
+        ResponseEntity<JsonNode> res = get("/v1/customer/_probe", "Bearer " + token);
+        assertThat(res.getStatusCode().value()).isEqualTo(401);
     }
 }

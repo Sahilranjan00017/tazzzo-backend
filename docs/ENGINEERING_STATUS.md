@@ -110,11 +110,6 @@ PR-01 through PR-08 are **MERGED**:
   **1142-test regression floor**.
 
 - **docs** — status-doc-only correction folding PR-11A into "Merged on main". Squash `806d106`.
-
-`main` = `806d1069b2da7c49b7ee7bddf1013f81511cee5d` (PR-11A squash `4ce798f` + status-doc squash `806d106`).
-
-## In review (NOT merged)
-
 - **PR-11B — OTP challenge lifecycle and provider abstraction** (`com.tazzzo.auth.otp`): OTP
   request/verify only. Does **NOT** create a customer, a session, or issue any access/refresh
   token — see PR-11C. `Phone`: strict India-only value object (E.164 `+91XXXXXXXXXX` plus two
@@ -125,30 +120,86 @@ PR-01 through PR-08 are **MERGED**:
   fail-closed `NOT_READY`), plus a non-reversible keyed phone digest for rate-limit bucket keys
   (never the raw phone). `customer_otp_challenges`: typed state machine
   (`PENDING_DELIVERY → ACTIVE → VERIFIED/LOCKED/EXPIRED/SUPERSEDED`, `PENDING_DELIVERY →
-  DELIVERY_FAILED`), every transition an atomic Mongo CAS (`findOneAndUpdate` filtered on
-  expected status — never read-then-write-back); a partial unique index on
-  `(phoneNormalized, purpose)` filtered by `active=true` is the create-race guard for "at most
-  one usable challenge per phone" (the same idiom as `service_areas.pincode`/
-  `catalogue_releases.gate`); application logic enforces expiry itself, the Mongo TTL index is
-  cleanup-only. Resend re-arms within cooldown idempotently (no duplicate send) and supersedes
-  the previous code after cooldown (old code stops working immediately). Wrong-OTP attempts
-  increment atomically and lock the challenge at the configured maximum; every OTP outcome —
-  unknown/wrong/locked/superseded/already-verified challenge — collapses to the SAME generic
-  `OTP_INVALID` (no enumeration). A successful verify produces a `customer_otp_verified_grants`
-  one-time login grant (`GRANT_*`, opaque, no PII) — the client receives ONLY the grant id, never
-  the phone; consumption is atomic and exactly-once, and is a narrow internal contract with
-  **no public HTTP endpoint** — PR-11C is its only intended caller. `OtpDeliveryProvider`:
-  interface abstraction, no default production implementation (missing provider ⇒ 503, never a
-  silent discard); a `LOGGING` dev-only provider exists behind explicit opt-in
-  (`tazzzo.customer-auth.otp.provider-mode`), never logging the plaintext OTP; production
-  SMS/WhatsApp integration is explicitly out of scope. Rate limiting reuses the SAME
-  `RateLimitStore` the consumer surface uses (no separate Redis wiring) with IP+phone-digest
-  buckets on request and IP+challenge-id buckets on verify. `POST /v1/auth/otp/request` and
-  `POST /v1/auth/otp/verify` are on the PRE-EXISTING `/v1/auth/**` `PUBLIC_CONSUMER` allowlist
-  entry (no `SurfaceClassifier` change needed) — any `Authorization` header is irrelevant to
-  these endpoints; every response is `Cache-Control: no-store`. **No real production SMS
-  provider, no login/session creation, no refresh token, no logout, no Profile/Address/Cart, no
-  app integration, no AWS work.** On `feature/pr11b-otp-lifecycle`.
+  DELIVERY_FAILED`), every transition an atomic Mongo CAS/transaction (never read-then-write-back);
+  two independent partial-unique indexes (`delivering`/`active`) so a resend never invalidates the
+  previous working code until the replacement is CONFIRMED delivered; the OTP validity window
+  starts at confirmed delivery, never challenge creation; a stale `PENDING_DELIVERY` (crashed
+  process) is detected and retired via the authoritative `Clock`, never relying solely on the
+  async Mongo TTL sweep. The ACTIVE→VERIFIED transition and the grant insert are ONE Mongo
+  transaction (`Tx`) — a transient failure aborts the whole thing, leaving the challenge ACTIVE, so
+  a client retry with the same OTP is the recovery path; a duplicate-key on the grant's
+  `challengeId` unique index is disambiguated by a read-and-compare, never blindly accepted. Every
+  OTP outcome — unknown/wrong/locked/superseded/already-verified challenge — collapses to the SAME
+  generic `OTP_INVALID` (no enumeration). A successful verify produces a
+  `customer_otp_verified_grants` one-time login grant (`GRANT_*`, opaque, no PII) — the client
+  receives ONLY the grant id, never the phone; consumption is atomic and exactly-once, and is a
+  narrow internal contract with **no public HTTP endpoint** — PR-11C is its only caller (now
+  implemented). `OtpDeliveryProvider`: interface abstraction, no default production implementation
+  (missing provider ⇒ 503, never a silent discard); a `LOGGING` dev-only provider exists behind
+  explicit opt-in, never logging the plaintext OTP; production SMS/WhatsApp integration remains
+  explicitly out of scope. Rate limiting reuses the SAME `RateLimitStore` the consumer surface uses.
+  `POST /v1/auth/otp/request` and `POST /v1/auth/otp/verify` are on the PRE-EXISTING `/v1/auth/**`
+  `PUBLIC_CONSUMER` allowlist entry. Squash merges `a2d2016`/`8b962e6`/`71012b4`/`02e0cf5` →
+  `250477d` — **1235-test regression floor**.
+
+`main` = `250477d69652a26110e02e4b4c90753dd9c94bd6` (PR-11A+status-doc + PR-11B squash `250477d`).
+
+## In review (NOT merged)
+
+- **PR-11C — Customer account and session lifecycle** (`com.tazzzo.auth.session`): completes
+  customer authentication — OTP verified grant → customer resolution/creation → session creation
+  → access/refresh token issuance → refresh rotation → logout/session revocation. Does **NOT**
+  cover customer profile editing, addresses, cart, checkout, orders, wallet, notifications, social
+  login, admin auth, payment, or app integration — those remain future phases.
+  - **`customers`**: minimal identity — `_id` (opaque `CUS_*`, CSPRNG), `phoneNormalized`
+    (canonical identity, unique-indexed), `status`, `createdAt`, `updatedAt`, `lastLoginAt`. NO
+    profile fields. `CustomerRepository.resolveOrCreate` is a single atomic
+    `findOneAndUpdate(upsert=true)` against the unique phone index — Mongo itself serializes a
+    concurrent first-login race, so two simultaneous logins for the same never-seen phone always
+    converge on exactly one customer.
+  - **Session establishment is ONE Mongo transaction**: consume the OTP grant (`purpose=LOGIN`,
+    not expired, not already consumed) → resolve-or-create the customer → create the
+    `customer_sessions` record. Any step failing aborts the WHOLE transaction — a transient
+    persistence failure leaves the grant durably UNCONSUMED, so the client's own retry of
+    `POST /v1/auth/session` with the same grant is the recovery path, no manual repair. (The
+    PR-11B lesson applied again: an invariant requiring rollback is always thrown from INSIDE the
+    `Tx` callback, never checked only after `tx.run()` returns — proven by a dedicated
+    transaction-rollback test.)
+  - **`customer_sessions`**: `_id` (opaque `SES_*`), `customerId`, `createdAt`, `expiresAt`
+    (independent of access-token TTL; default 30 days), `revokedAt`, `refreshTokenDigest`,
+    `refreshGeneration`, `lastRotatedAt`. `expiresAt`/`revokedAt` are APPLICATION predicates
+    checked on every authorization-relevant query — the Mongo TTL index is cleanup only.
+  - **Access tokens** reuse PR-11A's `CustomerAccessTokenCodec` unchanged in wire format
+    (default 15 minute TTL, configurable, validated shorter than the session TTL at startup).
+    **Key rotation added**: an optional list of PREVIOUS verification-only keys
+    (`previous-access-token-hmac-keys-b64`) — new tokens always sign with the current key; a
+    token signed under a previous key still verifies until that key is removed from the list, no
+    wire-format/version change.
+  - **Refresh tokens** are `<sessionId>.<32-byte CSPRNG secret>` — the session id is not secret
+    (already inside the signed access token), so it doubles as a lookup key with no separate
+    digest index needed. Only a keyed HMAC-SHA256 digest of the secret is ever persisted, using a
+    DEDICATED key (`tazzzo.customer-auth.session.refresh-token-hmac-key-b64`) — separate from both
+    the access-token key and the OTP key, no reuse across trust domains. Rotation is an atomic CAS
+    (`findOneAndUpdate` filtered on the CURRENTLY-stored digest matching the presented token): of
+    two concurrent requests presenting the SAME refresh token, only the first can possibly commit,
+    the second gets the same generic auth failure a stale/reused/revoked/expired token gets — no
+    enumeration of why.
+  - **Session-revocation authority**: PR-11A's `CustomerAuthFilter` proved cryptographic/time
+    validity only. PR-11C adds `SessionAuthority` (defined in the `com.tazzzo.auth` foundation
+    package, implemented in `com.tazzzo.auth.session` — dependency inversion, no reverse package
+    coupling): after crypto/time verification succeeds, the filter now ALSO confirms the named
+    session is neither revoked nor expired against real persistence (correctness first; no caching
+    layer in this PR — a documented scope decision, not an oversight). A missing `SessionAuthority`
+    bean fails closed exactly like a missing signing key, never a silent bypass.
+  - **Logout requires authentication despite `/v1/auth/**` being PUBLIC_CONSUMER** —
+    `CustomerAuthFilter` explicitly skips that surface, so `SessionController` performs its OWN
+    inline bearer verification for `/v1/auth/logout` only (reusing `CustomerAccessTokenCodec`
+    directly), producing the byte-identical flat 401 shape the filter itself would. Logout is
+    idempotent and never reveals whether a session was already revoked; it does not delete the
+    customer.
+  - Session establishment/refresh responses deliberately OMIT `sessionId` and the phone number.
+  - **No customer profile/address/cart/checkout/orders, no logout-all, no social login, no
+    payment.** On `feature/pr11c-customer-session-lifecycle`.
 
 ## Blocked
 
@@ -170,21 +221,21 @@ PR-01 through PR-08 are **MERGED**:
 - **Public Commerce Read (PR-10A/B/C): COMPLETE.** The public `/v1` read surface (categories,
   children, category-products, product detail, serviceability) is live on `main`, operationally
   hardened (cache/ETag/observability/readiness), with a 1051-test regression floor.
-- **Customer Auth (PR-11A/B/C): IN PROGRESS. Do not mark authentication complete.**
+- **Customer Auth (PR-11A/B/C): IN REVIEW — COMPLETE PENDING MERGE. Do not mark authentication
+  complete until PR-11C merges.**
   - **PR-11A — customer auth security boundary: MERGED.** Fourth HTTP surface + principal/
-    token cryptographic verification foundation, deny-by-default `/v1` classification. No
-    business auth flow yet.
-  - **PR-11B — OTP challenge lifecycle + provider abstraction: IN REVIEW.** OTP request/verify
-    only; produces an internal one-time login grant. **Login/session flow is still incomplete
-    until PR-11C** — no customer, session, or access/refresh token exists yet.
-  - **PR-11C — login/session/refresh/logout endpoints: PLANNED.** Not started. Session
-    persistence and revocation do not exist before this lands.
+    token cryptographic verification foundation, deny-by-default `/v1` classification.
+  - **PR-11B — OTP challenge lifecycle + provider abstraction: MERGED.** OTP request/verify,
+    produces an internal one-time login grant.
+  - **PR-11C — customer account and session lifecycle: IN REVIEW.** Grant consumption, customer
+    resolution/creation, session creation, access/refresh tokens, refresh rotation, logout/session
+    revocation. **This completes the AUTHENTICATION/SESSION INFRASTRUCTURE boundary only — it is
+    NOT the customer profile domain.** No customer profile editing, addresses, cart, checkout, or
+    orders exist yet; those are future, unscoped phases.
 
 ## Next (ratified sequence)
 
-1. **PR-11C** — login/session/refresh/logout endpoints, consuming PR-11B's verified grant
-   (planned, not started).
-2. **PR-11D+** — Customer/Profile/Address, Cart, Checkout, Orders, Search, Notifications, app
+1. **PR-11D+** — Customer profile/Address, Cart, Checkout, Orders, Search, Notifications, app
    integration, AWS infrastructure: not started, not scoped yet.
 
 ## Not started (honest boundary)
@@ -218,6 +269,10 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-09-28** — `./mvnw clean test` in `services/catalog-service` on Java 21.0.12 + Docker
+  (MongoDB 7, Redis via Testcontainers), on `feature/pr11c-customer-session-lifecycle` at head,
+  based on `main` squash `250477d` (post-PR-11B baseline, 1235 tests): **BUILD SUCCESS**,
+  **1268 tests, 0 failures / 0 errors / 0 skipped**.
 - **2026-09-28** — `./mvnw clean test` in `services/catalog-service` on Java 21.0.12 +
   Docker (MongoDB 7, Redis via Testcontainers), on `main` at squash merge `4ce798f`
   (post-PR-11A baseline): **BUILD SUCCESS**, **1142 tests, 0 failures / 0 errors / 0 skipped**.

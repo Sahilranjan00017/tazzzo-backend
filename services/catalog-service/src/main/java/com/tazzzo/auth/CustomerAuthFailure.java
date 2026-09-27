@@ -10,7 +10,9 @@ package com.tazzzo.auth;
 public final class CustomerAuthFailure extends RuntimeException {
 
     public enum Reason {
-        MISSING, MALFORMED, INVALID_SIGNATURE, EXPIRED, FUTURE_ISSUED, NOT_READY, MALFORMED_CLAIMS
+        MISSING, MALFORMED, INVALID_SIGNATURE, EXPIRED, FUTURE_ISSUED, NOT_READY, MALFORMED_CLAIMS,
+        /** PR-11C — cryptographically/time valid, but the named session is revoked/expired/unknown. */
+        SESSION_INACTIVE
     }
 
     private final Reason reason;

@@ -65,7 +65,13 @@ public class SchemaBootstrap {
             "customer_otp_challenges",
             // PR-11B: one-time login grant produced by a successful OTP verification. PR-11C's
             // exclusive consumption contract; ephemeral, TTL-indexed.
-            "customer_otp_verified_grants");
+            "customer_otp_verified_grants",
+            // PR-11C: minimal customer identity (phoneNormalized is canonical identity). No
+            // profile fields — those belong to a future PR.
+            "customers",
+            // PR-11C: customer login session + refresh-token verifier. expiresAt/revokedAt are
+            // APPLICATION predicates; the TTL index below is cleanup only, never authorization.
+            "customer_sessions");
 
     /**
      * PAG-2-SORT-1 transport support: the equality prefix the consumer-eligibility predicate uses,
@@ -223,6 +229,22 @@ public class SchemaBootstrap {
         // same challenge, even if application logic regressed.
         db.getCollection("customer_otp_verified_grants").createIndex(
                 Indexes.ascending("challengeId"), new IndexOptions().unique(true));
+        // PR-11C: exactly one customer per canonical phone; the unique index doubles as the
+        // create-race guard for CustomerRepository.resolveOrCreate's upsert (the SAME idiom as
+        // service_areas.pincode/catalogue_releases.gate above).
+        db.getCollection("customers").createIndex(
+                Indexes.ascending("phoneNormalized"), new IndexOptions().name("customer_one_per_phone").unique(true));
+        // PR-11C: session lookup by owning customer (not required by any current query, but a
+        // reasonable defensive index — a future logout-all/session-listing feature will need it,
+        // and it costs nothing on this low-write-volume collection).
+        db.getCollection("customer_sessions").createIndex(
+                Indexes.ascending("customerId"), new IndexOptions().name("session_by_customer"));
+        // Cleanup only — CustomerSessionRepository enforces expiresAt/revokedAt as APPLICATION
+        // predicates on every authorization-relevant query; this TTL sweep is asynchronous and is
+        // never itself the authorization mechanism.
+        db.getCollection("customer_sessions").createIndex(
+                Indexes.ascending("expiresAt"), new IndexOptions().name("session_expiry_ttl")
+                        .expireAfter(0L, java.util.concurrent.TimeUnit.SECONDS));
     }
 
     /**

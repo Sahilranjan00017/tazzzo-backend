@@ -1,5 +1,7 @@
 package com.tazzzo.auth;
 
+import java.security.SecureRandom;
+import java.util.Base64;
 import java.util.regex.Pattern;
 
 /**
@@ -9,10 +11,14 @@ import java.util.regex.Pattern;
  *
  * <p>Bounded length and a conservative alphabet only: this is a security-boundary value object,
  * not a display string.
+ *
+ * <p>PR-11C: {@link #generate()} is the actual minting seam — {@link CustomerId} instances used
+ * as customer database identity are always {@link SecureRandom}-generated, never sequential.
  */
 public record CustomerId(String value) {
 
     private static final Pattern PATTERN = Pattern.compile("^CUS_[A-Za-z0-9_-]{6,64}$");
+    private static final SecureRandom RANDOM = new SecureRandom();
 
     public CustomerId {
         if (value == null || !PATTERN.matcher(value).matches()) {
@@ -22,5 +28,12 @@ public record CustomerId(String value) {
 
     public static boolean isValid(String candidate) {
         return candidate != null && PATTERN.matcher(candidate).matches();
+    }
+
+    /** A fresh, cryptographically random opaque customer id — never sequential, no PII. */
+    public static CustomerId generate() {
+        byte[] bytes = new byte[20];
+        RANDOM.nextBytes(bytes);
+        return new CustomerId("CUS_" + Base64.getUrlEncoder().withoutPadding().encodeToString(bytes));
     }
 }

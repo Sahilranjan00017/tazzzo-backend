@@ -16,9 +16,13 @@ import java.time.Clock;
 import java.time.DateTimeException;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.List;
 import java.util.Objects;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * PR-11A — the customer access-token codec: a stateless, versioned, HMAC-SHA256 signed, opaque
@@ -44,14 +48,23 @@ import java.util.Objects;
  * (never {@code Instant.now()} in this class). A tampered payload fails on the signature, never on
  * a parser exception.
  *
- * <p><b>PR-11A boundary:</b> this proves CRYPTOGRAPHIC and TIME validity only. There is no session
- * database yet — no revocation, no logout invalidation, no server-side session lookup. A
- * cryptographically valid, unexpired token is accepted; revocation is a PR-11C concern once session
- * lifecycle exists. Do not treat verification success here as proof a session is still active
- * server-side — it is proof only that THIS token was minted by this server and has not expired.
+ * <p><b>PR-11A boundary:</b> this proves CRYPTOGRAPHIC and TIME validity only. Server-side session
+ * lookup/revocation is layered on top by {@code CustomerAuthFilter} consulting
+ * {@code SessionAuthority} (PR-11C) — do not treat verification success HERE as proof a session is
+ * still active server-side; it is proof only that THIS server minted the token and it has not
+ * expired.
+ *
+ * <p><b>PR-11C key rotation:</b> verification tries the CURRENT signing key first, then each
+ * configured PREVIOUS key in order — no wire-format change, no key id in the token. New tokens are
+ * ALWAYS signed with the current key only. This lets an operator rotate the signing key by
+ * deploying the new key as current and the old one as a previous-key entry, then removing the
+ * previous entry once its rotation window has safely passed (bounded by the token TTL any
+ * previously-issued token could still be presented with).
  */
 @Component
 public class CustomerAccessTokenCodec {
+
+    private static final Logger log = LoggerFactory.getLogger(CustomerAccessTokenCodec.class);
 
     /** Tokens are small and fixed-shape; anything larger cannot be one of ours. */
     public static final int MAX_ENCODED_LENGTH = 1024;
@@ -65,6 +78,7 @@ public class CustomerAccessTokenCodec {
     private static final int MAC_BYTES = 32;
 
     private final SecretKeySpec key;      // null when not configured or malformed
+    private final List<SecretKeySpec> previousKeys; // verification-only, never used to sign
     private final String unavailableReason;
     private final Clock clock;
 
@@ -90,6 +104,36 @@ public class CustomerAccessTokenCodec {
         }
         this.key = resolved;
         this.unavailableReason = reason;
+        this.previousKeys = parsePreviousKeys(properties.getPreviousAccessTokenHmacKeysB64());
+    }
+
+    /**
+     * A malformed/short PREVIOUS key entry is skipped and logged, never a startup failure and
+     * never NOT_READY — rotation configuration is an operational aid, not a hard requirement, and
+     * one bad entry must not take down current-key signing/verification.
+     */
+    private static List<SecretKeySpec> parsePreviousKeys(List<String> configured) {
+        List<SecretKeySpec> resolved = new ArrayList<>();
+        if (configured == null) {
+            return resolved;
+        }
+        for (String entry : configured) {
+            if (entry == null || entry.isBlank()) {
+                continue;
+            }
+            try {
+                byte[] raw = Base64.getDecoder().decode(entry.trim());
+                if (raw.length < MIN_KEY_BYTES) {
+                    log.warn("customer_auth_previous_key_ignored reason=too_short");
+                    continue;
+                }
+                resolved.add(new SecretKeySpec(raw, MAC_ALGORITHM));
+                Arrays.fill(raw, (byte) 0);
+            } catch (IllegalArgumentException e) {
+                log.warn("customer_auth_previous_key_ignored reason=not_base64");
+            }
+        }
+        return resolved;
     }
 
     /** True when a key is configured and usable. The customer surface must not serve otherwise. */
@@ -135,7 +179,7 @@ public class CustomerAccessTokenCodec {
             out.writeLong(expiresAt.getEpochSecond());
             out.flush();
             byte[] payload = buffer.toByteArray();
-            byte[] signature = sign(payload);
+            byte[] signature = sign(key, payload); // new tokens are ALWAYS signed with the CURRENT key
             byte[] token = new byte[payload.length + signature.length];
             System.arraycopy(payload, 0, token, 0, payload.length);
             System.arraycopy(signature, 0, token, payload.length, signature.length);
@@ -175,11 +219,27 @@ public class CustomerAccessTokenCodec {
         }
         byte[] payload = Arrays.copyOfRange(token, 0, token.length - MAC_BYTES);
         byte[] presented = Arrays.copyOfRange(token, token.length - MAC_BYTES, token.length);
-        // Constant-time: a forger must not learn how many signature bytes matched.
-        if (!MessageDigest.isEqual(sign(payload), presented)) {
+        if (!matchesAnyKey(payload, presented)) {
             throw new CustomerAuthFailure(CustomerAuthFailure.Reason.INVALID_SIGNATURE);
         }
         return parseAndValidate(payload);
+    }
+
+    /**
+     * Tries the CURRENT key first, then each PREVIOUS key in order (PR-11C rotation) — every
+     * comparison is constant-time so a forger cannot learn how many signature bytes matched against
+     * ANY candidate key, current or previous.
+     */
+    private boolean matchesAnyKey(byte[] payload, byte[] presented) {
+        if (MessageDigest.isEqual(sign(key, payload), presented)) {
+            return true;
+        }
+        for (SecretKeySpec previous : previousKeys) {
+            if (MessageDigest.isEqual(sign(previous, payload), presented)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private CustomerPrincipal parseAndValidate(byte[] payload) {
@@ -231,10 +291,10 @@ public class CustomerAccessTokenCodec {
         return new CustomerPrincipal(new CustomerId(customerIdValue), new SessionId(sessionIdValue));
     }
 
-    private byte[] sign(byte[] payload) {
+    private static byte[] sign(SecretKeySpec signingKey, byte[] payload) {
         try {
             Mac mac = Mac.getInstance(MAC_ALGORITHM);   // Mac is not thread-safe; one per call
-            mac.init(key);
+            mac.init(signingKey);
             return mac.doFinal(payload);
         } catch (GeneralSecurityException e) {
             throw new CustomerAuthFailure(CustomerAuthFailure.Reason.NOT_READY);

@@ -9,6 +9,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
@@ -28,9 +29,17 @@ import java.io.IOException;
  * installation id remains what it has always been: an optional anti-abuse dimension, never
  * authentication (CAT-SEC-1 Q5-INSTALL-1).
  *
+ * <p><b>PR-11C — session revocation authority.</b> Cryptographic/time validity alone is
+ * insufficient once real sessions exist: a stolen-but-unexpired token must stop working the moment
+ * its session is revoked (logout). After {@link CustomerAccessTokenCodec#verify} succeeds, this
+ * filter ALSO consults {@link SessionAuthority#isSessionActive}. A missing {@link SessionAuthority}
+ * bean is NOT treated as "skip the check" — it fails closed exactly like a missing signing key,
+ * because silently bypassing revocation would be a security regression, not a graceful degradation.
+ *
  * <p>Every failure — missing header, malformed bearer, bad signature, expired token, wrong key,
- * not-ready codec — flattens to the SAME {@code 401 UNAUTHENTICATED} with a generic message; the
- * bounded {@link CustomerAuthFailure.Reason} is logged internally only, never in the response.
+ * not-ready codec, revoked/unknown session — flattens to the SAME {@code 401 UNAUTHENTICATED} with
+ * a generic message; the bounded {@link CustomerAuthFailure.Reason} is logged internally only,
+ * never in the response.
  */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 2)
@@ -40,10 +49,12 @@ public class CustomerAuthFilter extends OncePerRequestFilter {
     private static final String BEARER_PREFIX = "Bearer ";
 
     private final CustomerAccessTokenCodec codec;
+    private final ObjectProvider<SessionAuthority> sessionAuthority;
     private final ObjectMapper mapper = new ObjectMapper();
 
-    public CustomerAuthFilter(CustomerAccessTokenCodec codec) {
+    public CustomerAuthFilter(CustomerAccessTokenCodec codec, ObjectProvider<SessionAuthority> sessionAuthority) {
         this.codec = codec;
+        this.sessionAuthority = sessionAuthority;
     }
 
     @Override
@@ -63,6 +74,17 @@ public class CustomerAuthFilter extends OncePerRequestFilter {
         String token = header.substring(BEARER_PREFIX.length());
         try {
             CustomerPrincipal principal = codec.verify(token);
+            SessionAuthority authority = sessionAuthority.getIfAvailable();
+            if (authority == null) {
+                // Fail closed — a missing revocation authority must never be treated as "no
+                // sessions to revoke". This mirrors the codec's own NOT_READY posture.
+                reject(request, response, CustomerAuthFailure.Reason.NOT_READY);
+                return;
+            }
+            if (!authority.isSessionActive(principal.customerId(), principal.sessionId())) {
+                reject(request, response, CustomerAuthFailure.Reason.SESSION_INACTIVE);
+                return;
+            }
             request.setAttribute(CustomerPrincipalResolver.ATTRIBUTE, principal);
             chain.doFilter(request, response);
         } catch (CustomerAuthFailure e) {
