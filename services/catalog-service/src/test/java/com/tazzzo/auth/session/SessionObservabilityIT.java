@@ -1,6 +1,11 @@
 package com.tazzzo.auth.session;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.tazzzo.auth.CustomerAccessTokenCodec;
+import com.tazzzo.auth.CustomerId;
+import com.tazzzo.auth.CustomerPrincipal;
+import com.tazzzo.auth.CustomerPrincipalResolver;
+import com.tazzzo.auth.SessionId;
 import com.tazzzo.auth.otp.OtpPurpose;
 import com.tazzzo.auth.otp.OtpVerifiedGrantRepository;
 import com.tazzzo.auth.otp.Phone;
@@ -9,17 +14,22 @@ import com.tazzzo.catalog.CatalogApplication;
 import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -29,8 +39,15 @@ import static org.assertj.core.api.Assertions.assertThat;
  * PR-11C hardening (Finding 2) — proves the minimum bounded session/auth metrics actually exist,
  * increment on the right outcomes, and NEVER carry a high-cardinality/identity tag value. Mirrors
  * {@code ConsumerObservabilityIT}'s conventions.
+ *
+ * <p>{@code session_auth_rejected} has TWO independent producers — {@code CustomerAuthFilter} (any
+ * {@code CUSTOMER_AUTHENTICATED} route) and {@code SessionExceptionHandler} (logout's own inline
+ * bearer check). A test-only probe controller under {@code /v1/customer/_probe} (mirrors
+ * {@code CustomerAuthFilterIT}'s fixture — never a production endpoint) exercises the FIRST
+ * producer directly; logout exercises the second.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, classes = CatalogApplication.class)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        classes = {CatalogApplication.class, SessionObservabilityIT.CustomerProbeController.class})
 class SessionObservabilityIT extends AbstractApiIT {
 
     static final String ACCESS_KEY = Base64.getEncoder().encodeToString(new byte[32]);
@@ -55,6 +72,18 @@ class SessionObservabilityIT extends AbstractApiIT {
 
     @Autowired OtpVerifiedGrantRepository grants;
     @Autowired MeterRegistry registry;
+    @Autowired CustomerAccessTokenCodec accessCodec;
+    @Autowired CustomerSessionRepository sessions;
+
+    /** Test-only fixture — never a production customer endpoint (mirrors CustomerAuthFilterIT). */
+    @RestController
+    static class CustomerProbeController {
+        @GetMapping("/v1/customer/_probe")
+        public Map<String, String> probe(HttpServletRequest request) {
+            CustomerPrincipal p = CustomerPrincipalResolver.require(request);
+            return Map.of("customerId", p.customerId().value(), "sessionId", p.sessionId().value());
+        }
+    }
 
     private String seedGrant(String phone) {
         String grantId = "GRANT_" + java.util.UUID.randomUUID().toString().replace("-", "");
@@ -117,23 +146,50 @@ class SessionObservabilityIT extends AbstractApiIT {
         assertThat(counter("logout")).isEqualTo(before + 1);
     }
 
-    @Test void session_auth_rejected_increments_with_bounded_reasons_from_both_rejection_sites() {
-        // CustomerAuthFilter's own rejection path (logout with a bogus bearer).
-        double missingBefore = counter("session_auth_rejected", "reason", "missing");
-        post("/v1/auth/logout", "", null, JsonNode.class);
-        assertThat(counter("session_auth_rejected", "reason", "missing")).isEqualTo(missingBefore + 1);
+    // ---------- session_auth_rejected — PRODUCER A: SessionExceptionHandler (logout's inline auth) ----------
 
-        double malformedBefore = counter("session_auth_rejected", "reason", "malformed");
-        post("/v1/auth/logout", "", "definitely-not-a-real-token", JsonNode.class);
-        assertThat(counter("session_auth_rejected", "reason", "malformed")).isEqualTo(malformedBefore + 1);
+    @Test void session_exception_handler_producer_increments_session_auth_rejected_on_missing_bearer() {
+        double before = counter("session_auth_rejected", "reason", "missing");
+        ResponseEntity<JsonNode> res = post("/v1/auth/logout", "", null, JsonNode.class);
+        assertThat(res.getStatusCode().value()).isEqualTo(401);
+        assertThat(counter("session_auth_rejected", "reason", "missing")).isEqualTo(before + 1);
+    }
 
-        // a syntactically-plausible but foreign-service token (the CMS token) is still rejected.
-        double before = counter("session_auth_rejected", "reason", "malformed")
-                + counter("session_auth_rejected", "reason", "invalid_signature");
-        post("/v1/auth/logout", "", CMS_TOKEN, JsonNode.class);
-        double after = counter("session_auth_rejected", "reason", "malformed")
-                + counter("session_auth_rejected", "reason", "invalid_signature");
-        assertThat(after).isEqualTo(before + 1);
+    @Test void session_exception_handler_producer_increments_session_auth_rejected_on_bad_bearer() {
+        double before = counter("session_auth_rejected", "reason", "malformed");
+        ResponseEntity<JsonNode> res = post("/v1/auth/logout", "", "definitely-not-a-real-token", JsonNode.class);
+        assertThat(res.getStatusCode().value()).isEqualTo(401);
+        assertThat(counter("session_auth_rejected", "reason", "malformed")).isEqualTo(before + 1);
+    }
+
+    // ---------- session_auth_rejected — PRODUCER B: CustomerAuthFilter (any CUSTOMER_AUTHENTICATED route) ----------
+
+    @Test void customer_auth_filter_producer_increments_session_auth_rejected_on_missing_bearer() {
+        double before = counter("session_auth_rejected", "reason", "missing");
+        ResponseEntity<JsonNode> res = get("/v1/customer/_probe", null, JsonNode.class);
+        assertThat(res.getStatusCode().value()).isEqualTo(401);
+        assertThat(counter("session_auth_rejected", "reason", "missing")).isEqualTo(before + 1);
+    }
+
+    @Test void customer_auth_filter_producer_increments_session_auth_rejected_on_bad_bearer() {
+        double before = counter("session_auth_rejected", "reason", "malformed");
+        ResponseEntity<JsonNode> res = get("/v1/customer/_probe", "definitely-not-a-real-token", JsonNode.class);
+        assertThat(res.getStatusCode().value()).isEqualTo(401);
+        assertThat(counter("session_auth_rejected", "reason", "malformed")).isEqualTo(before + 1);
+    }
+
+    @Test void customer_auth_filter_producer_increments_session_auth_rejected_on_revoked_session() {
+        SessionId sessionId = SessionId.generate();
+        CustomerId customerId = CustomerId.generate();
+        sessions.create(sessionId, customerId, Instant.now(), Instant.now().plusSeconds(3600),
+                "fixture-digest-unused-by-filter".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        sessions.revoke(sessionId.value(), Instant.now());
+        String token = accessCodec.issue(new CustomerPrincipal(customerId, sessionId), Duration.ofMinutes(15));
+
+        double before = counter("session_auth_rejected", "reason", "session_inactive");
+        ResponseEntity<JsonNode> res = get("/v1/customer/_probe", token, JsonNode.class);
+        assertThat(res.getStatusCode().value()).isEqualTo(401);
+        assertThat(counter("session_auth_rejected", "reason", "session_inactive")).isEqualTo(before + 1);
     }
 
     // ---------- cardinality / privacy guard over every session/auth meter ----------

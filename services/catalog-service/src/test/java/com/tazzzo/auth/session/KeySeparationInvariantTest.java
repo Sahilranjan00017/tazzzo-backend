@@ -4,7 +4,7 @@ import com.tazzzo.auth.CustomerAuthProperties;
 import com.tazzzo.auth.otp.OtpAuthProperties;
 import org.junit.jupiter.api.Test;
 
-import java.security.SecureRandom;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
 
@@ -17,12 +17,17 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * keys is valid; each pairwise domain collision (access/refresh, access/otp, otp/refresh) is
  * rejected; a previous access key colliding with refresh or OTP material is rejected; a previous
  * access key colliding with the CURRENT access key (ordinary rotation) is explicitly NOT rejected.
+ *
+ * <p>Key fixtures are deterministic FIXED byte material (never {@code SecureRandom}, seeded or
+ * otherwise, as a fixture generator) — each seed produces a distinct, reproducible 32-byte array
+ * filled with that seed's byte value. The secrecy assertion compares the exception message against
+ * the ACTUAL fixture values used by that specific test, never a regenerated/probabilistic set.
  */
 class KeySeparationInvariantTest {
 
     private static String key(int seed) {
         byte[] bytes = new byte[32];
-        new SecureRandom(new byte[]{(byte) seed}).nextBytes(bytes);
+        Arrays.fill(bytes, (byte) seed);
         return Base64.getEncoder().encodeToString(bytes);
     }
 
@@ -59,54 +64,61 @@ class KeySeparationInvariantTest {
 
     @Test void access_equal_to_refresh_is_rejected() {
         String shared = key(10);
-        KeySeparationInvariant invariant = new KeySeparationInvariant(access(shared), otp(key(11)), session(shared));
+        String otpKey = key(11);
+        KeySeparationInvariant invariant = new KeySeparationInvariant(access(shared), otp(otpKey), session(shared));
 
         assertThatThrownBy(invariant::validate)
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("access-token").hasMessageContaining("refresh-token")
-                .satisfies(KeySeparationInvariantTest::neverContainsKeyMaterial);
+                .satisfies(e -> neverContainsKeyMaterial(e, shared, otpKey));
     }
 
     @Test void access_equal_to_otp_is_rejected() {
         String shared = key(20);
-        KeySeparationInvariant invariant = new KeySeparationInvariant(access(shared), otp(shared), session(key(21)));
+        String refreshKey = key(21);
+        KeySeparationInvariant invariant = new KeySeparationInvariant(access(shared), otp(shared), session(refreshKey));
 
         assertThatThrownBy(invariant::validate)
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("access-token").hasMessageContaining("otp")
-                .satisfies(KeySeparationInvariantTest::neverContainsKeyMaterial);
+                .satisfies(e -> neverContainsKeyMaterial(e, shared, refreshKey));
     }
 
     @Test void otp_equal_to_refresh_is_rejected() {
         String shared = key(30);
-        KeySeparationInvariant invariant = new KeySeparationInvariant(access(key(31)), otp(shared), session(shared));
+        String accessKey = key(31);
+        KeySeparationInvariant invariant = new KeySeparationInvariant(access(accessKey), otp(shared), session(shared));
 
         assertThatThrownBy(invariant::validate)
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("otp").hasMessageContaining("refresh-token")
-                .satisfies(KeySeparationInvariantTest::neverContainsKeyMaterial);
+                .satisfies(e -> neverContainsKeyMaterial(e, shared, accessKey));
     }
 
     @Test void previous_access_key_equal_to_refresh_is_rejected() {
         String shared = key(40);
-        KeySeparationInvariant invariant = new KeySeparationInvariant(access(key(41), shared), otp(key(42)),
+        String currentAccessKey = key(41);
+        String otpKey = key(42);
+        KeySeparationInvariant invariant = new KeySeparationInvariant(access(currentAccessKey, shared), otp(otpKey),
                 session(shared));
 
         assertThatThrownBy(invariant::validate)
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("previous-access-token").hasMessageContaining("refresh-token")
-                .satisfies(KeySeparationInvariantTest::neverContainsKeyMaterial);
+                .satisfies(e -> neverContainsKeyMaterial(e, shared, currentAccessKey, otpKey));
     }
 
     @Test void previous_access_key_equal_to_otp_is_rejected() {
         String shared = key(50);
-        KeySeparationInvariant invariant = new KeySeparationInvariant(access(key(51), shared), otp(shared),
-                session(key(52)));
+        String currentAccessKey = key(51);
+        String refreshKey = key(52);
+        KeySeparationInvariant invariant = new KeySeparationInvariant(access(currentAccessKey, shared), otp(shared),
+                session(refreshKey));
 
         assertThatThrownBy(invariant::validate)
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("previous-access-token").hasMessageContaining("otp")
-                .satisfies(KeySeparationInvariantTest::neverContainsKeyMaterial);
+                .satisfies(e -> neverContainsKeyMaterial(e, shared, currentAccessKey, refreshKey));
     }
 
     @Test void previous_access_key_equal_to_current_access_key_is_not_rejected() {
@@ -134,12 +146,14 @@ class KeySeparationInvariantTest {
         invariant.validate(); // must not throw
     }
 
-    private static void neverContainsKeyMaterial(Throwable e) {
+    /** Asserts the exception message embeds NONE of the actual base64 fixture values involved in
+     *  this specific test — not a regenerated/probabilistic set of candidates. */
+    private static void neverContainsKeyMaterial(Throwable e, String... actualFixtureValues) {
         String message = e.getMessage();
         assertThat(message).doesNotContain("=="); // no base64-padding-shaped fragment either
-        for (int seed = 1; seed <= 100; seed++) {
+        for (String fixture : actualFixtureValues) {
             assertThat(message).as("exception message must never embed the raw secret")
-                    .doesNotContain(key(seed).substring(0, 20));
+                    .doesNotContain(fixture);
         }
     }
 }
