@@ -82,11 +82,28 @@ PR-01 through PR-08 are **MERGED**:
   endpoint). No response cache, no AWS infra, no app integration. Squash merge `4718d51` —
   **1051-test regression floor**.
 
-`main` = `4718d51682b8ee946d0738ae9223809a6a964255`.
+`main` = `bce537fa360788e9ea224ae1bc9e9be6ffde0041` (PR-10C squash `4718d51` + status-doc squash `bce537f`).
 
 ## In review (NOT merged)
 
-- (none tracked)
+- **PR-11A — Customer authentication security foundation** (`com.tazzzo.auth`): a FOURTH HTTP
+  surface, `CUSTOMER_AUTHENTICATED`, reserved for `/v1/customer` + `/v1/customer/**` (checked
+  before the generic `/v1` public rule, so it is never swallowed by it); `/v1/auth` + `/v1/auth/**`
+  reserved PUBLIC for the future OTP/login/refresh/logout endpoints (PR-11B/11C — NOT implemented
+  here). `CustomerPrincipal` (customerId + sessionId, opaque `CUS_*`/`SES_*` value objects, no
+  phone/installationId/IP/email as identity). `CustomerAccessTokenCodec`: HMAC-SHA256 signed,
+  length-prefixed (never delimiter-joined) versioned token binding version/customerId/sessionId/
+  issuedAt/expiresAt; fail-closed key config (`tazzzo.customer-auth.access-token-hmac-key-b64`, no
+  default); injected `Clock`; constant-time signature comparison; expired/future-issued (beyond a
+  30s tolerance) tokens rejected. `CustomerAuthFilter` owns the `CUSTOMER_AUTHENTICATED` surface
+  exclusively — `ApiAuthFilter` explicitly skips it (no CMS/read service token can authorize a
+  customer route, and a customer token can never authorize `/api/**`); every failure flattens to
+  one flat `401 UNAUTHENTICATED`. `X-Tazzzo-Installation-Id` and client IP remain what they always
+  were — anti-abuse dimensions only, proven unable to authorize or bind identity. **No OTP, no
+  phone provider, no refresh/session persistence/revocation, no Profile/Address/Cart, no real
+  `/v1/auth/**` or `/v1/customer/**` production endpoints yet** — PR-11A proves cryptographic and
+  time validity only; session-lifecycle revocation is a PR-11C concern. On
+  `feature/pr11a-customer-auth-foundation`.
 
 ## Blocked
 
@@ -108,11 +125,19 @@ PR-01 through PR-08 are **MERGED**:
 - **Public Commerce Read (PR-10A/B/C): COMPLETE.** The public `/v1` read surface (categories,
   children, category-products, product detail, serviceability) is live on `main`, operationally
   hardened (cache/ETag/observability/readiness), with a 1051-test regression floor.
+- **Customer Auth (PR-11A/B/C): IN PROGRESS. Do not mark authentication complete.**
+  - **PR-11A — customer auth security boundary: IN REVIEW.** Fourth HTTP surface + principal/
+    token cryptographic verification foundation. No business auth flow yet.
+  - **PR-11B — OTP challenge lifecycle + provider abstraction: PLANNED.** Not started.
+  - **PR-11C — login/session/refresh/logout endpoints: PLANNED.** Not started. Session
+    persistence and revocation do not exist before this lands.
 
 ## Next (ratified sequence)
 
-1. **PR-10D+** — App integration / Auth / Cart / Checkout / Orders / Search / Notifications:
-   not started, not scoped yet.
+1. **PR-11B** — OTP challenge lifecycle + provider abstraction (planned, not started).
+2. **PR-11C** — login/session/refresh/logout endpoints (planned, not started).
+3. **PR-11D+** — Customer/Profile/Address, Cart, Checkout, Orders, Search, Notifications, app
+   integration, AWS infrastructure: not started, not scoped yet.
 
 ## Not started (honest boundary)
 

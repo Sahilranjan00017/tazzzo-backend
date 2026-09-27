@@ -174,11 +174,18 @@ public class ApiExceptionHandler {
      * envelope here. Branching on {@link SurfaceClassifier} — never on a duplicated path literal —
      * makes ERR-1 hold for the errors the FRAMEWORK writes, not only the ones the consumer code
      * writes. Internal surfaces keep the nested envelope unchanged.
+     *
+     * <p><b>PR-11A:</b> CUSTOMER_AUTHENTICATED gets the SAME flat envelope as PUBLIC_CONSUMER — it
+     * is still part of the public {@code /v1} surface a client talks to, just behind a bearer
+     * token; a framework-level failure there (once past {@code CustomerAuthFilter}) must not leak
+     * the internal nested shape either.
      */
     private ResponseEntity<?> envelope(HttpStatus status, String code, String message,
                                        HttpServletRequest req) {
         String requestId = String.valueOf(req.getAttribute(RequestIdFilter.REQUEST_ID));
-        if (SurfaceClassifier.classify(req.getRequestURI()) == SurfaceClassifier.Surface.PUBLIC_CONSUMER) {
+        SurfaceClassifier.Surface surface = SurfaceClassifier.classify(req.getRequestURI());
+        if (surface == SurfaceClassifier.Surface.PUBLIC_CONSUMER
+                || surface == SurfaceClassifier.Surface.CUSTOMER_AUTHENTICATED) {
             return publicEnvelope(status, code, requestId);
         }
         log.warn("api_error code={} status={} request_id={}", code, status.value(), requestId);

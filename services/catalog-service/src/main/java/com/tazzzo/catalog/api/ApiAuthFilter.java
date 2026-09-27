@@ -44,12 +44,19 @@ public class ApiAuthFilter extends OncePerRequestFilter {
      * Q4-a / Q4-b: the PUBLIC consumer namespace bypasses service-token authentication ENTIRELY.
      * A bearer header on a public URL is irrelevant to authority — anonymous, bogus, read and cms
      * identities all reach the same downstream capability. Public means "the header does not
-     * matter", not "anonymous only". Every other surface runs through the filter.
+     * matter", not "anonymous only".
+     *
+     * <p><b>PR-11A:</b> the CUSTOMER_AUTHENTICATED surface ({@code /v1/customer/**}) is ALSO
+     * skipped here — {@link com.tazzzo.auth.CustomerAuthFilter} owns that boundary exclusively.
+     * A CMS/read service token must never be able to authorize a customer route, and this filter
+     * must never demand one of a customer request; each trust domain has exactly one filter that
+     * can grant it. Every other surface (INTERNAL, UNKNOWN) still runs through this filter.
      */
     @Override
     protected boolean shouldNotFilter(HttpServletRequest req) {
-        return SurfaceClassifier.classify(req.getRequestURI())
-                == SurfaceClassifier.Surface.PUBLIC_CONSUMER;
+        SurfaceClassifier.Surface surface = SurfaceClassifier.classify(req.getRequestURI());
+        return surface == SurfaceClassifier.Surface.PUBLIC_CONSUMER
+                || surface == SurfaceClassifier.Surface.CUSTOMER_AUTHENTICATED;
     }
 
     @Override
