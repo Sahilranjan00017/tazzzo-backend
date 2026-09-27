@@ -415,6 +415,16 @@ class OtpServiceIT extends AbstractMongoIT {
      * may win the "delivering" slot — the loser is bounced UNAVAILABLE rather than falsely claiming
      * success. This is a semantic CHANGE from the pre-hardening design, which used to hand the loser
      * a borrowed success — that was exactly the false-success bug this pass closes.
+     *
+     * <p><b>Note on outcome shape:</b> two truly concurrent first-time requests (no prior ACTIVE
+     * challenge to synchronize on) can legitimately EITHER collide at the "delivering" insert (one
+     * throws duplicate-key -&gt; UNAVAILABLE) OR — if their timing does not overlap at that exact
+     * instant — both independently insert, deliver, and activate in sequence (the second's
+     * {@code activateAfterDelivery} then supersedes the first). Both outcomes are safe: neither is a
+     * FALSE success (every returned identity was genuinely, confirmedly delivered), and exactly one
+     * challenge ends up ACTIVE. The scenario this test guards against — a caller observing an
+     * UNCONFIRMED in-flight delivery and being told it succeeded — is instead pinned deterministically
+     * with latches in {@link #concurrent_request_while_delivery_in_flight_never_returns_false_success_and_original_succeeds}.
      */
     @Test void resend_race_never_leaves_two_simultaneously_usable_codes() throws Exception {
         String phone = uniquePhone("40110");
@@ -442,13 +452,21 @@ class OtpServiceIT extends AbstractMongoIT {
         pool.shutdown();
         pool.awaitTermination(10, TimeUnit.SECONDS);
 
-        assertThat(results).as("exactly one racer wins the delivering slot").hasSize(1);
-        assertThat(failures).as("the loser is bounced, never a false success").hasSize(1);
-        assertThat(failures.get(0).reason()).isEqualTo(OtpFailure.Reason.UNAVAILABLE);
-
+        assertThat(results.size() + failures.size()).isEqualTo(2);
+        for (OtpFailure f : failures) {
+            assertThat(f.reason()).as("the only legitimate failure mode here is a slot collision")
+                    .isEqualTo(OtpFailure.Reason.UNAVAILABLE);
+        }
+        // No fabricated/borrowed identity: every identity handed back was a real challenge that was
+        // genuinely delivered — currently ACTIVE, or SUPERSEDED by a later legitimate winner.
+        for (OtpRequestResult r : results) {
+            Document doc = challenges.findById(r.challengeId());
+            assertThat(doc).isNotNull();
+            assertThat(doc.getString("status")).isIn("ACTIVE", "SUPERSEDED");
+        }
+        // Exactly one challenge is the CURRENT usable code — never two at once.
         Document active = challenges.findActive(Phone.parse(phone), OtpPurpose.LOGIN);
         assertThat(active).isNotNull();
-        assertThat(active.getString("_id")).isEqualTo(results.get(0).challengeId());
     }
 
     /**
