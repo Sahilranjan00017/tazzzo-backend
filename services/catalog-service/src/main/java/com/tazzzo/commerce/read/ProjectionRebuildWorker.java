@@ -5,6 +5,7 @@ import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.FindOneAndUpdateOptions;
 import com.mongodb.client.model.ReturnDocument;
 import com.mongodb.client.model.Updates;
+import com.tazzzo.catalog.repo.FreshnessObservability;
 import com.tazzzo.catalog.repo.ProjectionRebuildQueue;
 import org.bson.Document;
 import org.slf4j.Logger;
@@ -56,13 +57,22 @@ public class ProjectionRebuildWorker {
     private final ProductCardProjectionService projectionService;
     private final Clock clock;
     private final String workerId;
+    private final FreshnessObservability observability; // nullable: PR-10C, optional by design
 
     public ProjectionRebuildWorker(MongoDatabase db,
                                    ProductCardProjectionService projectionService,
                                    Clock clock) {
+        this(db, projectionService, clock, null);
+    }
+
+    /** PR-10C: with observability, every claim/result/completion records a bounded signal. */
+    public ProjectionRebuildWorker(MongoDatabase db,
+                                   ProductCardProjectionService projectionService,
+                                   Clock clock, FreshnessObservability observability) {
         this.db = Objects.requireNonNull(db);
         this.projectionService = Objects.requireNonNull(projectionService);
         this.clock = Objects.requireNonNull(clock);
+        this.observability = observability;
         // Observability tag only; correctness rides on the per-claim lease_token.
         this.workerId = "cardw-" + UUID.randomUUID();
     }
@@ -85,9 +95,19 @@ public class ProjectionRebuildWorker {
             }
             String skuId = item.getString("sku_id");
             long claimedGeneration = asLong(item.get("request_generation"));
+            if (observability != null) {
+                observability.rebuildAttempted();
+                java.util.Date requestedAt = item.getDate("requested_at");
+                if (requestedAt != null) {
+                    observability.queueLag(java.time.Duration.between(requestedAt.toInstant(), clock.instant()));
+                }
+            }
             try {
-                projectionService.rebuildOne(skuId);
+                RebuildOutcome outcome = projectionService.rebuildOne(skuId);
                 rebuilt++;
+                if (observability != null) {
+                    observability.rebuildResult(outcome.name().toLowerCase(java.util.Locale.ROOT));
+                }
                 // Clear ONLY if this exact claim still owns the row AND no newer mutation arrived
                 // (same generation). Otherwise the newer request stays pending and is reprocessed.
                 long deleted = db.getCollection(ProjectionRebuildQueue.COLLECTION).deleteOne(Filters.and(
@@ -97,12 +117,21 @@ public class ProjectionRebuildWorker {
                 if (deleted == 1) {
                     cleared++;
                     log.debug("freshness_rebuild_cleared sku={}", skuId);
+                    if (observability != null) {
+                        observability.rebuildCompletion(FreshnessObservability.Completion.CLEARED);
+                    }
                 } else {
                     log.debug("freshness_rebuild_superseded sku={} — newer request pending", skuId);
+                    if (observability != null) {
+                        observability.rebuildCompletion(FreshnessObservability.Completion.SUPERSEDED);
+                    }
                 }
             } catch (RuntimeException e) {
                 log.warn("freshness_rebuild_failure sku={} attempt={} type={}",
                         skuId, asLong(item.get("attempt_count")), e.getClass().getSimpleName());
+                if (observability != null) {
+                    observability.rebuildFailure();
+                }
             }
         }
         return new DrainResult(rebuilt, cleared);

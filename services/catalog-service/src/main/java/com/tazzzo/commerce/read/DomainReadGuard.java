@@ -1,16 +1,18 @@
 package com.tazzzo.commerce.read;
 
-import com.tazzzo.catalog.consumer.ConsumerFailures;
+import com.tazzzo.commerce.read.CommerceReadUnavailableException.Category;
 
 import java.util.function.Supplier;
 
 /**
- * PR-10B final review #9 — the ONE place a domain read port's typed failure (Pricing/Inventory/
- * Media/Serviceability) or a datastore outage becomes the public {@link ConsumerFailures.Unavailable}
- * (503), rather than an unmapped, scarier 500. Each domain's {@code *Exception} base is documented
- * "message is internal, never surfaced to public clients" by its own module — exactly what
- * SERVICE_UNAVAILABLE already means; this is a transient/data-quality signal, not a bug in the
- * commerce read path itself.
+ * PR-10B final review #9 (extended PR-10C #7) — the ONE place a domain read port's typed failure
+ * (Pricing/Inventory/Media/Serviceability) or a datastore outage becomes the public
+ * {@link CommerceReadUnavailableException} (503), rather than an unmapped, scarier 500. Each
+ * domain's {@code *Exception} base is documented "message is internal, never surfaced to public
+ * clients" by its own module — exactly what SERVICE_UNAVAILABLE already means; this is a
+ * transient/data-quality signal, not a bug in the commerce read path itself. PR-10C: the specific
+ * {@link Category} is preserved (not collapsed to one generic message) so the commerce.api boundary
+ * can record a BOUNDED {@code failure_class} metric tag.
  *
  * <p>This lives in {@code commerce.read} (never {@code commerce.api}, which ArchUnit forbids from
  * reaching {@code pricing}/{@code inventory}/{@code media}/{@code serviceability} directly) — the
@@ -28,10 +30,16 @@ final class DomainReadGuard {
     static <T> T guard(Supplier<T> call) {
         try {
             return call.get();
-        } catch (com.tazzzo.pricing.PricingException | com.tazzzo.inventory.InventoryException
-                | com.tazzzo.media.MediaException | com.tazzzo.serviceability.ServiceabilityException
-                | com.mongodb.MongoException e) {
-            throw new ConsumerFailures.Unavailable("domain read unavailable");
+        } catch (com.tazzzo.pricing.PricingException e) {
+            throw new CommerceReadUnavailableException(Category.PRICING, "pricing read unavailable");
+        } catch (com.tazzzo.inventory.InventoryException e) {
+            throw new CommerceReadUnavailableException(Category.INVENTORY, "inventory read unavailable");
+        } catch (com.tazzzo.media.MediaException e) {
+            throw new CommerceReadUnavailableException(Category.MEDIA, "media read unavailable");
+        } catch (com.tazzzo.serviceability.ServiceabilityException e) {
+            throw new CommerceReadUnavailableException(Category.SERVICEABILITY, "serviceability read unavailable");
+        } catch (com.mongodb.MongoException e) {
+            throw new CommerceReadUnavailableException(Category.MONGO, "datastore read unavailable");
         }
     }
 }

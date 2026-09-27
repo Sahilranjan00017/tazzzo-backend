@@ -5,6 +5,7 @@ import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.Projections;
 import com.mongodb.client.model.Sorts;
 import com.tazzzo.catalog.consumer.ConsumerEligibility;
+import com.tazzzo.catalog.repo.FreshnessObservability;
 import com.tazzzo.catalog.repo.ProjectionRebuildQueue;
 import org.bson.Document;
 import org.slf4j.Logger;
@@ -46,13 +47,21 @@ public class ProjectionReconciler {
 
     private final MongoDatabase db;
     private final ProjectionRebuildQueue queue;
+    private final FreshnessObservability observability; // nullable: PR-10C, optional by design
 
     private String driftCheckpoint;  // null = scan from start
     private String orphanCheckpoint;
 
     public ProjectionReconciler(MongoDatabase db, ProjectionRebuildQueue queue) {
+        this(db, queue, null);
+    }
+
+    /** PR-10C: with observability, every pass records enqueued count + a pass-ran signal. */
+    public ProjectionReconciler(MongoDatabase db, ProjectionRebuildQueue queue,
+                                FreshnessObservability observability) {
         this.db = Objects.requireNonNull(db);
         this.queue = Objects.requireNonNull(queue);
+        this.observability = observability;
     }
 
     /**
@@ -61,6 +70,9 @@ public class ProjectionReconciler {
      */
     public int reconcileDrift(int limit) {
         requirePositive(limit);
+        if (observability != null) {
+            observability.reconcilePass(FreshnessObservability.ReconcilePass.DRIFT);
+        }
         List<String> productIds = eligiblePage(driftCheckpoint, limit);
         if (productIds.isEmpty()) {
             driftCheckpoint = null; // reached the end; wrap next pass for eventual full coverage
@@ -71,12 +83,18 @@ public class ProjectionReconciler {
             queue.requestRebuild(productId, "reconcile_drift");
         }
         log.info("freshness_reconcile_drift enqueued={}", productIds.size());
+        if (observability != null) {
+            observability.reconcileEnqueued(FreshnessObservability.ReconcilePass.DRIFT, productIds.size());
+        }
         return productIds.size();
     }
 
     /** Enqueue rebuilds for projection rows whose product is no longer eligible (worker removes). */
     public int reconcileOrphans(int limit) {
         requirePositive(limit);
+        if (observability != null) {
+            observability.reconcilePass(FreshnessObservability.ReconcilePass.ORPHAN);
+        }
         List<String> skus = projectionPage(orphanCheckpoint, limit);
         if (skus.isEmpty()) {
             orphanCheckpoint = null;
@@ -93,6 +111,9 @@ public class ProjectionReconciler {
         }
         if (enqueued > 0) {
             log.info("freshness_reconcile_orphan enqueued={} scanned={}", enqueued, skus.size());
+        }
+        if (observability != null) {
+            observability.reconcileEnqueued(FreshnessObservability.ReconcilePass.ORPHAN, enqueued);
         }
         return enqueued;
     }

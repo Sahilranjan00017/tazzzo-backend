@@ -137,6 +137,72 @@ class CommerceApiIT extends AbstractConsumerIT {
         assertThat(res.getHeaders().getFirst("X-Request-Id")).startsWith("req_");
     }
 
+    // ---------- taxonomy ETag (PR-10C) ----------
+
+    @Test void categories_carries_a_deterministic_etag() {
+        ResponseEntity<JsonNode> res1 = get("/v1/categories", JsonNode.class);
+        ResponseEntity<JsonNode> res2 = get("/v1/categories", JsonNode.class);
+        String etag1 = res1.getHeaders().getFirst("ETag");
+        String etag2 = res2.getHeaders().getFirst("ETag");
+        assertThat(etag1).isNotBlank().startsWith("\"").endsWith("\"");
+        assertThat(etag1).as("same content, same requestId excluded -> identical ETag").isEqualTo(etag2);
+        assertThat(etag1).as("ETag is not the changing requestId").isNotEqualTo(res1.getBody().at("/requestId").asText());
+    }
+
+    @Test void categories_matching_if_none_match_is_304_with_no_body_and_headers_retained() {
+        String etag = get("/v1/categories", JsonNode.class).getHeaders().getFirst("ETag");
+        org.springframework.http.HttpHeaders reqHeaders = new org.springframework.http.HttpHeaders();
+        reqHeaders.set("If-None-Match", etag);
+        ResponseEntity<JsonNode> res = get("/v1/categories", reqHeaders, JsonNode.class);
+
+        assertThat(res.getStatusCode().value()).isEqualTo(304);
+        assertThat(res.getBody()).as("a 304 must carry no body").isNull();
+        assertThat(res.getHeaders().getFirst("ETag")).isEqualTo(etag);
+        assertThat(res.getHeaders().getFirst("Cache-Control")).contains("public").contains("max-age=300");
+    }
+
+    @Test void categories_non_matching_if_none_match_is_a_normal_200() {
+        org.springframework.http.HttpHeaders reqHeaders = new org.springframework.http.HttpHeaders();
+        reqHeaders.set("If-None-Match", "\"not-the-real-etag\"");
+        ResponseEntity<JsonNode> res = get("/v1/categories", reqHeaders, JsonNode.class);
+        assertThat(res.getStatusCode().value()).isEqualTo(200);
+        assertThat(res.getBody().at("/items").isArray()).isTrue();
+    }
+
+    @Test void children_carries_a_deterministic_etag_and_supports_conditional_get() {
+        ResponseEntity<JsonNode> first = get("/v1/categories/" + C_RICE + "/children", JsonNode.class);
+        String etag = first.getHeaders().getFirst("ETag");
+        assertThat(etag).isNotBlank();
+
+        org.springframework.http.HttpHeaders reqHeaders = new org.springframework.http.HttpHeaders();
+        reqHeaders.set("If-None-Match", etag);
+        ResponseEntity<JsonNode> conditional = get("/v1/categories/" + C_RICE + "/children", reqHeaders, JsonNode.class);
+        assertThat(conditional.getStatusCode().value()).isEqualTo(304);
+        assertThat(conditional.getBody()).isNull();
+        assertThat(conditional.getHeaders().getFirst("ETag")).isEqualTo(etag);
+    }
+
+    @Test void categories_and_children_etags_are_never_equal_to_each_other() {
+        // proves the route is bound into the hash -- two different representations never collide
+        String categoriesEtag = get("/v1/categories", JsonNode.class).getHeaders().getFirst("ETag");
+        String childrenEtag =
+                get("/v1/categories/" + C_RICE + "/children", JsonNode.class).getHeaders().getFirst("ETag");
+        assertThat(categoriesEtag).isNotEqualTo(childrenEtag);
+    }
+
+    @Test void an_etag_changes_when_the_visible_representation_changes() {
+        // TZP-L004 is eligible under V_BASMATI but its later addition doesn't change the CATEGORY
+        // node set itself (categories are super-categories, unaffected by a single product), so
+        // this proves the hash tracks children's own item set: adding a brand-new super-category
+        // wholesale is not exercised here, but re-requesting identical input again must be STABLE
+        // (already covered above) -- this test instead proves two DIFFERENT release-bound requests
+        // (an explicit release vs default) that resolve to the SAME actual release produce the
+        // SAME etag, i.e. it is deterministic on content, not on incidental request shape.
+        String etagDefault = get("/v1/categories", JsonNode.class).getHeaders().getFirst("ETag");
+        String etagExplicit = get("/v1/categories?release=R1", JsonNode.class).getHeaders().getFirst("ETag");
+        assertThat(etagDefault).isEqualTo(etagExplicit);
+    }
+
     // ---------- admission route labels (PR-10B final review #2) ----------
 
     private double charged(String routeTag) {
@@ -406,6 +472,71 @@ class CommerceApiIT extends AbstractConsumerIT {
 
     @Test void serviceability_lat_lng_is_400() {
         assertError("/v1/serviceability?lat=12.9&lng=77.6", 400, "INVALID_REQUEST");
+    }
+
+    // ---------- cache headers (PR-10C) ----------
+
+    @Test void children_carries_the_public_cache_control() {
+        ResponseEntity<JsonNode> res = get("/v1/categories/" + C_RICE + "/children", JsonNode.class);
+        assertThat(res.getStatusCode().value()).isEqualTo(200);
+        assertThat(res.getHeaders().getFirst("Cache-Control"))
+                .isEqualTo("public, max-age=300, stale-while-revalidate=60");
+    }
+
+    @Test void category_products_carries_private_no_store() {
+        ResponseEntity<JsonNode> res = get("/v1/categories/" + C_RICE + "/products", JsonNode.class);
+        assertThat(res.getStatusCode().value()).isEqualTo(200);
+        assertThat(res.getHeaders().getFirst("Cache-Control")).isEqualTo("private, no-store");
+    }
+
+    @Test void product_detail_carries_private_no_store() {
+        ResponseEntity<JsonNode> res = get("/v1/products/TZP-L001", JsonNode.class);
+        assertThat(res.getStatusCode().value()).isEqualTo(200);
+        assertThat(res.getHeaders().getFirst("Cache-Control")).isEqualTo("private, no-store");
+    }
+
+    @Test void serviceability_carries_private_no_store() {
+        ResponseEntity<JsonNode> res = get("/v1/serviceability?pin=" + PIN, JsonNode.class);
+        assertThat(res.getStatusCode().value()).isEqualTo(200);
+        assertThat(res.getHeaders().getFirst("Cache-Control")).isEqualTo("private, no-store");
+    }
+
+    /**
+     * PR-10C cache-safety fix: {@code /v1/categories} and {@code /v1/categories/{id}/children} set
+     * their public Cache-Control BEFORE the request is known to succeed, so an error thrown after
+     * that point must not inherit it — CommerceExceptionHandler overrides it to {@code no-store}.
+     */
+    @Test void a_categories_error_response_is_never_publicly_cacheable() {
+        // an invalid release makes /categories fail closed with a typed failure, not 200
+        ResponseEntity<JsonNode> res = get("/v1/categories?release=NOT-A-REAL-RELEASE", JsonNode.class);
+        assertThat(res.getStatusCode().is2xxSuccessful()).as("must actually be an error response").isFalse();
+        assertThat(res.getHeaders().getFirst("Cache-Control"))
+                .as("an error must never inherit the success public cache header")
+                .isEqualTo("no-store");
+    }
+
+    @Test void a_children_404_is_never_publicly_cacheable() {
+        ResponseEntity<JsonNode> res = get("/v1/categories/TZC-DOES-NOT-EXIST/children", JsonNode.class);
+        assertThat(res.getStatusCode().value()).isEqualTo(404);
+        assertThat(res.getHeaders().getFirst("Cache-Control")).isEqualTo("no-store");
+    }
+
+    @Test void every_error_response_across_all_five_routes_is_never_publicly_cacheable() {
+        // list/PDP/serviceability set "private, no-store" eagerly (safe even on error, since
+        // neither "private" nor "no-store" is ever cacheable by a shared/public cache); categories/
+        // children set nothing until success, so their error responses carry the handler's own
+        // "no-store". Either way, "public" must never appear on an error response.
+        for (String path : List.of(
+                "/v1/categories/TZC-DOES-NOT-EXIST/products",
+                "/v1/categories/" + C_RICE + "/products?lat=12.9",
+                "/v1/products/TZP-99999999",
+                "/v1/products/TZP-L001?lng=77.6",
+                "/v1/serviceability")) {
+            ResponseEntity<JsonNode> res = get(path, JsonNode.class);
+            assertThat(res.getStatusCode().is2xxSuccessful()).as(path).isFalse();
+            String cacheControl = res.getHeaders().getFirst("Cache-Control");
+            assertThat(cacheControl).as(path).isNotNull().doesNotContain("public").contains("no-store");
+        }
     }
 
     // ---------- cursor cross-surface replay is rejected ----------

@@ -1,9 +1,11 @@
 package com.tazzzo.catalog;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.tazzzo.catalog.consumer.ConsumerObservability;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -23,6 +25,8 @@ import static org.assertj.core.api.Assertions.assertThat;
         classes = {CatalogApplication.class, AbstractConsumerIT.ProbeCounting.class})
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class CommerceFreshnessGateIT extends AbstractConsumerIT {
+
+    @Autowired io.micrometer.core.instrument.MeterRegistry registry;
 
     static final String FIXTURE_KEY_B64 = Base64.getEncoder().encodeToString(
             "commerce-gate-fixture-key-32byte!".getBytes(StandardCharsets.UTF_8));
@@ -64,5 +68,30 @@ class CommerceFreshnessGateIT extends AbstractConsumerIT {
     @Test void categories_still_served_when_freshness_disabled() {
         // categories/children are NOT gated on projection freshness
         assertThat(get("/v1/categories", JsonNode.class).getStatusCode().value()).isEqualTo(200);
+    }
+
+    @Test void the_freshness_gate_records_a_bounded_failure_class_never_a_sku_or_pin() {
+        double before = failureClassCount("commerce_list", "freshness_not_ready");
+        get("/v1/categories/TZC-000001/products", JsonNode.class);
+        assertThat(failureClassCount("commerce_list", "freshness_not_ready") - before)
+                .as("PR-10C §7: the freshness-gate rejection is its OWN bounded failure_class")
+                .isEqualTo(1.0);
+
+        for (io.micrometer.core.instrument.Meter meter : registry.getMeters()) {
+            if (!meter.getId().getName().equals(ConsumerObservability.FAILURE_CLASS)) {
+                continue;
+            }
+            for (io.micrometer.core.instrument.Tag tag : meter.getId().getTags()) {
+                assertThat(ConsumerObservability.ALLOWED_TAG_KEYS).contains(tag.getKey());
+                assertThat(tag.getValue()).doesNotContain("TZC-").doesNotContain("TZP-")
+                        .doesNotContain("560").doesNotContain("req_");
+            }
+        }
+    }
+
+    private double failureClassCount(String route, String failureClass) {
+        var c = registry.find(ConsumerObservability.FAILURE_CLASS)
+                .tags("route", route, "failure_class", failureClass).counter();
+        return c == null ? 0 : c.count();
     }
 }

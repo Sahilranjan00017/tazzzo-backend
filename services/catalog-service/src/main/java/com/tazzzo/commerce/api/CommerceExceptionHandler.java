@@ -21,12 +21,20 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  * it governs ONLY {@link CommerceReadController}. Every typed failure becomes the frozen
  * {@link ErrorEnvelopeDto} with a SAFE, generic message — {@code exception.getMessage()} is never
  * exposed (it goes only to a WARN log for 5xx). Codes/retryability per the ratified contract.
+ *
+ * <p><b>PR-10C cache-safety fix:</b> {@code CommerceReadController} sets a public, long-lived
+ * {@code Cache-Control} on categories/children BEFORE the request is known to succeed — so an
+ * error thrown after that point (404/429/503/500) would otherwise inherit and PUBLICLY CACHE the
+ * error response for up to 5 minutes. Every error response built here explicitly overrides
+ * {@code Cache-Control} to {@code no-store}, which Spring writes over any value the controller
+ * already set on the raw {@code HttpServletResponse}.
  */
 @RestControllerAdvice(assignableTypes = CommerceReadController.class)
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class CommerceExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(CommerceExceptionHandler.class);
+    private static final String CACHE_CONTROL_NO_STORE = "no-store";
 
     @ExceptionHandler(ConsumerFailures.InvalidRequest.class)
     public ResponseEntity<ErrorEnvelopeDto> invalidRequest(HttpServletRequest req) {
@@ -47,11 +55,13 @@ public class CommerceExceptionHandler {
     public ResponseEntity<ErrorEnvelopeDto> rateLimited(ConsumerFailures.RateLimited e, HttpServletRequest req) {
         int retryAfter = (int) Math.max(1, (long) Math.ceil(e.retryAfter().toMillis() / 1000.0));
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.CACHE_CONTROL, CACHE_CONTROL_NO_STORE)
                 .header(HttpHeaders.RETRY_AFTER, Integer.toString(retryAfter))
                 .body(envelope(PublicErrorCode.RATE_LIMITED, "too many requests", true, retryAfter, req));
     }
 
     @ExceptionHandler({ConsumerFailures.Unavailable.class, ProductDetailCompositionException.class,
+            com.tazzzo.commerce.read.CommerceReadUnavailableException.class,
             com.mongodb.MongoException.class})
     public ResponseEntity<ErrorEnvelopeDto> unavailable(RuntimeException e, HttpServletRequest req) {
         // Compatibility gate final review #2: com.mongodb.MongoException (and every driver subtype
@@ -80,7 +90,9 @@ public class CommerceExceptionHandler {
     private ResponseEntity<ErrorEnvelopeDto> body(HttpStatus status, PublicErrorCode code, String message,
                                                   boolean retryable, Integer retryAfterSeconds,
                                                   HttpServletRequest req) {
-        return ResponseEntity.status(status).body(envelope(code, message, retryable, retryAfterSeconds, req));
+        return ResponseEntity.status(status)
+                .header(HttpHeaders.CACHE_CONTROL, CACHE_CONTROL_NO_STORE)
+                .body(envelope(code, message, retryable, retryAfterSeconds, req));
     }
 
     private ErrorEnvelopeDto envelope(PublicErrorCode code, String message, boolean retryable,

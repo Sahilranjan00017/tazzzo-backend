@@ -19,6 +19,8 @@ import com.tazzzo.commerce.read.CommerceServiceabilityService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -68,22 +70,48 @@ public class CommerceReadController {
     }
 
     @GetMapping("/categories")
-    public NodeListResponse categories(@RequestParam(name = "release", required = false) String release,
-                                       HttpServletRequest request, HttpServletResponse response) {
-        response.setHeader(HttpHeaders.CACHE_CONTROL, CACHE_PUBLIC);
-        return measured(ConsumerObservability.Route.COMMERCE_CATEGORIES, () ->
-                RuntimeToDtoMapper.nodes(taxonomy.root(release, identity(request),
-                        ConsumerObservability.Route.COMMERCE_CATEGORIES), requestId(request)));
+    public ResponseEntity<NodeListResponse> categories(
+            @RequestParam(name = "release", required = false) String release,
+            HttpServletRequest request) {
+        return measured(ConsumerObservability.Route.COMMERCE_CATEGORIES, () -> {
+            NodeListResponse body = RuntimeToDtoMapper.nodes(taxonomy.root(release, identity(request),
+                    ConsumerObservability.Route.COMMERCE_CATEGORIES), requestId(request));
+            return taxonomyResponse("categories", null, body, request);
+        });
     }
 
     @GetMapping("/categories/{id}/children")
-    public NodeListResponse children(@PathVariable("id") String nodeId,
+    public ResponseEntity<NodeListResponse> children(@PathVariable("id") String nodeId,
                                      @RequestParam(name = "release", required = false) String release,
-                                     HttpServletRequest request, HttpServletResponse response) {
-        response.setHeader(HttpHeaders.CACHE_CONTROL, CACHE_PUBLIC);
-        return measured(ConsumerObservability.Route.COMMERCE_CHILDREN, () ->
-                RuntimeToDtoMapper.nodes(taxonomy.children(nodeId, release, identity(request),
-                        ConsumerObservability.Route.COMMERCE_CHILDREN), requestId(request)));
+                                     HttpServletRequest request) {
+        return measured(ConsumerObservability.Route.COMMERCE_CHILDREN, () -> {
+            NodeListResponse body = RuntimeToDtoMapper.nodes(taxonomy.children(nodeId, release, identity(request),
+                    ConsumerObservability.Route.COMMERCE_CHILDREN), requestId(request));
+            return taxonomyResponse("children", nodeId, body, request);
+        });
+    }
+
+    /**
+     * PR-10C — categories/children ONLY. Cache-Control is set here (never before the delegate
+     * call succeeds — see PR-10C cache-safety note on {@link CommerceExceptionHandler}) so an error
+     * can never inherit the public cache header. A deterministic content-hash {@code ETag}
+     * ({@link TaxonomyETag}) is computed from the ACTUAL visible item set, never from
+     * {@code requestId} or an internal database version; a matching {@code If-None-Match} yields a
+     * bodiless {@code 304} carrying the SAME {@code ETag} and {@code Cache-Control}.
+     */
+    private ResponseEntity<NodeListResponse> taxonomyResponse(String route, String nodeId,
+                                                              NodeListResponse body, HttpServletRequest request) {
+        String etag = TaxonomyETag.compute(route, nodeId, body);
+        if (TaxonomyETag.matches(request.getHeader(HttpHeaders.IF_NONE_MATCH), etag)) {
+            return ResponseEntity.status(HttpStatus.NOT_MODIFIED)
+                    .header(HttpHeaders.CACHE_CONTROL, CACHE_PUBLIC)
+                    .eTag(etag)
+                    .build();
+        }
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CACHE_CONTROL, CACHE_PUBLIC)
+                .eTag(etag)
+                .body(body);
     }
 
     @GetMapping("/categories/{id}/products")
@@ -155,9 +183,42 @@ public class CommerceReadController {
         } catch (ConsumerFailures.InvalidCursor e) {
             outcome = ConsumerObservability.Outcome.INVALID_CURSOR;
             throw e;
+        } catch (com.tazzzo.commerce.read.CommerceReadUnavailableException e) {
+            // PR-10C: the ONE place a bounded, closed-vocabulary failure_class is recorded for a
+            // domain-read/freshness 503 -- never the exception message, never the SKU/route detail.
+            outcome = ConsumerObservability.Outcome.UNAVAILABLE;
+            observe.failureClass(route, toFailureClass(e.category()));
+            throw e;
+        } catch (com.mongodb.MongoException e) {
+            outcome = ConsumerObservability.Outcome.UNAVAILABLE;
+            observe.failureClass(route, ConsumerObservability.FailureClass.MONGO);
+            throw e;
+        } catch (ConsumerFailures.Unavailable | com.tazzzo.commerce.read.ProductDetailCompositionException e) {
+            // Generic infra/config faults (cursor key unconfigured, client IP unresolvable, a stale
+            // PDP projection) with no more specific bounded class to report.
+            outcome = ConsumerObservability.Outcome.UNAVAILABLE;
+            throw e;
+        } catch (RuntimeException e) {
+            // Anything else is, by elimination, a genuinely unexpected programming failure (500) --
+            // never reclassified as an infrastructure outage.
+            outcome = ConsumerObservability.Outcome.INTERNAL_ERROR;
+            observe.failureClass(route, ConsumerObservability.FailureClass.INTERNAL);
+            throw e;
         } finally {
             observe.request(route, outcome, Duration.ofNanos(System.nanoTime() - started));
         }
+    }
+
+    private static ConsumerObservability.FailureClass toFailureClass(
+            com.tazzzo.commerce.read.CommerceReadUnavailableException.Category category) {
+        return switch (category) {
+            case MONGO -> ConsumerObservability.FailureClass.MONGO;
+            case PRICING -> ConsumerObservability.FailureClass.PRICING;
+            case INVENTORY -> ConsumerObservability.FailureClass.INVENTORY;
+            case MEDIA -> ConsumerObservability.FailureClass.MEDIA;
+            case SERVICEABILITY -> ConsumerObservability.FailureClass.SERVICEABILITY;
+            case FRESHNESS_NOT_READY -> ConsumerObservability.FailureClass.FRESHNESS_NOT_READY;
+        };
     }
 
     private ConsumerIdentity identity(HttpServletRequest request) {

@@ -44,10 +44,12 @@ public class ConsumerObservability {
     public static final String RATE_LIMIT_SATURATION = "tazzzo.catalog.consumer.rate_limit.saturation";
     public static final String PROBE_DURATION = "tazzzo.catalog.consumer.visibility.probe.duration";
     public static final String PROBE_FAILURES = "tazzzo.catalog.consumer.visibility.probe.failures";
+    /** PR-10C: WHY a request was unavailable/internal-error, recorded only on those two outcomes. */
+    public static final String FAILURE_CLASS = "tazzzo.catalog.consumer.commerce.failure_class";
 
     /** The complete tag vocabulary. A guard test asserts no meter carries any other key. */
     public static final Set<String> ALLOWED_TAG_KEYS =
-            Set.of("route", "outcome", "dimension", "decision", "result", "scope");
+            Set.of("route", "outcome", "dimension", "decision", "result", "scope", "failure_class");
 
     public enum Route {
         ROOT("root"), CHILDREN("children"), LIST("list"), PDP("pdp"),
@@ -72,11 +74,40 @@ public class ConsumerObservability {
     public enum Outcome {
         SUCCESS("success"), RATE_LIMITED("rate_limited"), UNAVAILABLE("unavailable"), NOT_FOUND("not_found"),
         /** Q5-OBS-1b: the two LIST request-shape refusals, bounded values like every other tag. */
-        INVALID_REQUEST("invalid_request"), INVALID_CURSOR("invalid_cursor");
+        INVALID_REQUEST("invalid_request"), INVALID_CURSOR("invalid_cursor"),
+        /**
+         * PR-10C: distinct from UNAVAILABLE (503, an expected infrastructure/data-quality signal —
+         * see {@link FailureClass}). This is a genuinely unexpected programming failure (500):
+         * separating the two lets an operator alert on "the code is buggy" without noise from
+         * ordinary transient outages, and vice versa.
+         */
+        INTERNAL_ERROR("internal_error");
 
         private final String tag;
 
         Outcome(String tag) {
+            this.tag = tag;
+        }
+
+        public String tag() {
+            return tag;
+        }
+    }
+
+    /**
+     * PR-10C — bounded classification of WHY a request was {@link Outcome#UNAVAILABLE} or
+     * {@link Outcome#INTERNAL_ERROR}, recorded as a SEPARATE counter (never merged into the
+     * {@link Route}/{@link Outcome} tag pair) so the existing request/duration meters' tag shape
+     * never changes. A fixed, closed vocabulary — never a raw exception class name or message.
+     */
+    public enum FailureClass {
+        MONGO("mongo"), PRICING("pricing"), INVENTORY("inventory"), MEDIA("media"),
+        SERVICEABILITY("serviceability"), FRESHNESS_NOT_READY("freshness_not_ready"),
+        CURSOR("cursor"), RATE_LIMIT("rate_limit"), INTERNAL("internal"), OTHER("other");
+
+        private final String tag;
+
+        FailureClass(String tag) {
             this.tag = tag;
         }
 
@@ -133,6 +164,16 @@ public class ConsumerObservability {
                     .tag("route", route.tag()).tag("outcome", outcome.tag())
                     .register(registry).record(elapsed);
         });
+    }
+
+    /**
+     * PR-10C — records WHY an UNAVAILABLE/INTERNAL_ERROR outcome happened, as its own counter with
+     * ONLY {@code route} + {@code failure_class} tags (both bounded, closed vocabularies).
+     */
+    public void failureClass(Route route, FailureClass failureClass) {
+        safely(() -> Counter.builder(FAILURE_CLASS)
+                .tag("route", route.tag()).tag("failure_class", failureClass.tag())
+                .register(registry).increment());
     }
 
     /** The COMPUTED charge, recorded whatever the verdict — it is the weight the route carried. */

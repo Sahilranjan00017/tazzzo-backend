@@ -112,7 +112,11 @@ public class CommerceListService {
     public CommerceProductPage list(String nodeId, String explicitRelease, String pageSizeParam,
                                     String cursorParam, LocationQuery location, ConsumerIdentity identity) {
         if (!freshnessReady) {
-            throw new ConsumerFailures.Unavailable("projection freshness not enabled");
+            // PR-10C: its own bounded failure_class (FRESHNESS_NOT_READY), distinct from a domain
+            // read outage, so operators can tell "not enabled here" from "Mongo/Pricing/etc is down".
+            throw new CommerceReadUnavailableException(
+                    CommerceReadUnavailableException.Category.FRESHNESS_NOT_READY,
+                    "projection freshness not enabled");
         }
         cursors.requireReady();
         String locationContext = locationContext(location);

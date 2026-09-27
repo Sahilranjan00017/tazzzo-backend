@@ -2,6 +2,7 @@ package com.tazzzo.commerce.read;
 
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoDatabase;
+import com.tazzzo.catalog.repo.FreshnessObservability;
 import com.tazzzo.catalog.repo.ProjectionRebuildQueue;
 import com.tazzzo.catalog.repo.WritePath;
 import com.tazzzo.catalog.tx.Tx;
@@ -50,13 +51,13 @@ public class CommerceProjectionScheduler {
     private final int reconcileLimit;
 
     public CommerceProjectionScheduler(
-            MongoClient client, MongoDatabase db,
+            MongoClient client, MongoDatabase db, FreshnessObservability observability,
             @Value("${tazzzo.scheduler.card-rebuild-batch-size:200}") int drainBatchSize,
             @Value("${tazzzo.scheduler.card-reconcile-limit:500}") int reconcileLimit) {
         Clock clock = Clock.systemUTC();
         Tx tx = new Tx(client);
         WritePath writePath = new WritePath(db);
-        ProjectionRebuildQueue queue = new ProjectionRebuildQueue(db, clock);
+        ProjectionRebuildQueue queue = new ProjectionRebuildQueue(db, clock, observability);
         // The projection service reads sources fresh on every rebuild; the PricingService/
         // MediaService here are used only as read ports (no writes, no queue needed on them).
         ProductCardProjectionService projection = new ProductCardProjectionService(
@@ -64,8 +65,8 @@ public class CommerceProjectionScheduler {
                 new PricingService(tx, writePath, clock),
                 new MediaService(tx, writePath, clock),
                 db, clock);
-        this.worker = new ProjectionRebuildWorker(db, projection, clock);
-        this.reconciler = new ProjectionReconciler(db, queue);
+        this.worker = new ProjectionRebuildWorker(db, projection, clock, observability);
+        this.reconciler = new ProjectionReconciler(db, queue, observability);
         this.drainBatchSize = drainBatchSize;
         this.reconcileLimit = reconcileLimit;
     }
