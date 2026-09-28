@@ -118,6 +118,48 @@
         }
       }
     },
+    "/v1/customer/checkout/quote" : {
+      "post" : {
+        "tags" : [ "checkout-controller" ],
+        "operationId" : "createQuote",
+        "parameters" : [ {
+          "name" : "If-Match",
+          "in" : "header",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "Idempotency-Key",
+          "in" : "header",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/JsonNode"
+              }
+            }
+          }
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/CheckoutQuoteDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/customer/addresses" : {
       "get" : {
         "tags" : [ "address-controller" ],
@@ -1372,6 +1414,32 @@
         }
       }
     },
+    "/v1/customer/checkout/quotes/{quoteId}" : {
+      "get" : {
+        "tags" : [ "checkout-controller" ],
+        "operationId" : "readQuote",
+        "parameters" : [ {
+          "name" : "quoteId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/CheckoutQuoteDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/customer/cart" : {
       "get" : {
         "tags" : [ "cart-controller" ],
@@ -2037,6 +2105,51 @@
         "properties" : {
           "serviceable" : {
             "type" : "boolean"
+          }
+        }
+      },
+      "CheckoutQuoteDto" : {
+        "type" : "object",
+        "properties" : {
+          "quoteId" : {
+            "type" : "string"
+          },
+          "cartVersion" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "addressId" : {
+            "type" : "string"
+          },
+          "items" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/Item"
+            }
+          },
+          "itemCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "distinctItemCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "subtotalPaise" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "currency" : {
+            "type" : "string"
+          },
+          "createdAt" : {
+            "type" : "string"
+          },
+          "expiresAt" : {
+            "type" : "string"
+          },
+          "requestId" : {
+            "type" : "string"
           }
         }
       },

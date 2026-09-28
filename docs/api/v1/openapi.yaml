@@ -65,6 +65,18 @@ tags:
       `addressId` location context, stock is UNKNOWN, `serviceable` is null and nothing is buyable.
       fulfillmentLocationId / warehouse identifiers are never exposed. Does NOT cover checkout,
       orders, or payment — those are future phases.
+  - name: customer-checkout
+    description: >
+      PR-13A — checkout VALIDATION + QUOTE for the authenticated customer. A quote binds the exact cart
+      version the customer reviewed (`If-Match: "cart-<n>"`), one OWNED delivery address, and current
+      commerce truth (catalog visibility, canonical price, serviceability, inventory), and returns a
+      short-lived (5 minutes by default) validated snapshot. Creation is ALL-OR-NOTHING (any failing
+      line rejects the whole quote; nothing is reduced, substituted or partially quoted), idempotent
+      (`Idempotency-Key`, scoped per customer) and never mutates the cart. A quote is NOT a
+      reservation: NO stock is held, prices are NOT locked beyond this snapshot, and a future order
+      must revalidate stock and quote validity. `subtotalPaise` is the sum of line totals at the
+      quoted current prices — not a final payable total. Internal routing/fulfillment identifiers are
+      never exposed. No order or payment endpoints exist yet.
 paths:
   /v1/categories:
     get:
@@ -653,6 +665,77 @@ paths:
         '412': { $ref: '#/components/responses/CartPreconditionFailed' }
         '428': { $ref: '#/components/responses/CartPreconditionRequired' }
         '503': { $ref: '#/components/responses/CartUnavailable' }
+  /v1/customer/checkout/quote:
+    post:
+      tags: [customer-checkout]
+      operationId: createCustomerCheckoutQuote
+      summary: >
+        Validate the caller's current cart against current commerce truth for one owned address and
+        create a short-lived quote. Requires If-Match (the cart ETag reviewed) and Idempotency-Key.
+        Replaying the same key with the same input returns the ORIGINAL quote (same id, expiry not
+        extended, not re-priced); the same key with a different address or cart version is 409
+        IDEMPOTENCY_CONFLICT. A new quote after expiry needs a new key. Does not reserve stock.
+      security:
+        - customerBearerAuth: []
+      parameters:
+        - name: If-Match
+          in: header
+          required: true
+          description: The cart ETag the customer reviewed, e.g. `"cart-3"`. Missing is 428, malformed 400, stale 412.
+          schema: { type: string, maxLength: 40, example: '"cart-3"' }
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: Client-generated key, 8-64 chars of `[A-Za-z0-9_-]`. Scoped to the authenticated customer.
+          schema: { type: string, minLength: 8, maxLength: 64, pattern: '^[A-Za-z0-9_-]{8,64}$' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CustomerCheckoutQuoteRequest' }
+      responses:
+        '200':
+          description: The committed quote (created now, or the original on an idempotent replay).
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerCheckoutQuote' }
+        '400': { $ref: '#/components/responses/CheckoutBadRequest' }
+        '401': { $ref: '#/components/responses/CheckoutUnauthenticated' }
+        '404': { $ref: '#/components/responses/CheckoutNotFound' }
+        '409': { $ref: '#/components/responses/CheckoutConflict' }
+        '412': { $ref: '#/components/responses/CheckoutPreconditionFailed' }
+        '415': { $ref: '#/components/responses/CheckoutUnsupportedMediaType' }
+        '428': { $ref: '#/components/responses/CheckoutPreconditionRequired' }
+        '503': { $ref: '#/components/responses/CheckoutUnavailable' }
+  /v1/customer/checkout/quotes/{quoteId}:
+    get:
+      tags: [customer-checkout]
+      operationId: getCustomerCheckoutQuote
+      summary: >
+        Read one of the caller's OWN quotes. A foreign, unknown or malformed id is the identical 404.
+        After `expiresAt` the quote resource answers 410 QUOTE_EXPIRED (expiry is derived, the quote is
+        not deleted, so expired is distinguishable from unknown). Never re-prices.
+      security:
+        - customerBearerAuth: []
+      parameters:
+        - name: quoteId
+          in: path
+          required: true
+          schema: { type: string, pattern: '^CHKQ_[A-Za-z0-9_-]{6,64}$' }
+      responses:
+        '200':
+          description: The quote as it was committed, still within its validity window.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerCheckoutQuote' }
+        '401': { $ref: '#/components/responses/CheckoutUnauthenticated' }
+        '404': { $ref: '#/components/responses/CheckoutNotFound' }
+        '410': { $ref: '#/components/responses/CheckoutQuoteExpired' }
+        '503': { $ref: '#/components/responses/CheckoutUnavailable' }
 components:
   parameters:
     AddressIdParam:
@@ -1190,6 +1273,64 @@ components:
                  PRECONDITION_FAILED, CART_ITEM_LIMIT_REACHED, SERVICE_UNAVAILABLE, INTERNAL]
         message: { type: string, description: "Safe, generic. No internals, no PII." }
         requestId: { type: string }
+    CustomerCheckoutQuoteRequest:
+      type: object
+      required: [addressId]
+      description: Only `addressId` is read. Any other field (price, totals, customerId, routing) is ignored and never stored.
+      properties:
+        addressId: { type: string, maxLength: 64, example: ADDR_0123456789abcdef }
+    CustomerCheckoutQuote:
+      type: object
+      description: >
+        A validated snapshot at `createdAt`, valid until `expiresAt`. NOT a stock reservation, NOT a
+        permanent price lock, NOT a final payable total.
+      required: [quoteId, cartVersion, addressId, items, itemCount, distinctItemCount, subtotalPaise, currency,
+                 createdAt, expiresAt, requestId]
+      properties:
+        quoteId: { type: string, pattern: '^CHKQ_[A-Za-z0-9_-]{6,64}$' }
+        cartVersion: { type: integer, format: int64 }
+        addressId: { type: string }
+        items:
+          type: array
+          items:
+            type: object
+            required: [skuId, quantity, unitPricePaise, lineTotalPaise]
+            properties:
+              skuId: { type: string }
+              quantity: { type: integer }
+              unitPricePaise: { type: integer, format: int64 }
+              lineTotalPaise: { type: integer, format: int64 }
+        itemCount: { type: integer }
+        distinctItemCount: { type: integer }
+        subtotalPaise: { type: integer, format: int64 }
+        currency: { type: string, enum: [INR] }
+        createdAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+        requestId: { type: string }
+    CustomerCheckoutErrorEnvelope:
+      type: object
+      description: >
+        Safe, generic. `items` is present only for CHECKOUT_ITEM_UNAVAILABLE and lists the blocking lines
+        with a closed reason. Never carries routing, inventory internals or PII.
+      required: [code, message, requestId]
+      properties:
+        code:
+          type: string
+          enum: [INVALID_REQUEST, UNSUPPORTED_MEDIA_TYPE, UNAUTHENTICATED, NOT_FOUND, PRECONDITION_REQUIRED,
+                 PRECONDITION_FAILED, IDEMPOTENCY_REQUIRED, IDEMPOTENCY_CONFLICT, CHECKOUT_CART_EMPTY,
+                 CHECKOUT_ITEM_UNAVAILABLE, CHECKOUT_UNSERVICEABLE, QUOTE_EXPIRED, SERVICE_UNAVAILABLE, INTERNAL]
+        message: { type: string }
+        requestId: { type: string }
+        items:
+          type: array
+          items:
+            type: object
+            required: [skuId, reason]
+            properties:
+              skuId: { type: string }
+              reason:
+                type: string
+                enum: [PRODUCT_UNAVAILABLE, PRICE_UNAVAILABLE, OUT_OF_STOCK, INSUFFICIENT_STOCK, STOCK_UNKNOWN, NOT_BUYABLE]
   responses:
     BadRequest:
       description: Invalid request or cursor
@@ -1428,6 +1569,78 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/CustomerCartErrorEnvelope' }
+    CheckoutBadRequest:
+      description: >
+        Malformed If-Match, Idempotency-Key or body (INVALID_REQUEST).
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CustomerCheckoutErrorEnvelope' }
+    CheckoutUnauthenticated:
+      description: >
+        Missing/invalid customer access token (UNAUTHENTICATED).
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CustomerCheckoutErrorEnvelope' }
+    CheckoutNotFound:
+      description: >
+        Unknown, foreign or malformed address / quote id (identical NOT_FOUND).
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CustomerCheckoutErrorEnvelope' }
+    CheckoutConflict:
+      description: >
+        CHECKOUT_CART_EMPTY, CHECKOUT_ITEM_UNAVAILABLE (with `items`), CHECKOUT_UNSERVICEABLE or IDEMPOTENCY_CONFLICT. Nothing was created.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CustomerCheckoutErrorEnvelope' }
+    CheckoutPreconditionFailed:
+      description: >
+        The cart changed since the reviewed version (also re-checked inside the persisting transaction).
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CustomerCheckoutErrorEnvelope' }
+    CheckoutUnsupportedMediaType:
+      description: >
+        Body was not `application/json` (UNSUPPORTED_MEDIA_TYPE).
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CustomerCheckoutErrorEnvelope' }
+    CheckoutPreconditionRequired:
+      description: >
+        If-Match (PRECONDITION_REQUIRED) or Idempotency-Key (IDEMPOTENCY_REQUIRED) missing.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CustomerCheckoutErrorEnvelope' }
+    CheckoutQuoteExpired:
+      description: >
+        The quote exists but its validity window has passed (QUOTE_EXPIRED). Create a new quote with a new Idempotency-Key.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CustomerCheckoutErrorEnvelope' }
+    CheckoutUnavailable:
+      description: >
+        Commerce or datastore dependency unavailable (never reported as unserviceable/out-of-stock).
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CustomerCheckoutErrorEnvelope' }
   securitySchemes:
     customerBearerAuth:
       type: http

@@ -370,11 +370,10 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
     bounds. Non-11000 duplicate-key wrapper variants map to 503 rather than 412. `Accept`-header (406)
     mismatches are not specially mapped.
 
-`main` = `ce868f4212531b6461678989869a76beaea7f004` — **1544-test regression floor** (PR-11D adds 13 tests on its branch → 1557; not yet merged).
-
-## In review (NOT merged)
-
-- **PR-11D — Auth transaction retry safety**: **IN REVIEW**. `OtpService.verify` (confirmed defect:
+- **PR-11D — Auth transaction retry safety**: merged as PR #22 — pre-merge head `2b57e3a`, squash
+  `5c7e4df72bda7e06e543d34e67b7f414e2abff5a`; merged-main backend-ci run `36458268694` (Compile & test +
+  Validate API contracts: SUCCESS) — **1557-test regression floor**.
+  - Scope: `OtpService.verify` (confirmed defect:
   a result stored in an external holder by a transaction attempt whose commit was rolled back could
   survive into a retry that lost the CAS and be returned as success), `OtpService.request`, and
   `CustomerSessionService` establish/refresh now return their result from `Tx.call` (an immutable
@@ -382,6 +381,23 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   the multiple-invocation contract. Deterministic retry tests (`RetryInjectingTx`: real Mongo
   transaction, labeled transient error after the body, the driver's own retry loop) plus a structural
   guard against Auth result holders. No public contract change.
+
+`main` = `5c7e4df72bda7e06e543d34e67b7f414e2abff5a` — **1557-test regression floor** (PR-13A adds 32 tests on its branch → 1589; not yet merged).
+
+## In review (NOT merged)
+
+- **PR-13A — Checkout validation and quote foundation** (`com.tazzzo.customer.checkout`): **IN REVIEW**.
+  `POST /v1/customer/checkout/quote` (If-Match cart ETag + Idempotency-Key + `{addressId}`) and
+  `GET /v1/customer/checkout/quotes/{quoteId}`. Revalidates the whole cart against CURRENT commerce
+  truth through the SAME seam the cart uses (`CartEnricher` → `CommerceSkuBatchReader` → the unchanged
+  `ProductCardRuntimeEnricher`; no second price/stock/serviceability/buyable algorithm), for one OWNED
+  address; all-or-nothing; persists an immutable short-lived (5 min, configurable, injected `Clock`)
+  quote in `checkout_quotes` (int64 paise, `CHKQ_` opaque id, unique `(customerId, idempotencyKeyDigest)`
+  index, NO TTL index so expired stays distinguishable: GET → 410). One `Tx.call`: identity still exists →
+  idempotency re-check → cart RECHECK (version unchanged and not expired) → insert. Idempotent replay
+  returns the original quote (not re-priced, expiry not extended). **A quote is NOT a reservation**: no
+  stock is held and price is not locked beyond the snapshot; a future Order MUST revalidate stock and
+  quote validity. No routing identity is stored or exposed. No Order/Payment/COD/slots/coupons/GST.
 
 ## Follow-up debt (recorded)
 
@@ -440,7 +456,7 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   `PublicServiceability`, pincode-keyed routing) is **COMPLETE** and unchanged; the
   customer-address BINDING to it (PR-12B) is **COMPLETE**.
   (Address ↔ Serviceability binding: COMPLETE.)
-- Cart (PR-12C): **COMPLETE** (PR #21, squash `ce868f4212531b6461678989869a76beaea7f004`). Auth transaction retry hardening (PR-11D): **IN REVIEW**. Checkout: **NOT STARTED**. Order: **NOT STARTED**. Payment: **NOT STARTED**.
+- Cart (PR-12C): **COMPLETE** (PR #21, squash `ce868f4212531b6461678989869a76beaea7f004`). Auth transaction retry hardening (PR-11D): **COMPLETE** (PR #22, squash `5c7e4df72bda7e06e543d34e67b7f414e2abff5a`). Checkout (PR-13A): **IN REVIEW** (not merged). Order: **NOT STARTED**. Payment: **NOT STARTED**.
 
 ## Next (ratified sequence)
 
@@ -478,6 +494,8 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-09-29** — `./mvnw clean test` on Java 21 + Docker on `feature/pr13a-checkout-quote`
+  (based on `main` `5c7e4df`): **BUILD SUCCESS**, **1589 tests, 0 failures / 0 errors / 0 skipped**.
 - **2026-09-28** — `./mvnw clean test` on Java 21 + Docker on `feature/pr11d-auth-transaction-retry-safety`
   (based on `main` `ce868f4`): **BUILD SUCCESS**, **1557 tests, 0 failures / 0 errors / 0 skipped**.
 - **2026-09-28** — `./mvnw clean test` on Java 21 + Docker at `main` `ce868f4` (post-PR-12C baseline
