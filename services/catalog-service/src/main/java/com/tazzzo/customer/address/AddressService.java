@@ -30,6 +30,10 @@ import java.util.List;
  * {@link CustomerAddressStateRepository} — see its class-level doc for why a single per-customer
  * document, not per-address fields, is what makes both invariants safe under real concurrent writes.
  *
+ * <p><b>Failure metrics are NOT recorded here.</b> {@code customer_address_failure} is owned
+ * solely by {@link AddressExceptionHandler}, the one place that sees every {@link AddressFailure}
+ * (controller-side request-shape failures AND service-side domain failures) exactly once.
+ *
  * <p><b>Retry safety</b> (mission §33/§34): the {@link AddressId} is generated ONCE, before entering
  * any transaction, and reused across a driver-initiated retry — a retried attempt inserts the SAME
  * logical address, never a duplicate. No mutable holder is used outside any transaction callback;
@@ -77,11 +81,9 @@ public class AddressService {
             observability.listSuccess();
             return views;
         } catch (AddressFailure e) {
-            observability.failure(AddressObservability.Operation.LIST, e.reason());
             throw e;
         } catch (RuntimeException e) {
             log.error("customer_address_list_failed type={}", e.getClass().getSimpleName());
-            observability.failure(AddressObservability.Operation.LIST, AddressFailure.Reason.UNAVAILABLE);
             throw new AddressFailure(AddressFailure.Reason.UNAVAILABLE);
         }
     }
@@ -97,11 +99,9 @@ public class AddressService {
             observability.readSuccess();
             return view;
         } catch (AddressFailure e) {
-            observability.failure(AddressObservability.Operation.READ, e.reason());
             throw e;
         } catch (RuntimeException e) {
             log.error("customer_address_read_failed type={}", e.getClass().getSimpleName());
-            observability.failure(AddressObservability.Operation.READ, AddressFailure.Reason.UNAVAILABLE);
             throw new AddressFailure(AddressFailure.Reason.UNAVAILABLE);
         }
     }
@@ -159,11 +159,9 @@ public class AddressService {
             observability.createSuccess(); // ONLY after Tx.call returns successfully (mission §33)
             return toView(created, currentDefaultId(customerId.value()));
         } catch (AddressFailure e) {
-            observability.failure(AddressObservability.Operation.CREATE, e.reason());
             throw e;
         } catch (RuntimeException e) {
             log.error("customer_address_create_failed type={}", e.getClass().getSimpleName());
-            observability.failure(AddressObservability.Operation.CREATE, AddressFailure.Reason.UNAVAILABLE);
             throw new AddressFailure(AddressFailure.Reason.UNAVAILABLE);
         }
     }
@@ -214,11 +212,9 @@ public class AddressService {
             observability.updateSuccess();
             return toView(updated, currentDefaultId(customerId.value()));
         } catch (AddressFailure e) {
-            observability.failure(AddressObservability.Operation.UPDATE, e.reason());
             throw e;
         } catch (RuntimeException e) {
             log.error("customer_address_update_failed type={}", e.getClass().getSimpleName());
-            observability.failure(AddressObservability.Operation.UPDATE, AddressFailure.Reason.UNAVAILABLE);
             throw new AddressFailure(AddressFailure.Reason.UNAVAILABLE);
         }
     }
@@ -258,37 +254,36 @@ public class AddressService {
             });
             observability.deleteSuccess();
         } catch (AddressFailure e) {
-            observability.failure(AddressObservability.Operation.DELETE, e.reason());
             throw e;
         } catch (RuntimeException e) {
             log.error("customer_address_delete_failed type={}", e.getClass().getSimpleName());
-            observability.failure(AddressObservability.Operation.DELETE, AddressFailure.Reason.UNAVAILABLE);
             throw new AddressFailure(AddressFailure.Reason.UNAVAILABLE);
         }
     }
 
     // ---------- set default ----------
 
+    /** Returns the address Document read INSIDE the successful transaction attempt -- never a
+     *  post-commit re-fetch (which could race a concurrent delete and fail a mutation that already
+     *  committed). Retry-safe: {@link Tx#call} returns the last successful attempt's value. */
     public AddressView setDefault(CustomerId customerId, AddressId addressId) {
         Instant now = clock.instant();
         try {
-            tx.run(session -> {
+            Document owned = tx.call(session -> {
                 verifyIdentityExistsTransactional(session, customerId);
                 Document existing = addresses.findOwnedById(session, customerId.value(), addressId.value());
                 if (existing == null) {
                     throw new AddressFailure(AddressFailure.Reason.NOT_FOUND);
                 }
                 state.setDefault(session, customerId.value(), addressId.value(), now);
+                return existing;
             });
             observability.setDefaultSuccess();
-            Document doc = addresses.findOwnedById(customerId.value(), addressId.value());
-            return toView(doc, addressId.value());
+            return toView(owned, addressId.value());
         } catch (AddressFailure e) {
-            observability.failure(AddressObservability.Operation.SET_DEFAULT, e.reason());
             throw e;
         } catch (RuntimeException e) {
             log.error("customer_address_set_default_failed type={}", e.getClass().getSimpleName());
-            observability.failure(AddressObservability.Operation.SET_DEFAULT, AddressFailure.Reason.UNAVAILABLE);
             throw new AddressFailure(AddressFailure.Reason.UNAVAILABLE);
         }
     }

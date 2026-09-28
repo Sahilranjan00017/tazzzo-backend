@@ -569,6 +569,56 @@ class AddressServiceIT extends AbstractMongoIT {
         assertThat(persisted.get("version", Number.class).longValue()).isEqualTo(result.version());
     }
 
+    // ---------- set-default: result comes from the successful transaction attempt ----------
+
+    @Test void set_default_never_re_reads_the_address_after_its_transaction_commits() {
+        CustomerId customerId = uniqueCustomerId("0035");
+        service.create(customerId, create("HOME", "A"));
+        AddressService.AddressView b = service.create(customerId, create("WORK", "B"));
+
+        // The old implementation re-fetched the address via this NON-session overload AFTER commit,
+        // which could race a concurrent delete. It must now never be called (an Error, not a
+        // RuntimeException, so it cannot be swallowed by the service's own catch blocks).
+        AddressRepository forbidsPostCommitRead = new AddressRepository(db) {
+            @Override
+            public Document findOwnedById(String customerId, String addressId) {
+                throw new AssertionError("setDefault must not re-read the address after commit");
+            }
+        };
+        AddressService fixedService = new AddressService(forbidsPostCommitRead, stateRepo, limits, clock,
+                observability, identityAuthorityProvider, tx);
+
+        AddressService.AddressView result = fixedService.setDefault(customerId, new AddressId(b.addressId()));
+        assertThat(result.isDefault()).isTrue();
+        assertThat(result.recipientName()).isEqualTo("B");
+    }
+
+    @Test void set_default_transaction_retry_returns_the_successful_attempts_result() {
+        CustomerId customerId = uniqueCustomerId("0036");
+        service.create(customerId, create("HOME", "A"));
+        AddressService.AddressView b = service.create(customerId, create("WORK", "B"));
+        AtomicInteger attempts = new AtomicInteger(0);
+        CustomerAddressStateRepository retryOnceState = new CustomerAddressStateRepository(db) {
+            @Override
+            public void setDefault(ClientSession session, String customerId, String addressId, Instant now) {
+                if (attempts.incrementAndGet() == 1) {
+                    MongoException t = new MongoException("simulated transient conflict");
+                    t.addLabel("TransientTransactionError");
+                    throw t;
+                }
+                super.setDefault(session, customerId, addressId, now);
+            }
+        };
+        AddressService retryingService = new AddressService(addressRepo, retryOnceState, limits, clock, observability,
+                identityAuthorityProvider, tx);
+
+        AddressService.AddressView result = retryingService.setDefault(customerId, new AddressId(b.addressId()));
+        assertThat(attempts.get()).as("the driver actually retried the transaction body").isEqualTo(2);
+        assertThat(result.addressId()).isEqualTo(b.addressId());
+        assertThat(result.isDefault()).isTrue();
+        assertThat(service.get(customerId, new AddressId(b.addressId())).isDefault()).isTrue();
+    }
+
     // ---------- PII-safe logging ----------
 
     @Test void a_repository_outage_never_logs_the_raw_exception_message() {

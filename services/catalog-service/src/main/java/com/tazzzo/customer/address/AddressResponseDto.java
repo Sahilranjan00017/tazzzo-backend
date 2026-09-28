@@ -1,9 +1,15 @@
 package com.tazzzo.customer.address;
 
 /**
- * PR-12B — the public address projection. NEVER exposes {@code fulfillmentLocationId},
- * {@code serviceAreaId}, {@code warehouseId}, Mongo internals, or an internal route/cache key.
- * {@code serviceability} is computed dynamically on every read/response — it is never persisted
+ * PR-12B — the public address projection. NEVER exposes {@code fulfillmentLocationId} (INTERNAL —
+ * the serviceability domain's own internal routing target, never a public field anywhere) or
+ * {@code warehouseId}/Mongo internals/an internal route or cache key. {@code serviceAreaId} and
+ * {@code serviceAreaVersion} ARE public fields in the EXISTING {@code /v1/serviceability} contract
+ * ({@code PublicServiceability}) — this projection deliberately OMITS them because the
+ * customer-address response is intentionally a narrower {@code serviceable}-only view, not because
+ * they are secret.
+ *
+ * <p>{@code serviceability} is computed dynamically on every read/response — it is never persisted
  * address state (see {@link AddressServiceabilityEvaluator}).
  */
 public record AddressResponseDto(String addressId, String label, String recipientName, String recipientPhone,

@@ -25,10 +25,17 @@ public class AddressExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(AddressExceptionHandler.class);
 
+    private final AddressObservability observability;
+
+    public AddressExceptionHandler(AddressObservability observability) {
+        this.observability = observability;
+    }
+
     @ExceptionHandler(AddressFailure.class)
     public ResponseEntity<AddressErrorDto> addressFailure(AddressFailure e, HttpServletRequest req) {
         String requestId = requestId(req);
         log.warn("customer_address_request_rejected reason={} request_id={}", e.reason(), requestId);
+        observability.failure(operationFor(req), e.reason());
         return switch (e.reason()) {
             case INVALID_REQUEST -> body(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", "invalid request", requestId);
             case NOT_FOUND -> body(HttpStatus.NOT_FOUND, "NOT_FOUND", "address not found", requestId);
@@ -49,6 +56,7 @@ public class AddressExceptionHandler {
     public ResponseEntity<AddressErrorDto> malformedBody(HttpMessageNotReadableException e, HttpServletRequest req) {
         String requestId = requestId(req);
         log.warn("customer_address_request_rejected reason=INVALID_REQUEST request_id={}", requestId);
+        observability.failure(operationFor(req), AddressFailure.Reason.INVALID_REQUEST);
         return body(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", "invalid request", requestId);
     }
 
@@ -58,6 +66,27 @@ public class AddressExceptionHandler {
         log.error("customer_address_request_internal type={} request_id={}", e.getClass().getSimpleName(),
                 requestId);
         return body(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL", "internal error", requestId);
+    }
+
+    /**
+     * The bounded {@code operation} tag, inferred from the (method, path) of the request -- this
+     * advice is scoped to {@link AddressController} only, so every request seen here is an address
+     * route. Inference (rather than per-method wrapping) is what lets this ONE place count failures
+     * that never reach a controller method body at all (e.g. malformed JSON), exactly once.
+     */
+    static AddressObservability.Operation operationFor(HttpServletRequest req) {
+        String uri = req.getRequestURI();
+        if (uri.endsWith("/default")) {
+            return AddressObservability.Operation.SET_DEFAULT;
+        }
+        boolean hasAddressId = !uri.replaceFirst(".*/addresses/?", "").isBlank();
+        return switch (req.getMethod()) {
+            case "POST" -> AddressObservability.Operation.CREATE;
+            case "PATCH" -> AddressObservability.Operation.UPDATE;
+            case "DELETE" -> AddressObservability.Operation.DELETE;
+            case "PUT" -> AddressObservability.Operation.SET_DEFAULT;
+            default -> hasAddressId ? AddressObservability.Operation.READ : AddressObservability.Operation.LIST;
+        };
     }
 
     private static ResponseEntity<AddressErrorDto> body(HttpStatus status, String code, String message,

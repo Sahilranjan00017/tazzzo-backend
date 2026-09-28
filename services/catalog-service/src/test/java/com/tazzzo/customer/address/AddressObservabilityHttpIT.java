@@ -125,6 +125,100 @@ class AddressObservabilityHttpIT extends AbstractApiIT {
         assertThat(counter("address_serviceability_result", "result", "unserviceable")).isEqualTo(before + 1);
     }
 
+    // ---------- every AddressFailure is counted EXACTLY ONCE, wherever it originates ----------
+
+    private double totalFailures() {
+        return registry.find("customer_address_failure").counters().stream().mapToDouble(c -> c.count()).sum();
+    }
+
+    private ResponseEntity<JsonNode> rawJson(HttpMethod method, String path, String token, String rawBody,
+                                             String ifMatch) {
+        HttpHeaders h = headers(token);
+        if (ifMatch != null) h.set("If-Match", ifMatch);
+        return rest.exchange(url(path), method, new HttpEntity<>(rawBody, h), JsonNode.class);
+    }
+
+    private void assertCountedOnce(String operation, String reason, Runnable request) {
+        double totalBefore = totalFailures();
+        double taggedBefore = counter("customer_address_failure", "operation", operation, "reason", reason);
+        request.run();
+        assertThat(counter("customer_address_failure", "operation", operation, "reason", reason))
+                .as("%s/%s incremented", operation, reason).isEqualTo(taggedBefore + 1);
+        assertThat(totalFailures()).as("no other failure counter moved -- counted exactly once")
+                .isEqualTo(totalBefore + 1);
+    }
+
+    @Test void invalid_create_field_is_counted_once() {
+        String token = newAccessToken("+919876555010");
+        Map<String, Object> body = new java.util.HashMap<>(validBody());
+        body.put("postalCode", "12345");
+        assertCountedOnce("create", "invalid_request", () -> post("/v1/customer/addresses", body, token));
+    }
+
+    @Test void missing_patch_if_match_is_counted_once() {
+        String token = newAccessToken("+919876555011");
+        String id = post("/v1/customer/addresses", validBody(), token).getBody().get("addressId").asText();
+        assertCountedOnce("update", "precondition_required",
+                () -> patch("/v1/customer/addresses/" + id, token, null, Map.of("recipientName", "X")));
+    }
+
+    @Test void malformed_patch_if_match_is_counted_once() {
+        String token = newAccessToken("+919876555012");
+        String id = post("/v1/customer/addresses", validBody(), token).getBody().get("addressId").asText();
+        assertCountedOnce("update", "invalid_request",
+                () -> patch("/v1/customer/addresses/" + id, token, "garbage", Map.of("recipientName", "X")));
+    }
+
+    @Test void invalid_patch_field_is_counted_once() {
+        String token = newAccessToken("+919876555013");
+        String id = post("/v1/customer/addresses", validBody(), token).getBody().get("addressId").asText();
+        assertCountedOnce("update", "invalid_request",
+                () -> patch("/v1/customer/addresses/" + id, token, "\"address-1\"", Map.of("postalCode", "1")));
+    }
+
+    @Test void malformed_delete_if_match_is_counted_once() {
+        String token = newAccessToken("+919876555014");
+        String id = post("/v1/customer/addresses", validBody(), token).getBody().get("addressId").asText();
+        assertCountedOnce("delete", "invalid_request",
+                () -> rawJson(HttpMethod.DELETE, "/v1/customer/addresses/" + id, token, null, "garbage"));
+    }
+
+    @Test void missing_delete_if_match_is_counted_once() {
+        String token = newAccessToken("+919876555015");
+        String id = post("/v1/customer/addresses", validBody(), token).getBody().get("addressId").asText();
+        assertCountedOnce("delete", "precondition_required",
+                () -> rawJson(HttpMethod.DELETE, "/v1/customer/addresses/" + id, token, null, null));
+    }
+
+    @Test void malformed_address_id_on_read_is_counted_once() {
+        String token = newAccessToken("+919876555016");
+        assertCountedOnce("read", "not_found",
+                () -> rawJson(HttpMethod.GET, "/v1/customer/addresses/not-an-address-id", token, null, null));
+    }
+
+    @Test void malformed_json_on_create_is_counted_once() {
+        String token = newAccessToken("+919876555017");
+        assertCountedOnce("create", "invalid_request",
+                () -> rawJson(HttpMethod.POST, "/v1/customer/addresses", token, "{not valid json", null));
+    }
+
+    @Test void malformed_json_on_patch_is_counted_once() {
+        String token = newAccessToken("+919876555018");
+        String id = post("/v1/customer/addresses", validBody(), token).getBody().get("addressId").asText();
+        assertCountedOnce("update", "invalid_request",
+                () -> rawJson(HttpMethod.PATCH, "/v1/customer/addresses/" + id, token, "{not valid json",
+                        "\"address-1\""));
+    }
+
+    @Test void nan_latitude_literal_is_rejected_and_counted_once() {
+        String token = newAccessToken("+919876555019");
+        String body = "{\"label\":\"HOME\",\"recipientName\":\"N\",\"recipientPhone\":\"+919876500001\","
+                + "\"addressLine1\":\"L\",\"city\":\"C\",\"state\":\"S\",\"postalCode\":\"560047\","
+                + "\"latitude\":NaN,\"longitude\":77.6}";
+        assertCountedOnce("create", "invalid_request",
+                () -> rawJson(HttpMethod.POST, "/v1/customer/addresses", token, body, null));
+    }
+
     // ---------- cardinality / privacy guard ----------
 
     private static final Pattern PHONE_LIKE = Pattern.compile("\\+91[6-9][0-9]{9}");

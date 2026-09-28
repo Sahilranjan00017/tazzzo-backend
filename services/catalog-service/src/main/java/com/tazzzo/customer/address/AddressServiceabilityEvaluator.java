@@ -10,9 +10,11 @@ import org.springframework.stereotype.Component;
 /**
  * PR-12B — the ONE seam between {@code customer.address} and the existing serviceability domain.
  * Reuses {@link ServiceabilityService#resolvePublic} UNCHANGED — the exact same read the public
- * {@code /v1/serviceability} commerce endpoint uses, which already strips every internal field
- * (never a {@code fulfillmentLocationId}, never a {@code serviceAreaId} is required by this
- * evaluator's own output). No parallel serviceability engine is invented here.
+ * {@code /v1/serviceability} commerce endpoint uses, which already strips the INTERNAL
+ * {@code fulfillmentLocationId}. That read also carries the public {@code serviceAreaId}/
+ * {@code serviceAreaVersion}; this evaluator deliberately consumes ONLY the {@code serviceable}
+ * boolean, because the address projection is intentionally narrower. No parallel serviceability
+ * engine is invented here.
  *
  * <p><b>PIN only, by design.</b> The serviceability domain's read port is explicitly
  * source-agnostic about location precedence and, as of this PR, resolves ONLY by

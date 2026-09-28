@@ -43,8 +43,13 @@ tags:
       ETag/If-Match, the SAME pattern as customer-profile. Serviceability is evaluated FRESH on
       every read/response from the existing serviceability domain — it is never persisted as
       address state, and saving an address never requires it to currently be serviceable.
+      The ETag `"address-<version>"` is the address-CONTENT concurrency token for PATCH/DELETE
+      If-Match — not a complete version of the customer's default-preference state (`isDefault` can
+      change without the address version changing; responses are no-store).
       recipientPhone is delivery-contact information only, never an authentication identity.
-      fulfillmentLocationId/serviceAreaId are never public. Does NOT cover cart, checkout, order,
+      fulfillmentLocationId is internal and never exposed. serviceAreaId/serviceAreaVersion are public
+      in the existing /v1/serviceability contract, but this address projection intentionally omits them
+      (it exposes only the narrower `serviceable`). Does NOT cover cart, checkout, order,
       or payment — those are future phases.
 paths:
   /v1/categories:
@@ -863,7 +868,9 @@ components:
     CustomerAddressResponse:
       type: object
       description: >
-        NEVER exposes fulfillmentLocationId, serviceAreaId, warehouseId, or any Mongo internal.
+        NEVER exposes fulfillmentLocationId (internal), warehouseId, or any Mongo internal. It also
+        intentionally omits serviceAreaId/serviceAreaVersion (public in /v1/serviceability) — the
+        address projection is a narrower `serviceable`-only view.
         recipientPhone is DELIVERY CONTACT information only — never an authentication identity,
         never used to log in, may differ from the customer's login phone.
       required: [addressId, label, recipientName, recipientPhone, addressLine1, city, state,

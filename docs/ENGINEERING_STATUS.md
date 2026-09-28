@@ -284,18 +284,21 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd`) — **1363-test regression fl
     hazard under snapshot isolation) — a single pointer field on one shared document makes "at
     most one default" a STRUCTURAL invariant, and any two concurrent racing writers for the same
     customer necessarily contend on the SAME document, where real MongoDB write-conflict detection
-    guarantees exactly one wins (retried via `Tx.call`, the SAME retry-safe primitive PR-12B added
-    to the shared `Tx` helper). `isDefault` in every response is computed at read time
-    (`addressId.equals(state.defaultAddressId)`), never stored redundantly.
-  - **Identity integrity** (the PR-12A pattern, reused unchanged): every mutation verifies the
-    authenticated customer identity exists via `CustomerIdentityAuthority`, folded into the SAME
-    transaction as the address mutation — a missing identity throws inside the callback, aborting
-    before any write; GET/LIST verify non-transactionally (they can never create persisted state).
+    guarantees exactly one wins. PR-12B REUSES the `Tx.call(Function<ClientSession, T>)` primitive
+    introduced during PR-12A's final hardening pass (already on `main` before this PR branched —
+    PR-12B does not modify `Tx.java`) — it returns T straight from the driver's own
+    `withTransaction` retry loop, never a mutable holder. `isDefault` in every response is computed
+    at read time (`addressId.equals(state.defaultAddressId)`), never stored redundantly.
+  - **Identity integrity** (the PR-12A pattern, reused unchanged, including the existing
+    `CustomerIdentityAuthority`/`CustomerRepository` session-scoped read seam — PR-12B does not
+    modify `CustomerRepository.java` either): every mutation verifies the authenticated customer
+    identity exists via `CustomerIdentityAuthority`, folded into the SAME transaction as the
+    address mutation — a missing identity throws inside the callback, aborting before any write;
+    GET/LIST verify non-transactionally (they can never create persisted state).
   - **Retry-safe by construction**: `AddressId` is generated ONCE, before entering any transaction,
     and reused across a driver-initiated retry — a retried attempt inserts the SAME logical
-    address, never a duplicate. `Tx` gained a new `call(Function<ClientSession, T>)` primitive
-    returning T straight from the driver's own `withTransaction` retry loop; no mutable holder is
-    used outside any callback anywhere in this domain.
+    address, never a duplicate. No mutable holder is used outside any callback anywhere in this
+    domain (every transactional method returns straight from `Tx.call`/`Tx.run`).
   - **Serviceability binding reuses the EXISTING domain unchanged** — `ServiceabilityService
     .resolvePublic`, the SAME read the public `/v1/serviceability` commerce endpoint already uses.
     No parallel engine invented. The serviceability domain resolves by PIN ONLY today (no lat/lng
@@ -305,13 +308,28 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd`) — **1363-test regression fl
     reflected on the very next read without rewriting the address document. Three-state result
     (`serviceable: true/false/null`) — `null` (UNKNOWN) is distinct from `false`
     (definite outside-coverage): a dependency failure never lies and reports unserviceable.
-    `fulfillmentLocationId`/`serviceAreaId` never appear in any public response.
+    `fulfillmentLocationId` is internal and never appears in any response. `serviceAreaId`/
+    `serviceAreaVersion` are public in the existing `/v1/serviceability` contract; the address
+    projection intentionally omits them (it is a narrower `serviceable`-only view).
   - **Saving an address never requires current serviceability** — address validity is independent
     of commerce eligibility; Checkout (future) re-evaluates serviceability again at purchase time.
   - **Optimistic concurrency via ETag/If-Match** (`"address-<version>"`), the SAME pattern as
     customer-profile: PATCH/DELETE require If-Match (missing → 428, stale → 412, persisted state
     unchanged). An unknown address id and another customer's address return the IDENTICAL 404 — no
     ownership enumeration.
+  - **ETag semantics**: `"address-<version>"` is the address-CONTENT concurrency token used by
+    PATCH/DELETE `If-Match` — it is NOT a complete version of the customer's default-preference
+    state. `isDefault` lives in `customer_address_state`, so changing the default can change an
+    address's representation while its `version` stays the same. Responses are `Cache-Control:
+    no-store` and the version exists specifically for PATCH/DELETE optimistic concurrency, so no
+    composite ETag was introduced (no concrete need).
+  - **Failure-metric ownership**: `customer_address_failure{operation,reason}` is recorded in ONE
+    place — `AddressExceptionHandler` — which sees every `AddressFailure` (controller-side
+    request-shape failures and service-side domain failures alike) and malformed-JSON bodies
+    exactly once, inferring the bounded `operation` from (method, path). The service records only
+    successes, and only after `Tx.call`/`Tx.run` returns.
+  - `setDefault` returns the address read INSIDE its successful transaction attempt — never a
+    post-commit re-fetch that could race a concurrent delete.
   - **recipientPhone** is delivery-contact information only — never the customer's authentication
     identity, never used to log in, never used to issue an OTP, may differ from the login phone,
     never logged or placed in a metric tag.

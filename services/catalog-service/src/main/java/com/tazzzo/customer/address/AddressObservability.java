@@ -11,7 +11,8 @@ import java.util.Locale;
 /**
  * PR-12B — bounded observability for the address domain. {@code reason}/{@code operation}/
  * {@code result} tags are always closed enums. NEVER customerId, addressId, phone, PIN, lat/lng,
- * label text, requestId, IP, serviceAreaId, or fulfillmentLocationId.
+ * label text, requestId, IP, serviceAreaId (unbounded cardinality, even though it is a public field
+ * in the existing serviceability contract), or fulfillmentLocationId (internal).
  *
  * <p>Instrumentation is subordinate to the business result: a registry fault is swallowed, never
  * allowed to turn a valid/invalid outcome into something else. Per mission §33: success counters
