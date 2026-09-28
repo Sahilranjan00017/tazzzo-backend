@@ -45,13 +45,16 @@ import java.util.regex.Pattern;
  * instant after a quote is created; a future Order MUST revalidate stock and quote validity.
  *
  * <p><b>Sequence:</b> replay lookup → read cart + bind to the client's cart ETag → resolve the OWNED
- * address → authoritative commerce validation (outside any transaction: it does network/read work
- * that cannot join a session) → build an immutable candidate → ONE {@link Tx#call}: identity still
- * exists, idempotency re-check, cart RECHECK (version unchanged and not expired), insert. The
- * callback only touches transactional Mongo state and returns an immutable value; the quote id,
- * digests and candidate are fixed BEFORE the transaction so driver retries are stable. No routing
- * identity is persisted: the enricher deliberately hides the internal fulfillment location and Order
- * must re-resolve it anyway.
+ * address (capturing its CURRENT version) → authoritative commerce validation (outside any
+ * transaction: it does network/read work that cannot join a session) → build an immutable candidate →
+ * ONE {@link Tx#call}: identity still exists → idempotency re-check (fingerprint, then EXPIRY — an
+ * expired prior quote is never silently re-served as 200, it is {@code QUOTE_EXPIRED}; the caller
+ * needs a new Idempotency-Key) → cart RECHECK (version unchanged and not expired) → address RECHECK
+ * (same id AND same version, so the quote corresponds to the address state actually validated, not
+ * merely to an id that still happens to exist) → insert. The callback only touches transactional
+ * Mongo state and returns an immutable value; the quote id, digests and candidate are fixed BEFORE
+ * the transaction so driver retries are stable. No routing identity is persisted: the enricher
+ * deliberately hides the internal fulfillment location and Order must re-resolve it anyway.
  */
 @Service
 public class CheckoutService {
@@ -86,6 +89,10 @@ public class CheckoutService {
         return key != null && IDEMPOTENCY_KEY.matcher(key).matches();
     }
 
+    /** The owned address resolved at validation time, WITH the version validated against. */
+    private record ValidatedAddress(AddressId id, long version, LocationQuery location) {
+    }
+
     // ---------- create ----------
 
     public CheckoutQuote createQuote(CustomerId customerId, long expectedCartVersion, String idempotencyKey,
@@ -93,8 +100,11 @@ public class CheckoutService {
         try {
             return doCreate(customerId, expectedCartVersion, idempotencyKey, addressIdRaw, requestId);
         } catch (com.mongodb.MongoException e) {
-            // datastore outage == controlled 503; anything ELSE unexpected is a defect and propagates to
-            // the boundary as a counted, safe 500 (never disguised as an outage)
+            // datastore outage == controlled 503. A programming/data-integrity defect (an invariant
+            // violation reconstructing a persisted quote, a NullPointerException, ...) is NEITHER a
+            // MongoException NOR a CheckoutFailure and is deliberately left to propagate UNCAUGHT here,
+            // to the controller's catch-all -> 500 INTERNAL, counted once as reason=internal — never
+            // disguised as a transient dependency outage.
             log.error("customer_checkout_create_failed type={}", e.getClass().getSimpleName());
             throw new CheckoutFailure(CheckoutFailure.Reason.UNAVAILABLE);
         }
@@ -108,11 +118,17 @@ public class CheckoutService {
         AddressId addressId = parseAddressId(addressIdRaw);
         String keyDigest = sha256Hex(idempotencyKey);
         String fingerprint = sha256Hex(FINGERPRINT_VERSION + "|" + expectedCartVersion + "|" + addressId.value());
+        // ONE semantic "now" governs every expiry judgment this request makes (both replay paths and
+        // the freshly-created candidate's clock read), so a single HTTP request never straddles two
+        // different notions of "current time".
+        Instant now = clock.instant();
 
-        // 1. Idempotent replay: the ORIGINAL committed quote, never re-priced, expiry never extended.
+        // 1. Idempotent replay: the ORIGINAL committed quote if still ACTIVE, never re-priced, expiry
+        //    never extended. If it exists but has EXPIRED, this is 410 QUOTE_EXPIRED, not 200 — a new
+        //    quote after expiry needs a NEW Idempotency-Key.
         Document prior = quotes.findByIdempotency(customerId.value(), keyDigest);
         if (prior != null) {
-            return replay(prior, fingerprint);
+            return replay(prior, fingerprint, now);
         }
 
         // 2. The cart the client reviewed. Reading applies the existing cart expiry semantics; this
@@ -125,36 +141,40 @@ public class CheckoutService {
             throw new CheckoutFailure(CheckoutFailure.Reason.CHECKOUT_CART_EMPTY);
         }
 
-        // 3. The OWNED address → the existing commerce LocationQuery (PIN → serviceability → routing).
-        LocationQuery location = resolveLocation(customerId, addressId);
+        // 3. The OWNED address, AND the version it was validated at → the existing commerce
+        //    LocationQuery (PIN → serviceability → routing).
+        ValidatedAddress address = resolveAddress(customerId, addressId);
 
         // 4. Authoritative commerce validation through the cart/commerce seam, then all-or-nothing rules.
-        CartResponseDto validated = present(cart, location, requestId);
+        CartResponseDto validated = present(cart, address.location(), requestId);
         requireAllBuyable(validated);
 
         // 5. Immutable candidate (all ids/instants fixed BEFORE the transaction).
         // millisecond precision == what Mongo stores, so the creating response and every replay are identical
-        Instant now = clock.instant().truncatedTo(java.time.temporal.ChronoUnit.MILLIS);
-        CheckoutQuote candidate = candidate(CheckoutQuoteId.generate(), expectedCartVersion, addressId, validated, now);
+        Instant createdAt = now.truncatedTo(java.time.temporal.ChronoUnit.MILLIS);
+        CheckoutQuote candidate = candidate(CheckoutQuoteId.generate(), expectedCartVersion, addressId, validated,
+                createdAt);
 
         // 6. Persist.
-        return persist(customerId, expectedCartVersion, candidate, keyDigest, fingerprint);
+        return persist(customerId, expectedCartVersion, address, candidate, keyDigest, fingerprint);
     }
 
-    private CheckoutQuote persist(CustomerId customerId, long expectedCartVersion, CheckoutQuote candidate,
-                                  String keyDigest, String fingerprint) {
+    private CheckoutQuote persist(CustomerId customerId, long expectedCartVersion, ValidatedAddress address,
+                                  CheckoutQuote candidate, String keyDigest, String fingerprint) {
         try {
             // Tx.call returns the LAST attempt's immutable value straight from the driver retry loop.
             return tx.call(session -> {
+                // 1. customer identity still exists
                 verifyIdentityExists(session, customerId);
+
+                // 2/3. idempotency existing-row check, including EXPIRY (never silently 200 a stale quote)
                 Document existing = quotes.findByIdempotency(session, customerId.value(), keyDigest);
                 if (existing != null) {
-                    return replay(existing, fingerprint);
+                    return replay(existing, fingerprint, clock.instant());
                 }
-                // Cart RECHECK: the cart must still be exactly the version that was validated and must
-                // not have expired meanwhile (expired == logically empty at the same version). The clock is
-                // read HERE (persist time), not at validation time; it only feeds a comparison, so a
-                // retry re-reading it is harmless.
+
+                // 4. cart RECHECK: still exactly the validated version, and not expired meanwhile
+                //    (expired == logically empty at the same version).
                 CartState current = carts.snapshot(session, customerId, clock.instant());
                 if (current.version() != expectedCartVersion) {
                     throw new CheckoutFailure(CheckoutFailure.Reason.PRECONDITION_FAILED);
@@ -162,26 +182,51 @@ public class CheckoutService {
                 if (current.lines().isEmpty()) {
                     throw new CheckoutFailure(CheckoutFailure.Reason.CHECKOUT_CART_EMPTY);
                 }
+
+                // 5. address RECHECK: ownership/existence/referential integrity ONLY (never
+                //    serviceability — that stays outside the transaction) — the SAME id AND the SAME
+                //    version that was actually validated, so the quote corresponds to the address
+                //    state commerce validation ran against, not merely to an id that still exists.
+                Document currentAddress = addresses.findOwnedById(session, customerId.value(), address.id().value());
+                if (currentAddress == null || currentAddress.get("version", Number.class).longValue()
+                        != address.version()) {
+                    throw new CheckoutFailure(CheckoutFailure.Reason.NOT_FOUND);
+                }
+
+                // 6. insert
                 quotes.insert(session, candidate, customerId.value(), keyDigest, fingerprint);
                 return candidate;
             });
         } catch (MongoWriteException e) {
             if (e.getError().getCode() == 11000) {
-                // lost a concurrent same-key create: resolve to the winner's ONE durable quote
+                // lost a concurrent same-key create: resolve to the winner's ONE durable quote,
+                // respecting the SAME active/expired semantics as any other replay
                 Document winner = quotes.findByIdempotency(customerId.value(), keyDigest);
                 if (winner != null) {
-                    return replay(winner, fingerprint);
+                    return replay(winner, fingerprint, clock.instant());
                 }
             }
             throw e;
         }
     }
 
-    private static CheckoutQuote replay(Document stored, String fingerprint) {
+    /**
+     * A persisted quote found under this idempotency key. Fingerprint mismatch is a semantic
+     * conflict (409); a fingerprint match but expired is 410 (never silently re-served as 200); an
+     * active match is the ORIGINAL quote, unchanged. {@link CheckoutQuoteRepository#toQuote} may
+     * throw {@link IllegalArgumentException}/{@link ArithmeticException} on a corrupt stored document
+     * — deliberately NOT caught here: it propagates as an uncounted data-integrity defect to the
+     * public boundary's catch-all (500 INTERNAL), never disguised as a business outcome.
+     */
+    private static CheckoutQuote replay(Document stored, String fingerprint, Instant now) {
         if (!fingerprint.equals(stored.getString("fingerprint"))) {
             throw new CheckoutFailure(CheckoutFailure.Reason.IDEMPOTENCY_CONFLICT);
         }
-        return CheckoutQuoteRepository.toQuote(stored);
+        CheckoutQuote quote = CheckoutQuoteRepository.toQuote(stored);
+        if (quote.isExpired(now)) {
+            throw new CheckoutFailure(CheckoutFailure.Reason.QUOTE_EXPIRED);
+        }
+        return quote;
     }
 
     // ---------- read ----------
@@ -196,6 +241,8 @@ public class CheckoutService {
             if (doc == null) {
                 throw new CheckoutFailure(CheckoutFailure.Reason.NOT_FOUND);
             }
+            // toQuote may throw IllegalArgumentException/ArithmeticException on corrupt data; NOT
+            // caught here either, for the identical reason as replay() above.
             CheckoutQuote quote = CheckoutQuoteRepository.toQuote(doc);
             if (quote.isExpired(now)) {
                 throw new CheckoutFailure(CheckoutFailure.Reason.QUOTE_EXPIRED);
@@ -305,12 +352,14 @@ public class CheckoutService {
         }
     }
 
-    private LocationQuery resolveLocation(CustomerId customerId, AddressId addressId) {
+    private ValidatedAddress resolveAddress(CustomerId customerId, AddressId addressId) {
         Document doc = addresses.findOwnedById(customerId.value(), addressId.value());
         if (doc == null) {
             throw new CheckoutFailure(CheckoutFailure.Reason.NOT_FOUND); // foreign == unknown
         }
-        return LocationQuery.ofPin(new Pincode(doc.getString("postalCode")));
+        long version = doc.get("version", Number.class).longValue();
+        LocationQuery location = LocationQuery.ofPin(new Pincode(doc.getString("postalCode")));
+        return new ValidatedAddress(addressId, version, location);
     }
 
     private void verifyIdentityExists(com.mongodb.client.ClientSession session, CustomerId customerId) {

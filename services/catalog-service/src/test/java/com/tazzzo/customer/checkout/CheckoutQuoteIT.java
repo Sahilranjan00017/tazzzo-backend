@@ -1,6 +1,7 @@
 package com.tazzzo.customer.checkout;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tazzzo.auth.CustomerAccessTokenCodec;
 import com.tazzzo.auth.CustomerId;
@@ -564,7 +565,8 @@ class CheckoutQuoteIT extends AbstractApiIT {
         }
 
         db.getCollection("checkout_quotes").updateOne(new Document("_id", id),
-                new Document("$set", new Document("expiresAt", Date.from(Instant.now().minusSeconds(1)))));
+                new Document("$set", new Document("createdAt", Date.from(Instant.now().minusSeconds(400)))
+                        .append("expiresAt", Date.from(Instant.now().minusSeconds(1)))));
         ResponseEntity<JsonNode> expired = getQuote(r.token(), id);
         assertThat(expired.getStatusCode().value()).isEqualTo(410);
         assertThat(code(expired)).isEqualTo("QUOTE_EXPIRED");
@@ -687,5 +689,210 @@ class CheckoutQuoteIT extends AbstractApiIT {
                 .isEqualTo(1);
         assertThat(db.getCollection("checkout_quotes").find(new Document("customerId", customerId(r.token()))).first()
                 .getString("_id")).isEqualTo(res.getBody().get("quoteId").asText());
+    }
+
+    // ---------- M1: expired idempotent replay ----------
+
+    @Test void an_active_replay_returns_the_exact_original_quote() {
+        Ready r = ready(1000, 5, 2);
+        String key = newKey();
+        ResponseEntity<JsonNode> first = quote(r.token(), 1, key, r.address());
+        ResponseEntity<JsonNode> again = quote(r.token(), 1, key, r.address());
+        assertThat(again.getStatusCode().value()).isEqualTo(200);
+        ObjectNode a = (ObjectNode) again.getBody();
+        ObjectNode f = (ObjectNode) first.getBody();
+        a.remove("requestId");
+        f.remove("requestId");
+        assertThat(a).isEqualTo(f);
+        assertThat(quoteCount(r.token())).isEqualTo(1);
+    }
+
+    private void expire(String quoteId) {
+        db.getCollection("checkout_quotes").updateOne(new Document("_id", quoteId),
+                new Document("$set", new Document("createdAt", Date.from(Instant.now().minusSeconds(400)))
+                        .append("expiresAt", Date.from(Instant.now().minusSeconds(1)))));
+    }
+
+    @Test void a_replay_of_an_expired_quote_is_410_never_200_never_a_new_quote_never_repriced() {
+        Ready r = ready(1000, 5, 2);
+        String key = newKey();
+        String quoteId = quote(r.token(), 1, key, r.address()).getBody().get("quoteId").asText();
+        expire(quoteId);
+        Date expiredAt = db.getCollection("checkout_quotes").find(new Document("_id", quoteId)).first()
+                .getDate("expiresAt");
+        pricing.upsertPrice(new UpsertPriceCommand(r.sku(), 9999, 12000, Currency.INR, null, null, "seed", 1L));
+
+        ResponseEntity<JsonNode> replay = quote(r.token(), 1, key, r.address());
+
+        assertThat(replay.getStatusCode().value()).isEqualTo(410);
+        assertThat(code(replay)).isEqualTo("QUOTE_EXPIRED");
+        assertThat(quoteCount(r.token())).as("no replacement quote created").isEqualTo(1);
+        Document stillStored = db.getCollection("checkout_quotes").find(new Document("_id", quoteId)).first();
+        assertThat(stillStored.getDate("expiresAt")).as("expiry never extended by a replay").isEqualTo(expiredAt);
+        assertThat(stillStored.get("subtotalPaise", Number.class).longValue()).as("never re-priced").isEqualTo(2000L);
+    }
+
+    @Test void a_new_quote_after_expiry_requires_a_new_idempotency_key() {
+        Ready r = ready(1000, 5, 1);
+        String key = newKey();
+        String quoteId = quote(r.token(), 1, key, r.address()).getBody().get("quoteId").asText();
+        expire(quoteId);
+        assertThat(code(quote(r.token(), 1, key, r.address()))).isEqualTo("QUOTE_EXPIRED");
+
+        ResponseEntity<JsonNode> fresh = quote(r.token(), 1, newKey(), r.address());
+        assertThat(fresh.getStatusCode().value()).isEqualTo(200);
+        assertThat(fresh.getBody().get("quoteId").asText()).isNotEqualTo(quoteId);
+        assertThat(quoteCount(r.token())).isEqualTo(2);
+    }
+
+    @Test void a_concurrent_duplicate_key_race_against_an_expired_winner_is_410_for_every_caller() throws Exception {
+        Ready r = ready(1000, 5, 1);
+        String key = newKey();
+        String quoteId = quote(r.token(), 1, key, r.address()).getBody().get("quoteId").asText();
+        expire(quoteId);
+
+        ExecutorService pool = Executors.newFixedThreadPool(3);
+        try {
+            List<Future<ResponseEntity<JsonNode>>> calls = new ArrayList<>();
+            for (int i = 0; i < 3; i++) {
+                calls.add(pool.submit(() -> quote(r.token(), 1, key, r.address())));
+            }
+            for (Future<ResponseEntity<JsonNode>> f : calls) {
+                ResponseEntity<JsonNode> res = f.get(30, TimeUnit.SECONDS);
+                assertThat(res.getStatusCode().value()).isEqualTo(410);
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+        assertThat(quoteCount(r.token())).isEqualTo(1);
+    }
+
+    // ---------- M2: address TOCTOU (deletion and version) ----------
+
+    private ResponseEntity<Void> deleteAddress(String token, String addressId, long version) {
+        HttpHeaders h = new HttpHeaders();
+        h.setBearerAuth(token);
+        h.set("If-Match", "\"address-" + version + "\"");
+        return rest.exchange(url("/v1/customer/addresses/" + addressId), HttpMethod.DELETE, new HttpEntity<>(h),
+                Void.class);
+    }
+
+    private ResponseEntity<JsonNode> patchAddress(String token, String addressId, long version, Map<String, Object> body) {
+        HttpHeaders h = new HttpHeaders();
+        h.setContentType(MediaType.APPLICATION_JSON);
+        h.setBearerAuth(token);
+        h.set("If-Match", "\"address-" + version + "\"");
+        return rest.exchange(url("/v1/customer/addresses/" + addressId), HttpMethod.PATCH, new HttpEntity<>(body, h),
+                JsonNode.class);
+    }
+
+    @Test void an_address_deleted_after_validation_but_before_the_transaction_yields_404_and_no_quote() {
+        Ready r = ready(1000, 5, 1);
+        CustomerId cid = new CustomerId(customerId(r.token()));
+        RetryInjectingTx retryTx = new RetryInjectingTx(client);
+        retryTx.arm(0, n -> assertThat(deleteAddress(r.token(), r.address(), 1).getStatusCode().value())
+                .isEqualTo(204));
+        assertThatThrownBy(() -> serviceWith(retryTx).createQuote(cid, 1, newKey(), r.address(), "req"))
+                .isInstanceOf(CheckoutFailure.class)
+                .satisfies(e -> assertThat(((CheckoutFailure) e).reason()).isEqualTo(CheckoutFailure.Reason.NOT_FOUND));
+        assertThat(quoteCount(r.token())).isZero();
+    }
+
+    @Test void an_address_whose_postal_code_changes_after_validation_yields_404_not_a_stale_quote() {
+        Ready r = ready(1000, 5, 1);
+        CustomerId cid = new CustomerId(customerId(r.token()));
+        RetryInjectingTx retryTx = new RetryInjectingTx(client);
+        // version bumps from 1 -> 2 with a DIFFERENT (still serviceable) PIN before the transaction reads it
+        retryTx.arm(0, n -> assertThat(patchAddress(r.token(), r.address(), 1, Map.of("postalCode", PIN_OK))
+                .getStatusCode().value()).isEqualTo(200));
+        assertThatThrownBy(() -> serviceWith(retryTx).createQuote(cid, 1, newKey(), r.address(), "req"))
+                .isInstanceOf(CheckoutFailure.class)
+                .satisfies(e -> assertThat(((CheckoutFailure) e).reason()).isEqualTo(CheckoutFailure.Reason.NOT_FOUND));
+        assertThat(quoteCount(r.token())).isZero();
+        // the address itself is fine (still exists, still owned) -- ONLY the stale-version recheck rejects
+        assertThat(getQuote(r.token(), "CHKQ_doesnotexist12345").getStatusCode().value()).isEqualTo(404); // sanity: routes still healthy
+    }
+
+    @Test void an_untouched_address_still_produces_a_quote_after_the_version_recheck() {
+        Ready r = ready(1000, 5, 1);
+        ResponseEntity<JsonNode> res = quote(r.token(), 1, newKey(), r.address());
+        assertThat(res.getStatusCode().value()).isEqualTo(200);
+        assertThat(res.getBody().get("addressId").asText()).isEqualTo(r.address());
+    }
+
+    // ---------- M3: quote invariants surface as a safe, counted 500 ----------
+
+    private Ready quotedReady() {
+        return ready(1000, 5, 1);
+    }
+
+    private void corrupt(String quoteId, Document mutation) {
+        db.getCollection("checkout_quotes").updateOne(new Document("_id", quoteId), new Document("$set", mutation));
+    }
+
+    @Test void a_corrupt_stored_quote_line_total_is_a_safe_500_on_get_counted_once_as_internal() {
+        Ready r = quotedReady();
+        String quoteId = quote(r.token(), 1, newKey(), r.address()).getBody().get("quoteId").asText();
+        Document bad = new Document("skuId", r.sku()).append("quantity", 1).append("unitPricePaise", 1000L)
+                .append("lineTotalPaise", 999L); // does not equal unitPricePaise * quantity
+        corrupt(quoteId, new Document("items", List.of(bad)));
+
+        double before = count("customer_checkout_failure", "operation", "read_quote", "reason", "internal");
+        double allBefore = count("customer_checkout_failure");
+        ResponseEntity<JsonNode> res = getQuote(r.token(), quoteId);
+        assertThat(res.getStatusCode().value()).isEqualTo(500);
+        assertThat(res.getBody().get("code").asText()).isEqualTo("INTERNAL");
+        assertThat(res.getBody().toString()).doesNotContain("lineTotalPaise").doesNotContain("unitPricePaise")
+                .doesNotContain("IllegalArgumentException").doesNotContain("skuId");
+        assertThat(count("customer_checkout_failure", "operation", "read_quote", "reason", "internal") - before)
+                .isEqualTo(1);
+        assertThat(count("customer_checkout_failure") - allBefore).isEqualTo(1);
+    }
+
+    @Test void a_corrupt_stored_subtotal_mismatch_is_a_safe_500() {
+        Ready r = quotedReady();
+        String quoteId = quote(r.token(), 1, newKey(), r.address()).getBody().get("quoteId").asText();
+        corrupt(quoteId, new Document("subtotalPaise", 555L));
+        ResponseEntity<JsonNode> res = getQuote(r.token(), quoteId);
+        assertThat(res.getStatusCode().value()).isEqualTo(500);
+        assertThat(res.getBody().get("code").asText()).isEqualTo("INTERNAL");
+    }
+
+    @Test void a_corrupt_stored_duplicate_sku_is_a_safe_500() {
+        Ready r = quotedReady();
+        String quoteId = quote(r.token(), 1, newKey(), r.address()).getBody().get("quoteId").asText();
+        Document line = new Document("skuId", r.sku()).append("quantity", 1).append("unitPricePaise", 1000L)
+                .append("lineTotalPaise", 1000L);
+        corrupt(quoteId, new Document("items", List.of(line, line)).append("itemCount", 2)
+                .append("subtotalPaise", 2000L));
+        ResponseEntity<JsonNode> res = getQuote(r.token(), quoteId);
+        assertThat(res.getStatusCode().value()).isEqualTo(500);
+    }
+
+    @Test void a_corrupt_stored_createdAt_not_before_expiresAt_is_a_safe_500() {
+        Ready r = quotedReady();
+        String quoteId = quote(r.token(), 1, newKey(), r.address()).getBody().get("quoteId").asText();
+        Date same = new Date();
+        corrupt(quoteId, new Document("createdAt", same).append("expiresAt", same));
+        ResponseEntity<JsonNode> res = getQuote(r.token(), quoteId);
+        assertThat(res.getStatusCode().value()).isEqualTo(500);
+    }
+
+    @Test void a_corrupt_stored_currency_is_a_safe_500() {
+        Ready r = quotedReady();
+        String quoteId = quote(r.token(), 1, newKey(), r.address()).getBody().get("quoteId").asText();
+        corrupt(quoteId, new Document("currency", "USD"));
+        ResponseEntity<JsonNode> res = getQuote(r.token(), quoteId);
+        assertThat(res.getStatusCode().value()).isEqualTo(500);
+    }
+
+    @Test void an_idempotency_replay_of_a_corrupt_stored_quote_is_also_a_safe_500() {
+        Ready r = quotedReady();
+        String key = newKey();
+        String quoteId = quote(r.token(), 1, key, r.address()).getBody().get("quoteId").asText();
+        corrupt(quoteId, new Document("subtotalPaise", -1L));
+        ResponseEntity<JsonNode> res = quote(r.token(), 1, key, r.address());
+        assertThat(res.getStatusCode().value()).isEqualTo(500);
+        assertThat(res.getBody().get("code").asText()).isEqualTo("INTERNAL");
     }
 }

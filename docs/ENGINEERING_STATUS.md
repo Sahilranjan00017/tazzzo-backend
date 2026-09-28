@@ -382,11 +382,23 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   transaction, labeled transient error after the body, the driver's own retry loop) plus a structural
   guard against Auth result holders. No public contract change.
 
-`main` = `5c7e4df72bda7e06e543d34e67b7f414e2abff5a` — **1557-test regression floor** (PR-13A adds 32 tests on its branch → 1589; not yet merged).
+`main` = `5c7e4df72bda7e06e543d34e67b7f414e2abff5a` — **1557-test regression floor** (PR-13A adds tests on its branch → 1617 (after final-review hardening); not yet merged).
 
 ## In review (NOT merged)
 
 - **PR-13A — Checkout validation and quote foundation** (`com.tazzzo.customer.checkout`): **IN REVIEW**.
+  Hardened after final review: (M1) an idempotent POST replay of an EXPIRED quote returns 410
+  `QUOTE_EXPIRED` (never 200, never re-priced, never a replacement quote) in every replay path
+  (pre-validation, in-transaction, duplicate-key-race-winner) — a new quote after expiry needs a new
+  Idempotency-Key. (M2) the address is re-verified INSIDE the persisting transaction by BOTH id and
+  `version` (not existence alone), so a deletion or edit of the address between validation and commit
+  is rejected (404) rather than silently persisting a quote against stale/gone address state; only
+  ownership/version is rechecked, never serviceability (that stays outside the transaction). (M3)
+  `CheckoutQuote`'s compact constructor now validates every invariant a future Order would trust
+  (quoteId/addressId shape, line arithmetic, no duplicate SKU, itemCount/subtotal cross-checked with
+  `Math.*Exact`, `createdAt < expiresAt`, currency == INR) — a corrupt persisted document fails loud as
+  an uncaught `IllegalArgumentException`/`ArithmeticException`, which the public boundary maps to a
+  safe 500 `INTERNAL` (never a leaked value, never disguised as a 503 dependency outage).
   `POST /v1/customer/checkout/quote` (If-Match cart ETag + Idempotency-Key + `{addressId}`) and
   `GET /v1/customer/checkout/quotes/{quoteId}`. Revalidates the whole cart against CURRENT commerce
   truth through the SAME seam the cart uses (`CartEnricher` → `CommerceSkuBatchReader` → the unchanged
