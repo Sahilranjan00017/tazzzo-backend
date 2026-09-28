@@ -124,7 +124,7 @@ public class AddressService {
         Instant now = clock.instant();
 
         try {
-            Document created = tx.call(session -> {
+            MutationResult created = tx.call(session -> {
                 verifyIdentityExistsTransactional(session, customerId);
                 Document stateDoc = state.incrementIfBelowLimit(session, customerId.value(),
                         limits.getMaxActiveAddresses(), now);
@@ -154,10 +154,13 @@ public class AddressService {
                 if (isFirst) {
                     state.setDefault(session, customerId.value(), addressId.value(), now);
                 }
-                return doc;
+                // The resulting default is known INSIDE this transaction: this address if it is the
+                // first, otherwise whatever the (same-session) state document already points at.
+                String defaultId = isFirst ? addressId.value() : stateDoc.getString("defaultAddressId");
+                return new MutationResult(doc, defaultId);
             });
             observability.createSuccess(); // ONLY after Tx.call returns successfully (mission §33)
-            return toView(created, currentDefaultId(customerId.value()));
+            return toView(created.address(), created.defaultAddressId()); // pure in-memory, no DB read
         } catch (AddressFailure e) {
             throw e;
         } catch (RuntimeException e) {
@@ -189,7 +192,7 @@ public class AddressService {
 
         Instant now = clock.instant();
         try {
-            Document updated = tx.call(session -> {
+            MutationResult updated = tx.call(session -> {
                 verifyIdentityExistsTransactional(session, customerId);
                 Document existing = addresses.findOwnedById(session, customerId.value(), addressId.value());
                 if (existing == null) {
@@ -207,10 +210,13 @@ public class AddressService {
                     // we just confirmed it above in the SAME transaction/session.
                     throw new AddressFailure(AddressFailure.Reason.PRECONDITION_FAILED);
                 }
-                return result;
+                // Default preference read on the SAME session -- a coherent transactional snapshot.
+                Document stateDoc = state.findByCustomerId(session, customerId.value());
+                String defaultId = stateDoc == null ? null : stateDoc.getString("defaultAddressId");
+                return new MutationResult(result, defaultId);
             });
             observability.updateSuccess();
-            return toView(updated, currentDefaultId(customerId.value()));
+            return toView(updated.address(), updated.defaultAddressId()); // pure in-memory, no DB read
         } catch (AddressFailure e) {
             throw e;
         } catch (RuntimeException e) {
@@ -384,6 +390,10 @@ public class AddressService {
                 doc.get("longitude", Double.class),
                 addressId.equals(defaultAddressId),
                 doc.get("version", Number.class).longValue());
+    }
+
+    /** What a mutating transaction callback hands back so the response needs NO post-commit read. */
+    private record MutationResult(Document address, String defaultAddressId) {
     }
 
     public record CreateCommand(String label, String recipientName, String recipientPhone, String addressLine1,

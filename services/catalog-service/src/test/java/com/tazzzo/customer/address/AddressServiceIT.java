@@ -652,4 +652,115 @@ class AddressServiceIT extends AbstractMongoIT {
             logbackLogger.detachAppender(appender);
         }
     }
+
+    // ---------- create/patch: response assembled from the transaction, no post-commit state read ----------
+
+    /** State repository whose NON-session read is forbidden (an Error, so the service's own catch
+     *  blocks cannot swallow it). The session-scoped read must keep working. */
+    private CustomerAddressStateRepository forbidsPostCommitStateRead() {
+        return new CustomerAddressStateRepository(db) {
+            @Override
+            public Document findByCustomerId(String customerId) {
+                throw new AssertionError("no post-commit address-state read is allowed on a mutation");
+            }
+        };
+    }
+
+    @Test void create_returns_correct_isDefault_without_any_post_commit_state_read() {
+        CustomerId customerId = uniqueCustomerId("0040");
+        AddressService svc = new AddressService(addressRepo, forbidsPostCommitStateRead(), limits, clock,
+                observability, identityAuthorityProvider, tx);
+
+        AddressService.AddressView first = svc.create(customerId, create("HOME", "A"));
+        AddressService.AddressView second = svc.create(customerId, create("WORK", "B"));
+
+        assertThat(first.isDefault()).isTrue();
+        assertThat(second.isDefault()).isFalse();
+        // and the persisted truth agrees (read via the normal service, outside the forbidden seam)
+        assertThat(service.get(customerId, new AddressId(first.addressId())).isDefault()).isTrue();
+        assertThat(service.get(customerId, new AddressId(second.addressId())).isDefault()).isFalse();
+    }
+
+    @Test void patch_returns_correct_isDefault_without_any_post_commit_state_read() {
+        CustomerId customerId = uniqueCustomerId("0041");
+        AddressService.AddressView a = service.create(customerId, create("HOME", "A"));
+        AddressService.AddressView b = service.create(customerId, create("WORK", "B"));
+        AddressService svc = new AddressService(addressRepo, forbidsPostCommitStateRead(), limits, clock,
+                observability, identityAuthorityProvider, tx);
+
+        AddressService.AddressView patchedDefault = svc.patch(customerId, new AddressId(a.addressId()), 1,
+                emptyPatchWithName("Renamed A"));
+        AddressService.AddressView patchedOther = svc.patch(customerId, new AddressId(b.addressId()), 1,
+                emptyPatchWithName("Renamed B"));
+
+        assertThat(patchedDefault.isDefault()).isTrue();
+        assertThat(patchedDefault.recipientName()).isEqualTo("Renamed A");
+        assertThat(patchedOther.isDefault()).isFalse();
+        assertThat(patchedOther.version()).isEqualTo(2);
+    }
+
+    private static AddressService.PatchCommand emptyPatchWithName(String name) {
+        return new AddressService.PatchCommand(PatchField.absent(), PatchField.of(name), PatchField.absent(),
+                PatchField.absent(), PatchField.absent(), PatchField.absent(), PatchField.absent(),
+                PatchField.absent(), PatchField.absent(), PatchField.absent(), PatchField.absent());
+    }
+
+    @Test void create_retry_returns_document_and_default_from_the_successful_attempt() {
+        CustomerId customerId = uniqueCustomerId("0042");
+        AtomicInteger attempts = new AtomicInteger();
+        AddressRepository retryOnce = new AddressRepository(db) {
+            @Override
+            public void insert(ClientSession session, Document address) {
+                if (attempts.incrementAndGet() == 1) {
+                    MongoException t = new MongoException("simulated transient transaction conflict");
+                    t.addLabel("TransientTransactionError");
+                    throw t;
+                }
+                super.insert(session, address);
+            }
+        };
+        AddressService svc = new AddressService(retryOnce, stateRepo, limits, clock, observability,
+                identityAuthorityProvider, tx);
+
+        AddressService.AddressView view = svc.create(customerId, create("HOME", "Retried"));
+
+        assertThat(attempts.get()).isEqualTo(2);
+        assertThat(view.isDefault()).as("first address is default on the SUCCESSFUL attempt").isTrue();
+        assertThat(service.list(customerId)).hasSize(1);
+        assertThat(service.get(customerId, new AddressId(view.addressId())).isDefault()).isTrue();
+    }
+
+    @Test void patch_retry_returns_document_and_default_from_the_successful_attempt() {
+        CustomerId customerId = uniqueCustomerId("0043");
+        AddressService.AddressView a = service.create(customerId, create("HOME", "A"));
+        AtomicInteger attempts = new AtomicInteger();
+        AddressRepository retryOnce = new AddressRepository(db) {
+            @Override
+            public Document patch(ClientSession session, String custId, String addrId, long expectedVersion,
+                                  PatchField<AddressLabel> label, PatchField<String> recipientName,
+                                  PatchField<String> recipientPhone, PatchField<String> addressLine1,
+                                  PatchField<String> addressLine2, PatchField<String> landmark,
+                                  PatchField<String> city, PatchField<String> state,
+                                  PatchField<String> postalCode, PatchField<Coordinates.Pair> coordinates,
+                                  Instant now) {
+                if (attempts.incrementAndGet() == 1) {
+                    MongoException t = new MongoException("simulated transient transaction conflict");
+                    t.addLabel("TransientTransactionError");
+                    throw t;
+                }
+                return super.patch(session, custId, addrId, expectedVersion, label, recipientName, recipientPhone,
+                        addressLine1, addressLine2, landmark, city, state, postalCode, coordinates, now);
+            }
+        };
+        AddressService svc = new AddressService(retryOnce, stateRepo, limits, clock, observability,
+                identityAuthorityProvider, tx);
+
+        AddressService.AddressView view = svc.patch(customerId, new AddressId(a.addressId()), 1,
+                emptyPatchWithName("After retry"));
+
+        assertThat(attempts.get()).isEqualTo(2);
+        assertThat(view.version()).isEqualTo(2);
+        assertThat(view.isDefault()).isTrue();
+        assertThat(view.recipientName()).isEqualTo("After retry");
+    }
 }
