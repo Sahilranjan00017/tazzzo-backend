@@ -197,11 +197,6 @@ PR-01 through PR-08 are **MERGED**:
   - **No customer profile/address/cart/checkout/orders, no logout-all, no social login, no
     payment.** Squash merge `d136d53` — **1296-test regression floor**.
 
-`main` = `d136d532642d76615e57f2a6d7280a71bc23f708` (PR-11A+status-doc + PR-11B squash `250477d` +
-PR-11C squash `d136d53`) — **1296-test regression floor**.
-
-## In review (NOT merged)
-
 - **PR-12A — Customer profile read and update** (`com.tazzzo.customer.profile`): authenticated
   `GET`/`PATCH /v1/customer/profile` — displayName + email only. A NEW domain package, deliberately
   NOT under `com.tazzzo.auth`/`com.tazzzo.auth.session` (auth stays the identity/session
@@ -239,7 +234,34 @@ PR-11C squash `d136d53`) — **1296-test regression floor**.
     phone/sessionId/requestId/IP/installationId as a tag.
   - A persistence-layer outage maps to `503 SERVICE_UNAVAILABLE` on both GET and PATCH, never a
     fake `401` and never a raw `500`, and never leaks the underlying exception class/message.
-  - On `feature/pr12a-customer-profile`.
+  - **PATCH's identity check + profile write are ONE Mongo transaction** (`Tx.call`, on the
+    SAME `ClientSession`) via a new `CustomerIdentityAuthority` foundation interface
+    (`com.tazzzo.auth`, implemented in `com.tazzzo.auth.session` against the real `customers`
+    collection) — a missing/ghost customer identity throws INSIDE the transaction callback, so
+    no `customer_profiles` document can ever be committed for it. `Tx.call` is retry-safe: it
+    returns the value straight from the driver's own `withTransaction` retry loop, never a
+    mutable holder mutated across a transient-transaction-error retry (the PR-11B/PR-11C
+    lesson, applied again). GET stays read-only/non-transactional by design (it can never
+    create persisted state, so a momentary race there is inherently transient, not a
+    data-integrity concern).
+  - **PII-safe failure logging**: `CustomerProfileService` logs only the failing exception's
+    TYPE, never the exception object/message — proven by a Logback `ListAppender` test that
+    injects fake PII into a simulated exception message and asserts none of it reaches the
+    emitted log output.
+  - **Future invariant — customer deletion is NOT implemented by this PR.** PR-12A guarantees
+    a profile PATCH may commit only if the corresponding customer identity exists in the SAME
+    Mongo transaction snapshot that PATCH uses. When customer deletion/account closure is
+    implemented in a future PR, that lifecycle MUST coordinate deletion/revocation of every
+    dependent piece of state, at minimum: customer profile, addresses, sessions, and any future
+    customer-owned state (carts, etc). Not solved here — deliberately out of scope for PR-12A.
+  - Squash merges `943b6b1`/`c44bca8`/`4f4e42f` → `8d3b8fd` — **1363-test regression floor**.
+
+`main` = `8d3b8fd50831933ab2e3bad1404d2bd72de2be7e` (PR-11A+status-doc + PR-11B squash `250477d` +
+PR-11C squash `d136d53` + PR-12A squash `8d3b8fd`) — **1363-test regression floor**.
+
+## In review (NOT merged)
+
+- (none)
 
 ## Blocked
 
@@ -272,9 +294,11 @@ PR-11C squash `d136d53`) — **1296-test regression floor**.
   - **PR-11C — customer account and session lifecycle: MERGED.** Grant consumption, customer
     resolution/creation, session creation, access/refresh tokens, refresh rotation, logout/session
     revocation.
-- **Customer Profile (PR-12A): IN REVIEW.** Authenticated `GET`/`PATCH /v1/customer/profile`
-  (displayName + email only), a NEW `com.tazzzo.customer.profile` domain package — see "In review"
-  above. Address/Cart/Checkout/Order/Payment: **NOT STARTED**.
+- **Customer Profile (PR-12A): COMPLETE.** Authenticated `GET`/`PATCH /v1/customer/profile`
+  (displayName + email only), a NEW `com.tazzzo.customer.profile` domain package — see "Merged on
+  main" above. Customer deletion is explicitly NOT implemented (see the "Future invariant" note
+  above — a future deletion/account-closure PR must coordinate profile/address/session/cart
+  cleanup). Address/Cart/Checkout/Order/Payment: **NOT STARTED**.
 
 ## Next (ratified sequence)
 
