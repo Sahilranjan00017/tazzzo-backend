@@ -340,9 +340,10 @@ PR-01 through PR-08 are **MERGED**:
 `main` = `64042f6bc79168a284f84f7fa337a455a7def7a3` (PR-11A+status-doc + PR-11B squash `250477d` +
 PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) — **1478-test regression floor**.
 
-## In review (NOT merged)
-
-- **PR-12C — Customer cart foundation** (`com.tazzzo.customer.cart`): **IN REVIEW**. Authenticated
+- **PR-12C — Customer cart foundation**: merged as PR #21 — pre-merge head `a85584d`, squash
+  `ce868f4212531b6461678989869a76beaea7f004`; merged-main backend-ci run `36453966063`
+  (Compile & test + Validate API contracts: SUCCESS) — **1544-test regression floor**.
+  - Scope (`com.tazzzo.customer.cart`): **COMPLETE (merged)**. Authenticated
   `GET /v1/customer/cart`, `PUT`/`DELETE /v1/customer/cart/items/{skuId}`, `DELETE /v1/customer/cart`.
   Cart is purchase INTENT only (SKU, quantity, timestamps, version) in `customer_carts` keyed by
   customerId; current price/stock/serviceability/buyable are composed at read time through the
@@ -350,7 +351,7 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   ETag `"cart-<version>"` + mandatory If-Match (logical version 0 = no cart); expiry 7 days after the
   last mutation evaluated at runtime with NO Mongo TTL so the version never resets; every mutation is
   identity check + write in one `Tx.call`. Not a reservation, not a final total, no checkout.
-  - **Review hardening (in this PR):** (M1) a non-JSON `Content-Type` on the cart write routes is a
+  - **Review hardening (included in PR #21):** (M1) a non-JSON `Content-Type` on the cart write routes is a
     safe `415 UNSUPPORTED_MEDIA_TYPE` (not a 500); every unexpected 500 increments
     `customer_cart_failure{reason="internal"}` exactly once (`CartObservability.internalFailure`, kept
     OUT of `CartFailure.Reason` — a defect is not a domain outcome). (M3) the visible-facts → base →
@@ -369,17 +370,30 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
     bounds. Non-11000 duplicate-key wrapper variants map to 503 rather than 412. `Accept`-header (406)
     mismatches are not specially mapped.
 
-## Follow-up debt (recorded, NOT part of PR-12C)
+`main` = `ce868f4212531b6461678989869a76beaea7f004` — **1544-test regression floor** (PR-11D adds 13 tests on its branch → 1557; not yet merged).
 
-- **PR-11D / transaction retry hardening (next narrow PR after Cart) — HIGH correctness debt.**
-  `OtpService.verifyOtp` keeps its result in a mutable array (`verifiedHolder`) assigned inside
-  `tx.run` and read after it. `ClientSession.withTransaction` may re-run the callback; a value set by an
-  attempt whose commit was then rolled back survives into a retry that returns early without
-  overwriting it, yielding a "verified" result (grant id) whose grant insert never committed. Fix:
-  return the result from `Tx.call` (no holder). Also audit and migrate the other `tx.run` result-holder
-  users: `OtpService.requestOtp` (`activatedHolder`), `CustomerSessionService` create/refresh
-  (`resultHolder`/`rotatedHolder`; believed safe today because every attempt overwrites or throws, but
-  fragile), and the catalog/inventory/pricing/media single-element-array holders.
+## In review (NOT merged)
+
+- **PR-11D — Auth transaction retry safety**: **IN REVIEW**. `OtpService.verify` (confirmed defect:
+  a result stored in an external holder by a transaction attempt whose commit was rolled back could
+  survive into a retry that lost the CAS and be returned as success), `OtpService.request`, and
+  `CustomerSessionService` establish/refresh now return their result from `Tx.call` (an immutable
+  value from the committed attempt) instead of a mutable holder written inside `tx.run`. `Tx` documents
+  the multiple-invocation contract. Deterministic retry tests (`RetryInjectingTx`: real Mongo
+  transaction, labeled transient error after the body, the driver's own retry loop) plus a structural
+  guard against Auth result holders. No public contract change.
+
+## Follow-up debt (recorded)
+
+- **Non-Auth `tx.run` result-holder audit (PR-11D, no action taken):** `AttributeAuthoringService`
+  (`version[]`, two sites), `EvidenceService` (`outcome[]`), `RollupService.purge` (`deleted[]`) and
+  `TaintService.processBatch` (`last[]`) share the same STRUCTURE (a one-element array written in the
+  callback and read after `tx.run`) but are NOT retry bugs today: every non-throwing path of every
+  attempt overwrites the holder, so the value read is always the last attempt's. They are structurally
+  fragile; migrate to `Tx.call` opportunistically when next touched. `InventoryService`,
+  `PricingService`, `MediaService` (`r[]`) and `TaxonomyChangeService` (`seq[]`) declare the array
+  INSIDE the callback and use it within the same attempt — not holders. No non-Auth HIGH retry defect
+  was found.
 - **M2 — batch catalog eligibility** (`CatalogCardReadPort.findEligibleCards(Collection<String>)`) to
   replace up to 50 point reads per cart response. Deferred to avoid a catalog-read refactor in the cart PR.
 
@@ -426,7 +440,7 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   `PublicServiceability`, pincode-keyed routing) is **COMPLETE** and unchanged; the
   customer-address BINDING to it (PR-12B) is **COMPLETE**.
   (Address ↔ Serviceability binding: COMPLETE.)
-- Cart (PR-12C): **IN REVIEW** (not merged). Checkout: **NOT STARTED**. Order: **NOT STARTED**. Payment: **NOT STARTED**.
+- Cart (PR-12C): **COMPLETE** (PR #21, squash `ce868f4212531b6461678989869a76beaea7f004`). Auth transaction retry hardening (PR-11D): **IN REVIEW**. Checkout: **NOT STARTED**. Order: **NOT STARTED**. Payment: **NOT STARTED**.
 
 ## Next (ratified sequence)
 
@@ -464,6 +478,11 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-09-28** — `./mvnw clean test` on Java 21 + Docker on `feature/pr11d-auth-transaction-retry-safety`
+  (based on `main` `ce868f4`): **BUILD SUCCESS**, **1557 tests, 0 failures / 0 errors / 0 skipped**.
+- **2026-09-28** — `./mvnw clean test` on Java 21 + Docker at `main` `ce868f4` (post-PR-12C baseline
+  for PR-11D): **BUILD SUCCESS**, **1544 tests, 0 failures / 0 errors / 0 skipped**; merged-main CI run
+  `36453966063` green.
 - **2026-09-28** — `./mvnw clean test` in `services/catalog-service` on Java 21 + Docker, on
   `feature/pr12b-customer-address` at head `c443e22` (based on `main` `9ae2f2d`): **BUILD SUCCESS**,
   **1478 tests, 0 failures / 0 errors / 0 skipped**; merged-main CI run `36396355618` green.
