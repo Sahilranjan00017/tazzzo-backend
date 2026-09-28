@@ -35,6 +35,17 @@ tags:
       OPTIONAL, UNVERIFIED profile data — never an authentication identity, never used to log in.
       Does NOT cover address, cart, checkout, order, payment, or any other customer data — those
       are future phases.
+  - name: customer-address
+    description: >
+      PR-12B — authenticated CRUD of a customer's OWN saved delivery addresses, plus dynamic
+      serviceability binding. All endpoints REQUIRE a valid customer access token; customerId
+      always comes from the token, never from the request. Optimistic concurrency via
+      ETag/If-Match, the SAME pattern as customer-profile. Serviceability is evaluated FRESH on
+      every read/response from the existing serviceability domain — it is never persisted as
+      address state, and saving an address never requires it to currently be serviceable.
+      recipientPhone is delivery-contact information only, never an authentication identity.
+      fulfillmentLocationId/serviceAreaId are never public. Does NOT cover cart, checkout, order,
+      or payment — those are future phases.
 paths:
   /v1/categories:
     get:
@@ -319,8 +330,171 @@ paths:
         '412': { $ref: '#/components/responses/ProfilePreconditionFailed' }
         '428': { $ref: '#/components/responses/ProfilePreconditionRequired' }
         '503': { $ref: '#/components/responses/ProfileUnavailable' }
+  /v1/customer/addresses:
+    get:
+      tags: [customer-address]
+      operationId: listCustomerAddresses
+      summary: >
+        The caller's OWN saved addresses only. Ordered default-first, then most-recently-updated.
+        No pagination (the saved-address limit is small by design).
+      security:
+        - customerBearerAuth: []
+      responses:
+        '200':
+          description: OK. Each item's `serviceability` is evaluated fresh, not stored state.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerAddressListResponse' }
+        '401': { $ref: '#/components/responses/AddressUnauthenticated' }
+        '503': { $ref: '#/components/responses/AddressUnavailable' }
+    post:
+      tags: [customer-address]
+      operationId: createCustomerAddress
+      summary: >
+        Save a new address for the caller. The FIRST saved address automatically becomes the
+        default; subsequent addresses do not. Bounded by a per-customer saved-address limit
+        (409 ADDRESS_LIMIT_REACHED once reached). Saving succeeds even if the address is CURRENTLY
+        unserviceable — address validity is independent of commerce eligibility, which is
+        re-evaluated dynamically on every read and again at future Checkout.
+      security:
+        - customerBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CustomerAddressCreateRequest' }
+      responses:
+        '201':
+          description: Created, at version 1.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+            ETag: { description: 'Shape "address-1".', schema: { type: string, example: '"address-1"' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerAddressResponse' }
+        '400': { $ref: '#/components/responses/AddressBadRequest' }
+        '401': { $ref: '#/components/responses/AddressUnauthenticated' }
+        '409': { $ref: '#/components/responses/AddressLimitReached' }
+        '503': { $ref: '#/components/responses/AddressUnavailable' }
+  /v1/customer/addresses/{addressId}:
+    get:
+      tags: [customer-address]
+      operationId: getCustomerAddress
+      summary: >
+        The caller's OWN address. An unknown address id AND another customer's address return the
+        IDENTICAL 404 — no ownership enumeration.
+      security:
+        - customerBearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AddressIdParam'
+      responses:
+        '200':
+          description: OK.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+            ETag: { description: 'Shape "address-<version>".', schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerAddressResponse' }
+        '401': { $ref: '#/components/responses/AddressUnauthenticated' }
+        '404': { $ref: '#/components/responses/AddressNotFound' }
+        '503': { $ref: '#/components/responses/AddressUnavailable' }
+    patch:
+      tags: [customer-address]
+      operationId: patchCustomerAddress
+      summary: >
+        Partial update of the caller's OWN address. Requires If-Match. Only fields PRESENT in the
+        body change; addressLine2/landmark may be explicit-null cleared; latitude/longitude are
+        ALWAYS a pair (both present or both absent in the patch, never just one); every other
+        field is required and can never be set null. Cannot change addressId, customerId, version,
+        createdAt, updatedAt, or isDefault directly (use the dedicated default endpoint).
+      security:
+        - customerBearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AddressIdParam'
+        - name: If-Match
+          in: header
+          required: true
+          schema: { type: string, maxLength: 40, example: '"address-1"' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CustomerAddressPatchRequest' }
+      responses:
+        '200':
+          description: Updated. Returns the full current address projection with a new ETag.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+            ETag: { description: 'The NEW version tag.', schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerAddressResponse' }
+        '400': { $ref: '#/components/responses/AddressBadRequest' }
+        '401': { $ref: '#/components/responses/AddressUnauthenticated' }
+        '404': { $ref: '#/components/responses/AddressNotFound' }
+        '412': { $ref: '#/components/responses/AddressPreconditionFailed' }
+        '428': { $ref: '#/components/responses/AddressPreconditionRequired' }
+        '503': { $ref: '#/components/responses/AddressUnavailable' }
+    delete:
+      tags: [customer-address]
+      operationId: deleteCustomerAddress
+      summary: >
+        Delete the caller's OWN address. Requires If-Match (prevents deleting a version the client
+        never actually read). Deleting the current default deterministically promotes the
+        most-recently-updated remaining address (or leaves zero default if none remain). Repeated
+        delete after success is 404 (simple, idempotent-in-effect).
+      security:
+        - customerBearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AddressIdParam'
+        - name: If-Match
+          in: header
+          required: true
+          schema: { type: string, maxLength: 40, example: '"address-1"' }
+      responses:
+        '204':
+          description: Deleted.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+        '401': { $ref: '#/components/responses/AddressUnauthenticated' }
+        '404': { $ref: '#/components/responses/AddressNotFound' }
+        '412': { $ref: '#/components/responses/AddressPreconditionFailed' }
+        '428': { $ref: '#/components/responses/AddressPreconditionRequired' }
+        '503': { $ref: '#/components/responses/AddressUnavailable' }
+  /v1/customer/addresses/{addressId}/default:
+    put:
+      tags: [customer-address]
+      operationId: setDefaultCustomerAddress
+      summary: >
+        Atomically make this the caller's default address, clearing any prior default. Default is
+        a customer PREFERENCE, independent of serviceability — it is never changed automatically
+        because a location becomes unserviceable.
+      security:
+        - customerBearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AddressIdParam'
+      responses:
+        '200':
+          description: OK. Returns the full current address projection (now the default).
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+            ETag: { description: 'Shape "address-<version>".', schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerAddressResponse' }
+        '401': { $ref: '#/components/responses/AddressUnauthenticated' }
+        '404': { $ref: '#/components/responses/AddressNotFound' }
+        '503': { $ref: '#/components/responses/AddressUnavailable' }
 components:
   parameters:
+    AddressIdParam:
+      name: addressId
+      in: path
+      required: true
+      schema: { type: string, pattern: '^ADDR_[A-Za-z0-9_-]{6,64}$' }
     Release:
       name: release
       in: query
@@ -676,6 +850,104 @@ components:
                  SERVICE_UNAVAILABLE, INTERNAL]
         message: { type: string, description: "Safe, generic. No internals, no PII." }
         requestId: { type: string }
+    CustomerAddressServiceability:
+      type: object
+      description: >
+        Evaluated FRESH from the existing serviceability domain on every read/response — never
+        persisted address state. `serviceable=null` means UNKNOWN (the serviceability dependency
+        could not currently be evaluated), deliberately distinct from `false` (a definite answer:
+        this location is outside coverage today). Saving an address never requires it to be
+        serviceable now.
+      properties:
+        serviceable: { type: boolean, nullable: true }
+    CustomerAddressResponse:
+      type: object
+      description: >
+        NEVER exposes fulfillmentLocationId, serviceAreaId, warehouseId, or any Mongo internal.
+        recipientPhone is DELIVERY CONTACT information only — never an authentication identity,
+        never used to log in, may differ from the customer's login phone.
+      required: [addressId, label, recipientName, recipientPhone, addressLine1, city, state,
+                 postalCode, isDefault, version, serviceability, requestId]
+      properties:
+        addressId: { type: string, pattern: '^ADDR_[A-Za-z0-9_-]+$' }
+        label: { type: string, enum: [HOME, WORK, OTHER] }
+        recipientName: { type: string, maxLength: 80 }
+        recipientPhone: { type: string, description: "Canonical +91 E.164. Delivery contact only." }
+        addressLine1: { type: string, maxLength: 160 }
+        addressLine2: { type: string, nullable: true, maxLength: 160 }
+        landmark: { type: string, nullable: true, maxLength: 120 }
+        city: { type: string, maxLength: 80 }
+        state: { type: string, maxLength: 80 }
+        postalCode: { type: string, pattern: '^[1-9][0-9]{5}$' }
+        latitude: { type: number, format: double, nullable: true, minimum: -90, maximum: 90 }
+        longitude: { type: number, format: double, nullable: true, minimum: -180, maximum: 180 }
+        isDefault: { type: boolean }
+        version: { type: integer, format: int64, minimum: 1 }
+        serviceability: { $ref: '#/components/schemas/CustomerAddressServiceability' }
+        requestId: { type: string }
+    CustomerAddressListResponse:
+      type: object
+      required: [items, requestId]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/CustomerAddressResponse' }
+        requestId: { type: string }
+    CustomerAddressCreateRequest:
+      type: object
+      description: >
+        No client-supplied addressId/customerId/version/createdAt/updatedAt/fulfillmentLocationId/
+        serviceAreaId — none of those fields exist on this request at all. latitude/longitude are a
+        PAIR: both present and valid, or both omitted; exactly one supplied is 400.
+      required: [label, recipientName, recipientPhone, addressLine1, city, state, postalCode]
+      properties:
+        label: { type: string, enum: [HOME, WORK, OTHER] }
+        recipientName: { type: string, maxLength: 80 }
+        recipientPhone: { type: string }
+        addressLine1: { type: string, maxLength: 160 }
+        addressLine2: { type: string, nullable: true, maxLength: 160 }
+        landmark: { type: string, nullable: true, maxLength: 120 }
+        city: { type: string, maxLength: 80 }
+        state: { type: string, maxLength: 80 }
+        postalCode: { type: string, pattern: '^[1-9][0-9]{5}$' }
+        latitude: { type: number, format: double, nullable: true }
+        longitude: { type: number, format: double, nullable: true }
+    CustomerAddressPatchRequest:
+      type: object
+      description: >
+        True partial-update semantics: a field OMITTED is left untouched; addressLine2/landmark
+        PRESENT with JSON null CLEAR it; every other field is required and can never be set null.
+        latitude/longitude are a pair -- both keys present (each may be null to clear both) or both
+        omitted; exactly one key present is 400. Cannot change addressId/customerId/version/
+        createdAt/updatedAt/isDefault (use PUT .../default for the last one).
+      properties:
+        label: { type: string, enum: [HOME, WORK, OTHER] }
+        recipientName: { type: string, maxLength: 80 }
+        recipientPhone: { type: string }
+        addressLine1: { type: string, maxLength: 160 }
+        addressLine2: { type: string, nullable: true, maxLength: 160 }
+        landmark: { type: string, nullable: true, maxLength: 120 }
+        city: { type: string, maxLength: 80 }
+        state: { type: string, maxLength: 80 }
+        postalCode: { type: string, pattern: '^[1-9][0-9]{5}$' }
+        latitude: { type: number, format: double, nullable: true }
+        longitude: { type: number, format: double, nullable: true }
+    CustomerAddressErrorEnvelope:
+      type: object
+      description: >
+        Covers BOTH failure sources on this path: the pre-existing CustomerAuthFilter boundary
+        (UNAUTHENTICATED/SERVICE_UNAVAILABLE) and this domain's own controller (INVALID_REQUEST/
+        NOT_FOUND/PRECONDITION_REQUIRED/PRECONDITION_FAILED/ADDRESS_LIMIT_REACHED/
+        SERVICE_UNAVAILABLE/INTERNAL). Same flat shape either way. An unknown address id and
+        another customer's address return the IDENTICAL NOT_FOUND -- no ownership enumeration.
+      required: [code, message, requestId]
+      properties:
+        code:
+          type: string
+          enum: [INVALID_REQUEST, UNAUTHENTICATED, NOT_FOUND, PRECONDITION_REQUIRED,
+                 PRECONDITION_FAILED, ADDRESS_LIMIT_REACHED, SERVICE_UNAVAILABLE, INTERNAL]
+        message: { type: string, description: "Safe, generic. No internals, no PII." }
+        requestId: { type: string }
   responses:
     BadRequest:
       description: Invalid request or cursor
@@ -790,6 +1062,65 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/CustomerProfileErrorEnvelope' }
+    AddressBadRequest:
+      description: Malformed request shape, or an invalid field value (PIN, phone, text, lat/lng pair).
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CustomerAddressErrorEnvelope' }
+    AddressNotFound:
+      description: >
+        Unknown address id, OR an address belonging to another customer -- the IDENTICAL response
+        either way. No ownership enumeration.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CustomerAddressErrorEnvelope' }
+    AddressLimitReached:
+      description: The caller's saved-address limit has been reached.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CustomerAddressErrorEnvelope' }
+    AddressPreconditionRequired:
+      description: PATCH/DELETE was sent without an If-Match header.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CustomerAddressErrorEnvelope' }
+    AddressPreconditionFailed:
+      description: >
+        The presented If-Match no longer matches the current version. Persisted state is left
+        unchanged; retry after a fresh GET.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CustomerAddressErrorEnvelope' }
+    AddressUnauthenticated:
+      description: >
+        Generic customer-authentication failure (owned by CustomerAuthFilter, not this domain).
+        Never distinguishes which.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+        WWW-Authenticate: { schema: { type: string, example: "Bearer" } }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CustomerAddressErrorEnvelope' }
+    AddressUnavailable:
+      description: >
+        Either the customer-auth signing key/session authority is not ready (CustomerAuthFilter),
+        the customer identity authority failed, or the address store itself is unavailable. Never
+        distinguishes which.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CustomerAddressErrorEnvelope' }
   securitySchemes:
     customerBearerAuth:
       type: http

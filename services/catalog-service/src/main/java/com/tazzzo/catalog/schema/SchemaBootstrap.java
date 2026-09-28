@@ -76,7 +76,15 @@ public class SchemaBootstrap {
             // customerId as _id -- no separate customerId index needed. Never phoneNormalized,
             // session state, or anything auth owns; a distinct domain from "customers" (auth
             // identity) by design.
-            "customer_profiles");
+            "customer_profiles",
+            // PR-12B: one document per saved delivery address, _id the opaque ADDR_* id. Never
+            // stores isDefault or any serviceability truth -- see customer_address_state.
+            "customer_addresses",
+            // PR-12B: ONE document per customer -- addressCount (the address-limit CAS) and
+            // defaultAddressId (the single-default pointer). Both concurrency invariants this
+            // domain needs are enforced entirely through atomic writes to this ONE document per
+            // customer; see CustomerAddressStateRepository's class-level rationale.
+            "customer_address_state");
 
     /**
      * PAG-2-SORT-1 transport support: the equality prefix the consumer-eligibility predicate uses,
@@ -250,6 +258,13 @@ public class SchemaBootstrap {
         db.getCollection("customer_sessions").createIndex(
                 Indexes.ascending("expiresAt"), new IndexOptions().name("session_expiry_ttl")
                         .expireAfter(0L, java.util.concurrent.TimeUnit.SECONDS));
+        // PR-12B: list-by-customer, newest-first, with a deterministic _id tiebreaker -- the SAME
+        // shape AddressRepository.findAllByCustomer sorts by. No isDefault index: isDefault is not
+        // a stored field on this collection (see customer_address_state).
+        db.getCollection("customer_addresses").createIndex(
+                Indexes.compoundIndex(Indexes.ascending("customerId"), Indexes.descending("updatedAt"),
+                        Indexes.ascending("_id")),
+                new IndexOptions().name("address_by_customer_updated"));
     }
 
     /**

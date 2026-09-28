@@ -5,6 +5,76 @@
     "version" : "v0"
   },
   "paths" : {
+    "/v1/customer/addresses/{addressId}/default" : {
+      "put" : {
+        "tags" : [ "address-controller" ],
+        "operationId" : "setDefault",
+        "parameters" : [ {
+          "name" : "addressId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AddressResponseDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/customer/addresses" : {
+      "get" : {
+        "tags" : [ "address-controller" ],
+        "operationId" : "list",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AddressListResponseDto"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post" : {
+        "tags" : [ "address-controller" ],
+        "operationId" : "create",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/AddressCreateRequestDto"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AddressResponseDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/auth/session" : {
       "post" : {
         "tags" : [ "session-controller" ],
@@ -428,7 +498,7 @@
       },
       "post" : {
         "tags" : [ "product-controller" ],
-        "operationId" : "create",
+        "operationId" : "create_1",
         "requestBody" : {
           "content" : {
             "application/json" : {
@@ -751,7 +821,7 @@
     "/api/v1/evidence" : {
       "post" : {
         "tags" : [ "evidence-controller" ],
-        "operationId" : "create_1",
+        "operationId" : "create_2",
         "requestBody" : {
           "content" : {
             "application/json" : {
@@ -815,7 +885,7 @@
     "/api/v1/attributes" : {
       "post" : {
         "tags" : [ "attribute-controller" ],
-        "operationId" : "create_2",
+        "operationId" : "create_3",
         "requestBody" : {
           "content" : {
             "application/json" : {
@@ -963,10 +1033,100 @@
         }
       }
     },
+    "/v1/customer/addresses/{addressId}" : {
+      "get" : {
+        "tags" : [ "address-controller" ],
+        "operationId" : "get_1",
+        "parameters" : [ {
+          "name" : "addressId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AddressResponseDto"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete" : {
+        "tags" : [ "address-controller" ],
+        "operationId" : "delete",
+        "parameters" : [ {
+          "name" : "addressId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "If-Match",
+          "in" : "header",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK"
+          }
+        }
+      },
+      "patch" : {
+        "tags" : [ "address-controller" ],
+        "operationId" : "patch_1",
+        "parameters" : [ {
+          "name" : "addressId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "If-Match",
+          "in" : "header",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/JsonNode"
+              }
+            }
+          }
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AddressResponseDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/products/{id}" : {
       "get" : {
         "tags" : [ "product-controller" ],
-        "operationId" : "get_1",
+        "operationId" : "get_2",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -990,7 +1150,7 @@
       },
       "patch" : {
         "tags" : [ "product-controller" ],
-        "operationId" : "patch_1",
+        "operationId" : "patch_2",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -1472,7 +1632,7 @@
     "/api/v1/evidence/{id}" : {
       "get" : {
         "tags" : [ "evidence-controller" ],
-        "operationId" : "get_2",
+        "operationId" : "get_3",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -1550,6 +1710,110 @@
   },
   "components" : {
     "schemas" : {
+      "AddressResponseDto" : {
+        "type" : "object",
+        "properties" : {
+          "addressId" : {
+            "type" : "string"
+          },
+          "label" : {
+            "type" : "string"
+          },
+          "recipientName" : {
+            "type" : "string"
+          },
+          "recipientPhone" : {
+            "type" : "string"
+          },
+          "addressLine1" : {
+            "type" : "string"
+          },
+          "addressLine2" : {
+            "type" : "string"
+          },
+          "landmark" : {
+            "type" : "string"
+          },
+          "city" : {
+            "type" : "string"
+          },
+          "state" : {
+            "type" : "string"
+          },
+          "postalCode" : {
+            "type" : "string"
+          },
+          "latitude" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "longitude" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "isDefault" : {
+            "type" : "boolean"
+          },
+          "version" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "serviceability" : {
+            "$ref" : "#/components/schemas/AddressServiceabilityDto"
+          },
+          "requestId" : {
+            "type" : "string"
+          }
+        }
+      },
+      "AddressServiceabilityDto" : {
+        "type" : "object",
+        "properties" : {
+          "serviceable" : {
+            "type" : "boolean"
+          }
+        }
+      },
+      "AddressCreateRequestDto" : {
+        "type" : "object",
+        "properties" : {
+          "label" : {
+            "type" : "string"
+          },
+          "recipientName" : {
+            "type" : "string"
+          },
+          "recipientPhone" : {
+            "type" : "string"
+          },
+          "addressLine1" : {
+            "type" : "string"
+          },
+          "addressLine2" : {
+            "type" : "string"
+          },
+          "landmark" : {
+            "type" : "string"
+          },
+          "city" : {
+            "type" : "string"
+          },
+          "state" : {
+            "type" : "string"
+          },
+          "postalCode" : {
+            "type" : "string"
+          },
+          "latitude" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "longitude" : {
+            "type" : "number",
+            "format" : "double"
+          }
+        }
+      },
       "SessionEstablishRequestDto" : {
         "type" : "object",
         "properties" : {
@@ -2405,6 +2669,20 @@
             "type" : "string"
           },
           "unit" : {
+            "type" : "string"
+          }
+        }
+      },
+      "AddressListResponseDto" : {
+        "type" : "object",
+        "properties" : {
+          "items" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/AddressResponseDto"
+            }
+          },
+          "requestId" : {
             "type" : "string"
           }
         }
