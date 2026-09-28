@@ -142,10 +142,6 @@ PR-01 through PR-08 are **MERGED**:
   `PUBLIC_CONSUMER` allowlist entry. Squash merges `a2d2016`/`8b962e6`/`71012b4`/`02e0cf5` →
   `250477d` — **1235-test regression floor**.
 
-`main` = `250477d69652a26110e02e4b4c90753dd9c94bd6` (PR-11A+status-doc + PR-11B squash `250477d`).
-
-## In review (NOT merged)
-
 - **PR-11C — Customer account and session lifecycle** (`com.tazzzo.auth.session`): completes
   customer authentication — OTP verified grant → customer resolution/creation → session creation
   → access/refresh token issuance → refresh rotation → logout/session revocation. Does **NOT**
@@ -199,7 +195,51 @@ PR-01 through PR-08 are **MERGED**:
     customer.
   - Session establishment/refresh responses deliberately OMIT `sessionId` and the phone number.
   - **No customer profile/address/cart/checkout/orders, no logout-all, no social login, no
-    payment.** On `feature/pr11c-customer-session-lifecycle`.
+    payment.** Squash merge `d136d53` — **1296-test regression floor**.
+
+`main` = `d136d532642d76615e57f2a6d7280a71bc23f708` (PR-11A+status-doc + PR-11B squash `250477d` +
+PR-11C squash `d136d53`) — **1296-test regression floor**.
+
+## In review (NOT merged)
+
+- **PR-12A — Customer profile read and update** (`com.tazzzo.customer.profile`): authenticated
+  `GET`/`PATCH /v1/customer/profile` — displayName + email only. A NEW domain package, deliberately
+  NOT under `com.tazzzo.auth`/`com.tazzzo.auth.session` (auth stays the identity/session
+  foundation; it must not accumulate customer-facing business data). Does **NOT** cover address,
+  cart, checkout, order, payment, wallet, coins, notifications, loyalty, social login, admin
+  customer editing, customer deletion, phone-number change, email verification, or avatar upload —
+  those remain future phases.
+  - **`customer_profiles`**: one document per customer, keyed by `customerId` AS `_id` (no
+    separate customerId index, no duplicate customer/profile mapping) — `displayName`, `email`,
+    `createdAt`, `updatedAt`, `version`. Never `phoneNormalized`/session state/anything auth owns.
+  - **Absent-profile semantics**: a customer with no profile document yet reads as a deterministic
+    default projection (`displayName=null`, `email=null`, `version=0`) — GET never creates one.
+  - **Optimistic concurrency via ETag/If-Match**: `GET` returns `ETag: "profile-<version>"`;
+    `PATCH` requires `If-Match`, absent → `428`, stale → `412` (persisted state unchanged). One
+    atomic `findOneAndUpdate` filtered on `{_id, version: expectedVersion}` — `expectedVersion==0`
+    additionally sets `upsert=true`, so a legitimate first-time create and the version check are
+    the SAME atomic operation. A losing concurrent create surfaces as a `MongoCommandException`
+    (code 11000) from the `findAndModify` command — NOT the `MongoWriteException` a plain
+    insert/update would raise — caught and normalized to the same `412` a stale version gets.
+  - **True partial-update semantics**: a field OMITTED from the PATCH body is untouched; a field
+    PRESENT with JSON `null` clears it; a field PRESENT with a value sets it — via a small explicit
+    `PatchField<T>` (ABSENT/PRESENT(null)/PRESENT(value)), not a plain nullable Java field. An empty
+    (or entirely-unrecognized) patch body is `400 INVALID_REQUEST` by design, never a silent no-op.
+  - **displayName**: trimmed, empty-after-trim → `null`, max 80 Unicode code points, control
+    characters rejected — legitimate international names (`José`, `李明`) are never over-sanitized.
+  - **email**: OPTIONAL, UNVERIFIED profile data — never an authentication identity, never usable
+    to log in, no verification email sent, no global uniqueness enforced. Trimmed, whole-address
+    lower-cased, max 254 chars, a practical (not full RFC 5322) shape check.
+  - **customerId always comes from the verified `CustomerPrincipal`** (`CustomerPrincipalResolver`)
+    — never request body/path/query/header; there is no `GET /v1/customer/{customerId}/profile`.
+  - **Bounded Micrometer metrics** (`customer_profile_read_success`,
+    `customer_profile_read_failure{reason}`, `customer_profile_update_success`,
+    `customer_profile_update_failure{reason}`, `customer_profile_precondition_failed`) — `reason`
+    is always the closed `CustomerProfileFailure.Reason` enum; never customerId/email/displayName/
+    phone/sessionId/requestId/IP/installationId as a tag.
+  - A persistence-layer outage maps to `503 SERVICE_UNAVAILABLE` on both GET and PATCH, never a
+    fake `401` and never a raw `500`, and never leaks the underlying exception class/message.
+  - On `feature/pr12a-customer-profile`.
 
 ## Blocked
 
@@ -221,22 +261,25 @@ PR-01 through PR-08 are **MERGED**:
 - **Public Commerce Read (PR-10A/B/C): COMPLETE.** The public `/v1` read surface (categories,
   children, category-products, product detail, serviceability) is live on `main`, operationally
   hardened (cache/ETag/observability/readiness), with a 1051-test regression floor.
-- **Customer Auth (PR-11A/B/C): IN REVIEW — COMPLETE PENDING MERGE. Do not mark authentication
-  complete until PR-11C merges.**
+- **Customer Auth (PR-11A/B/C): COMPLETE.** Authentication/session infrastructure only — OTP
+  request/verify, grant consumption, customer resolution/creation, session creation, access/
+  refresh tokens, refresh rotation, logout/session revocation. **This is NOT the customer profile
+  domain.**
   - **PR-11A — customer auth security boundary: MERGED.** Fourth HTTP surface + principal/
     token cryptographic verification foundation, deny-by-default `/v1` classification.
   - **PR-11B — OTP challenge lifecycle + provider abstraction: MERGED.** OTP request/verify,
     produces an internal one-time login grant.
-  - **PR-11C — customer account and session lifecycle: IN REVIEW.** Grant consumption, customer
+  - **PR-11C — customer account and session lifecycle: MERGED.** Grant consumption, customer
     resolution/creation, session creation, access/refresh tokens, refresh rotation, logout/session
-    revocation. **This completes the AUTHENTICATION/SESSION INFRASTRUCTURE boundary only — it is
-    NOT the customer profile domain.** No customer profile editing, addresses, cart, checkout, or
-    orders exist yet; those are future, unscoped phases.
+    revocation.
+- **Customer Profile (PR-12A): IN REVIEW.** Authenticated `GET`/`PATCH /v1/customer/profile`
+  (displayName + email only), a NEW `com.tazzzo.customer.profile` domain package — see "In review"
+  above. Address/Cart/Checkout/Order/Payment: **NOT STARTED**.
 
 ## Next (ratified sequence)
 
-1. **PR-11D+** — Customer profile/Address, Cart, Checkout, Orders, Search, Notifications, app
-   integration, AWS infrastructure: not started, not scoped yet.
+1. **PR-12B+** — Address, Cart, Checkout, Orders, Search, Notifications, app integration, AWS
+   infrastructure: not started, not scoped yet.
 
 ## Not started (honest boundary)
 

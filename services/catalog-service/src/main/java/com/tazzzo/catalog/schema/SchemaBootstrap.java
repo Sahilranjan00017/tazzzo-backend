@@ -71,7 +71,12 @@ public class SchemaBootstrap {
             "customers",
             // PR-11C: customer login session + refresh-token verifier. expiresAt/revokedAt are
             // APPLICATION predicates; the TTL index below is cleanup only, never authorization.
-            "customer_sessions");
+            "customer_sessions",
+            // PR-12A: customer-owned editable profile (displayName/email only). Keyed by
+            // customerId as _id -- no separate customerId index needed. Never phoneNormalized,
+            // session state, or anything auth owns; a distinct domain from "customers" (auth
+            // identity) by design.
+            "customer_profiles");
 
     /**
      * PAG-2-SORT-1 transport support: the equality prefix the consumer-eligibility predicate uses,

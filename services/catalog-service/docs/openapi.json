@@ -912,10 +912,61 @@
         }
       }
     },
+    "/v1/customer/profile" : {
+      "get" : {
+        "tags" : [ "customer-profile-controller" ],
+        "operationId" : "get",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/CustomerProfileResponseDto"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch" : {
+        "tags" : [ "customer-profile-controller" ],
+        "operationId" : "patch",
+        "parameters" : [ {
+          "name" : "If-Match",
+          "in" : "header",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/JsonNode"
+              }
+            }
+          }
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/CustomerProfileResponseDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/products/{id}" : {
       "get" : {
         "tags" : [ "product-controller" ],
-        "operationId" : "get",
+        "operationId" : "get_1",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -939,7 +990,7 @@
       },
       "patch" : {
         "tags" : [ "product-controller" ],
-        "operationId" : "patch",
+        "operationId" : "patch_1",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -1421,7 +1472,7 @@
     "/api/v1/evidence/{id}" : {
       "get" : {
         "tags" : [ "evidence-controller" ],
-        "operationId" : "get_1",
+        "operationId" : "get_2",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -2071,6 +2122,30 @@
           },
           "allowBreaking" : {
             "type" : "boolean"
+          }
+        }
+      },
+      "JsonNode" : {
+        "type" : "object"
+      },
+      "CustomerProfileResponseDto" : {
+        "type" : "object",
+        "properties" : {
+          "customerId" : {
+            "type" : "string"
+          },
+          "displayName" : {
+            "type" : "string"
+          },
+          "email" : {
+            "type" : "string"
+          },
+          "version" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "requestId" : {
+            "type" : "string"
           }
         }
       },

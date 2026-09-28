@@ -109,6 +109,19 @@ class ModuleBoundaryTest {
                     .allowEmptyShould(true);
 
     /**
+     * PR-12A — {@code auth} is the foundation; {@code customer.profile} is a consumer of its
+     * {@code CustomerId}/{@code CustomerPrincipal}/{@code CustomerPrincipalResolver} contract, never
+     * the reverse. This is the mirror image of {@code domains_do_not_depend_on_auth} above — auth
+     * must not accumulate customer-facing business data by reaching upward into a domain built on
+     * top of it.
+     */
+    @ArchTest
+    static final ArchRule auth_does_not_depend_on_customer_profile =
+            noClasses().that().resideInAPackage("com.tazzzo.auth..")
+                    .should().dependOnClassesThat().resideInAPackage("com.tazzzo.customer.profile..")
+                    .allowEmptyShould(true);
+
+    /**
      * No dependency cycles between top-level Tazzzo modules.
      *
      * <p>Dependencies INTO {@code com.tazzzo.commerce.contract} are excluded from cycle
