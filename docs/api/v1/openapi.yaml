@@ -51,6 +51,20 @@ tags:
       in the existing /v1/serviceability contract, but this address projection intentionally omits them
       (it exposes only the narrower `serviceable`). Does NOT cover cart, checkout, order,
       or payment — those are future phases.
+  - name: customer-cart
+    description: >
+      PR-12C — the authenticated customer's OWN cart: purchase INTENT (SKU + quantity) only. All
+      endpoints REQUIRE a valid customer access token; ownership is always the token's customer,
+      never a request field. A cart is NOT a reservation: stock is not held, prices are not locked
+      (every response shows CURRENT catalog price, stock and serviceability), and checkout MUST
+      revalidate everything. Optimistic concurrency via ETag `"cart-<version>"` and a REQUIRED
+      If-Match on every mutation; a customer with no cart is logical version 0 (`"cart-0"`).
+      Carts expire 7 days after the last mutation (expiry is evaluated at runtime, the version
+      never resets). `subtotalPaise` is the sum of current line totals of buyable-priced lines and
+      is NOT a final payable total (no fees, tax, discount or delivery). Without the optional
+      `addressId` location context, stock is UNKNOWN, `serviceable` is null and nothing is buyable.
+      fulfillmentLocationId / warehouse identifiers are never exposed. Does NOT cover checkout,
+      orders, or payment — those are future phases.
 paths:
   /v1/categories:
     get:
@@ -493,6 +507,152 @@ paths:
         '401': { $ref: '#/components/responses/AddressUnauthenticated' }
         '404': { $ref: '#/components/responses/AddressNotFound' }
         '503': { $ref: '#/components/responses/AddressUnavailable' }
+  /v1/customer/cart:
+    get:
+      tags: [customer-cart]
+      operationId: getCustomerCart
+      summary: >
+        The caller's OWN cart (logical version 0 with an empty item list when none exists). Read-only: never creates a cart. An expired cart is presented empty and its version continues.
+      security:
+        - customerBearerAuth: []
+      parameters:
+        - name: addressId
+          in: query
+          required: false
+          description: >
+            Optional saved-address id used ONLY as location context for stock/serviceability. Must be
+            the caller's own; a foreign, unknown or malformed id returns the IDENTICAL 404.
+          schema: { type: string, maxLength: 64, example: ADDR_0123456789abcdef }
+      responses:
+        '200':
+          description: OK.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+            ETag: { description: 'Shape "cart-<version>".', schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerCartResponse' }
+        '401': { $ref: '#/components/responses/CartUnauthenticated' }
+        '404': { $ref: '#/components/responses/CartNotFound' }
+        '503': { $ref: '#/components/responses/CartUnavailable' }
+    delete:
+      tags: [customer-cart]
+      operationId: clearCustomerCart
+      summary: >
+        Remove every item from the caller's cart. Requires If-Match. The cart record and its version history are kept (clearing advances the version); clearing a cart that never existed is a deterministic no-op returning version 0.
+      security:
+        - customerBearerAuth: []
+      parameters:
+        - name: If-Match
+          in: header
+          required: true
+          schema: { type: string, maxLength: 40, example: '"cart-0"' }
+        - name: addressId
+          in: query
+          required: false
+          description: >
+            Optional saved-address id used ONLY as location context for stock/serviceability. Must be
+            the caller's own; a foreign, unknown or malformed id returns the IDENTICAL 404.
+          schema: { type: string, maxLength: 64, example: ADDR_0123456789abcdef }
+      responses:
+        '200':
+          description: Cleared. Returns the empty cart with its new ETag.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+            ETag: { description: 'Shape "cart-<version>".', schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerCartResponse' }
+        '400': { $ref: '#/components/responses/CartBadRequest' }
+        '401': { $ref: '#/components/responses/CartUnauthenticated' }
+        '404': { $ref: '#/components/responses/CartNotFound' }
+        '412': { $ref: '#/components/responses/CartPreconditionFailed' }
+        '428': { $ref: '#/components/responses/CartPreconditionRequired' }
+        '503': { $ref: '#/components/responses/CartUnavailable' }
+  /v1/customer/cart/items/{skuId}:
+    put:
+      tags: [customer-cart]
+      operationId: setCustomerCartItem
+      summary: >
+        Set the EXACT quantity of one SKU (not incremental). Requires If-Match. Only `quantity` is read from the body; client-supplied price, name, stock or location fields are ignored and never stored. The SKU must currently be customer-visible in the catalog (unknown and hidden SKUs return the identical 404). An out-of-stock SKU may be added. Adding a new distinct SKU beyond the limit (default 50) is 409; quantity must be 1..20 (default).
+      security:
+        - customerBearerAuth: []
+      parameters:
+        - name: skuId
+          in: path
+          required: true
+          schema: { type: string, pattern: '^TZP-[0-9]{1,18}$' }
+        - name: If-Match
+          in: header
+          required: true
+          schema: { type: string, maxLength: 40, example: '"cart-0"' }
+        - name: addressId
+          in: query
+          required: false
+          description: >
+            Optional saved-address id used ONLY as location context for stock/serviceability. Must be
+            the caller's own; a foreign, unknown or malformed id returns the IDENTICAL 404.
+          schema: { type: string, maxLength: 64, example: ADDR_0123456789abcdef }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CustomerCartSetQuantityRequest' }
+      responses:
+        '200':
+          description: Updated. Returns the full cart with its new ETag.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+            ETag: { description: 'Shape "cart-<version>".', schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerCartResponse' }
+        '400': { $ref: '#/components/responses/CartBadRequest' }
+        '401': { $ref: '#/components/responses/CartUnauthenticated' }
+        '404': { $ref: '#/components/responses/CartNotFound' }
+        '409': { $ref: '#/components/responses/CartItemLimitReached' }
+        '412': { $ref: '#/components/responses/CartPreconditionFailed' }
+        '415': { $ref: '#/components/responses/CartUnsupportedMediaType' }
+        '428': { $ref: '#/components/responses/CartPreconditionRequired' }
+        '503': { $ref: '#/components/responses/CartUnavailable' }
+    delete:
+      tags: [customer-cart]
+      operationId: removeCustomerCartItem
+      summary: >
+        Remove one SKU line. Requires If-Match. An absent line is 404. Returns the updated cart (200), not 204.
+      security:
+        - customerBearerAuth: []
+      parameters:
+        - name: skuId
+          in: path
+          required: true
+          schema: { type: string, pattern: '^TZP-[0-9]{1,18}$' }
+        - name: If-Match
+          in: header
+          required: true
+          schema: { type: string, maxLength: 40, example: '"cart-0"' }
+        - name: addressId
+          in: query
+          required: false
+          description: >
+            Optional saved-address id used ONLY as location context for stock/serviceability. Must be
+            the caller's own; a foreign, unknown or malformed id returns the IDENTICAL 404.
+          schema: { type: string, maxLength: 64, example: ADDR_0123456789abcdef }
+      responses:
+        '200':
+          description: Removed. Returns the full cart with its new ETag.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+            ETag: { description: 'Shape "cart-<version>".', schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerCartResponse' }
+        '400': { $ref: '#/components/responses/CartBadRequest' }
+        '401': { $ref: '#/components/responses/CartUnauthenticated' }
+        '404': { $ref: '#/components/responses/CartNotFound' }
+        '412': { $ref: '#/components/responses/CartPreconditionFailed' }
+        '428': { $ref: '#/components/responses/CartPreconditionRequired' }
+        '503': { $ref: '#/components/responses/CartUnavailable' }
 components:
   parameters:
     AddressIdParam:
@@ -955,6 +1115,81 @@ components:
                  PRECONDITION_FAILED, ADDRESS_LIMIT_REACHED, SERVICE_UNAVAILABLE, INTERNAL]
         message: { type: string, description: "Safe, generic. No internals, no PII." }
         requestId: { type: string }
+    CustomerCartSetQuantityRequest:
+      type: object
+      required: [quantity]
+      properties:
+        quantity: { type: integer, format: int32, minimum: 1, maximum: 20, description: "Exact desired quantity (max is configurable)." }
+    CustomerCartResponse:
+      type: object
+      required: [version, items, itemCount, distinctItemCount, subtotalPaise, requestId]
+      properties:
+        version: { type: integer, format: int64, minimum: 0, description: "0 = no cart yet. Monotonic; never resets." }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/CustomerCartItem' }
+        itemCount: { type: integer, format: int32, description: "Sum of quantities." }
+        distinctItemCount: { type: integer, format: int32 }
+        subtotalPaise:
+          type: integer
+          format: int64
+          description: "Sum of CURRENT priced line totals. NOT a final payable total; not locked."
+        expiresAt: { type: string, format: date-time, nullable: true, description: "Last mutation + 7 days; null for an empty cart." }
+        requestId: { type: string }
+    CustomerCartItem:
+      type: object
+      required: [skuId, quantity, addedAt, updatedAt, buyable, issues]
+      properties:
+        skuId: { type: string }
+        quantity: { type: integer, format: int32 }
+        addedAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        product:
+          nullable: true
+          type: object
+          properties:
+            title: { type: string }
+            brandCode: { type: string, nullable: true }
+            imageUrl: { type: string, nullable: true }
+        price:
+          nullable: true
+          description: "CURRENT price (not locked). Null when unavailable."
+          type: object
+          properties:
+            unitPricePaise: { type: integer, format: int64 }
+            mrpPaise: { type: integer, format: int64 }
+            currency: { type: string, enum: [INR] }
+        availability:
+          type: object
+          properties:
+            stockState: { type: string, enum: [IN_STOCK, LOW_STOCK, OUT_OF_STOCK, UNKNOWN] }
+            maxOrderQuantity: { type: integer, format: int32 }
+            serviceable: { type: boolean, nullable: true, description: "null when no location context was supplied." }
+        lineTotalPaise: { type: integer, format: int64, nullable: true }
+        buyable:
+          type: boolean
+          description: "Derived by the existing commerce buyable logic for the requested quantity. Informational; checkout revalidates."
+        issues:
+          type: array
+          items:
+            type: string
+            enum: [PRODUCT_UNAVAILABLE, PRICE_UNAVAILABLE, LOCATION_REQUIRED, UNSERVICEABLE, OUT_OF_STOCK,
+                   INSUFFICIENT_STOCK, STOCK_UNKNOWN, ENRICHMENT_UNAVAILABLE]
+    CustomerCartErrorEnvelope:
+      type: object
+      description: >
+        Covers CustomerAuthFilter failures (UNAUTHENTICATED/SERVICE_UNAVAILABLE) and this domain's
+        own (INVALID_REQUEST/UNSUPPORTED_MEDIA_TYPE/NOT_FOUND/PRECONDITION_REQUIRED/
+        PRECONDITION_FAILED/CART_ITEM_LIMIT_REACHED/SERVICE_UNAVAILABLE/INTERNAL). Unknown SKU, hidden SKU, absent line
+        and foreign/unknown addressId are all the IDENTICAL NOT_FOUND.
+      required: [code, message, requestId]
+      properties:
+        code:
+          type: string
+          enum: [INVALID_REQUEST, UNSUPPORTED_MEDIA_TYPE, UNAUTHENTICATED, NOT_FOUND, PRECONDITION_REQUIRED,
+                 PRECONDITION_FAILED, CART_ITEM_LIMIT_REACHED, SERVICE_UNAVAILABLE, INTERNAL]
+        message: { type: string, description: "Safe, generic. No internals, no PII." }
+        requestId: { type: string }
   responses:
     BadRequest:
       description: Invalid request or cursor
@@ -1128,6 +1363,71 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/CustomerAddressErrorEnvelope' }
+    CartBadRequest:
+      description: >
+        Malformed If-Match, invalid quantity, or malformed body.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CustomerCartErrorEnvelope' }
+    CartNotFound:
+      description: >
+        Unknown/hidden SKU, absent cart line, or foreign/unknown addressId -- the IDENTICAL response. No existence or ownership enumeration.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CustomerCartErrorEnvelope' }
+    CartItemLimitReached:
+      description: >
+        Adding this SKU would exceed the distinct-item limit (default 50).
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CustomerCartErrorEnvelope' }
+    CartPreconditionRequired:
+      description: >
+        A mutation was sent without If-Match.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CustomerCartErrorEnvelope' }
+    CartPreconditionFailed:
+      description: >
+        If-Match no longer matches the current cart version (including a stale cart-0 after any write). State is unchanged; GET and retry.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CustomerCartErrorEnvelope' }
+    CartUnauthenticated:
+      description: >
+        Generic customer-authentication failure (owned by CustomerAuthFilter).
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+        WWW-Authenticate: { schema: { type: string, example: "Bearer" } }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CustomerCartErrorEnvelope' }
+    CartUnsupportedMediaType:
+      description: >
+        The request body was not sent as `application/json`. Safe generic error; nothing was changed.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CustomerCartErrorEnvelope' }
+    CartUnavailable:
+      description: >
+        Customer-auth not ready, the identity authority failed, or the cart store is unavailable. Never distinguishes which.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CustomerCartErrorEnvelope' }
   securitySchemes:
     customerBearerAuth:
       type: http

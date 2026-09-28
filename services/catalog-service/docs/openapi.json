@@ -5,6 +5,93 @@
     "version" : "v0"
   },
   "paths" : {
+    "/v1/customer/cart/items/{skuId}" : {
+      "put" : {
+        "tags" : [ "cart-controller" ],
+        "operationId" : "setItem",
+        "parameters" : [ {
+          "name" : "skuId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "If-Match",
+          "in" : "header",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "addressId",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/JsonNode"
+              }
+            }
+          }
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/CartResponseDto"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete" : {
+        "tags" : [ "cart-controller" ],
+        "operationId" : "removeItem",
+        "parameters" : [ {
+          "name" : "skuId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "If-Match",
+          "in" : "header",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "addressId",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/CartResponseDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/customer/addresses/{addressId}/default" : {
       "put" : {
         "tags" : [ "address-controller" ],
@@ -1036,7 +1123,7 @@
     "/v1/customer/addresses/{addressId}" : {
       "get" : {
         "tags" : [ "address-controller" ],
-        "operationId" : "get_1",
+        "operationId" : "get_2",
         "parameters" : [ {
           "name" : "addressId",
           "in" : "path",
@@ -1126,7 +1213,7 @@
     "/api/v1/products/{id}" : {
       "get" : {
         "tags" : [ "product-controller" ],
-        "operationId" : "get_2",
+        "operationId" : "get_3",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -1278,6 +1365,63 @@
               "*/*" : {
                 "schema" : {
                   "$ref" : "#/components/schemas/ProductDetailDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/customer/cart" : {
+      "get" : {
+        "tags" : [ "cart-controller" ],
+        "operationId" : "get_1",
+        "parameters" : [ {
+          "name" : "addressId",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/CartResponseDto"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete" : {
+        "tags" : [ "cart-controller" ],
+        "operationId" : "clear",
+        "parameters" : [ {
+          "name" : "If-Match",
+          "in" : "header",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "addressId",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/CartResponseDto"
                 }
               }
             }
@@ -1632,7 +1776,7 @@
     "/api/v1/evidence/{id}" : {
       "get" : {
         "tags" : [ "evidence-controller" ],
-        "operationId" : "get_3",
+        "operationId" : "get_4",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -1710,6 +1854,128 @@
   },
   "components" : {
     "schemas" : {
+      "JsonNode" : {
+        "type" : "object"
+      },
+      "Availability" : {
+        "type" : "object",
+        "properties" : {
+          "stockState" : {
+            "type" : "string"
+          },
+          "maxOrderQuantity" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "serviceable" : {
+            "type" : "boolean"
+          }
+        }
+      },
+      "CartResponseDto" : {
+        "type" : "object",
+        "properties" : {
+          "version" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "items" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/Item"
+            }
+          },
+          "itemCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "distinctItemCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "subtotalPaise" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "expiresAt" : {
+            "type" : "string"
+          },
+          "requestId" : {
+            "type" : "string"
+          }
+        }
+      },
+      "Item" : {
+        "type" : "object",
+        "properties" : {
+          "skuId" : {
+            "type" : "string"
+          },
+          "quantity" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "addedAt" : {
+            "type" : "string"
+          },
+          "updatedAt" : {
+            "type" : "string"
+          },
+          "product" : {
+            "$ref" : "#/components/schemas/Product"
+          },
+          "price" : {
+            "$ref" : "#/components/schemas/Price"
+          },
+          "availability" : {
+            "$ref" : "#/components/schemas/Availability"
+          },
+          "lineTotalPaise" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "buyable" : {
+            "type" : "boolean"
+          },
+          "issues" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string",
+              "enum" : [ "PRODUCT_UNAVAILABLE", "PRICE_UNAVAILABLE", "LOCATION_REQUIRED", "UNSERVICEABLE", "OUT_OF_STOCK", "INSUFFICIENT_STOCK", "STOCK_UNKNOWN", "ENRICHMENT_UNAVAILABLE" ]
+            }
+          }
+        }
+      },
+      "Price" : {
+        "type" : "object",
+        "properties" : {
+          "unitPricePaise" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "mrpPaise" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "currency" : {
+            "type" : "string"
+          }
+        }
+      },
+      "Product" : {
+        "type" : "object",
+        "properties" : {
+          "title" : {
+            "type" : "string"
+          },
+          "brandCode" : {
+            "type" : "string"
+          },
+          "imageUrl" : {
+            "type" : "string"
+          }
+        }
+      },
       "AddressResponseDto" : {
         "type" : "object",
         "properties" : {
@@ -2388,9 +2654,6 @@
             "type" : "boolean"
           }
         }
-      },
-      "JsonNode" : {
-        "type" : "object"
       },
       "CustomerProfileResponseDto" : {
         "type" : "object",

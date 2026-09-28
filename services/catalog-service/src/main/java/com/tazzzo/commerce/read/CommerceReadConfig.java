@@ -100,6 +100,13 @@ public class CommerceReadConfig {
         return new ProductCardRuntimeEnricher(serviceability, inventory, mediaUrls);
     }
 
+    /** PR-12C: the authoritative batch read the customer cart composes (no forked buyable logic). */
+    @Bean
+    public CommerceSkuBatchReader commerceSkuBatchReader(ProductCardBaseReader baseReader, PricingService pricing,
+                                                         ProductCardRuntimeEnricher enricher) {
+        return new CommerceSkuBatchReader(new CatalogCardReader(db), baseReader, pricing, enricher);
+    }
+
     @Bean
     public ProductDetailRuntimeComposer commerceDetailComposer(
             ProductCardBaseReader baseReader, ProductCardRuntimeEnricher enricher,

@@ -15,10 +15,7 @@ import com.tazzzo.catalog.consumer.ConsumerTaxonomyScopeResolver;
 import com.tazzzo.catalog.consumer.ConsumerVisibilityProbe;
 import com.tazzzo.catalog.schema.SnapshotTaxonomyReader;
 import com.tazzzo.commerce.contract.LocationQuery;
-import com.tazzzo.common.money.Currency;
-import com.tazzzo.pricing.PriceLookup;
 import com.tazzzo.pricing.PriceReadPort;
-import com.tazzzo.pricing.PriceStatus;
 import org.bson.Document;
 import org.bson.conversions.Bson;
 import org.slf4j.Logger;
@@ -76,7 +73,7 @@ public class CommerceListService {
     public static final int DEFAULT_PAGE_SIZE = 20;
     public static final int MAX_PAGE_SIZE = 50;
     private static final List<String> PAGE_FIELDS =
-            List.of("_id", "title", "brand_code", "classification.vertical_id");
+            List.of("_id", "title", "brand_code", "classification.vertical_id", "version");
 
     private final SnapshotTaxonomyReader snapshots;
     private final ConsumerTaxonomyScopeResolver scopes;
@@ -84,8 +81,7 @@ public class CommerceListService {
     private final ConsumerAdmissionGate gate;
     private final ConsumerVisibilityProbe probe;
     private final ConsumerCursorCodec cursors;              // commerce-route instance
-    private final ProductCardBaseReader baseReader;
-    private final PriceReadPort prices;
+    private final CurrentCardBaseComposer baseComposer;
     private final ProductCardRuntimeEnricher enricher;
     private final MongoDatabase db;
     private final boolean freshnessReady;
@@ -102,8 +98,7 @@ public class CommerceListService {
         this.gate = gate;
         this.probe = probe;
         this.cursors = cursors;
-        this.baseReader = baseReader;
-        this.prices = prices;
+        this.baseComposer = new CurrentCardBaseComposer(baseReader, prices);
         this.enricher = enricher;
         this.db = db;
         this.freshnessReady = freshnessReady;
@@ -173,27 +168,19 @@ public class CommerceListService {
         boolean more = fetched.size() > pageSize;
         List<Document> pageItems = more ? fetched.subList(0, pageSize) : fetched;
 
-        // Base rows for the page, overlaid with CURRENT canonical price; missing rows fail closed.
+        // Base rows for the page, overlaid with CURRENT canonical price; missing rows fail closed —
+        // through the SAME shared composer the customer cart uses (one fail-closed identity).
         List<String> skuIds = pageItems.stream().map(d -> d.getString("_id")).toList();
-        Map<String, ProductCardBaseProjection> baseBySku = new LinkedHashMap<>();
-        for (ProductCardBaseProjection b : baseReader.findBySkuIds(skuIds)) {
-            baseBySku.put(b.skuId(), b);
-        }
-        Map<String, PriceLookup> priceBySku =
-                DomainReadGuard.guard(() -> prices.findCurrentPrices(skuIds, Currency.INR));
-
-        List<ProductCardBaseProjection> bases = new ArrayList<>(pageItems.size());
-        for (Document item : pageItems) {
-            String sku = item.getString("_id");
-            ProductCardBaseProjection base = baseBySku.get(sku);
-            if (base != null) {
-                bases.add(CurrentPriceOverlay.withCurrentPrice(base,
-                        priceBySku.getOrDefault(sku, PriceLookup.missing())));
-            } else {
-                // freshness gap: fail-closed card from FRESH membership facts, not fabricated.
-                log.warn("commerce_list_base_missing sku={}", sku);
-                bases.add(failClosedBase(item));
-            }
+        Map<String, Document> itemBySku = new LinkedHashMap<>();
+        pageItems.forEach(d -> itemBySku.put(d.getString("_id"), d));
+        List<ProductCardBaseProjection> bases;
+        try {
+            bases = baseComposer.compose(skuIds, sku -> gapFacts(itemBySku.get(sku)),
+                    sku -> log.warn("commerce_list_base_missing sku={}", sku));
+        } catch (CurrentCardBaseComposer.FactsOutOfBoundsException e) {
+            // Over-bound facts (which the projection could never represent) fail the PAGE closed
+            // rather than corrupt pagination.
+            throw new ConsumerFailures.Unavailable(e.getMessage());
         }
 
         RuntimeProductPage runtimePage = DomainReadGuard.guard(() -> enricher.enrichPage(bases, location));
@@ -219,22 +206,16 @@ public class CommerceListService {
                 .orElse(ConsumerCursorCodec.LOCATION_ANONYMOUS);
     }
 
-    /**
-     * Fail-closed stand-in for a membership product whose projection row is missing: fresh Catalog
-     * identity from the page read, {@code PriceStatus.MISSING} (no price → not buyable), no media
-     * key. Never overlaid with price — a freshness gap must not sell. Over-bound facts (which the
-     * projection could never represent) fail the PAGE closed rather than corrupt pagination.
-     */
-    private ProductCardBaseProjection failClosedBase(Document item) {
+    /** Fresh catalog facts of a membership product, for the shared fail-closed base (gap SKUs only). */
+    private static CatalogCardFacts gapFacts(Document item) {
         Document classification = item.get("classification", Document.class);
         String sku = item.getString("_id");
         try {
-            return new ProductCardBaseProjection(sku, sku, item.getString("title"),
-                    item.getString("brand_code"),
+            return new CatalogCardFacts(sku, sku, item.getString("title"), item.getString("brand_code"),
                     classification == null ? null : classification.getString("vertical_id"),
-                    PriceStatus.MISSING, null, null, null, null, 0L, null, null, 1L);
+                    item.get("version") == null ? 0L : ((Number) item.get("version")).longValue());
         } catch (IllegalArgumentException e) {
-            throw new ConsumerFailures.Unavailable("projection facts over bounds for " + sku);
+            throw new CurrentCardBaseComposer.FactsOutOfBoundsException(sku, e);
         }
     }
 
