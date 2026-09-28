@@ -43,6 +43,17 @@ public class CartObservability {
                 .tag("reason", reason.name().toLowerCase(Locale.ROOT)).register(registry).increment());
     }
 
+    /**
+     * An UNEXPECTED server defect (the catch-all boundary only). Deliberately NOT a
+     * {@link CartFailure.Reason}: a programming/infrastructure defect is not a normal domain outcome.
+     * Same counter and bounded tags as {@link #failure}, fixed {@code reason=internal}.
+     */
+    public void internalFailure(Operation operation) {
+        safely(() -> Counter.builder("customer_cart_failure")
+                .tag("operation", operation.name().toLowerCase(Locale.ROOT))
+                .tag("reason", "internal").register(registry).increment());
+    }
+
     public void itemIssue(CartIssue issue) {
         safely(() -> Counter.builder("customer_cart_item_issue")
                 .tag("issue", issue.name().toLowerCase(Locale.ROOT)).register(registry).increment());

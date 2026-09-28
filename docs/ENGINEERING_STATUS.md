@@ -350,6 +350,38 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   ETag `"cart-<version>"` + mandatory If-Match (logical version 0 = no cart); expiry 7 days after the
   last mutation evaluated at runtime with NO Mongo TTL so the version never resets; every mutation is
   identity check + write in one `Tx.call`. Not a reservation, not a final total, no checkout.
+  - **Review hardening (in this PR):** (M1) a non-JSON `Content-Type` on the cart write routes is a
+    safe `415 UNSUPPORTED_MEDIA_TYPE` (not a 500); every unexpected 500 increments
+    `customer_cart_failure{reason="internal"}` exactly once (`CartObservability.internalFailure`, kept
+    OUT of `CartFailure.Reason` — a defect is not a domain outcome). (M3) the visible-facts → base →
+    fail-closed base → current-price overlay composition now lives in ONE package-private seam,
+    `commerce.read.CurrentCardBaseComposer`, used by both `CommerceListService` and
+    `CommerceSkuBatchReader`; `ProductCardRuntimeEnricher` remains the single stock/serviceability/
+    buyable composer. The public list's projection-gap fallback now takes `productId`/`catalogVersion`
+    from fresh catalog facts (previously `productId=sku`, `catalogVersion=0`) — same as the cart.
+  - **Known, accepted limitations (documented, not blocking):** eligibility is read per SKU (≤50 point
+    reads per cart response; batch `findEligibleCards` is follow-up debt — M2). `GET` may perform a
+    version-guarded housekeeping write when it finds an expired cart (ETag can advance with time). SKU
+    visibility is checked before the mutation transaction (a SKU hidden in that window can still be
+    added; Checkout must revalidate). A quantity change on a line whose SKU has become hidden is 404
+    (removal still works). The expiry counter is named `cart_expired` (not `customer_cart_*`). An
+    arithmetic overflow in response totals after commit is unreachable under the item/price/quantity
+    bounds. Non-11000 duplicate-key wrapper variants map to 503 rather than 412. `Accept`-header (406)
+    mismatches are not specially mapped.
+
+## Follow-up debt (recorded, NOT part of PR-12C)
+
+- **PR-11D / transaction retry hardening (next narrow PR after Cart) — HIGH correctness debt.**
+  `OtpService.verifyOtp` keeps its result in a mutable array (`verifiedHolder`) assigned inside
+  `tx.run` and read after it. `ClientSession.withTransaction` may re-run the callback; a value set by an
+  attempt whose commit was then rolled back survives into a retry that returns early without
+  overwriting it, yielding a "verified" result (grant id) whose grant insert never committed. Fix:
+  return the result from `Tx.call` (no holder). Also audit and migrate the other `tx.run` result-holder
+  users: `OtpService.requestOtp` (`activatedHolder`), `CustomerSessionService` create/refresh
+  (`resultHolder`/`rotatedHolder`; believed safe today because every attempt overwrites or throws, but
+  fragile), and the catalog/inventory/pricing/media single-element-array holders.
+- **M2 — batch catalog eligibility** (`CatalogCardReadPort.findEligibleCards(Collection<String>)`) to
+  replace up to 50 point reads per cart response. Deferred to avoid a catalog-read refactor in the cart PR.
 
 ## Blocked
 

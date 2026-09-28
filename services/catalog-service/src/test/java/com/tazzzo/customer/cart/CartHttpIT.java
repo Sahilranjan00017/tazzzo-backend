@@ -546,4 +546,33 @@ class CartHttpIT extends AbstractApiIT {
         put(t, "TZP-999999998", 0, tag(0)); // 400
         assertThat(count("customer_cart_mutation_success")).isEqualTo(before);
     }
+
+    @Test void wrong_content_type_is_a_safe_415_never_a_500_and_is_counted_exactly_once() {
+        String t = token();
+        String s = sku(1000, 5);
+        double mediaBefore = count("customer_cart_failure", "operation", "set_item", "reason", "unsupported_media_type");
+        double internalBefore = count("customer_cart_failure", "reason", "internal");
+        double allBefore = count("customer_cart_failure");
+        double successBefore = count("customer_cart_mutation_success");
+
+        HttpHeaders h = new HttpHeaders();
+        h.setContentType(MediaType.TEXT_PLAIN);
+        h.setBearerAuth(t);
+        h.set("If-Match", tag(0));
+        ResponseEntity<JsonNode> r = rest.exchange(url("/v1/customer/cart/items/" + s), HttpMethod.PUT,
+                new HttpEntity<>("quantity=1", h), JsonNode.class);
+
+        assertThat(r.getStatusCode().value()).isEqualTo(415);
+        assertThat(r.getBody().get("code").asText()).isEqualTo("UNSUPPORTED_MEDIA_TYPE");
+        assertThat(r.getBody().get("requestId").asText()).isNotBlank();
+        assertThat(r.getHeaders().getCacheControl()).isEqualTo("no-store");
+        assertThat(r.getBody().toString()).doesNotContain("HttpMediaType").doesNotContain("springframework")
+                .doesNotContain("text/plain").doesNotContain("Exception").doesNotContain("application/json");
+        assertThat(count("customer_cart_failure", "operation", "set_item", "reason", "unsupported_media_type")
+                - mediaBefore).as("counted exactly once").isEqualTo(1);
+        assertThat(count("customer_cart_failure") - allBefore).as("no second failure series bumped").isEqualTo(1);
+        assertThat(count("customer_cart_failure", "reason", "internal")).isEqualTo(internalBefore);
+        assertThat(count("customer_cart_mutation_success")).isEqualTo(successBefore);
+        assertThat(cart(t).getBody().get("version").asLong()).as("nothing mutated").isZero();
+    }
 }

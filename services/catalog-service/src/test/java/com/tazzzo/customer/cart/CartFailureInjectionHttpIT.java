@@ -43,6 +43,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class CartFailureInjectionHttpIT extends AbstractApiIT {
 
     static final AtomicBoolean REPO_DOWN = new AtomicBoolean();
+    static final AtomicBoolean COMMERCE_DEFECT = new AtomicBoolean();
 
     @DynamicPropertySource
     static void sessionProps(DynamicPropertyRegistry r) {
@@ -75,11 +76,28 @@ class CartFailureInjectionHttpIT extends AbstractApiIT {
         CommerceSkuBatchReader visibleReader(ProductCardBaseReader bases, PricingService pricing,
                                              ProductCardRuntimeEnricher enricher) {
             return new CommerceSkuBatchReader(sku -> Optional.of(new CatalogCardFacts(sku, sku, "T", null, "V", 1L)),
-                    bases, pricing, enricher);
+                    bases, pricing, enricher) {
+                @Override
+                public java.util.Map<String, com.tazzzo.commerce.read.RuntimeProductCard> readCurrent(
+                        java.util.Collection<String> skuIds, com.tazzzo.commerce.contract.LocationQuery location) {
+                    if (COMMERCE_DEFECT.get()) {
+                        // an UNEXPECTED programming defect (not a typed commerce outage)
+                        throw new IllegalStateException("secret-internal-detail pii@example.com");
+                    }
+                    return super.readCurrent(skuIds, location);
+                }
+            };
         }
     }
 
     @Autowired OtpVerifiedGrantRepository grants;
+    @Autowired io.micrometer.core.instrument.MeterRegistry registry;
+
+    private double count(String name, String... tags) {
+        var search = registry.find(name);
+        for (int i = 0; i < tags.length; i += 2) search = search.tag(tags[i], tags[i + 1]);
+        return search.counters().stream().mapToDouble(c -> c.count()).sum();
+    }
 
     private String token() {
         String phone = "+9197" + String.format("%08d", (System.nanoTime() / 7) % 100_000_000);
@@ -117,5 +135,30 @@ class CartFailureInjectionHttpIT extends AbstractApiIT {
         }
         assertThat(call(HttpMethod.GET, "/v1/customer/cart", t, null, null).getStatusCode().value()).isEqualTo(200);
         assertThat(db.getCollection("customer_carts").countDocuments()).isZero();
+    }
+
+    @Test void an_unexpected_defect_is_a_safe_500_counted_exactly_once_as_internal() {
+        String t = token();
+        assertThat(call(HttpMethod.PUT, "/v1/customer/cart/items/TZP-1", t, "\"cart-0\"", Map.of("quantity", 1))
+                .getStatusCode().value()).isEqualTo(200); // a line exists, so enrichment is attempted
+        double internalBefore = count("customer_cart_failure", "operation", "read", "reason", "internal");
+        double allBefore = count("customer_cart_failure");
+
+        COMMERCE_DEFECT.set(true);
+        ResponseEntity<JsonNode> r;
+        try {
+            r = call(HttpMethod.GET, "/v1/customer/cart", t, null, null);
+        } finally {
+            COMMERCE_DEFECT.set(false);
+        }
+
+        assertThat(r.getStatusCode().value()).isEqualTo(500);
+        assertThat(r.getBody().get("code").asText()).isEqualTo("INTERNAL");
+        assertThat(r.getBody().toString()).doesNotContain("secret-internal-detail").doesNotContain("pii@example.com")
+                .doesNotContain("IllegalStateException");
+        assertThat(count("customer_cart_failure", "operation", "read", "reason", "internal") - internalBefore)
+                .as("counted exactly once as internal").isEqualTo(1);
+        assertThat(count("customer_cart_failure") - allBefore).as("no other failure series bumped").isEqualTo(1);
+        assertThat(call(HttpMethod.GET, "/v1/customer/cart", t, null, null).getStatusCode().value()).isEqualTo(200);
     }
 }

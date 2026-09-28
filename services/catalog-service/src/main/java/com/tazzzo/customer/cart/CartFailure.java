@@ -9,8 +9,8 @@ package com.tazzzo.customer.cart;
 public final class CartFailure extends RuntimeException {
 
     public enum Reason {
-        INVALID_REQUEST, NOT_FOUND, PRECONDITION_REQUIRED, PRECONDITION_FAILED, CART_ITEM_LIMIT_REACHED,
-        UNAVAILABLE
+        INVALID_REQUEST, UNSUPPORTED_MEDIA_TYPE, NOT_FOUND, PRECONDITION_REQUIRED, PRECONDITION_FAILED,
+        CART_ITEM_LIMIT_REACHED, UNAVAILABLE
     }
 
     private final Reason reason;

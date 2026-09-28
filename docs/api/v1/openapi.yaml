@@ -612,6 +612,7 @@ paths:
         '404': { $ref: '#/components/responses/CartNotFound' }
         '409': { $ref: '#/components/responses/CartItemLimitReached' }
         '412': { $ref: '#/components/responses/CartPreconditionFailed' }
+        '415': { $ref: '#/components/responses/CartUnsupportedMediaType' }
         '428': { $ref: '#/components/responses/CartPreconditionRequired' }
         '503': { $ref: '#/components/responses/CartUnavailable' }
     delete:
@@ -1178,14 +1179,14 @@ components:
       type: object
       description: >
         Covers CustomerAuthFilter failures (UNAUTHENTICATED/SERVICE_UNAVAILABLE) and this domain's
-        own (INVALID_REQUEST/NOT_FOUND/PRECONDITION_REQUIRED/PRECONDITION_FAILED/
-        CART_ITEM_LIMIT_REACHED/SERVICE_UNAVAILABLE/INTERNAL). Unknown SKU, hidden SKU, absent line
+        own (INVALID_REQUEST/UNSUPPORTED_MEDIA_TYPE/NOT_FOUND/PRECONDITION_REQUIRED/
+        PRECONDITION_FAILED/CART_ITEM_LIMIT_REACHED/SERVICE_UNAVAILABLE/INTERNAL). Unknown SKU, hidden SKU, absent line
         and foreign/unknown addressId are all the IDENTICAL NOT_FOUND.
       required: [code, message, requestId]
       properties:
         code:
           type: string
-          enum: [INVALID_REQUEST, UNAUTHENTICATED, NOT_FOUND, PRECONDITION_REQUIRED,
+          enum: [INVALID_REQUEST, UNSUPPORTED_MEDIA_TYPE, UNAUTHENTICATED, NOT_FOUND, PRECONDITION_REQUIRED,
                  PRECONDITION_FAILED, CART_ITEM_LIMIT_REACHED, SERVICE_UNAVAILABLE, INTERNAL]
         message: { type: string, description: "Safe, generic. No internals, no PII." }
         requestId: { type: string }
@@ -1408,6 +1409,14 @@ components:
       headers:
         Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
         WWW-Authenticate: { schema: { type: string, example: "Bearer" } }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CustomerCartErrorEnvelope' }
+    CartUnsupportedMediaType:
+      description: >
+        The request body was not sent as `application/json`. Safe generic error; nothing was changed.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
       content:
         application/json:
           schema: { $ref: '#/components/schemas/CustomerCartErrorEnvelope' }

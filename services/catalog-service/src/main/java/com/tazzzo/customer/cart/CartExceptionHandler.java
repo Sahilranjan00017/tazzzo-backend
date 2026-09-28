@@ -10,6 +10,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -36,6 +37,8 @@ public class CartExceptionHandler {
         observability.failure(operationFor(req), e.reason());
         return switch (e.reason()) {
             case INVALID_REQUEST -> body(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", "invalid request", requestId);
+            case UNSUPPORTED_MEDIA_TYPE -> body(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "UNSUPPORTED_MEDIA_TYPE",
+                    "unsupported media type", requestId);
             case NOT_FOUND -> body(HttpStatus.NOT_FOUND, "NOT_FOUND", "not found", requestId);
             case PRECONDITION_REQUIRED -> body(HttpStatus.PRECONDITION_REQUIRED, "PRECONDITION_REQUIRED",
                     "If-Match header required", requestId);
@@ -56,9 +59,17 @@ public class CartExceptionHandler {
         return body(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", "invalid request", requestId);
     }
 
+    /** Client sent a body Content-Type the cart routes do not accept: a client error, never a 500. */
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<CartErrorDto> unsupportedMediaType(HttpMediaTypeNotSupportedException e,
+                                                              HttpServletRequest req) {
+        return cartFailure(new CartFailure(CartFailure.Reason.UNSUPPORTED_MEDIA_TYPE), req);
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<CartErrorDto> internal(Exception e, HttpServletRequest req) {
         String requestId = requestId(req);
+        observability.internalFailure(operationFor(req)); // the ONLY place an unexpected 500 is counted
         log.error("customer_cart_request_internal type={} request_id={}", e.getClass().getSimpleName(), requestId);
         return body(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL", "internal error", requestId);
     }
