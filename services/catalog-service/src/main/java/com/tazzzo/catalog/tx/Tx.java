@@ -17,6 +17,14 @@ public class Tx {
         this.client = client;
     }
 
+    /**
+     * Side-effect-only transaction. {@code ClientSession.withTransaction} may invoke {@code body}
+     * MORE THAN ONCE (a transient-transaction-error retry), so the callback must be retry-safe.
+     * Do NOT smuggle a result out of {@code body} through an external holder (array, atomic,
+     * captured field): a value stored by an attempt whose commit was then rolled back can survive
+     * into a retry that returns without overwriting it. Anything needed after commit must be
+     * returned through {@link #call}.
+     */
     public void run(Consumer<ClientSession> body) {
         try (ClientSession session = client.startSession()) {
             session.withTransaction(() -> {

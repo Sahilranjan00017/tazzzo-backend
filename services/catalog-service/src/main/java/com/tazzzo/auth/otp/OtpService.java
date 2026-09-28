@@ -45,6 +45,9 @@ import java.util.regex.Pattern;
 @Service
 public class OtpService {
 
+    /** Immutable result of the verify transaction callback (never a mutable holder). */
+    private enum VerifyTxOutcome { VERIFIED, NOT_VERIFIED }
+
     private static final Logger log = LoggerFactory.getLogger(OtpService.class);
     private static final Pattern OTP_SHAPE = Pattern.compile("^[0-9]{6}$");
 
@@ -133,12 +136,12 @@ public class OtpService {
         Instant sentAt = clock.instant();
         Instant expiresAt = sentAt.plusSeconds(properties.getTtlSeconds());
         Instant resendAvailableAt = sentAt.plusSeconds(properties.getResendCooldownSeconds());
-        Document[] activatedHolder = new Document[1];
+        OtpRequestResult activatedResult;
         try {
-            tx.run(session -> {
+            activatedResult = tx.call(session -> {
                 // activateAfterDelivery performs TWO writes in this transaction: (1) supersede the
                 // old ACTIVE challenge, (2) activate this PENDING_DELIVERY one. If (2) does not
-                // apply, (1) MUST be rolled back too — checking the result only AFTER tx.run()
+                // apply, (1) MUST be rolled back too — checking the result only AFTER the transaction
                 // returns would be too late: the transaction would already have committed (1) alone,
                 // recreating the exact durable zero-usable-code state this transaction exists to
                 // prevent. Throwing HERE, inside the callback, is what forces the abort.
@@ -147,7 +150,10 @@ public class OtpService {
                 if (activated == null) {
                     throw new OtpTransactionAbortedException("otp activation transition did not apply");
                 }
-                activatedHolder[0] = activated;
+                // Pure, immutable value derived only from this attempt's own writes.
+                return new OtpRequestResult(challengeId,
+                        Duration.between(sentAt, activated.getDate("expiresAt").toInstant()).getSeconds(),
+                        Duration.between(sentAt, activated.getDate("resendAvailableAt").toInstant()).getSeconds());
             });
         } catch (OtpTransactionAbortedException e) {
             // Durability §2/§3: the confirmed-delivered code must never be silently unusable. This
@@ -161,10 +167,7 @@ public class OtpService {
             log.error("otp_activation_transaction_failed", e);
             throw new OtpFailure(OtpFailure.Reason.UNAVAILABLE);
         }
-        Document activated = activatedHolder[0];
-        return new OtpRequestResult(challengeId,
-                Duration.between(sentAt, activated.getDate("expiresAt").toInstant()).getSeconds(),
-                Duration.between(sentAt, activated.getDate("resendAvailableAt").toInstant()).getSeconds());
+        return activatedResult;
     }
 
     /**
@@ -241,15 +244,19 @@ public class OtpService {
         // retry of this exact HTTP call with the same OTP is the recovery path.
         String grantId = OpaqueIds.newGrantId();
         Instant grantExpiresAt = now.plusSeconds(properties.getGrantTtlSeconds());
-        Document[] verifiedHolder = new Document[1];
+        // Tx.call: the value returned is the LAST callback attempt's result, straight from the
+        // driver's own retry loop — an attempt whose commit was rolled back can never leak into it
+        // (PR-11D; the former external holder could). grantId/grantExpiresAt/maxAttemptsAtRead are
+        // fixed BEFORE the transaction, so every attempt of this request uses the same grant id.
+        VerifyTxOutcome outcome;
         try {
-            tx.run(session -> {
+            outcome = tx.call(session -> {
                 Document verified = challenges.tryMarkVerified(session, challengeId, grantId, now, maxAttemptsAtRead);
                 if (verified == null) {
-                    return;
+                    return VerifyTxOutcome.NOT_VERIFIED;
                 }
                 insertGrantOrReconcile(session, grantId, challengeId, phone, OtpPurpose.LOGIN, now, grantExpiresAt);
-                verifiedHolder[0] = verified;
+                return VerifyTxOutcome.VERIFIED;
             });
         } catch (OtpFailure e) {
             throw e;
@@ -258,8 +265,7 @@ public class OtpService {
             throw new OtpFailure(OtpFailure.Reason.UNAVAILABLE);
         }
 
-        Document verified = verifiedHolder[0];
-        if (verified == null) {
+        if (outcome == VerifyTxOutcome.NOT_VERIFIED) {
             // Re-read to give EXPIRED its distinct (already-public) outcome when that is genuinely
             // why the CAS lost; every other reason (locked/superseded/already-verified/attempts
             // exhausted concurrently) collapses to the same generic INVALID.

@@ -28,7 +28,7 @@ import java.time.Instant;
  * resolve-or-create, and session creation are ONE Mongo transaction via {@link Tx} — the SAME
  * primitive {@code OtpService}'s verify() and {@code PricingService}'s write path already use. Any
  * step that must cause a rollback THROWS INSIDE the transaction callback; a result is never checked
- * only after {@code tx.run()} returns.
+ * only after {@code tx.call()} returns.
  *
  * <p>No direct wall-clock read anywhere in this class — every timestamp comes from the injected
  * {@link Clock}, read ONCE per call.
@@ -86,9 +86,12 @@ public class CustomerSessionService {
         SessionId sessionId = SessionId.generate();
         String refreshSecret = refreshCodec.generateSecret();
 
-        Document[] resultHolder = new Document[2]; // [0]=customer, [1]=session
+        // Tx.call returns the LAST attempt's immutable result (the customer id) directly from the
+        // driver's retry loop; candidateCustomerId/sessionId/refreshSecret are fixed before the
+        // transaction so every retry attempt writes the same identity.
+        String establishedCustomerId;
         try {
-            tx.run(session -> {
+            establishedCustomerId = tx.call(session -> {
                 // FIRST write in this transaction: a null result means nothing has been written
                 // yet, so throwing here needs no rollback of anything (mirrors the PR-11B lesson —
                 // only a write AFTER this one needs the "throw inside the callback" discipline to
@@ -100,10 +103,9 @@ public class CustomerSessionService {
                 Phone phone = new Phone(grant.getString("phoneNormalized"));
                 Document customer = customers.resolveOrCreate(session, phone, now, candidateCustomerId);
                 byte[] refreshDigest = refreshCodec.digest(sessionId, refreshSecret);
-                Document sessionDoc = sessions.create(session, sessionId, new CustomerId(customer.getString("_id")),
+                sessions.create(session, sessionId, new CustomerId(customer.getString("_id")),
                         now, sessionExpiresAt, refreshDigest);
-                resultHolder[0] = customer;
-                resultHolder[1] = sessionDoc;
+                return customer.getString("_id");
             });
         } catch (SessionAuthFailure e) {
             throw e;
@@ -112,7 +114,7 @@ public class CustomerSessionService {
             throw new SessionAuthFailure(SessionAuthFailure.Reason.UNAVAILABLE);
         }
 
-        CustomerId customerId = new CustomerId(resultHolder[0].getString("_id"));
+        CustomerId customerId = new CustomerId(establishedCustomerId);
         CustomerPrincipal principal = new CustomerPrincipal(customerId, sessionId);
         String accessToken = accessCodec.issue(principal, Duration.ofSeconds(properties.getAccessTokenTtlSeconds()));
         String refreshToken = refreshCodec.format(sessionId, refreshSecret);
@@ -150,9 +152,10 @@ public class CustomerSessionService {
         String newSecret = refreshCodec.generateSecret();
         byte[] newDigest = refreshCodec.digest(parsed.sessionId(), newSecret);
 
-        Document[] rotatedHolder = new Document[1];
+        // Tx.call: the committed attempt's immutable result (customer id) — no external holder.
+        String rotatedCustomerId;
         try {
-            tx.run(session -> {
+            rotatedCustomerId = tx.call(session -> {
                 Document rotated = sessions.tryRotateRefresh(session, parsed.sessionId(), presentedDigestBase64,
                         newDigest, now);
                 if (rotated == null) {
@@ -161,7 +164,7 @@ public class CustomerSessionService {
                     // there is nothing to roll back; throwing simply aborts cleanly.
                     throw new SessionAuthFailure(SessionAuthFailure.Reason.INVALID);
                 }
-                rotatedHolder[0] = rotated;
+                return rotated.getString("customerId");
             });
         } catch (SessionAuthFailure e) {
             throw e;
@@ -170,7 +173,7 @@ public class CustomerSessionService {
             throw new SessionAuthFailure(SessionAuthFailure.Reason.UNAVAILABLE);
         }
 
-        CustomerId customerId = new CustomerId(rotatedHolder[0].getString("customerId"));
+        CustomerId customerId = new CustomerId(rotatedCustomerId);
         CustomerPrincipal principal = new CustomerPrincipal(customerId, parsed.sessionId());
         String accessToken = accessCodec.issue(principal, Duration.ofSeconds(properties.getAccessTokenTtlSeconds()));
         String newRefreshToken = refreshCodec.format(parsed.sessionId(), newSecret);
