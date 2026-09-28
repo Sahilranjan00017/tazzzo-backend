@@ -342,7 +342,14 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
 
 ## In review (NOT merged)
 
-- (none)
+- **PR-12C — Customer cart foundation** (`com.tazzzo.customer.cart`): **IN REVIEW**. Authenticated
+  `GET /v1/customer/cart`, `PUT`/`DELETE /v1/customer/cart/items/{skuId}`, `DELETE /v1/customer/cart`.
+  Cart is purchase INTENT only (SKU, quantity, timestamps, version) in `customer_carts` keyed by
+  customerId; current price/stock/serviceability/buyable are composed at read time through the
+  existing commerce enricher (new `CommerceSkuBatchReader` seam in `commerce.read`), never persisted.
+  ETag `"cart-<version>"` + mandatory If-Match (logical version 0 = no cart); expiry 7 days after the
+  last mutation evaluated at runtime with NO Mongo TTL so the version never resets; every mutation is
+  identity check + write in one `Tx.call`. Not a reservation, not a final total, no checkout.
 
 ## Blocked
 
@@ -387,7 +394,7 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   `PublicServiceability`, pincode-keyed routing) is **COMPLETE** and unchanged; the
   customer-address BINDING to it (PR-12B) is **COMPLETE**.
   (Address ↔ Serviceability binding: COMPLETE.)
-- Cart: **NOT STARTED**. Checkout: **NOT STARTED**. Order: **NOT STARTED**. Payment: **NOT STARTED**.
+- Cart (PR-12C): **IN REVIEW** (not merged). Checkout: **NOT STARTED**. Order: **NOT STARTED**. Payment: **NOT STARTED**.
 
 ## Next (ratified sequence)
 

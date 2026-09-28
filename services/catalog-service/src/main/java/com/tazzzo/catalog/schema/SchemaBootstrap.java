@@ -84,7 +84,13 @@ public class SchemaBootstrap {
             // defaultAddressId (the single-default pointer). Both concurrency invariants this
             // domain needs are enforced entirely through atomic writes to this ONE document per
             // customer; see CustomerAddressStateRepository's class-level rationale.
-            "customer_address_state");
+            "customer_address_state",
+            // PR-12C: ONE cart per customer (customerId as _id, so no extra index). Deliberately NO
+            // TTL index: deleting an expired cart would reset its logical version to 0 and let a stale
+            // client re-create over newer history. Expiry is an explicit runtime state transition that
+            // clears items and ADVANCES the version; physical cleanup is deferred to a future design
+            // that preserves version monotonicity (e.g. archival).
+            "customer_carts");
 
     /**
      * PAG-2-SORT-1 transport support: the equality prefix the consumer-eligibility predicate uses,
