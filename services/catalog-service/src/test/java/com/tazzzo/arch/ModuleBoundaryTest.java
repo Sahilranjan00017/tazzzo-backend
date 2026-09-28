@@ -122,6 +122,39 @@ class ModuleBoundaryTest {
                     .allowEmptyShould(true);
 
     /**
+     * PR-12B — the mirror image again, one layer over: {@code auth} is the foundation;
+     * {@code customer.address} is a consumer of its {@code CustomerId}/{@code CustomerPrincipal}/
+     * {@code CustomerIdentityAuthority} contract, never the reverse.
+     */
+    @ArchTest
+    static final ArchRule auth_does_not_depend_on_customer_address =
+            noClasses().that().resideInAPackage("com.tazzzo.auth..")
+                    .should().dependOnClassesThat().resideInAPackage("com.tazzzo.customer.address..")
+                    .allowEmptyShould(true);
+
+    /**
+     * PR-12B — {@code customer.profile} and {@code customer.address} are SIBLING domains, both
+     * built on the {@code auth} foundation; neither depends on the other. Address is NOT profile.
+     */
+    @ArchTest
+    static final ArchRule customer_profile_does_not_depend_on_customer_address =
+            noClasses().that().resideInAPackage("com.tazzzo.customer.profile..")
+                    .should().dependOnClassesThat().resideInAPackage("com.tazzzo.customer.address..")
+                    .allowEmptyShould(true);
+
+    /**
+     * PR-12B — {@code customer.address} is a NEW consumer of the existing serviceability domain
+     * (via {@code ServiceabilityService#resolvePublic}, the same read the public commerce
+     * serviceability endpoint already uses); the dependency runs ONE way only. Serviceability core
+     * must not be pulled downward into a customer-facing domain built on top of it.
+     */
+    @ArchTest
+    static final ArchRule serviceability_does_not_depend_on_customer_address =
+            noClasses().that().resideInAPackage("com.tazzzo.serviceability..")
+                    .should().dependOnClassesThat().resideInAPackage("com.tazzzo.customer.address..")
+                    .allowEmptyShould(true);
+
+    /**
      * No dependency cycles between top-level Tazzzo modules.
      *
      * <p>Dependencies INTO {@code com.tazzzo.commerce.contract} are excluded from cycle

@@ -261,7 +261,85 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd`) — **1363-test regression fl
 
 ## In review (NOT merged)
 
-- (none)
+- **PR-12B — Customer addresses and serviceability binding** (`com.tazzzo.customer.address`):
+  authenticated CRUD of a customer's own saved delivery addresses
+  (`GET/POST /v1/customer/addresses`, `GET/PATCH/DELETE /v1/customer/addresses/{addressId}`,
+  `PUT /v1/customer/addresses/{addressId}/default`), plus dynamic serviceability binding. A NEW
+  domain package, deliberately separate from `com.tazzzo.customer.profile` (sibling domains, both
+  built on the `auth` foundation) and never touched by `com.tazzzo.serviceability` (one-way
+  dependency only). Does **NOT** cover cart, checkout, order, payment, delivery slots, saved
+  payment methods, customer deletion, address sharing, admin address editing, geocoding provider
+  integration, or app integration — those remain future phases.
+  - **`customer_addresses`**: one document per saved address, `_id` the opaque `ADDR_*` id. Every
+    lookup/update/delete filters on BOTH `_id` AND `customerId` — an address is unreachable by
+    guessing/enumerating an id (IDOR closed by construction). Deliberately does NOT store
+    `isDefault` or any serviceability truth (`serviceable`, `serviceAreaId`,
+    `fulfillmentLocationId`) as persisted state.
+  - **`customer_address_state`**: ONE document per customer — `addressCount` (the address-limit
+    CAS) and `defaultAddressId` (the single-default pointer). BOTH concurrency invariants this
+    domain needs (a bounded per-customer address limit, and "at most one default address") are
+    enforced entirely through atomic writes to this ONE document, replacing the naive
+    per-address-field design: two address documents are two SEPARATE Mongo documents, so
+    concurrent writes to two DIFFERENT address documents do not necessarily conflict (a write-skew
+    hazard under snapshot isolation) — a single pointer field on one shared document makes "at
+    most one default" a STRUCTURAL invariant, and any two concurrent racing writers for the same
+    customer necessarily contend on the SAME document, where real MongoDB write-conflict detection
+    guarantees exactly one wins. PR-12B REUSES the `Tx.call(Function<ClientSession, T>)` primitive
+    introduced during PR-12A's final hardening pass (already on `main` before this PR branched —
+    PR-12B does not modify `Tx.java`) — it returns T straight from the driver's own
+    `withTransaction` retry loop, never a mutable holder. `isDefault` in every response is computed
+    at read time (`addressId.equals(state.defaultAddressId)`), never stored redundantly.
+  - **Identity integrity** (the PR-12A pattern, reused unchanged, including the existing
+    `CustomerIdentityAuthority`/`CustomerRepository` session-scoped read seam — PR-12B does not
+    modify `CustomerRepository.java` either): every mutation verifies the authenticated customer
+    identity exists via `CustomerIdentityAuthority`, folded into the SAME transaction as the
+    address mutation — a missing identity throws inside the callback, aborting before any write;
+    GET/LIST verify non-transactionally (they can never create persisted state).
+  - **Retry-safe by construction**: `AddressId` is generated ONCE, before entering any transaction,
+    and reused across a driver-initiated retry — a retried attempt inserts the SAME logical
+    address, never a duplicate. No mutable holder is used outside any callback anywhere in this
+    domain (every transactional method returns straight from `Tx.call`/`Tx.run`).
+  - **Serviceability binding reuses the EXISTING domain unchanged** — `ServiceabilityService
+    .resolvePublic`, the SAME read the public `/v1/serviceability` commerce endpoint already uses.
+    No parallel engine invented. The serviceability domain resolves by PIN ONLY today (no lat/lng
+    input path exists), so evaluation always uses `postalCode`, truthfully reflecting the current
+    contract even though valid lat/lng is persisted for future use. Evaluated FRESH on every
+    read/response, never persisted as address state, so a serviceability configuration change is
+    reflected on the very next read without rewriting the address document. Three-state result
+    (`serviceable: true/false/null`) — `null` (UNKNOWN) is distinct from `false`
+    (definite outside-coverage): a dependency failure never lies and reports unserviceable.
+    `fulfillmentLocationId` is internal and never appears in any response. `serviceAreaId`/
+    `serviceAreaVersion` are public in the existing `/v1/serviceability` contract; the address
+    projection intentionally omits them (it is a narrower `serviceable`-only view).
+  - **Saving an address never requires current serviceability** — address validity is independent
+    of commerce eligibility; Checkout (future) re-evaluates serviceability again at purchase time.
+  - **Optimistic concurrency via ETag/If-Match** (`"address-<version>"`), the SAME pattern as
+    customer-profile: PATCH/DELETE require If-Match (missing → 428, stale → 412, persisted state
+    unchanged). An unknown address id and another customer's address return the IDENTICAL 404 — no
+    ownership enumeration.
+  - **ETag semantics**: `"address-<version>"` is the address-CONTENT concurrency token used by
+    PATCH/DELETE `If-Match` — it is NOT a complete version of the customer's default-preference
+    state. `isDefault` lives in `customer_address_state`, so changing the default can change an
+    address's representation while its `version` stays the same. Responses are `Cache-Control:
+    no-store` and the version exists specifically for PATCH/DELETE optimistic concurrency, so no
+    composite ETag was introduced (no concrete need).
+  - **Failure-metric ownership**: `customer_address_failure{operation,reason}` is recorded in ONE
+    place — `AddressExceptionHandler` — which sees every `AddressFailure` (controller-side
+    request-shape failures and service-side domain failures alike) and malformed-JSON bodies
+    exactly once, inferring the bounded `operation` from (method, path). The service records only
+    successes, and only after `Tx.call`/`Tx.run` returns.
+  - `setDefault` returns the address read INSIDE its successful transaction attempt — never a
+    post-commit re-fetch that could race a concurrent delete.
+  - **recipientPhone** is delivery-contact information only — never the customer's authentication
+    identity, never used to log in, never used to issue an OTP, may differ from the login phone,
+    never logged or placed in a metric tag.
+  - Bounded Micrometer metrics (`customer_address_{list,read,create,update,delete,default_set}
+    _success`, `customer_address_failure{operation,reason}`,
+    `address_serviceability_result{result}`) — `operation`/`reason`/`result` are always closed
+    enums; never customerId/addressId/phone/PIN/lat-lng/label text/requestId as a tag.
+  - New ArchUnit rules: `auth`/`customer.profile`/`serviceability` must not depend on
+    `customer.address`.
+  - On `feature/pr12b-customer-address`.
 
 ## Blocked
 
@@ -298,11 +376,18 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd`) — **1363-test regression fl
   (displayName + email only), a NEW `com.tazzzo.customer.profile` domain package — see "Merged on
   main" above. Customer deletion is explicitly NOT implemented (see the "Future invariant" note
   above — a future deletion/account-closure PR must coordinate profile/address/session/cart
-  cleanup). Address/Cart/Checkout/Order/Payment: **NOT STARTED**.
+  cleanup).
+- **Customer Address (PR-12B): IN REVIEW.** Authenticated CRUD of saved delivery addresses plus
+  dynamic serviceability binding, a NEW `com.tazzzo.customer.address` domain package — see "In
+  review" above.
+- **Serviceability**: the existing PR-06/PR-10B foundation (`com.tazzzo.serviceability`,
+  `PublicServiceability`, pincode-keyed routing) is **COMPLETE** and unchanged; the
+  customer-address BINDING to it (PR-12B) is **IN REVIEW**.
+- Cart/Checkout/Order/Payment: **NOT STARTED**.
 
 ## Next (ratified sequence)
 
-1. **PR-12B+** — Address, Cart, Checkout, Orders, Search, Notifications, app integration, AWS
+1. **PR-12C+** — Cart, Checkout, Orders, Search, Notifications, app integration, AWS
    infrastructure: not started, not scoped yet.
 
 ## Not started (honest boundary)
