@@ -46,7 +46,7 @@ public class CustomerProfileController {
     @GetMapping
     public ResponseEntity<CustomerProfileResponseDto> get(HttpServletRequest request) {
         CustomerPrincipal principal = CustomerPrincipalResolver.require(request);
-        CustomerProfileService.ProfileView view = service.get(principal.customerId().value());
+        CustomerProfileService.ProfileView view = service.get(principal.customerId());
         return respond(view, requestId(request));
     }
 
@@ -65,7 +65,7 @@ public class CustomerProfileController {
             throw fail(CustomerProfileFailure.Reason.INVALID_REQUEST);
         }
         CustomerProfileService.ProfileView view =
-                service.patch(principal.customerId().value(), expectedVersion, displayName, email);
+                service.patch(principal.customerId(), expectedVersion, displayName, email);
         return respond(view, requestId(request));
     }
 

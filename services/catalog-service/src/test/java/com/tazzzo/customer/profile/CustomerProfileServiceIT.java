@@ -1,5 +1,7 @@
 package com.tazzzo.customer.profile;
 
+import com.tazzzo.auth.CustomerId;
+import com.tazzzo.auth.CustomerIdentityAuthority;
 import com.tazzzo.catalog.AbstractMongoIT;
 import com.tazzzo.catalog.CatalogApplication;
 import org.bson.Document;
@@ -29,8 +31,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * PR-12A — {@code CustomerProfileService}/{@code CustomerProfileRepository} exercised directly
  * (no HTTP, no auth) over a real Mongo (Testcontainers). No sleeps: concurrency is pinned with
  * latches, time with a mutable {@link Clock} — the SAME conventions {@code CustomerSessionServiceIT}
- * established. {@code customerId} here is a plain fixture string; this layer trusts its caller
- * completely (the controller is the ONLY place a real {@code CustomerPrincipal} is required).
+ * established. {@code customerId} fixtures here are synthetic and never exist in the auth-owned
+ * {@code customers} collection, so the {@link CustomerIdentityAuthority} check (Finding 1) is
+ * deliberately stubbed to always succeed — this class tests profile/version logic in isolation.
+ * The REAL identity-integrity behavior (a missing/ghost customer identity) is covered separately by
+ * {@code CustomerIdentityIntegrityHttpIT}, which does NOT stub the authority.
  */
 @SpringBootTest(classes = {CatalogApplication.class, CustomerProfileServiceIT.TestBeans.class})
 class CustomerProfileServiceIT extends AbstractMongoIT {
@@ -48,6 +53,12 @@ class CustomerProfileServiceIT extends AbstractMongoIT {
                 @Override public Instant instant() { return CLOCK_NOW.get(); }
             };
         }
+
+        @Bean
+        @Primary
+        CustomerIdentityAuthority alwaysExistsAuthority() {
+            return customerId -> true;
+        }
     }
 
     @Autowired CustomerProfileService service;
@@ -59,20 +70,20 @@ class CustomerProfileServiceIT extends AbstractMongoIT {
         CLOCK_NOW.set(Instant.parse("2026-06-01T00:00:00Z"));
     }
 
-    private static String uniqueCustomerId(String suffix) {
-        return "CUS_profileit" + suffix;
+    private static CustomerId uniqueCustomerId(String suffix) {
+        return new CustomerId("CUS_profileit" + suffix);
     }
 
-    private Document rawDoc(String customerId) {
-        return repository.findById(customerId);
+    private Document rawDoc(CustomerId customerId) {
+        return repository.findById(customerId.value());
     }
 
     // ---------- A: absent profile default ----------
 
     @Test void a_brand_new_customer_has_a_default_profile_at_version_zero() {
-        String customerId = uniqueCustomerId("0001");
+        CustomerId customerId = uniqueCustomerId("0001");
         CustomerProfileService.ProfileView view = service.get(customerId);
-        assertThat(view.customerId()).isEqualTo(customerId);
+        assertThat(view.customerId()).isEqualTo(customerId.value());
         assertThat(view.displayName()).isNull();
         assertThat(view.email()).isNull();
         assertThat(view.version()).isZero();
@@ -82,7 +93,7 @@ class CustomerProfileServiceIT extends AbstractMongoIT {
     // ---------- D/E: create then read back ----------
 
     @Test void d_e_patch_at_version_zero_creates_version_one_and_get_reflects_it() {
-        String customerId = uniqueCustomerId("0002");
+        CustomerId customerId = uniqueCustomerId("0002");
         CustomerProfileService.ProfileView created =
                 service.patch(customerId, 0, PatchField.of("Sahil Ranjan"), PatchField.absent());
         assertThat(created.version()).isEqualTo(1);
@@ -97,7 +108,7 @@ class CustomerProfileServiceIT extends AbstractMongoIT {
     // ---------- F/G: partial patch leaves the other field untouched ----------
 
     @Test void f_partial_patch_of_display_name_only_leaves_email_unchanged() {
-        String customerId = uniqueCustomerId("0003");
+        CustomerId customerId = uniqueCustomerId("0003");
         service.patch(customerId, 0, PatchField.absent(), PatchField.of("a@example.com"));
         CustomerProfileService.ProfileView updated =
                 service.patch(customerId, 1, PatchField.of("Megha Namdeo"), PatchField.absent());
@@ -106,7 +117,7 @@ class CustomerProfileServiceIT extends AbstractMongoIT {
     }
 
     @Test void g_partial_patch_of_email_only_leaves_display_name_unchanged() {
-        String customerId = uniqueCustomerId("0004");
+        CustomerId customerId = uniqueCustomerId("0004");
         service.patch(customerId, 0, PatchField.of("José"), PatchField.absent());
         CustomerProfileService.ProfileView updated =
                 service.patch(customerId, 1, PatchField.absent(), PatchField.of("Jose@Example.com"));
@@ -117,7 +128,7 @@ class CustomerProfileServiceIT extends AbstractMongoIT {
     // ---------- H/I: explicit null clears ----------
 
     @Test void h_explicit_null_clears_display_name() {
-        String customerId = uniqueCustomerId("0005");
+        CustomerId customerId = uniqueCustomerId("0005");
         service.patch(customerId, 0, PatchField.of("李明"), PatchField.of("li@example.com"));
         CustomerProfileService.ProfileView cleared =
                 service.patch(customerId, 1, PatchField.of(null), PatchField.absent());
@@ -126,7 +137,7 @@ class CustomerProfileServiceIT extends AbstractMongoIT {
     }
 
     @Test void i_explicit_null_clears_email() {
-        String customerId = uniqueCustomerId("0006");
+        CustomerId customerId = uniqueCustomerId("0006");
         service.patch(customerId, 0, PatchField.of("Name"), PatchField.of("name@example.com"));
         CustomerProfileService.ProfileView cleared =
                 service.patch(customerId, 1, PatchField.absent(), PatchField.of(null));
@@ -137,7 +148,7 @@ class CustomerProfileServiceIT extends AbstractMongoIT {
     // ---------- K/L: invalid field values ----------
 
     @Test void k_display_name_over_80_code_points_is_rejected() {
-        String customerId = uniqueCustomerId("0007");
+        CustomerId customerId = uniqueCustomerId("0007");
         String tooLong = "x".repeat(81);
         assertThatThrownBy(() -> service.patch(customerId, 0, PatchField.of(tooLong), PatchField.absent()))
                 .isInstanceOf(CustomerProfileFailure.class)
@@ -147,7 +158,7 @@ class CustomerProfileServiceIT extends AbstractMongoIT {
     }
 
     @Test void k_display_name_with_a_control_character_is_rejected() {
-        String customerId = uniqueCustomerId("0008");
+        CustomerId customerId = uniqueCustomerId("0008");
         String withControlChar = "Sahil" + '\u0007' + "Ranjan";
         assertThatThrownBy(() -> service.patch(customerId, 0, PatchField.of(withControlChar), PatchField.absent()))
                 .isInstanceOf(CustomerProfileFailure.class)
@@ -156,7 +167,7 @@ class CustomerProfileServiceIT extends AbstractMongoIT {
     }
 
     @Test void l_malformed_email_is_rejected() {
-        String customerId = uniqueCustomerId("0009");
+        CustomerId customerId = uniqueCustomerId("0009");
         assertThatThrownBy(() -> service.patch(customerId, 0, PatchField.absent(), PatchField.of("not-an-email")))
                 .isInstanceOf(CustomerProfileFailure.class)
                 .satisfies(e -> assertThat(((CustomerProfileFailure) e).reason())
@@ -164,7 +175,7 @@ class CustomerProfileServiceIT extends AbstractMongoIT {
     }
 
     @Test void l_email_with_internal_whitespace_is_rejected() {
-        String customerId = uniqueCustomerId("0010");
+        CustomerId customerId = uniqueCustomerId("0010");
         assertThatThrownBy(() -> service.patch(customerId, 0, PatchField.absent(), PatchField.of("a b@example.com")))
                 .isInstanceOf(CustomerProfileFailure.class);
     }
@@ -172,7 +183,7 @@ class CustomerProfileServiceIT extends AbstractMongoIT {
     // ---------- M: stale If-Match / precondition failed ----------
 
     @Test void m_stale_expected_version_is_rejected_and_state_is_unchanged() {
-        String customerId = uniqueCustomerId("0011");
+        CustomerId customerId = uniqueCustomerId("0011");
         service.patch(customerId, 0, PatchField.of("Original"), PatchField.absent());
         assertThatThrownBy(() -> service.patch(customerId, 0, PatchField.of("Attacker"), PatchField.absent()))
                 .isInstanceOf(CustomerProfileFailure.class)
@@ -184,7 +195,7 @@ class CustomerProfileServiceIT extends AbstractMongoIT {
     // ---------- T: clock discipline ----------
 
     @Test void t_created_at_and_updated_at_come_from_the_injected_clock() {
-        String customerId = uniqueCustomerId("0012");
+        CustomerId customerId = uniqueCustomerId("0012");
         Instant createInstant = Instant.parse("2026-07-01T10:00:00Z");
         CLOCK_NOW.set(createInstant);
         service.patch(customerId, 0, PatchField.of("Name"), PatchField.absent());
@@ -204,7 +215,7 @@ class CustomerProfileServiceIT extends AbstractMongoIT {
     // ---------- N: concurrent update at the same version -- exactly one winner ----------
 
     @Test void n_two_concurrent_patches_at_the_same_version_yield_exactly_one_winner() throws Exception {
-        String customerId = uniqueCustomerId("0013");
+        CustomerId customerId = uniqueCustomerId("0013");
         service.patch(customerId, 0, PatchField.of("Original"), PatchField.absent());
 
         CountDownLatch ready = new CountDownLatch(2);
@@ -248,7 +259,7 @@ class CustomerProfileServiceIT extends AbstractMongoIT {
     // ---------- O: concurrent first-create -- exactly one winner, only one document ----------
 
     @Test void o_two_concurrent_first_creates_yield_exactly_one_winner_and_one_document() throws Exception {
-        String customerId = uniqueCustomerId("0014");
+        CustomerId customerId = uniqueCustomerId("0014");
 
         CountDownLatch ready = new CountDownLatch(2);
         CountDownLatch go = new CountDownLatch(1);
