@@ -256,11 +256,6 @@ PR-01 through PR-08 are **MERGED**:
     customer-owned state (carts, etc). Not solved here — deliberately out of scope for PR-12A.
   - Squash merges `943b6b1`/`c44bca8`/`4f4e42f` → `8d3b8fd` — **1363-test regression floor**.
 
-`main` = `8d3b8fd50831933ab2e3bad1404d2bd72de2be7e` (PR-11A+status-doc + PR-11B squash `250477d` +
-PR-11C squash `d136d53` + PR-12A squash `8d3b8fd`) — **1363-test regression floor**.
-
-## In review (NOT merged)
-
 - **PR-12B — Customer addresses and serviceability binding** (`com.tazzzo.customer.address`):
   authenticated CRUD of a customer's own saved delivery addresses
   (`GET/POST /v1/customer/addresses`, `GET/PATCH/DELETE /v1/customer/addresses/{addressId}`,
@@ -339,7 +334,15 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd`) — **1363-test regression fl
     enums; never customerId/addressId/phone/PIN/lat-lng/label text/requestId as a tag.
   - New ArchUnit rules: `auth`/`customer.profile`/`serviceability` must not depend on
     `customer.address`.
-  - On `feature/pr12b-customer-address`.
+  - Merged as PR #19: pre-merge head `c443e22`, squash `64042f6` — **1478-test regression floor**;
+    merged-main backend-ci run `36396355618` (Compile & test + Validate API contracts: SUCCESS).
+
+`main` = `64042f6bc79168a284f84f7fa337a455a7def7a3` (PR-11A+status-doc + PR-11B squash `250477d` +
+PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) — **1478-test regression floor**.
+
+## In review (NOT merged)
+
+- (none)
 
 ## Blocked
 
@@ -377,13 +380,14 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd`) — **1363-test regression fl
   main" above. Customer deletion is explicitly NOT implemented (see the "Future invariant" note
   above — a future deletion/account-closure PR must coordinate profile/address/session/cart
   cleanup).
-- **Customer Address (PR-12B): IN REVIEW.** Authenticated CRUD of saved delivery addresses plus
-  dynamic serviceability binding, a NEW `com.tazzzo.customer.address` domain package — see "In
-  review" above.
+- **Customer Address (PR-12B): COMPLETE.** Authenticated CRUD of saved delivery addresses plus
+  dynamic serviceability binding, a NEW `com.tazzzo.customer.address` domain package — see "Merged
+  on main" above.
 - **Serviceability**: the existing PR-06/PR-10B foundation (`com.tazzzo.serviceability`,
   `PublicServiceability`, pincode-keyed routing) is **COMPLETE** and unchanged; the
-  customer-address BINDING to it (PR-12B) is **IN REVIEW**.
-- Cart/Checkout/Order/Payment: **NOT STARTED**.
+  customer-address BINDING to it (PR-12B) is **COMPLETE**.
+  (Address ↔ Serviceability binding: COMPLETE.)
+- Cart: **NOT STARTED**. Checkout: **NOT STARTED**. Order: **NOT STARTED**. Payment: **NOT STARTED**.
 
 ## Next (ratified sequence)
 
@@ -421,6 +425,9 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-09-28** — `./mvnw clean test` in `services/catalog-service` on Java 21 + Docker, on
+  `feature/pr12b-customer-address` at head `c443e22` (based on `main` `9ae2f2d`): **BUILD SUCCESS**,
+  **1478 tests, 0 failures / 0 errors / 0 skipped**; merged-main CI run `36396355618` green.
 - **2026-09-28** — `./mvnw clean test` in `services/catalog-service` on Java 21.0.12 + Docker
   (MongoDB 7, Redis via Testcontainers), on `feature/pr11c-customer-session-lifecycle` at head,
   based on `main` squash `250477d` (post-PR-11B baseline, 1235 tests): **BUILD SUCCESS**,
