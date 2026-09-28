@@ -62,4 +62,10 @@ public class CustomerRepository {
     public Document findById(String customerId) {
         return collection().find(Filters.eq("_id", customerId)).first();
     }
+
+    /** Session-scoped read -- for a caller that must observe this existence check as part of its
+     *  OWN multi-document transaction (e.g. {@code customer.profile}'s identity-integrity check). */
+    public Document findById(ClientSession session, String customerId) {
+        return collection().find(session, Filters.eq("_id", customerId)).first();
+    }
 }

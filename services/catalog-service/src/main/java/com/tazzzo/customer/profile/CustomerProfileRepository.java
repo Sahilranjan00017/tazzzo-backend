@@ -1,6 +1,7 @@
 package com.tazzzo.customer.profile;
 
 import com.mongodb.MongoCommandException;
+import com.mongodb.client.ClientSession;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.FindOneAndUpdateOptions;
@@ -32,6 +33,11 @@ import java.util.List;
  * {@code _id} (upsert=true path, two callers racing to create) — both are normalized to a single
  * {@code null} return so the caller never needs to distinguish them; either way it is a precondition
  * failure, never a silent overwrite.
+ *
+ * <p><b>PR-12A hardening (TOCTOU close).</b> {@link #patch} takes an explicit {@link ClientSession}
+ * — the caller (`CustomerProfileService`) folds the customer-identity existence check and this write
+ * into ONE transaction on that same session, so "the identity exists" and "the profile is written"
+ * are decided from the SAME transactional snapshot.
  */
 @Component
 public class CustomerProfileRepository {
@@ -54,8 +60,8 @@ public class CustomerProfileRepository {
 
     /** @return the document AFTER the update, or {@code null} if {@code expectedVersion} did not
      *          match (stale precondition, OR a lost create-race when {@code expectedVersion == 0}) */
-    public Document patch(String customerId, long expectedVersion, PatchField<String> displayName,
-                          PatchField<String> email, Instant now) {
+    public Document patch(ClientSession session, String customerId, long expectedVersion,
+                          PatchField<String> displayName, PatchField<String> email, Instant now) {
         List<Bson> updates = new ArrayList<>();
         if (displayName.isPresent()) {
             updates.add(Updates.set("displayName", displayName.value()));
@@ -69,7 +75,7 @@ public class CustomerProfileRepository {
 
         boolean creating = expectedVersion == 0;
         try {
-            return collection().findOneAndUpdate(
+            return collection().findOneAndUpdate(session,
                     Filters.and(Filters.eq("_id", customerId), Filters.eq("version", expectedVersion)),
                     Updates.combine(updates),
                     new FindOneAndUpdateOptions().upsert(creating).returnDocument(ReturnDocument.AFTER));

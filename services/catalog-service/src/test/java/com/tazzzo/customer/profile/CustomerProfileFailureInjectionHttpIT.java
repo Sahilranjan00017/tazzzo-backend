@@ -1,6 +1,7 @@
 package com.tazzzo.customer.profile;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.mongodb.client.ClientSession;
 import com.mongodb.client.MongoDatabase;
 import com.tazzzo.auth.otp.OtpPurpose;
 import com.tazzzo.auth.otp.OtpVerifiedGrantRepository;
@@ -64,8 +65,8 @@ class CustomerProfileFailureInjectionHttpIT extends AbstractApiIT {
         }
 
         @Override
-        public Document patch(String customerId, long expectedVersion, PatchField<String> displayName,
-                              PatchField<String> email, Instant now) {
+        public Document patch(ClientSession session, String customerId, long expectedVersion,
+                              PatchField<String> displayName, PatchField<String> email, Instant now) {
             throw new RuntimeException("simulated profile store outage");
         }
     }

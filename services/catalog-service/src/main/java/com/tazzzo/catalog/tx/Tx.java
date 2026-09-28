@@ -5,6 +5,7 @@ import com.mongodb.client.MongoClient;
 import org.springframework.stereotype.Component;
 
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 /** Explicit ClientSession transactions. All T1-T7 services run through this. */
 @Component
@@ -22,6 +23,19 @@ public class Tx {
                 body.accept(session);
                 return null;
             });
+        }
+    }
+
+    /**
+     * A retry-safe transaction that RETURNS a value. {@code ClientSession.withTransaction} may
+     * invoke {@code body} more than once (a transient-transaction-error retry) — the value returned
+     * here is always the LAST successful execution's result, straight from the driver, never a
+     * mutable holder mutated across attempts (the PR-11B/PR-11C lesson: a holder invites subtle
+     * stale-read bugs across retries; returning T directly from the driver's own retry loop does not).
+     */
+    public <T> T call(Function<ClientSession, T> body) {
+        try (ClientSession session = client.startSession()) {
+            return session.withTransaction(() -> body.apply(session));
         }
     }
 }

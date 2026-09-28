@@ -1,5 +1,6 @@
 package com.tazzzo.auth.session;
 
+import com.mongodb.client.ClientSession;
 import com.tazzzo.auth.CustomerId;
 import com.tazzzo.auth.CustomerIdentityAuthority;
 import org.springframework.stereotype.Component;
@@ -22,5 +23,10 @@ public class CustomerIdentityAuthorityImpl implements CustomerIdentityAuthority 
     @Override
     public boolean exists(CustomerId customerId) {
         return customers.findById(customerId.value()) != null;
+    }
+
+    @Override
+    public boolean exists(ClientSession session, CustomerId customerId) {
+        return customers.findById(session, customerId.value()) != null;
     }
 }

@@ -1,6 +1,7 @@
 package com.tazzzo.customer.profile;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.mongodb.client.ClientSession;
 import com.tazzzo.auth.CustomerId;
 import com.tazzzo.auth.CustomerIdentityAuthority;
 import com.tazzzo.auth.otp.OtpPurpose;
@@ -57,8 +58,13 @@ class CustomerIdentityAuthorityFailureHttpIT extends AbstractApiIT {
         @Bean
         @Primary
         CustomerIdentityAuthority alwaysFailingIdentityAuthority() {
-            return (CustomerId customerId) -> {
-                throw new RuntimeException("simulated identity-authority outage pii@example.com CUS_sensitive");
+            return new CustomerIdentityAuthority() {
+                @Override public boolean exists(CustomerId customerId) {
+                    throw new RuntimeException("simulated identity-authority outage pii@example.com CUS_sensitive");
+                }
+                @Override public boolean exists(ClientSession session, CustomerId customerId) {
+                    throw new RuntimeException("simulated identity-authority outage pii@example.com CUS_sensitive");
+                }
             };
         }
     }
