@@ -27,6 +27,14 @@ tags:
       establishment and refresh are PUBLIC (no bearer required — that is how a client obtains one);
       logout REQUIRES a valid customer access token. Does NOT cover customer profile, addresses,
       cart, checkout, or orders — those are future phases.
+  - name: customer-profile
+    description: >
+      PR-12A — authenticated read/update of a customer's OWN profile (displayName, email only).
+      Both endpoints REQUIRE a valid customer access token; customerId always comes from the
+      token, never from the request. Optimistic concurrency via ETag/If-Match. Email here is
+      OPTIONAL, UNVERIFIED profile data — never an authentication identity, never used to log in.
+      Does NOT cover address, cart, checkout, order, payment, or any other customer data — those
+      are future phases.
 paths:
   /v1/categories:
     get:
@@ -250,6 +258,67 @@ paths:
           headers:
             Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
         '401': { $ref: '#/components/responses/SessionUnauthenticated' }
+  /v1/customer/profile:
+    get:
+      tags: [customer-profile]
+      operationId: getCustomerProfile
+      summary: >
+        The caller's OWN profile. A customer who has never set one gets a deterministic default
+        projection (displayName=null, email=null) at version 0 — no profile document is created by
+        a GET. customerId always comes from the access token, never a path/query parameter.
+      security:
+        - customerBearerAuth: []
+      responses:
+        '200':
+          description: OK (a default, never-persisted projection if no profile exists yet).
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+            ETag:
+              description: 'Opaque optimistic-concurrency tag, shape "profile-<version>". "profile-0" means no profile has been created yet.'
+              schema: { type: string, example: '"profile-0"' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerProfileResponse' }
+        '401': { $ref: '#/components/responses/ProfileUnauthenticated' }
+        '503': { $ref: '#/components/responses/ProfileUnavailable' }
+    patch:
+      tags: [customer-profile]
+      operationId: patchCustomerProfile
+      summary: >
+        Partial update of the caller's OWN profile. Requires If-Match (optimistic concurrency) —
+        a missing header is 428, a stale version is 412. Only fields PRESENT in the body are
+        changed; a field explicit-null CLEARS it; a field entirely omitted is left untouched. An
+        empty body (or a body with neither displayName nor email) is 400. Lazily creates the
+        profile on first PATCH (If-Match: "profile-0" against a customer with no profile yet).
+      security:
+        - customerBearerAuth: []
+      parameters:
+        - name: If-Match
+          in: header
+          required: true
+          schema: { type: string, maxLength: 40, example: '"profile-0"' }
+          description: The ETag last observed for this profile ("profile-0" if none was ever read).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CustomerProfilePatchRequest' }
+      responses:
+        '200':
+          description: Updated (or lazily created). Returns the full current profile projection.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+            ETag:
+              description: The NEW version tag after this mutation.
+              schema: { type: string, example: '"profile-1"' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerProfileResponse' }
+        '400': { $ref: '#/components/responses/ProfileBadRequest' }
+        '401': { $ref: '#/components/responses/ProfileUnauthenticated' }
+        '412': { $ref: '#/components/responses/ProfilePreconditionFailed' }
+        '428': { $ref: '#/components/responses/ProfilePreconditionRequired' }
+        '503': { $ref: '#/components/responses/ProfileUnavailable' }
 components:
   parameters:
     Release:
@@ -566,6 +635,47 @@ components:
         code: { type: string, enum: [INVALID_REQUEST, UNAUTHENTICATED, SERVICE_UNAVAILABLE, INTERNAL] }
         message: { type: string, description: "Safe, generic. No internals, no tokens, no phone." }
         requestId: { type: string }
+    CustomerProfileResponse:
+      type: object
+      description: >
+        Deliberately excludes phoneNormalized (auth identity data) and any Mongo internals beyond
+        the public version counter. displayName/email are nullable — null means never set (or
+        explicitly cleared). email is UNVERIFIED profile data only; this document never claims
+        emailVerified=true because there is no verification step in this PR.
+      required: [customerId, version, requestId]
+      properties:
+        customerId: { type: string, pattern: '^CUS_[A-Za-z0-9_-]+$' }
+        displayName: { type: string, nullable: true, maxLength: 80 }
+        email: { type: string, nullable: true, maxLength: 254 }
+        version: { type: integer, format: int64, minimum: 0 }
+        requestId: { type: string }
+    CustomerProfilePatchRequest:
+      type: object
+      description: >
+        True partial-update semantics: a field OMITTED from the body is left untouched; a field
+        PRESENT with JSON null CLEARS it; a field PRESENT with a string sets it. A body with
+        neither key present (including {}) is rejected as 400 INVALID_REQUEST — there is no
+        silent no-op PATCH.
+      properties:
+        displayName: { type: string, nullable: true, maxLength: 80 }
+        email: { type: string, nullable: true, maxLength: 254 }
+    CustomerProfileErrorEnvelope:
+      type: object
+      description: >
+        Covers BOTH failure sources on this path: the pre-existing CustomerAuthFilter boundary
+        (UNAUTHENTICATED/SERVICE_UNAVAILABLE — an invalid/missing/revoked credential, or a
+        signing-key/session-authority readiness failure) and this domain's own controller
+        (INVALID_REQUEST/PRECONDITION_REQUIRED/PRECONDITION_FAILED/SERVICE_UNAVAILABLE/INTERNAL —
+        a request-shape problem, a missing/stale If-Match, or a profile-store outage). Same flat
+        shape either way; a client never needs to know which layer rejected it.
+      required: [code, message, requestId]
+      properties:
+        code:
+          type: string
+          enum: [INVALID_REQUEST, UNAUTHENTICATED, PRECONDITION_REQUIRED, PRECONDITION_FAILED,
+                 SERVICE_UNAVAILABLE, INTERNAL]
+        message: { type: string, description: "Safe, generic. No internals, no PII." }
+        requestId: { type: string }
   responses:
     BadRequest:
       description: Invalid request or cursor
@@ -638,12 +748,54 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/SessionErrorEnvelope' }
+    ProfileBadRequest:
+      description: Malformed request shape, an invalid displayName/email, or an empty patch.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CustomerProfileErrorEnvelope' }
+    ProfilePreconditionRequired:
+      description: PATCH was sent without an If-Match header.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CustomerProfileErrorEnvelope' }
+    ProfilePreconditionFailed:
+      description: >
+        The presented If-Match no longer matches the current version — the profile changed (or was
+        created) since it was last read. Persisted state is left unchanged; retry after a fresh GET.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CustomerProfileErrorEnvelope' }
+    ProfileUnauthenticated:
+      description: >
+        Generic customer-authentication failure (owned by CustomerAuthFilter, not this domain) — a
+        missing/malformed/expired/revoked access token. Never distinguishes which.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+        WWW-Authenticate: { schema: { type: string, example: "Bearer" } }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CustomerProfileErrorEnvelope' }
+    ProfileUnavailable:
+      description: >
+        Either the customer-auth signing key/session authority is not ready (CustomerAuthFilter), or
+        the profile store itself is unavailable (this domain). Never distinguishes which.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CustomerProfileErrorEnvelope' }
   securitySchemes:
     customerBearerAuth:
       type: http
       scheme: bearer
       description: >
-        A customer access token issued by POST /v1/auth/session or POST /v1/auth/refresh. Used
-        ONLY by POST /v1/auth/logout in this document — no other endpoint here requires it, and
-        this scheme is NOT applied globally (adding it here does not mark any existing PUBLIC /v1
-        route as authenticated).
+        A customer access token issued by POST /v1/auth/session or POST /v1/auth/refresh. Used by
+        POST /v1/auth/logout and the /v1/customer/** endpoints in this document — no other endpoint
+        here requires it, and this scheme is NOT applied globally (adding it here does not mark any
+        existing PUBLIC /v1 route as authenticated).
