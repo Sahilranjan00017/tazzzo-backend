@@ -895,4 +895,85 @@ class CheckoutQuoteIT extends AbstractApiIT {
         assertThat(res.getStatusCode().value()).isEqualTo(500);
         assertThat(res.getBody().get("code").asText()).isEqualTo("INTERNAL");
     }
+
+    // ---------- PR-13B: address-version provenance ----------
+
+    private long storedAddressVersion(String quoteId) {
+        return db.getCollection("checkout_quotes").find(new Document("_id", quoteId)).first()
+                .get("addressVersion", Number.class).longValue();
+    }
+
+    @Test void a_valid_quote_persists_the_exact_address_version_commerce_validation_ran_against() {
+        Ready r = ready(1000, 5, 1);
+        // the address is still at its original version (1) when the quote is created
+        String quoteId = quote(r.token(), 1, newKey(), r.address()).getBody().get("quoteId").asText();
+        assertThat(storedAddressVersion(quoteId)).isEqualTo(1L);
+
+        Document raw = db.getCollection("checkout_quotes").find(new Document("_id", quoteId)).first();
+        CheckoutQuote roundTripped = CheckoutQuoteRepository.toQuote(raw);
+        assertThat(roundTripped.addressVersion()).isEqualTo(1L);
+    }
+
+    @Test void idempotent_replay_preserves_the_original_address_version_never_the_latest() {
+        Ready r = ready(1000, 5, 1);
+        String key = newKey();
+        String quoteId = quote(r.token(), 1, key, r.address()).getBody().get("quoteId").asText();
+        long originalVersion = storedAddressVersion(quoteId);
+
+        // the address is edited afterward (version advances) -- a replay must NOT pick up the new version
+        assertThat(patchAddress(r.token(), r.address(), originalVersion, Map.of("recipientName", "Someone Else"))
+                .getStatusCode().value()).isEqualTo(200);
+
+        ResponseEntity<JsonNode> replay = quote(r.token(), 1, key, r.address());
+        assertThat(replay.getStatusCode().value()).isEqualTo(200);
+        assertThat(replay.getBody().get("quoteId").asText()).isEqualTo(quoteId);
+        assertThat(storedAddressVersion(quoteId)).as("replay never refreshes provenance").isEqualTo(originalVersion);
+    }
+
+    @Test void a_persisted_quote_missing_addressVersion_is_a_safe_500_on_get_never_200_404_410_or_503() {
+        Ready r = quotedReady();
+        String quoteId = quote(r.token(), 1, newKey(), r.address()).getBody().get("quoteId").asText();
+        db.getCollection("checkout_quotes").updateOne(new Document("_id", quoteId),
+                new Document("$unset", new Document("addressVersion", "")));
+
+        double before = count("customer_checkout_failure", "operation", "read_quote", "reason", "internal");
+        ResponseEntity<JsonNode> res = getQuote(r.token(), quoteId);
+
+        assertThat(res.getStatusCode().value()).isEqualTo(500);
+        assertThat(res.getBody().get("code").asText()).isEqualTo("INTERNAL");
+        assertThat(res.getBody().toString()).doesNotContain("addressVersion").doesNotContain("Mongo")
+                .doesNotContain("IllegalArgumentException").doesNotContain(r.address());
+        assertThat(count("customer_checkout_failure", "operation", "read_quote", "reason", "internal") - before)
+                .isEqualTo(1);
+    }
+
+    @Test void an_idempotency_replay_of_a_quote_missing_addressVersion_is_also_a_safe_500() {
+        Ready r = quotedReady();
+        String key = newKey();
+        String quoteId = quote(r.token(), 1, key, r.address()).getBody().get("quoteId").asText();
+        db.getCollection("checkout_quotes").updateOne(new Document("_id", quoteId),
+                new Document("$unset", new Document("addressVersion", "")));
+
+        ResponseEntity<JsonNode> res = quote(r.token(), 1, key, r.address());
+        assertThat(res.getStatusCode().value()).isEqualTo(500);
+        assertThat(res.getBody().get("code").asText()).isEqualTo("INTERNAL");
+    }
+
+    @Test void addressVersion_never_appears_in_the_public_response_or_error_bodies() {
+        Ready r = ready(1000, 5, 1);
+        ResponseEntity<JsonNode> created = quote(r.token(), 1, newKey(), r.address());
+        assertThat(created.getBody().toString()).doesNotContain("addressVersion");
+        assertThat(created.getBody().fieldNames()).toIterable()
+                .containsExactlyInAnyOrder("quoteId", "cartVersion", "addressId", "items", "itemCount",
+                        "distinctItemCount", "subtotalPaise", "currency", "createdAt", "expiresAt", "requestId");
+
+        String quoteId = created.getBody().get("quoteId").asText();
+        ResponseEntity<JsonNode> read = getQuote(r.token(), quoteId);
+        assertThat(read.getBody().toString()).doesNotContain("addressVersion");
+
+        // an error body must not leak it either (a stale cart-version rejection)
+        ResponseEntity<JsonNode> conflict = quote(r.token(), 0, newKey(), r.address());
+        assertThat(conflict.getStatusCode().value()).isEqualTo(412);
+        assertThat(conflict.getBody().toString()).doesNotContain("addressVersion");
+    }
 }

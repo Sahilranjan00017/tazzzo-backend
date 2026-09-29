@@ -152,8 +152,8 @@ public class CheckoutService {
         // 5. Immutable candidate (all ids/instants fixed BEFORE the transaction).
         // millisecond precision == what Mongo stores, so the creating response and every replay are identical
         Instant createdAt = now.truncatedTo(java.time.temporal.ChronoUnit.MILLIS);
-        CheckoutQuote candidate = candidate(CheckoutQuoteId.generate(), expectedCartVersion, addressId, validated,
-                createdAt);
+        CheckoutQuote candidate = candidate(CheckoutQuoteId.generate(), expectedCartVersion, addressId,
+                address.version(), validated, createdAt);
 
         // 6. Persist.
         return persist(customerId, expectedCartVersion, address, candidate, keyDigest, fingerprint);
@@ -315,8 +315,14 @@ public class CheckoutService {
         };
     }
 
-    /** int64 paise; exact arithmetic; every line must carry a current ACTIVE INR price. */
-    private CheckoutQuote candidate(CheckoutQuoteId id, long cartVersion, AddressId addressId,
+    /**
+     * int64 paise; exact arithmetic; every line must carry a current ACTIVE INR price.
+     *
+     * <p>PR-13B — {@code addressVersion} is the EXACT version already captured by
+     * {@link #resolveAddress} (the version commerce validation actually ran against); never re-read
+     * here, never derived from anything client-supplied.
+     */
+    private CheckoutQuote candidate(CheckoutQuoteId id, long cartVersion, AddressId addressId, long addressVersion,
                                     CartResponseDto validated, Instant now) {
         List<CheckoutQuote.Line> lines = new ArrayList<>(validated.items().size());
         long subtotal = 0;
@@ -338,8 +344,8 @@ public class CheckoutService {
             log.error("customer_checkout_total_overflow");
             throw new CheckoutFailure(CheckoutFailure.Reason.UNAVAILABLE);
         }
-        return new CheckoutQuote(id.value(), cartVersion, addressId.value(), List.copyOf(lines), itemCount, subtotal,
-                "INR", now, now.plus(Duration.ofSeconds(properties.getQuoteTtlSeconds())));
+        return new CheckoutQuote(id.value(), cartVersion, addressId.value(), addressVersion, List.copyOf(lines),
+                itemCount, subtotal, "INR", now, now.plus(Duration.ofSeconds(properties.getQuoteTtlSeconds())));
     }
 
     // ---------- identity / address ----------
