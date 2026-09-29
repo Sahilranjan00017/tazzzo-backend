@@ -431,9 +431,9 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
 - **PR-14A — Inventory reservation lifecycle** (`com.tazzzo.inventory`): **IN REVIEW**. Hardened
   after final review: (M1) `prepare(InventoryReservationRequest)` is the ONLY way to obtain a
   reservation command — reservation id and TTL are Inventory's own policy, never caller-supplied;
-  `InventoryReservationCommand`'s canonical constructor is package-private (a caller in another
-  package cannot write `new InventoryReservationCommand(...)` — compiler-enforced, not just
-  documented). (M2) `InventoryReservationObservability` is now actually wired: standalone wrappers
+  the PUBLIC opaque `PreparedInventoryReservation` type has a package-private constructor (a caller
+  in another package can hold and pass one by name — no `var` trick needed — but cannot write
+  `new PreparedInventoryReservation(...)` — compiler-enforced, not just documented). (M2) `InventoryReservationObservability` is now actually wired: standalone wrappers
   record success/failure/transition ONLY after their own `Tx.call` commits; session-aware port
   calls never touch it. (M3) any `MongoException` that escapes a standalone wrapper's own
   transaction is mapped to a typed `UNAVAILABLE`, never a leaked Mongo type; session-aware methods
@@ -441,7 +441,27 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   working. (M4) `InventoryReservationExpiryWorker` counts `released`/`inventory_reservation_expired`
   ONLY when its own call actually caused the `RESERVED -> RELEASED` transition (via an internal
   `InventoryReservationLifecycleResult`), never when it merely observed a race it lost against an
-  explicit release or a confirming consume. The real
+  explicit release or a confirming consume.
+
+  **Final contract hardening (this review):** (H1) expiry is RUNTIME-AUTHORITATIVE, never
+  merely "whatever the reconciliation worker hasn't gotten to yet" — `reserve` re-checks
+  `expiresAt` against Inventory's LIVE injected `Clock` (never `preparedAt`) both for a fresh,
+  already-stale prepared command and for an idempotent replay whose durable header is itself
+  `RESERVED`-but-expired, and `consume` refuses an expired hold outright — both throw the new
+  closed `RESERVATION_EXPIRED` reason before touching any inventory row or reservation status;
+  `release` is deliberately NOT expiry-gated, since releasing an expired hold IS the recovery
+  path. (M1, this review) the duplicate-key winner re-read is isolated in its own try/catch
+  (`resolveDuplicateWinner`) so a datastore failure DURING that recovery read can no longer
+  escape as a raw Mongo type — a real Java gotcha: an exception thrown inside one `catch` block
+  is never caught by a sibling `catch`. (M2, this review) the prepared-command type became a
+  PUBLIC class (`PreparedInventoryReservation`, package-private constructor) instead of a
+  package-private record relying on `var` — a normal, nameable cross-package contract, proven
+  by a genuine cross-package test (`com.tazzzo.external`). (L1) value-object invariants keep
+  throwing `IllegalArgumentException` (existing repo convention); `prepare()` maps only a null
+  request to `INVALID_REQUEST` — a caller cannot reach `prepare()` with a malformed request at
+  all, since `InventoryReservationRequest` itself refuses to construct one.
+
+  The real
   order-facing reservation lifecycle `InventoryService.tryReserve`'s own javadoc said did not yet
   exist (no id/expiry/release/reconciliation/idempotency). `InventoryReservationService` +
   `InventoryReservationPort` (`reserve`/`release`/`consume`, session-aware — participates in a
@@ -560,7 +580,10 @@ is FUTURE work and not required for the production modular monolith.
 ## Last verification
 
 - **2026-09-29** — `./mvnw clean test` on Java 21 + Docker on `feature/pr14a-inventory-reservation`
-  (based on `main` `8b4fabb`): **BUILD SUCCESS**, 1665 tests, 0 failures / 0 errors / 0 skipped (1625 baseline + 40 new).
+  (based on `main` `8b4fabb`, after final expiry/port-contract hardening): **BUILD SUCCESS**,
+  1685 tests, 0 failures / 0 errors / 0 skipped (1625 baseline + 60 new).
+- **2026-09-29** — `./mvnw clean test` on Java 21 + Docker on `feature/pr14a-inventory-reservation`
+  (based on `main` `8b4fabb`, after M1-M4 hardening): **BUILD SUCCESS**, 1665 tests, 0 failures / 0 errors / 0 skipped (1625 baseline + 40 new).
 - **2026-09-29** — `./mvnw clean test` on Java 21 + Docker on `feature/pr13b-checkout-address-provenance`
   (based on `main` `1f73668`): **BUILD SUCCESS**, 1625 tests, 0 failures / 0 errors / 0 skipped (1617 baseline + 8 new).
 - **2026-09-29** — `./mvnw clean test` on Java 21 + Docker on `feature/pr13a-checkout-quote`

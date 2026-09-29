@@ -1,6 +1,7 @@
 package com.tazzzo.inventory;
 
 import com.mongodb.MongoException;
+import com.mongodb.MongoWriteException;
 import com.mongodb.client.ClientSession;
 import com.mongodb.client.MongoClient;
 import com.tazzzo.catalog.AbstractMongoIT;
@@ -9,6 +10,7 @@ import com.tazzzo.catalog.repo.WritePath;
 import com.tazzzo.catalog.tx.RetryInjectingTx;
 import com.tazzzo.catalog.tx.Tx;
 import org.bson.Document;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 
@@ -39,6 +41,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class InventoryReservationServiceIT extends AbstractMongoIT {
 
     private static final String LOC = "FL-RESV-1";
+
+    // this class's expiry-worker tests scan ACROSS all reservations (findExpiredBatch has no
+    // per-test key scope), so -- unlike most IT classes here, which isolate tests purely via unique
+    // document keys under a class-level @BeforeAll reset -- each test needs its own clean slate.
     private static final Instant NOW = Instant.parse("2026-06-01T00:00:00Z");
 
     private InventoryService inventory(Tx tx, Clock clock) {
@@ -70,6 +76,13 @@ class InventoryReservationServiceIT extends AbstractMongoIT {
         return service(new Tx(client), Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
+    @BeforeEach
+    void resetReservationsAndInventory() {
+        db.getCollection("inventory_reservations").deleteMany(new Document());
+        db.getCollection("inventory").deleteMany(new Document());
+        db.getCollection("inventory_reservations_order_marker").deleteMany(new Document());
+    }
+
     private void seed(String sku, String loc, long onHand, boolean active) {
         db.getCollection("inventory").insertOne(new Document("sku_id", sku)
                 .append("fulfillment_location_id", loc).append("on_hand", onHand).append("reserved", 0L)
@@ -95,8 +108,8 @@ class InventoryReservationServiceIT extends AbstractMongoIT {
         return inventoryRow(sku, loc).get("on_hand", Number.class).longValue();
     }
 
-    private static InventoryReservationCommand command(String orderId, List<InventoryReservationItem> items) {
-        return new InventoryReservationCommand(orderId, LOC, items, InventoryReservationId.generate(), NOW,
+    private static PreparedInventoryReservation command(String orderId, List<InventoryReservationItem> items) {
+        return new PreparedInventoryReservation(orderId, LOC, items, InventoryReservationId.generate(), NOW,
                 NOW.plusSeconds(600));
     }
 
@@ -257,7 +270,7 @@ class InventoryReservationServiceIT extends AbstractMongoIT {
 
     @Test void a_retry_that_finds_its_own_committed_attempt_returns_it_without_reincrementing() {
         seed("TZP-AMBIG", LOC, 10, true);
-        InventoryReservationCommand fixedCommand = command("ORD-AMBIG", List.of(new InventoryReservationItem("TZP-AMBIG", 3)));
+        PreparedInventoryReservation fixedCommand = command("ORD-AMBIG", List.of(new InventoryReservationItem("TZP-AMBIG", 3)));
         RetryInjectingTx retryTx = new RetryInjectingTx(client);
         InventoryReservationService svc = service(retryTx, Clock.fixed(NOW, ZoneOffset.UTC));
         // simulate the "ambiguous commit" case: force a second attempt even though attempt 1 fully
@@ -384,24 +397,108 @@ class InventoryReservationServiceIT extends AbstractMongoIT {
         assertThat(reserved("TZP-RACE-REL", LOC)).as("decremented exactly once").isZero();
     }
 
-    @Test void expiry_vs_consume_race_is_safe_consume_wins_no_double_decrement() {
-        seed("TZP-RACE-CON", LOC, 10, true);
+    // ---------- PR-14A hardening H1: expiry is runtime-authoritative, never worker-cadence-dependent ----------
+
+    @Test void h1a_reserve_of_an_already_expired_prepared_command_is_rejected_no_increment_no_header() {
+        seed("TZP-H1A", LOC, 10, true);
+        java.util.concurrent.atomic.AtomicReference<Instant> liveNow = new java.util.concurrent.atomic.AtomicReference<>(NOW);
+        Clock movable = new Clock() {
+            @Override public ZoneOffset getZone() { return ZoneOffset.UTC; }
+            @Override public Clock withZone(java.time.ZoneId zone) { return this; }
+            @Override public Instant instant() { return liveNow.get(); }
+        };
+        InventoryReservationProperties shortTtl = properties();
+        shortTtl.setTtlSeconds(60);
+        InventoryReservationService svc = service(new Tx(client), movable, shortTtl);
+
+        PreparedInventoryReservation prepared = svc.prepare(new InventoryReservationRequest("ORD-H1A", LOC,
+                List.of(new InventoryReservationItem("TZP-H1A", 3))));
+        liveNow.set(NOW.plusSeconds(120)); // advance the injected clock past expiresAt BEFORE reserve() runs
+
+        Tx tx = new Tx(client);
+        assertThatThrownBy(() -> tx.call(session -> svc.reserve(session, prepared)))
+                .isInstanceOf(InventoryReservationFailure.class)
+                .satisfies(e -> assertThat(((InventoryReservationFailure) e).reason())
+                        .isEqualTo(InventoryReservationFailure.Reason.RESERVATION_EXPIRED));
+        assertThat(reserved("TZP-H1A", LOC)).as("no increment").isZero();
+        assertThat(svc.findByOrderId("ORD-H1A")).as("no header created").isEmpty();
+    }
+
+    @Test void h1b_same_order_same_input_replay_semantics_across_the_full_lifecycle() {
+        // active: returns the original
+        seed("TZP-H1B-1", LOC, 10, true);
+        InventoryReservationService svc = service();
+        InventoryReservation active = svc.reserve("ORD-H1B-1", LOC, List.of(new InventoryReservationItem("TZP-H1B-1", 2)));
+        InventoryReservation replay = svc.reserve("ORD-H1B-1", LOC, List.of(new InventoryReservationItem("TZP-H1B-1", 2)));
+        assertThat(replay.reservationId()).isEqualTo(active.reservationId());
+
+        // expired but not yet worker-reconciled: REJECTED, never silently returned as active, never re-reserved
+        seed("TZP-H1B-2", LOC, 10, true);
         Clock past = Clock.fixed(NOW.minusSeconds(700), ZoneOffset.UTC);
         InventoryReservationProperties shortTtl = properties();
         shortTtl.setTtlSeconds(60);
         InventoryReservationService maker = service(new Tx(client), past, shortTtl);
-        InventoryReservation r = maker.reserve("ORD-RACE-CON", LOC, List.of(new InventoryReservationItem("TZP-RACE-CON", 5)));
+        InventoryReservation expired = maker.reserve("ORD-H1B-2", LOC, List.of(new InventoryReservationItem("TZP-H1B-2", 2)));
+        InventoryReservationService nowSvc = service(new Tx(client), Clock.fixed(NOW, ZoneOffset.UTC));
+        assertThatThrownBy(() -> nowSvc.reserve("ORD-H1B-2", LOC, List.of(new InventoryReservationItem("TZP-H1B-2", 2))))
+                .isInstanceOf(InventoryReservationFailure.class)
+                .satisfies(e -> assertThat(((InventoryReservationFailure) e).reason())
+                        .isEqualTo(InventoryReservationFailure.Reason.RESERVATION_EXPIRED));
+        assertThat(reserved("TZP-H1B-2", LOC)).as("never re-incremented").isEqualTo(2);
+        assertThat(svc.findByOrderId("ORD-H1B-2").orElseThrow().reservationId())
+                .as("no replacement header minted").isEqualTo(expired.reservationId());
 
-        Clock nowClock = Clock.fixed(NOW, ZoneOffset.UTC);
+        // RELEASED: returned as-is (terminal, informational)
+        seed("TZP-H1B-3", LOC, 10, true);
+        InventoryReservation r3 = svc.reserve("ORD-H1B-3", LOC, List.of(new InventoryReservationItem("TZP-H1B-3", 1)));
+        svc.release(new InventoryReservationId(r3.reservationId()));
+        InventoryReservation replayReleased = svc.reserve("ORD-H1B-3", LOC, List.of(new InventoryReservationItem("TZP-H1B-3", 1)));
+        assertThat(replayReleased.status()).isEqualTo(InventoryReservationStatus.RELEASED);
+
+        // CONSUMED: returned as-is (terminal, informational)
+        seed("TZP-H1B-4", LOC, 10, true);
+        InventoryReservation r4 = svc.reserve("ORD-H1B-4", LOC, List.of(new InventoryReservationItem("TZP-H1B-4", 1)));
+        svc.consume(new InventoryReservationId(r4.reservationId()));
+        InventoryReservation replayConsumed = svc.reserve("ORD-H1B-4", LOC, List.of(new InventoryReservationItem("TZP-H1B-4", 1)));
+        assertThat(replayConsumed.status()).isEqualTo(InventoryReservationStatus.CONSUMED);
+    }
+
+    @Test void h1c_and_h1d_consume_after_expiry_is_rejected_until_the_worker_releases_it() {
+        seed("TZP-H1C", LOC, 10, true);
+        Clock past = Clock.fixed(NOW.minusSeconds(700), ZoneOffset.UTC);
+        InventoryReservationProperties shortTtl = properties();
+        shortTtl.setTtlSeconds(60);
+        InventoryReservationService maker = service(new Tx(client), past, shortTtl);
+        InventoryReservation r = maker.reserve("ORD-H1C", LOC, List.of(new InventoryReservationItem("TZP-H1C", 5)));
+
+        Clock nowClock = Clock.fixed(NOW, ZoneOffset.UTC); // authoritative "now" is well past expiresAt
         InventoryReservationService nowSvc = service(new Tx(client), nowClock);
-        InventoryReservation consumed = nowSvc.consume(new InventoryReservationId(r.reservationId()));
-        assertThat(consumed.status()).isEqualTo(InventoryReservationStatus.CONSUMED);
 
+        // consume must be rejected -- NOT run the expiry worker first
+        assertThatThrownBy(() -> nowSvc.consume(new InventoryReservationId(r.reservationId())))
+                .isInstanceOf(InventoryReservationFailure.class)
+                .satisfies(e -> assertThat(((InventoryReservationFailure) e).reason())
+                        .isEqualTo(InventoryReservationFailure.Reason.RESERVATION_EXPIRED));
+        assertThat(onHand("TZP-H1C", LOC)).as("no on_hand decrement").isEqualTo(10);
+        assertThat(reserved("TZP-H1C", LOC)).as("still held").isEqualTo(5);
+        assertThat(nowSvc.findById(new InventoryReservationId(r.reservationId())).orElseThrow().status())
+                .as("header still RESERVED until release/reconciliation").isEqualTo(InventoryReservationStatus.RESERVED);
+
+        // NOW run the expiry worker: it releases it through the normal lifecycle
         InventoryReservationExpiryWorker worker = new InventoryReservationExpiryWorker(
                 new InventoryReservationRepository(db), nowSvc, observability(), nowClock);
-        int releasedByWorker = worker.reconcileExpired(100); // finds nothing: already CONSUMED, not RESERVED
-        assertThat(releasedByWorker).isZero();
-        assertThat(onHand("TZP-RACE-CON", LOC)).as("decremented exactly once").isEqualTo(5);
+        int released = worker.reconcileExpired(100);
+        assertThat(released).isEqualTo(1);
+        assertThat(reserved("TZP-H1C", LOC)).isZero();
+        assertThat(nowSvc.findById(new InventoryReservationId(r.reservationId())).orElseThrow().status())
+                .isEqualTo(InventoryReservationStatus.RELEASED);
+
+        // a confirmation that arrives even LATER (after the worker already released it) is still
+        // safely rejected -- never silently "wins" just because the worker ran first either.
+        assertThatThrownBy(() -> nowSvc.consume(new InventoryReservationId(r.reservationId())))
+                .isInstanceOf(InventoryReservationFailure.class)
+                .satisfies(e -> assertThat(((InventoryReservationFailure) e).reason())
+                        .isEqualTo(InventoryReservationFailure.Reason.INVALID_TRANSITION));
     }
 
     // ---------- session-aware port participates in the CALLER's transaction ----------
@@ -410,7 +507,7 @@ class InventoryReservationServiceIT extends AbstractMongoIT {
         seed("TZP-OUTER", LOC, 10, true);
         Tx tx = new Tx(client);
         InventoryReservationService svc = service(tx, Clock.fixed(NOW, ZoneOffset.UTC));
-        InventoryReservationCommand cmd = command("ORD-OUTER", List.of(new InventoryReservationItem("TZP-OUTER", 4)));
+        PreparedInventoryReservation cmd = command("ORD-OUTER", List.of(new InventoryReservationItem("TZP-OUTER", 4)));
 
         class OuterAbort extends RuntimeException { }
         assertThatThrownBy(() -> tx.call(session -> {
@@ -461,7 +558,7 @@ class InventoryReservationServiceIT extends AbstractMongoIT {
         seed("TZP-COMPOSE", LOC, 10, true);
         Tx tx = new Tx(client);
         InventoryReservationService svc = service(tx, Clock.fixed(NOW, ZoneOffset.UTC));
-        InventoryReservationCommand cmd = command("ORD-COMPOSE", List.of(new InventoryReservationItem("TZP-COMPOSE", 4)));
+        PreparedInventoryReservation cmd = command("ORD-COMPOSE", List.of(new InventoryReservationItem("TZP-COMPOSE", 4)));
 
         // simulates: tx.call(session -> { reserve(session,...); orderRepository.insert(session,...); return order; })
         String result = tx.call(session -> {
@@ -482,7 +579,7 @@ class InventoryReservationServiceIT extends AbstractMongoIT {
         InventoryReservationProperties props = properties();
         props.setTtlSeconds(120);
         InventoryReservationService svc = service(new Tx(client), Clock.fixed(NOW, ZoneOffset.UTC), props);
-        InventoryReservationCommand prepared = svc.prepare(new InventoryReservationRequest("ORD-PREP", LOC,
+        PreparedInventoryReservation prepared = svc.prepare(new InventoryReservationRequest("ORD-PREP", LOC,
                 List.of(new InventoryReservationItem("TZP-PREP", 1))));
         assertThat(prepared.preparedAt()).isEqualTo(NOW);
         assertThat(prepared.expiresAt()).isEqualTo(NOW.plusSeconds(120));
@@ -492,7 +589,7 @@ class InventoryReservationServiceIT extends AbstractMongoIT {
     @Test void a_future_caller_uses_prepare_then_reserve_never_inventing_its_own_lifetime() {
         seed("TZP-PREP2", LOC, 10, true);
         InventoryReservationService svc = service();
-        InventoryReservationCommand prepared = svc.prepare(new InventoryReservationRequest("ORD-PREP2", LOC,
+        PreparedInventoryReservation prepared = svc.prepare(new InventoryReservationRequest("ORD-PREP2", LOC,
                 List.of(new InventoryReservationItem("TZP-PREP2", 3))));
         Tx tx = new Tx(client);
         InventoryReservation r = tx.call(session -> svc.reserve(session, prepared));
@@ -553,7 +650,7 @@ class InventoryReservationServiceIT extends AbstractMongoIT {
         InventoryReservationService svc = new InventoryReservationService(inventory(new Tx(client),
                 Clock.fixed(NOW, ZoneOffset.UTC)), new InventoryReservationRepository(db), properties(),
                 new InventoryReservationObservability(registry), Clock.fixed(NOW, ZoneOffset.UTC), new Tx(client));
-        InventoryReservationCommand prepared = svc.prepare(new InventoryReservationRequest("ORD-OBS4", LOC,
+        PreparedInventoryReservation prepared = svc.prepare(new InventoryReservationRequest("ORD-OBS4", LOC,
                 List.of(new InventoryReservationItem("TZP-OBS4", 2))));
         Tx tx = new Tx(client);
         // called DIRECTLY, bypassing the standalone wrapper -- exactly what a future Order composing
@@ -669,5 +766,75 @@ class InventoryReservationServiceIT extends AbstractMongoIT {
         } finally {
             pool.shutdownNow();
         }
+    }
+
+    // ---------- PR-14A hardening M1 (this review): duplicate-key winner read cannot leak raw Mongo ----------
+
+    /** A repository whose findByOrderId throws a raw MongoException -- proves the winner re-read
+     *  after a lost duplicate-key race is itself safely mapped, never leaking a raw Mongo type. */
+    private static final class WinnerReadFailsRepository extends InventoryReservationRepository {
+        private final java.util.concurrent.atomic.AtomicBoolean failNext = new java.util.concurrent.atomic.AtomicBoolean();
+
+        WinnerReadFailsRepository(com.mongodb.client.MongoDatabase db) {
+            super(db);
+        }
+
+        @Override
+        public Document findByOrderId(String orderId) {
+            if (failNext.compareAndSet(true, false)) {
+                throw new MongoException("simulated failure reading the duplicate-key winner");
+            }
+            return super.findByOrderId(orderId);
+        }
+    }
+
+    /** A Tx whose FIRST call() commits normally (so a durable header genuinely exists), and whose
+     *  SECOND call() simulates the caller losing a duplicate-key race by throwing a duplicate-key
+     *  MongoWriteException directly -- without touching Mongo a second time -- so the winner-read
+     *  path is exercised deterministically. */
+    private static final class DuplicateKeyOnSecondCallTx extends Tx {
+        private final Tx real;
+        private int calls;
+
+        DuplicateKeyOnSecondCallTx(MongoClient client) {
+            super(client);
+            this.real = new Tx(client);
+        }
+
+        @Override
+        public <T> T call(Function<ClientSession, T> body) {
+            calls++;
+            if (calls == 1) {
+                return real.call(body);
+            }
+            com.mongodb.WriteError error = new com.mongodb.WriteError(11000, "duplicate key", new org.bson.BsonDocument());
+            throw new MongoWriteException(error, new com.mongodb.ServerAddress());
+        }
+    }
+
+    @Test void duplicate_key_winner_read_failure_is_a_typed_UNAVAILABLE_never_a_raw_mongo_exception() {
+        seed("TZP-DUPFAIL", LOC, 10, true);
+        var registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        WinnerReadFailsRepository repo = new WinnerReadFailsRepository(db);
+        InventoryReservationService svc = new InventoryReservationService(inventory(new Tx(client),
+                Clock.fixed(NOW, ZoneOffset.UTC)), repo, properties(), new InventoryReservationObservability(registry),
+                Clock.fixed(NOW, ZoneOffset.UTC), new DuplicateKeyOnSecondCallTx(client));
+
+        // first call establishes a genuine durable header for the order
+        svc.reserve("ORD-DUPFAIL", LOC, List.of(new InventoryReservationItem("TZP-DUPFAIL", 2)));
+        double failBefore = count(registry, "inventory_reservation_failure", "operation", "reserve", "reason",
+                "unavailable");
+        double successBefore = count(registry, "inventory_reservation_success", "operation", "reserve");
+
+        // second call: the Tx simulates losing a duplicate-key race, and the winner re-read itself fails
+        repo.failNext.set(true);
+        assertThatThrownBy(() -> svc.reserve("ORD-DUPFAIL", LOC, List.of(new InventoryReservationItem("TZP-DUPFAIL", 2))))
+                .isInstanceOf(InventoryReservationFailure.class)
+                .satisfies(e -> assertThat(((InventoryReservationFailure) e).reason())
+                        .isEqualTo(InventoryReservationFailure.Reason.UNAVAILABLE))
+                .satisfies(e -> assertThat(e.getMessage()).doesNotContain("MongoException"));
+        assertThat(count(registry, "inventory_reservation_failure", "operation", "reserve", "reason", "unavailable")
+                - failBefore).as("counted exactly once").isEqualTo(1);
+        assertThat(count(registry, "inventory_reservation_success", "operation", "reserve")).isEqualTo(successBefore);
     }
 }

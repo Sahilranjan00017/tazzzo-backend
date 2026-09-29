@@ -58,6 +58,16 @@ import java.util.Optional;
  * {@code Tx.call} has returned (committed). The session-aware port methods never touch
  * {@link InventoryReservationObservability} — a session-aware call is one step inside a CALLER's
  * outer transaction, whose eventual commit or rollback this class cannot observe.
+ *
+ * <p><b>PR-14A hardening (H1) — expiry is RUNTIME-AUTHORITATIVE.</b> The expiry-reconciliation
+ * worker is cleanup, never the authority for whether a {@code RESERVED} allocation is still valid:
+ * {@code reserve} (a fresh, already-stale prepared command, or an idempotent replay of a durable
+ * header whose OWN {@code expiresAt} has passed) and {@code consume} (an expired hold must never be
+ * silently honoured) both check {@code expiresAt} against Inventory's LIVE {@link Clock} — never
+ * against {@code preparedAt}, and never merely "has the worker gotten to it yet" — and throw
+ * {@link InventoryReservationFailure.Reason#RESERVATION_EXPIRED} before touching any inventory row
+ * or reservation status. {@code release} is deliberately NOT expiry-gated: releasing an expired
+ * reservation (whether triggered explicitly or by the worker) is exactly the recovery path.
  */
 @Service
 public class InventoryReservationService implements InventoryReservationPort {
@@ -86,26 +96,44 @@ public class InventoryReservationService implements InventoryReservationPort {
     // ---------- preparation (Inventory-owned identity/TTL; no Mongo access) ----------
 
     @Override
-    public InventoryReservationCommand prepare(InventoryReservationRequest request) {
+    public PreparedInventoryReservation prepare(InventoryReservationRequest request) {
         if (request == null) {
             throw new InventoryReservationFailure(InventoryReservationFailure.Reason.INVALID_REQUEST,
                     "request required");
         }
         Instant now = clock.instant();
         Instant expiresAt = now.plus(Duration.ofSeconds(properties.getTtlSeconds()));
-        return new InventoryReservationCommand(request.orderId(), request.fulfillmentLocationId(), request.items(),
+        return new PreparedInventoryReservation(request.orderId(), request.fulfillmentLocationId(), request.items(),
                 InventoryReservationId.generate(), now, expiresAt);
     }
 
     // ---------- session-aware port (participates in the CALLER's transaction) ----------
 
+    /**
+     * PR-14A hardening (H1) — expiry is RUNTIME-AUTHORITATIVE, never merely "whatever the expiry
+     * worker hasn't released yet". Order of checks matters: the EXISTING-reservation lookup runs
+     * first (so a driver retry that finds its own already-committed header — the "ambiguous commit"
+     * case — always resolves to that durable header, regardless of whether the freshly-generated
+     * {@code prepared.expiresAt()} has since lapsed); only when creating a genuinely NEW reservation
+     * is {@code prepared}'s own freshness checked, against Inventory's LIVE {@link Clock} — never
+     * {@code prepared.preparedAt()}, which is historical provenance, not validity. This check reruns
+     * on every {@code Tx.call} retry attempt by construction (it reads {@code clock.instant()} fresh
+     * each time), which is correct: a retry that crosses expiry must fail and roll back, never commit
+     * an already-stale allocation.
+     */
     @Override
-    public InventoryReservation reserve(ClientSession session, InventoryReservationCommand prepared) {
+    public InventoryReservation reserve(ClientSession session, PreparedInventoryReservation prepared) {
         String fingerprint = fingerprintOf(prepared);
+        Instant authoritativeNow = clock.instant();
 
         Document existing = reservations.findByOrderId(session, prepared.orderId());
         if (existing != null) {
-            return resolveExisting(existing, fingerprint);
+            return resolveExisting(existing, fingerprint, authoritativeNow);
+        }
+
+        if (!prepared.expiresAt().isAfter(authoritativeNow)) {
+            throw new InventoryReservationFailure(InventoryReservationFailure.Reason.RESERVATION_EXPIRED,
+                    "prepared reservation for order " + prepared.orderId() + " expired before it could be reserved");
         }
 
         List<InventoryReservationItem> sorted = prepared.items().stream()
@@ -129,15 +157,32 @@ public class InventoryReservationService implements InventoryReservationPort {
         return reservation;
     }
 
-    private static InventoryReservation resolveExisting(Document existing, String fingerprint) {
+    /**
+     * PR-14A hardening (H1B) — a fingerprint match is necessary but not sufficient: a
+     * {@code RESERVED} durable header whose OWN stored {@code expiresAt} has passed is NOT a valid
+     * active allocation, regardless of how fresh the CALLER's newly re-{@code prepare}d command is.
+     * It is neither re-reserved, nor replaced, nor silently extended — one-order-one-reservation
+     * stays intact; the caller must wait for the expiry worker (or an explicit release) before a NEW
+     * reservation can ever exist for this order. {@code RELEASED}/{@code CONSUMED} are unaffected —
+     * both are returned as-is (they answer "what happened", which is exactly what an idempotent
+     * replay of a terminal reservation means; neither is a valid ACTIVE allocation either, but that
+     * distinction is already implicit in their status).
+     */
+    private static InventoryReservation resolveExisting(Document existing, String fingerprint, Instant now) {
         if (!fingerprint.equals(existing.getString("fingerprint"))) {
             throw new InventoryReservationFailure(
                     InventoryReservationFailure.Reason.ALREADY_RESERVED_DIFFERENT_INPUT,
                     "order already has a reservation with different input");
         }
-        // Same fingerprint: the durable header IS the idempotency authority, whatever its current
-        // status (RESERVED/RELEASED/CONSUMED) — never re-reserve, never increment again.
-        return InventoryReservationRepository.toReservation(existing);
+        InventoryReservation current = InventoryReservationRepository.toReservation(existing);
+        if (current.status() == InventoryReservationStatus.RESERVED && !current.expiresAt().isAfter(now)) {
+            throw new InventoryReservationFailure(InventoryReservationFailure.Reason.RESERVATION_EXPIRED,
+                    "reservation " + current.reservationId() + " for order " + current.orderId()
+                            + " has expired and was never consumed");
+        }
+        // Same fingerprint, still active (or already terminal): the durable header IS the
+        // idempotency authority — never re-reserve, never increment again.
+        return current;
     }
 
     @Override
@@ -201,6 +246,16 @@ public class InventoryReservationService implements InventoryReservationPort {
             throw new InventoryReservationFailure(InventoryReservationFailure.Reason.INVALID_TRANSITION,
                     "cannot consume a RELEASED reservation");
         }
+        // PR-14A hardening (H1C) — a RESERVED hold whose expiresAt has already passed must NEVER be
+        // silently honoured just because the expiry worker hasn't gotten to it yet: no on_hand/
+        // reserved decrement, no status transition. It stays RESERVED (still holding stock) until an
+        // explicit release() or the expiry worker's own release() cleans it up — release, unlike
+        // consume, is deliberately NOT expiry-gated, since releasing an expired hold IS the recovery
+        // path.
+        if (!current.expiresAt().isAfter(now)) {
+            throw new InventoryReservationFailure(InventoryReservationFailure.Reason.RESERVATION_EXPIRED,
+                    "reservation " + reservationId.value() + " expired and can no longer be consumed");
+        }
         for (InventoryReservationItem item : current.items()) {
             boolean applied = inventory.consumeOneSkuInSession(session, item.skuId(),
                     current.fulfillmentLocationId(), item.quantity(), now);
@@ -226,7 +281,7 @@ public class InventoryReservationService implements InventoryReservationPort {
     /** Convenience: {@code prepare} then reserve, in one call. */
     public InventoryReservation reserve(String orderId, String fulfillmentLocationId,
                                         List<InventoryReservationItem> items) {
-        InventoryReservationCommand prepared = prepare(new InventoryReservationRequest(orderId,
+        PreparedInventoryReservation prepared = prepare(new InventoryReservationRequest(orderId,
                 fulfillmentLocationId, items));
         try {
             // tx.call returns the LAST attempt's immutable value straight from the driver retry loop.
@@ -238,17 +293,26 @@ public class InventoryReservationService implements InventoryReservationPort {
             throw e;
         } catch (MongoWriteException e) {
             if (e.getError().getCode() == 11000) {
-                // lost a concurrent same-order create race: resolve to the winner's ONE durable header
-                Document winner = reservations.findByOrderId(orderId);
-                if (winner != null) {
-                    try {
-                        InventoryReservation resolved = resolveExisting(winner, fingerprintOf(prepared));
+                // lost a concurrent same-order create race: resolve to the winner's ONE durable
+                // header. The winner-lookup itself is wrapped in ITS OWN try/catch (see
+                // resolveDuplicateWinner) — a MongoException thrown here, inside this
+                // MongoWriteException handler, would NOT be caught by the sibling `catch
+                // (MongoException e)` below (Java does not fall through to a sibling catch), so
+                // without that inner wrapping a raw Mongo type could still escape this method. A
+                // business failure discovered on the winner's own header (e.g. a fingerprint
+                // mismatch, or the winner itself already expired) is caught HERE and recorded —
+                // it is thrown from inside this catch block, so it would otherwise propagate
+                // straight past the sibling `catch (InventoryReservationFailure e)` above without
+                // ever being counted.
+                try {
+                    InventoryReservation resolved = resolveDuplicateWinner(orderId, prepared);
+                    if (resolved != null) {
                         observability.success(InventoryReservationObservability.Operation.RESERVE);
                         return resolved;
-                    } catch (InventoryReservationFailure e2) {
-                        observability.failure(InventoryReservationObservability.Operation.RESERVE, e2.reason());
-                        throw e2;
                     }
+                } catch (InventoryReservationFailure e2) {
+                    observability.failure(InventoryReservationObservability.Operation.RESERVE, e2.reason());
+                    throw e2;
                 }
             }
             observability.failure(InventoryReservationObservability.Operation.RESERVE,
@@ -265,6 +329,35 @@ public class InventoryReservationService implements InventoryReservationPort {
             throw new InventoryReservationFailure(InventoryReservationFailure.Reason.UNAVAILABLE,
                     "datastore unavailable during reserve");
         }
+    }
+
+    /**
+     * PR-14A hardening (M1) — the winner re-read after a lost duplicate-key race, isolated in its
+     * own try/catch so a datastore failure DURING this recovery read is mapped to the same typed
+     * {@code UNAVAILABLE} contract as everything else, never allowed to escape as a raw
+     * {@link MongoException}. A business {@link InventoryReservationFailure} from
+     * {@code resolveExisting} (e.g. {@code ALREADY_RESERVED_DIFFERENT_INPUT} or
+     * {@code RESERVATION_EXPIRED}, discovered on the winner's own header) is a genuine domain
+     * outcome and is deliberately NOT caught here — it propagates and is recorded by the caller's
+     * existing {@code catch (InventoryReservationFailure e)}, never double-counted.
+     *
+     * @return the resolved reservation, or {@code null} if no winner header exists (re-thrown by the
+     *         caller as {@code UNAVAILABLE} — a duplicate-key error with no winning row is itself a
+     *         data-integrity anomaly, not a business outcome).
+     */
+    private InventoryReservation resolveDuplicateWinner(String orderId, PreparedInventoryReservation prepared) {
+        Document winner;
+        try {
+            winner = reservations.findByOrderId(orderId);
+        } catch (MongoException e) {
+            // Metric recording is deliberately left to the ONE call site's catch (InventoryReservationFailure)
+            // below — recording here too would double-count this exact failure.
+            log.error("inventory_reservation_datastore_failed operation=reserve_winner_read type={}",
+                    e.getClass().getSimpleName());
+            throw new InventoryReservationFailure(InventoryReservationFailure.Reason.UNAVAILABLE,
+                    "datastore error reading the duplicate-key winner");
+        }
+        return winner == null ? null : resolveExisting(winner, fingerprintOf(prepared), clock.instant());
     }
 
     public InventoryReservation release(InventoryReservationId reservationId) {
@@ -357,8 +450,8 @@ public class InventoryReservationService implements InventoryReservationPort {
      * {@code FINGERPRINT_VERSION} is REQUIRED before adding any new meaning-bearing field to the
      * fingerprint input — an unbumped version could let an old and a new semantic meaning collide.
      */
-    String fingerprintOf(InventoryReservationCommand command) {
-        return sha256Hex(command.canonicalFingerprintInput(FINGERPRINT_VERSION));
+    String fingerprintOf(PreparedInventoryReservation prepared) {
+        return sha256Hex(prepared.canonicalFingerprintInput(FINGERPRINT_VERSION));
     }
 
     private static String sha256Hex(String value) {

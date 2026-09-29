@@ -43,16 +43,16 @@ class InventoryReservationDomainTest {
                 new InventoryReservationItem("TZP-1", InventoryService.MAX_QUANTITY).quantity());
     }
 
-    // ---------- InventoryReservationCommand ----------
+    // ---------- PreparedInventoryReservation ----------
 
-    private static InventoryReservationCommand command(List<InventoryReservationItem> items) {
-        return new InventoryReservationCommand("ORD-1", "FUL-1", items, InventoryReservationId.generate(), NOW, EXPIRES);
+    private static PreparedInventoryReservation command(List<InventoryReservationItem> items) {
+        return new PreparedInventoryReservation("ORD-1", "FUL-1", items, InventoryReservationId.generate(), NOW, EXPIRES);
     }
 
     @Test void command_rejects_blank_orderId_and_location() {
-        assertThrows(IllegalArgumentException.class, () -> new InventoryReservationCommand(null, "FUL-1",
+        assertThrows(IllegalArgumentException.class, () -> new PreparedInventoryReservation(null, "FUL-1",
                 List.of(new InventoryReservationItem("TZP-1", 1)), InventoryReservationId.generate(), NOW, EXPIRES));
-        assertThrows(IllegalArgumentException.class, () -> new InventoryReservationCommand("ORD-1", " ",
+        assertThrows(IllegalArgumentException.class, () -> new PreparedInventoryReservation("ORD-1", " ",
                 List.of(new InventoryReservationItem("TZP-1", 1)), InventoryReservationId.generate(), NOW, EXPIRES));
     }
 
@@ -67,32 +67,32 @@ class InventoryReservationDomainTest {
 
     @Test void command_rejects_too_many_distinct_items() {
         List<InventoryReservationItem> items = new java.util.ArrayList<>();
-        for (int i = 0; i < InventoryReservationCommand.MAX_DISTINCT_ITEMS + 1; i++) {
+        for (int i = 0; i < PreparedInventoryReservation.MAX_DISTINCT_ITEMS + 1; i++) {
             items.add(new InventoryReservationItem("TZP-" + i, 1));
         }
         assertThrows(IllegalArgumentException.class, () -> command(items));
     }
 
     @Test void command_rejects_missing_reservationId_or_expiresAt() {
-        assertThrows(IllegalArgumentException.class, () -> new InventoryReservationCommand("ORD-1", "FUL-1",
+        assertThrows(IllegalArgumentException.class, () -> new PreparedInventoryReservation("ORD-1", "FUL-1",
                 List.of(new InventoryReservationItem("TZP-1", 1)), null, NOW, EXPIRES));
-        assertThrows(IllegalArgumentException.class, () -> new InventoryReservationCommand("ORD-1", "FUL-1",
+        assertThrows(IllegalArgumentException.class, () -> new PreparedInventoryReservation("ORD-1", "FUL-1",
                 List.of(new InventoryReservationItem("TZP-1", 1)), InventoryReservationId.generate(), NOW, null));
     }
 
     @Test void command_rejects_preparedAt_not_before_expiresAt() {
-        assertThrows(IllegalArgumentException.class, () -> new InventoryReservationCommand("ORD-1", "FUL-1",
+        assertThrows(IllegalArgumentException.class, () -> new PreparedInventoryReservation("ORD-1", "FUL-1",
                 List.of(new InventoryReservationItem("TZP-1", 1)), InventoryReservationId.generate(), EXPIRES,
                 EXPIRES));
-        assertThrows(IllegalArgumentException.class, () -> new InventoryReservationCommand("ORD-1", "FUL-1",
+        assertThrows(IllegalArgumentException.class, () -> new PreparedInventoryReservation("ORD-1", "FUL-1",
                 List.of(new InventoryReservationItem("TZP-1", 1)), InventoryReservationId.generate(),
                 EXPIRES.plusSeconds(1), EXPIRES));
     }
 
     @Test void the_canonical_constructor_is_not_public_so_it_cannot_be_forged_outside_this_package() throws Exception {
-        var ctor = InventoryReservationCommand.class.getDeclaredConstructors()[0];
+        var ctor = PreparedInventoryReservation.class.getDeclaredConstructors()[0];
         assertFalse(java.lang.reflect.Modifier.isPublic(ctor.getModifiers()),
-                "InventoryReservationCommand must only be constructible via prepare(), never directly");
+                "PreparedInventoryReservation must only be constructible via prepare(), never directly");
     }
 
     // ---------- InventoryReservationRequest ----------
@@ -108,18 +108,18 @@ class InventoryReservationDomainTest {
     }
 
     @Test void fingerprint_input_ignores_input_item_ordering() {
-        InventoryReservationCommand a = new InventoryReservationCommand("ORD-1", "FUL-1",
+        PreparedInventoryReservation a = new PreparedInventoryReservation("ORD-1", "FUL-1",
                 List.of(new InventoryReservationItem("TZP-2", 2), new InventoryReservationItem("TZP-1", 1)),
                 InventoryReservationId.generate(), NOW, EXPIRES);
-        InventoryReservationCommand b = new InventoryReservationCommand("ORD-1", "FUL-1",
+        PreparedInventoryReservation b = new PreparedInventoryReservation("ORD-1", "FUL-1",
                 List.of(new InventoryReservationItem("TZP-1", 1), new InventoryReservationItem("TZP-2", 2)),
                 InventoryReservationId.generate(), NOW, EXPIRES);
         assertEquals(a.canonicalFingerprintInput("v1"), b.canonicalFingerprintInput("v1"));
     }
 
     @Test void fingerprint_input_changes_with_quantity_or_location() {
-        InventoryReservationCommand base = command(List.of(new InventoryReservationItem("TZP-1", 1)));
-        InventoryReservationCommand differentQty = command(List.of(new InventoryReservationItem("TZP-1", 2)));
+        PreparedInventoryReservation base = command(List.of(new InventoryReservationItem("TZP-1", 1)));
+        PreparedInventoryReservation differentQty = command(List.of(new InventoryReservationItem("TZP-1", 2)));
         assertNotEquals(base.canonicalFingerprintInput("v1"), differentQty.canonicalFingerprintInput("v1"));
     }
 

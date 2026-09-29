@@ -9,7 +9,7 @@ import java.time.Instant;
  * lifecycle operations through, inside ITS OWN outer transaction:
  *
  * <pre>
- * var prepared = reservationPort.prepare(request);   // BEFORE the transaction — fixes identity/TTL
+ * PreparedInventoryReservation prepared = reservationPort.prepare(request); // BEFORE the transaction
  * tx.call(session -&gt; {
  *     InventoryReservation r = reservationPort.reserve(session, prepared);
  *     orderRepository.insert(session, order.withReservationId(r.reservationId()));
@@ -24,13 +24,17 @@ import java.time.Instant;
  * caller uses {@link InventoryReservationService}'s own wrapper methods instead, which DO own
  * their own {@code Tx.call}.
  *
- * <p><b>PR-14A hardening (M1) — Inventory owns reservation identity and TTL.</b> {@link #prepare}
- * is the ONLY way to obtain an {@code InventoryReservationCommand} (that type's canonical
- * constructor is package-private): it validates the request, generates the opaque reservation id,
- * and computes {@code expiresAt} from {@link InventoryReservationProperties}' configured TTL — a
- * caller can never supply or override a reservation's lifetime. {@code prepare} itself does NOT
- * touch Mongo and is called BEFORE any transaction, so its output is retry-stable across whatever
- * transaction the caller later runs it through.
+ * <p><b>PR-14A hardening — Inventory owns reservation identity and TTL.</b> {@link #prepare} is the
+ * ONLY way to obtain a {@link PreparedInventoryReservation} (that type's constructor is
+ * package-private, though the type itself is public and freely usable across packages): it
+ * validates the request, generates the opaque reservation id, and computes {@code expiresAt} from
+ * {@link InventoryReservationProperties}' configured TTL — a caller can never supply or override a
+ * reservation's lifetime. {@code prepare} itself does NOT touch Mongo and is called BEFORE any
+ * transaction, so its output is retry-stable across whatever transaction the caller later runs it
+ * through. {@link #reserve} separately re-checks {@code expiresAt} against Inventory's OWN LIVE
+ * clock at the moment it actually runs (never trusting {@code preparedAt}), because time may have
+ * passed between {@code prepare} and {@code reserve} — expiry is runtime-authoritative, never merely
+ * "whatever the reconciliation worker hasn't gotten to yet".
  *
  * <p>Order must never edit the {@code inventory} collection or the {@code inventory_reservations}
  * header directly — only through this port. Inventory, in turn, knows nothing about
@@ -43,7 +47,7 @@ public interface InventoryReservationPort {
      *  using the CONFIGURED TTL. No Mongo access; safe to call any number of times before a
      *  transaction — each call mints a genuinely new id, so a caller must call this ONCE per
      *  logical reserve attempt and reuse the SAME returned value across any transaction retry. */
-    InventoryReservationCommand prepare(InventoryReservationRequest request);
+    PreparedInventoryReservation prepare(InventoryReservationRequest request);
 
     /**
      * All-or-nothing multi-SKU reservation of a command from {@link #prepare}. Idempotent by
@@ -53,7 +57,7 @@ public interface InventoryReservationPort {
      * {@link InventoryReservationFailure} with
      * {@link InventoryReservationFailure.Reason#ALREADY_RESERVED_DIFFERENT_INPUT}.
      */
-    InventoryReservation reserve(ClientSession session, InventoryReservationCommand prepared);
+    InventoryReservation reserve(ClientSession session, PreparedInventoryReservation prepared);
 
     /**
      * Releases a {@code RESERVED} reservation (un-reserves every line). Idempotent: already

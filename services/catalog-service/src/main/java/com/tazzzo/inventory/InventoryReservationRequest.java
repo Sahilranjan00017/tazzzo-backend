@@ -24,9 +24,9 @@ public record InventoryReservationRequest(String orderId, String fulfillmentLoca
         if (items == null || items.isEmpty()) {
             throw new IllegalArgumentException("items must be non-empty");
         }
-        if (items.size() > InventoryReservationCommand.MAX_DISTINCT_ITEMS) {
+        if (items.size() > PreparedInventoryReservation.MAX_DISTINCT_ITEMS) {
             throw new IllegalArgumentException(
-                    "items exceeds the limit of " + InventoryReservationCommand.MAX_DISTINCT_ITEMS);
+                    "items exceeds the limit of " + PreparedInventoryReservation.MAX_DISTINCT_ITEMS);
         }
         Set<String> seen = new HashSet<>();
         for (InventoryReservationItem item : items) {
