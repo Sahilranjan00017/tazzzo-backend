@@ -523,6 +523,23 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   Payment, COD confirmation, prepaid flow, gateway, Membership, Benefits/Promotion, coupons,
   Admin/CMS, fulfilment workflow, or customer-facing Order HTTP endpoint in this PR.
 
+- **PR-15A-0 — Cart purchase-finalization seam** (`com.tazzzo.customer.cart`): **IN REVIEW**. First
+  of three PR-15A steps (15A-1 Order COD domain, 15A-2 customer HTTP). Cart-only: no Order code, no
+  HTTP. Adds `CartPurchasePort` (session-aware, joins the CALLER's transaction, never opens one,
+  records no metrics) so a future COD placement can keep a purchased cart from yielding a second
+  Order. Multiple checkout quotes can exist for one cart version (quote uniqueness is per
+  idempotency key), so the cart owns a monotonic `purchasedThroughVersion` (`$max`; absent = 0;
+  never lowered/reset; document never deleted; never exposed in any DTO).
+  `isSourceVersionPurchased` = `marker >= sourceCartVersion` (read-only; the caller's own durable
+  same-quote replay check runs FIRST and never reaches it). `finalizePurchase`: live == source ->
+  clear items, advance version, raise marker, one guarded update (`CLEARED`); live > source ->
+  items/version/timestamps untouched, marker raised only (`NEWER_CART_PRESERVED`, a normal result,
+  never a failure); no cart document / live < source / corrupt marker ->
+  `CartPurchaseIntegrityException`, aborting the caller's transaction. `ModuleBoundaryTest` gains a
+  rule that `customer.order` may reach the cart only through this port and its result/integrity
+  types. **Operational gate (PENDING, not verified from the repo):** the `orders` collection must
+  contain 0 documents in every deployed persistent environment before PR-15A-1 is deployed.
+
 ## Follow-up debt (recorded)
 
 - **Non-Auth `tx.run` result-holder audit (PR-11D, no action taken):** `AttributeAuthoringService`
