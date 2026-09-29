@@ -1,6 +1,8 @@
 package com.tazzzo.inventory;
 
+import com.mongodb.MongoException;
 import com.mongodb.client.ClientSession;
+import com.mongodb.client.MongoClient;
 import com.tazzzo.catalog.AbstractMongoIT;
 import com.tazzzo.catalog.CatalogApplication;
 import com.tazzzo.catalog.repo.WritePath;
@@ -22,6 +24,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -49,9 +52,18 @@ class InventoryReservationServiceIT extends AbstractMongoIT {
         return p;
     }
 
+    private InventoryReservationObservability observability() {
+        return new InventoryReservationObservability(new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
+    }
+
     private InventoryReservationService service(Tx tx, Clock clock) {
         return new InventoryReservationService(inventory(tx, clock), new InventoryReservationRepository(db),
-                properties(), clock, tx);
+                properties(), observability(), clock, tx);
+    }
+
+    private InventoryReservationService service(Tx tx, Clock clock, InventoryReservationProperties props) {
+        return new InventoryReservationService(inventory(tx, clock), new InventoryReservationRepository(db),
+                props, observability(), clock, tx);
     }
 
     private InventoryReservationService service() {
@@ -84,7 +96,7 @@ class InventoryReservationServiceIT extends AbstractMongoIT {
     }
 
     private static InventoryReservationCommand command(String orderId, List<InventoryReservationItem> items) {
-        return new InventoryReservationCommand(orderId, LOC, items, InventoryReservationId.generate(),
+        return new InventoryReservationCommand(orderId, LOC, items, InventoryReservationId.generate(), NOW,
                 NOW.plusSeconds(600));
     }
 
@@ -329,21 +341,17 @@ class InventoryReservationServiceIT extends AbstractMongoIT {
         InventoryReservationService pastSvc = service(new Tx(client), past);
         InventoryReservationProperties shortTtl = properties();
         shortTtl.setTtlSeconds(60);
-        InventoryReservationService expiredMaker = new InventoryReservationService(inventory(new Tx(client), past),
-                new InventoryReservationRepository(db), shortTtl, past, new Tx(client));
+        InventoryReservationService expiredMaker = service(new Tx(client), past, shortTtl);
         InventoryReservation expired = expiredMaker.reserve("ORD-EXP", LOC, List.of(new InventoryReservationItem("TZP-EXP", 2)));
 
         InventoryReservationProperties longTtl = properties();
-        InventoryReservationService futureMaker = new InventoryReservationService(inventory(new Tx(client), Clock.fixed(NOW, ZoneOffset.UTC)),
-                new InventoryReservationRepository(db), longTtl, Clock.fixed(NOW, ZoneOffset.UTC), new Tx(client));
+        InventoryReservationService futureMaker = service(new Tx(client), Clock.fixed(NOW, ZoneOffset.UTC), longTtl);
         InventoryReservation future = futureMaker.reserve("ORD-FUT", LOC, List.of(new InventoryReservationItem("TZP-FUT", 2)));
 
         Clock nowClock = Clock.fixed(NOW, ZoneOffset.UTC);
         InventoryReservationService nowSvc = service(new Tx(client), nowClock);
         InventoryReservationExpiryWorker worker = new InventoryReservationExpiryWorker(
-                new InventoryReservationRepository(db), nowSvc,
-                new InventoryReservationObservability(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()),
-                nowClock);
+                new InventoryReservationRepository(db), nowSvc, observability(), nowClock);
 
         int released = worker.reconcileExpired(100);
         assertThat(released).isEqualTo(1);
@@ -360,8 +368,7 @@ class InventoryReservationServiceIT extends AbstractMongoIT {
         Clock past = Clock.fixed(NOW.minusSeconds(700), ZoneOffset.UTC);
         InventoryReservationProperties shortTtl = properties();
         shortTtl.setTtlSeconds(60);
-        InventoryReservationService maker = new InventoryReservationService(inventory(new Tx(client), past),
-                new InventoryReservationRepository(db), shortTtl, past, new Tx(client));
+        InventoryReservationService maker = service(new Tx(client), past, shortTtl);
         InventoryReservation r = maker.reserve("ORD-RACE-REL", LOC, List.of(new InventoryReservationItem("TZP-RACE-REL", 5)));
 
         Clock nowClock = Clock.fixed(NOW, ZoneOffset.UTC);
@@ -371,9 +378,7 @@ class InventoryReservationServiceIT extends AbstractMongoIT {
         assertThat(released.status()).isEqualTo(InventoryReservationStatus.RELEASED);
 
         InventoryReservationExpiryWorker worker = new InventoryReservationExpiryWorker(
-                new InventoryReservationRepository(db), nowSvc,
-                new InventoryReservationObservability(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()),
-                nowClock);
+                new InventoryReservationRepository(db), nowSvc, observability(), nowClock);
         int releasedByWorker = worker.reconcileExpired(100); // finds nothing: already RELEASED, not RESERVED
         assertThat(releasedByWorker).isZero();
         assertThat(reserved("TZP-RACE-REL", LOC)).as("decremented exactly once").isZero();
@@ -384,8 +389,7 @@ class InventoryReservationServiceIT extends AbstractMongoIT {
         Clock past = Clock.fixed(NOW.minusSeconds(700), ZoneOffset.UTC);
         InventoryReservationProperties shortTtl = properties();
         shortTtl.setTtlSeconds(60);
-        InventoryReservationService maker = new InventoryReservationService(inventory(new Tx(client), past),
-                new InventoryReservationRepository(db), shortTtl, past, new Tx(client));
+        InventoryReservationService maker = service(new Tx(client), past, shortTtl);
         InventoryReservation r = maker.reserve("ORD-RACE-CON", LOC, List.of(new InventoryReservationItem("TZP-RACE-CON", 5)));
 
         Clock nowClock = Clock.fixed(NOW, ZoneOffset.UTC);
@@ -394,9 +398,7 @@ class InventoryReservationServiceIT extends AbstractMongoIT {
         assertThat(consumed.status()).isEqualTo(InventoryReservationStatus.CONSUMED);
 
         InventoryReservationExpiryWorker worker = new InventoryReservationExpiryWorker(
-                new InventoryReservationRepository(db), nowSvc,
-                new InventoryReservationObservability(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()),
-                nowClock);
+                new InventoryReservationRepository(db), nowSvc, observability(), nowClock);
         int releasedByWorker = worker.reconcileExpired(100); // finds nothing: already CONSUMED, not RESERVED
         assertThat(releasedByWorker).isZero();
         assertThat(onHand("TZP-RACE-CON", LOC)).as("decremented exactly once").isEqualTo(5);
@@ -412,7 +414,7 @@ class InventoryReservationServiceIT extends AbstractMongoIT {
 
         class OuterAbort extends RuntimeException { }
         assertThatThrownBy(() -> tx.call(session -> {
-            svc.reserve(session, cmd, NOW);
+            svc.reserve(session, cmd);
             throw new OuterAbort(); // the CALLER's own reason to roll back, unrelated to reservation logic
         })).isInstanceOf(OuterAbort.class);
 
@@ -463,7 +465,7 @@ class InventoryReservationServiceIT extends AbstractMongoIT {
 
         // simulates: tx.call(session -> { reserve(session,...); orderRepository.insert(session,...); return order; })
         String result = tx.call(session -> {
-            InventoryReservation r = svc.reserve(session, cmd, NOW);
+            InventoryReservation r = svc.reserve(session, cmd);
             db.getCollection("inventory_reservations_order_marker").insertOne(session,
                     new Document("_id", cmd.orderId()).append("reservationId", r.reservationId()));
             return r.reservationId();
@@ -472,5 +474,200 @@ class InventoryReservationServiceIT extends AbstractMongoIT {
         assertThat(reserved("TZP-COMPOSE", LOC)).isEqualTo(4);
         assertThat(db.getCollection("inventory_reservations_order_marker").find(new Document("_id", "ORD-COMPOSE"))
                 .first().getString("reservationId")).isEqualTo(result);
+    }
+
+    // ---------- PR-14A hardening M1: Inventory owns reservation identity/TTL ----------
+
+    @Test void prepare_computes_expiresAt_from_the_configured_ttl() {
+        InventoryReservationProperties props = properties();
+        props.setTtlSeconds(120);
+        InventoryReservationService svc = service(new Tx(client), Clock.fixed(NOW, ZoneOffset.UTC), props);
+        InventoryReservationCommand prepared = svc.prepare(new InventoryReservationRequest("ORD-PREP", LOC,
+                List.of(new InventoryReservationItem("TZP-PREP", 1))));
+        assertThat(prepared.preparedAt()).isEqualTo(NOW);
+        assertThat(prepared.expiresAt()).isEqualTo(NOW.plusSeconds(120));
+        assertThat(InventoryReservationId.isValid(prepared.reservationId().value())).isTrue();
+    }
+
+    @Test void a_future_caller_uses_prepare_then_reserve_never_inventing_its_own_lifetime() {
+        seed("TZP-PREP2", LOC, 10, true);
+        InventoryReservationService svc = service();
+        InventoryReservationCommand prepared = svc.prepare(new InventoryReservationRequest("ORD-PREP2", LOC,
+                List.of(new InventoryReservationItem("TZP-PREP2", 3))));
+        Tx tx = new Tx(client);
+        InventoryReservation r = tx.call(session -> svc.reserve(session, prepared));
+        assertThat(r.expiresAt()).isEqualTo(prepared.expiresAt());
+        assertThat(reserved("TZP-PREP2", LOC)).isEqualTo(3);
+    }
+
+    // ---------- PR-14A hardening M2: observability is actually wired ----------
+
+    @Test void standalone_reserve_records_success_exactly_once_after_commit() {
+        seed("TZP-OBS1", LOC, 10, true);
+        var registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        InventoryReservationService svc = new InventoryReservationService(inventory(new Tx(client),
+                Clock.fixed(NOW, ZoneOffset.UTC)), new InventoryReservationRepository(db), properties(),
+                new InventoryReservationObservability(registry), Clock.fixed(NOW, ZoneOffset.UTC), new Tx(client));
+        double before = count(registry, "inventory_reservation_success", "operation", "reserve");
+        svc.reserve("ORD-OBS1", LOC, List.of(new InventoryReservationItem("TZP-OBS1", 2)));
+        assertThat(count(registry, "inventory_reservation_success", "operation", "reserve") - before).isEqualTo(1);
+    }
+
+    @Test void standalone_reserve_records_failure_exactly_once_on_insufficient_stock() {
+        seed("TZP-OBS2", LOC, 1, true);
+        var registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        InventoryReservationService svc = new InventoryReservationService(inventory(new Tx(client),
+                Clock.fixed(NOW, ZoneOffset.UTC)), new InventoryReservationRepository(db), properties(),
+                new InventoryReservationObservability(registry), Clock.fixed(NOW, ZoneOffset.UTC), new Tx(client));
+        double before = count(registry, "inventory_reservation_failure", "operation", "reserve", "reason",
+                "reservation_unavailable");
+        double successBefore = count(registry, "inventory_reservation_success", "operation", "reserve");
+        assertThatThrownBy(() -> svc.reserve("ORD-OBS2", LOC, List.of(new InventoryReservationItem("TZP-OBS2", 5))))
+                .isInstanceOf(InventoryReservationFailure.class);
+        assertThat(count(registry, "inventory_reservation_failure", "operation", "reserve", "reason",
+                "reservation_unavailable") - before).isEqualTo(1);
+        assertThat(count(registry, "inventory_reservation_success", "operation", "reserve")).isEqualTo(successBefore);
+    }
+
+    @Test void transition_metric_fires_only_on_a_real_release_transition_never_on_idempotent_replay() {
+        seed("TZP-OBS3", LOC, 10, true);
+        var registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        InventoryReservationService svc = new InventoryReservationService(inventory(new Tx(client),
+                Clock.fixed(NOW, ZoneOffset.UTC)), new InventoryReservationRepository(db), properties(),
+                new InventoryReservationObservability(registry), Clock.fixed(NOW, ZoneOffset.UTC), new Tx(client));
+        InventoryReservation r = svc.reserve("ORD-OBS3", LOC, List.of(new InventoryReservationItem("TZP-OBS3", 2)));
+        double before = count(registry, "inventory_reservation_transition", "from", "reserved", "to", "released");
+
+        svc.release(new InventoryReservationId(r.reservationId())); // real transition
+        assertThat(count(registry, "inventory_reservation_transition", "from", "reserved", "to", "released") - before)
+                .isEqualTo(1);
+
+        svc.release(new InventoryReservationId(r.reservationId())); // idempotent replay: no NEW transition
+        assertThat(count(registry, "inventory_reservation_transition", "from", "reserved", "to", "released") - before)
+                .as("idempotent replay never double-counts a transition").isEqualTo(1);
+    }
+
+    @Test void session_aware_calls_alone_never_emit_any_metric() {
+        seed("TZP-OBS4", LOC, 10, true);
+        var registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        InventoryReservationService svc = new InventoryReservationService(inventory(new Tx(client),
+                Clock.fixed(NOW, ZoneOffset.UTC)), new InventoryReservationRepository(db), properties(),
+                new InventoryReservationObservability(registry), Clock.fixed(NOW, ZoneOffset.UTC), new Tx(client));
+        InventoryReservationCommand prepared = svc.prepare(new InventoryReservationRequest("ORD-OBS4", LOC,
+                List.of(new InventoryReservationItem("TZP-OBS4", 2))));
+        Tx tx = new Tx(client);
+        // called DIRECTLY, bypassing the standalone wrapper -- exactly what a future Order composing
+        // its own outer transaction would do.
+        tx.call(session -> svc.reserve(session, prepared));
+        assertThat(registry.getMeters()).as("a session-aware call alone claims no durable success/transition")
+                .noneMatch(m -> m.getId().getName().startsWith("inventory_reservation_success")
+                        || m.getId().getName().startsWith("inventory_reservation_transition"));
+    }
+
+    private static double count(io.micrometer.core.instrument.MeterRegistry registry, String name, String... tags) {
+        var search = registry.find(name);
+        for (int i = 0; i < tags.length; i += 2) search = search.tag(tags[i], tags[i + 1]);
+        return search.counters().stream().mapToDouble(io.micrometer.core.instrument.Counter::count).sum();
+    }
+
+    // ---------- PR-14A hardening M3: closed failure contract ----------
+
+    /** A {@link Tx} whose transaction always fails as a raw, non-transient Mongo outage — never
+     *  touches the real database. Proves the standalone wrapper maps ANY escaping MongoException to
+     *  the typed UNAVAILABLE reason, never a leaked Mongo type. */
+    private static final class OutageTx extends Tx {
+        OutageTx(MongoClient client) {
+            super(client);
+        }
+
+        @Override
+        public <T> T call(Function<ClientSession, T> body) {
+            throw new MongoException("simulated datastore outage");
+        }
+    }
+
+    @Test void a_datastore_outage_during_standalone_reserve_is_a_typed_UNAVAILABLE_never_a_raw_mongo_exception() {
+        var registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        InventoryReservationService svc = new InventoryReservationService(inventory(new Tx(client),
+                Clock.fixed(NOW, ZoneOffset.UTC)), new InventoryReservationRepository(db), properties(),
+                new InventoryReservationObservability(registry), Clock.fixed(NOW, ZoneOffset.UTC),
+                new OutageTx(client));
+        double before = count(registry, "inventory_reservation_failure", "operation", "reserve", "reason",
+                "unavailable");
+        assertThatThrownBy(() -> svc.reserve("ORD-OUTAGE", LOC, List.of(new InventoryReservationItem("TZP-OUTAGE", 1))))
+                .isInstanceOf(InventoryReservationFailure.class)
+                .satisfies(e -> assertThat(((InventoryReservationFailure) e).reason())
+                        .isEqualTo(InventoryReservationFailure.Reason.UNAVAILABLE));
+        assertThat(count(registry, "inventory_reservation_failure", "operation", "reserve", "reason", "unavailable")
+                - before).as("counted exactly once").isEqualTo(1);
+    }
+
+    @Test void a_datastore_outage_during_standalone_release_is_a_typed_UNAVAILABLE() {
+        seed("TZP-OUTREL", LOC, 10, true);
+        InventoryReservationService okSvc = service();
+        InventoryReservation r = okSvc.reserve("ORD-OUTREL", LOC, List.of(new InventoryReservationItem("TZP-OUTREL", 2)));
+
+        InventoryReservationService brokenSvc = new InventoryReservationService(inventory(new Tx(client),
+                Clock.fixed(NOW, ZoneOffset.UTC)), new InventoryReservationRepository(db), properties(),
+                observability(), Clock.fixed(NOW, ZoneOffset.UTC), new OutageTx(client));
+        assertThatThrownBy(() -> brokenSvc.release(new InventoryReservationId(r.reservationId())))
+                .isInstanceOf(InventoryReservationFailure.class)
+                .satisfies(e -> assertThat(((InventoryReservationFailure) e).reason())
+                        .isEqualTo(InventoryReservationFailure.Reason.UNAVAILABLE));
+    }
+
+    @Test void session_aware_operations_let_mongo_exceptions_propagate_untouched_for_Tx_retry() {
+        // a business InventoryReservationFailure thrown INSIDE a session-aware call must propagate
+        // as-is through tx.call -- never converted to UNAVAILABLE by the session-aware method itself
+        // (only the STANDALONE wrapper, after the transaction has fully failed, performs that mapping).
+        Tx tx = new Tx(client);
+        InventoryReservationService svc = service(tx, Clock.fixed(NOW, ZoneOffset.UTC));
+        assertThatThrownBy(() -> tx.call(session -> svc.release(session, InventoryReservationId.generate(), NOW)))
+                .isInstanceOf(InventoryReservationFailure.class)
+                .satisfies(e -> assertThat(((InventoryReservationFailure) e).reason())
+                        .isEqualTo(InventoryReservationFailure.Reason.NOT_FOUND));
+    }
+
+    // ---------- PR-14A hardening M4: expiry worker only counts transitions it actually caused ----------
+
+    @Test void concurrent_explicit_release_and_expiry_reconciliation_count_the_transition_exactly_once() throws Exception {
+        seed("TZP-RACE4", LOC, 10, true);
+        Clock past = Clock.fixed(NOW.minusSeconds(700), ZoneOffset.UTC);
+        InventoryReservationProperties shortTtl = properties();
+        shortTtl.setTtlSeconds(60);
+        InventoryReservationService maker = service(new Tx(client), past, shortTtl);
+        InventoryReservation r = maker.reserve("ORD-RACE4", LOC, List.of(new InventoryReservationItem("TZP-RACE4", 5)));
+
+        Clock nowClock = Clock.fixed(NOW, ZoneOffset.UTC);
+        var registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        InventoryReservationObservability obs = new InventoryReservationObservability(registry);
+        InventoryReservationService nowSvc = new InventoryReservationService(inventory(new Tx(client), nowClock),
+                new InventoryReservationRepository(db), properties(), obs, nowClock, new Tx(client));
+        InventoryReservationExpiryWorker worker = new InventoryReservationExpiryWorker(
+                new InventoryReservationRepository(db), nowSvc, obs, nowClock);
+
+        CountDownLatch go = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            Future<InventoryReservation> explicit = pool.submit(() -> {
+                go.await();
+                return nowSvc.release(new InventoryReservationId(r.reservationId()));
+            });
+            Future<Integer> expiry = pool.submit(() -> {
+                go.await();
+                return worker.reconcileExpired(100);
+            });
+            go.countDown();
+            explicit.get(30, TimeUnit.SECONDS);
+            int releasedByWorker = expiry.get(30, TimeUnit.SECONDS);
+            // exactly one of the two actually caused the RESERVED->RELEASED transition; the other
+            // observed it already terminal. The worker's own count must reflect ONLY what IT caused.
+            assertThat(releasedByWorker).isIn(0, 1);
+            assertThat(count(registry, "inventory_reservation_transition", "from", "reserved", "to", "released"))
+                    .as("the transition itself happened exactly once, regardless of who won").isEqualTo(1);
+            assertThat(reserved("TZP-RACE4", LOC)).as("decremented exactly once").isZero();
+        } finally {
+            pool.shutdownNow();
+        }
     }
 }

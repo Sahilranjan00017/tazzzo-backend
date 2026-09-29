@@ -428,7 +428,20 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
 
 ## In review (NOT merged)
 
-- **PR-14A — Inventory reservation lifecycle** (`com.tazzzo.inventory`): **IN REVIEW**. The real
+- **PR-14A — Inventory reservation lifecycle** (`com.tazzzo.inventory`): **IN REVIEW**. Hardened
+  after final review: (M1) `prepare(InventoryReservationRequest)` is the ONLY way to obtain a
+  reservation command — reservation id and TTL are Inventory's own policy, never caller-supplied;
+  `InventoryReservationCommand`'s canonical constructor is package-private (a caller in another
+  package cannot write `new InventoryReservationCommand(...)` — compiler-enforced, not just
+  documented). (M2) `InventoryReservationObservability` is now actually wired: standalone wrappers
+  record success/failure/transition ONLY after their own `Tx.call` commits; session-aware port
+  calls never touch it. (M3) any `MongoException` that escapes a standalone wrapper's own
+  transaction is mapped to a typed `UNAVAILABLE`, never a leaked Mongo type; session-aware methods
+  still let transient/write-conflict errors propagate untouched so `Tx.call`'s own retry keeps
+  working. (M4) `InventoryReservationExpiryWorker` counts `released`/`inventory_reservation_expired`
+  ONLY when its own call actually caused the `RESERVED -> RELEASED` transition (via an internal
+  `InventoryReservationLifecycleResult`), never when it merely observed a race it lost against an
+  explicit release or a confirming consume. The real
   order-facing reservation lifecycle `InventoryService.tryReserve`'s own javadoc said did not yet
   exist (no id/expiry/release/reconciliation/idempotency). `InventoryReservationService` +
   `InventoryReservationPort` (`reserve`/`release`/`consume`, session-aware — participates in a

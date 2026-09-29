@@ -1,5 +1,6 @@
 package com.tazzzo.inventory;
 
+import com.mongodb.MongoException;
 import com.mongodb.MongoWriteException;
 import com.mongodb.client.ClientSession;
 import com.tazzzo.catalog.tx.Tx;
@@ -16,6 +17,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * PR-14A — the ONE production reservation lifecycle: {@code reserve}/{@code release}/
@@ -25,12 +27,12 @@ import java.util.List;
  *
  * <p><b>Two call shapes, one algorithm:</b> the {@link InventoryReservationPort} methods
  * (session-aware) do the actual work and participate in WHATEVER transaction their caller owns —
- * they never start one themselves. This class's own {@code reserve(InventoryReservationCommand)}/
- * {@code release(InventoryReservationId)}/{@code consume(InventoryReservationId)} are STANDALONE
- * wrappers: they generate the retry-stable values ({@code reservationId}, {@code expiresAt}, a
- * fixed {@code now}) BEFORE calling {@link Tx#call}, then delegate to the session-aware method
- * inside it — the exact same "fix everything before the transaction, return the committed
- * attempt's value" discipline {@code CheckoutService}/{@code OtpService} already established.
+ * they never start one themselves. This class's own {@code reserve(...)}/{@code release(...)}/
+ * {@code consume(InventoryReservationId)} are STANDALONE wrappers: {@link #prepare} (for reserve)
+ * or a fixed {@code now} (for release/consume) is computed BEFORE {@link Tx#call}, then delegated
+ * to the session-aware method inside it — the same "fix everything before the transaction, return
+ * the committed attempt's value" discipline {@code CheckoutService}/{@code OtpService} already
+ * established.
  *
  * <p><b>Multi-SKU all-or-nothing (the load-bearing guarantee):</b> {@code reserve} performs one
  * atomic conditional update per SKU ({@link InventoryService#reserveOneSkuInSession}), in a
@@ -39,6 +41,23 @@ import java.util.List;
  * class throws — MongoDB itself rolls back every earlier line's increment in this SAME attempt,
  * together with the reservation header (which is inserted LAST, only after every line succeeded).
  * There is no manual "undo" anywhere in this class; the transaction engine provides it.
+ *
+ * <p><b>PR-14A hardening (M3) — failure classification.</b> Business outcomes are always a typed
+ * {@link InventoryReservationFailure}; the future Order-facing contract never needs to know a
+ * Mongo exception class. Session-aware methods deliberately let any {@link MongoException}
+ * propagate UNTOUCHED — a transient/write-conflict error carries the label
+ * {@code TransientTransactionError}, and {@link Tx#call}'s underlying
+ * {@code ClientSession.withTransaction} inspects exactly that label to decide whether to retry the
+ * whole callback; converting or swallowing it here would silently defeat that retry. Only the
+ * STANDALONE wrappers, which own the transaction boundary, map a {@code MongoException} that
+ * escapes {@code Tx.call} (i.e. the transaction ultimately failed, retries exhausted or not) to
+ * {@link InventoryReservationFailure.Reason#UNAVAILABLE} — never re-thrown as a raw Mongo type.
+ *
+ * <p><b>PR-14A hardening (M2) — observability timing.</b> {@code success}/{@code failure}/
+ * {@code transition} are recorded ONLY by the standalone wrappers, ONLY after their own
+ * {@code Tx.call} has returned (committed). The session-aware port methods never touch
+ * {@link InventoryReservationObservability} — a session-aware call is one step inside a CALLER's
+ * outer transaction, whose eventual commit or rollback this class cannot observe.
  */
 @Service
 public class InventoryReservationService implements InventoryReservationPort {
@@ -49,34 +68,51 @@ public class InventoryReservationService implements InventoryReservationPort {
     private final InventoryService inventory;
     private final InventoryReservationRepository reservations;
     private final InventoryReservationProperties properties;
+    private final InventoryReservationObservability observability;
     private final Clock clock;
     private final Tx tx;
 
     public InventoryReservationService(InventoryService inventory, InventoryReservationRepository reservations,
-                                       InventoryReservationProperties properties, Clock clock, Tx tx) {
+                                       InventoryReservationProperties properties,
+                                       InventoryReservationObservability observability, Clock clock, Tx tx) {
         this.inventory = inventory;
         this.reservations = reservations;
         this.properties = properties;
+        this.observability = observability;
         this.clock = clock;
         this.tx = tx;
+    }
+
+    // ---------- preparation (Inventory-owned identity/TTL; no Mongo access) ----------
+
+    @Override
+    public InventoryReservationCommand prepare(InventoryReservationRequest request) {
+        if (request == null) {
+            throw new InventoryReservationFailure(InventoryReservationFailure.Reason.INVALID_REQUEST,
+                    "request required");
+        }
+        Instant now = clock.instant();
+        Instant expiresAt = now.plus(Duration.ofSeconds(properties.getTtlSeconds()));
+        return new InventoryReservationCommand(request.orderId(), request.fulfillmentLocationId(), request.items(),
+                InventoryReservationId.generate(), now, expiresAt);
     }
 
     // ---------- session-aware port (participates in the CALLER's transaction) ----------
 
     @Override
-    public InventoryReservation reserve(ClientSession session, InventoryReservationCommand command, Instant now) {
-        String fingerprint = fingerprintOf(command);
+    public InventoryReservation reserve(ClientSession session, InventoryReservationCommand prepared) {
+        String fingerprint = fingerprintOf(prepared);
 
-        Document existing = reservations.findByOrderId(session, command.orderId());
+        Document existing = reservations.findByOrderId(session, prepared.orderId());
         if (existing != null) {
             return resolveExisting(existing, fingerprint);
         }
 
-        List<InventoryReservationItem> sorted = command.items().stream()
+        List<InventoryReservationItem> sorted = prepared.items().stream()
                 .sorted(java.util.Comparator.comparing(InventoryReservationItem::skuId)).toList();
         for (InventoryReservationItem item : sorted) {
             boolean applied = inventory.reserveOneSkuInSession(session, item.skuId(),
-                    command.fulfillmentLocationId(), item.quantity(), now);
+                    prepared.fulfillmentLocationId(), item.quantity(), prepared.preparedAt());
             if (!applied) {
                 // MongoDB rolls back every EARLIER line's increment in this attempt, and the header
                 // is never inserted — nothing partial survives.
@@ -85,9 +121,10 @@ public class InventoryReservationService implements InventoryReservationPort {
             }
         }
 
-        InventoryReservation reservation = new InventoryReservation(command.reservationId().value(),
-                command.orderId(), command.fulfillmentLocationId(), command.items(),
-                InventoryReservationStatus.RESERVED, now, command.expiresAt(), now);
+        InventoryReservation reservation = new InventoryReservation(prepared.reservationId().value(),
+                prepared.orderId(), prepared.fulfillmentLocationId(), prepared.items(),
+                InventoryReservationStatus.RESERVED, prepared.preparedAt(), prepared.expiresAt(),
+                prepared.preparedAt());
         reservations.insert(session, reservation, fingerprint);
         return reservation;
     }
@@ -105,6 +142,16 @@ public class InventoryReservationService implements InventoryReservationPort {
 
     @Override
     public InventoryReservation release(ClientSession session, InventoryReservationId reservationId, Instant now) {
+        return releaseInternal(session, reservationId, now).reservation();
+    }
+
+    @Override
+    public InventoryReservation consume(ClientSession session, InventoryReservationId reservationId, Instant now) {
+        return consumeInternal(session, reservationId, now).reservation();
+    }
+
+    private InventoryReservationLifecycleResult releaseInternal(ClientSession session,
+                                                                 InventoryReservationId reservationId, Instant now) {
         Document doc = reservations.findById(session, reservationId.value());
         if (doc == null) {
             throw new InventoryReservationFailure(InventoryReservationFailure.Reason.NOT_FOUND,
@@ -112,7 +159,7 @@ public class InventoryReservationService implements InventoryReservationPort {
         }
         InventoryReservation current = InventoryReservationRepository.toReservation(doc);
         if (current.status() == InventoryReservationStatus.RELEASED) {
-            return current; // idempotent no-op
+            return new InventoryReservationLifecycleResult(current, false); // idempotent no-op
         }
         if (current.status() == InventoryReservationStatus.CONSUMED) {
             throw new InventoryReservationFailure(InventoryReservationFailure.Reason.INVALID_TRANSITION,
@@ -133,13 +180,14 @@ public class InventoryReservationService implements InventoryReservationPort {
             throw new InventoryReservationFailure(InventoryReservationFailure.Reason.INTEGRITY_FAILURE,
                     "reservation " + reservationId.value() + " status changed unexpectedly during release");
         }
-        return new InventoryReservation(current.reservationId(), current.orderId(),
+        InventoryReservation released = new InventoryReservation(current.reservationId(), current.orderId(),
                 current.fulfillmentLocationId(), current.items(), InventoryReservationStatus.RELEASED,
                 current.createdAt(), current.expiresAt(), now);
+        return new InventoryReservationLifecycleResult(released, true);
     }
 
-    @Override
-    public InventoryReservation consume(ClientSession session, InventoryReservationId reservationId, Instant now) {
+    private InventoryReservationLifecycleResult consumeInternal(ClientSession session,
+                                                                 InventoryReservationId reservationId, Instant now) {
         Document doc = reservations.findById(session, reservationId.value());
         if (doc == null) {
             throw new InventoryReservationFailure(InventoryReservationFailure.Reason.NOT_FOUND,
@@ -147,7 +195,7 @@ public class InventoryReservationService implements InventoryReservationPort {
         }
         InventoryReservation current = InventoryReservationRepository.toReservation(doc);
         if (current.status() == InventoryReservationStatus.CONSUMED) {
-            return current; // idempotent no-op
+            return new InventoryReservationLifecycleResult(current, false); // idempotent no-op
         }
         if (current.status() == InventoryReservationStatus.RELEASED) {
             throw new InventoryReservationFailure(InventoryReservationFailure.Reason.INVALID_TRANSITION,
@@ -167,58 +215,138 @@ public class InventoryReservationService implements InventoryReservationPort {
             throw new InventoryReservationFailure(InventoryReservationFailure.Reason.INTEGRITY_FAILURE,
                     "reservation " + reservationId.value() + " status changed unexpectedly during consume");
         }
-        return new InventoryReservation(current.reservationId(), current.orderId(),
+        InventoryReservation consumed = new InventoryReservation(current.reservationId(), current.orderId(),
                 current.fulfillmentLocationId(), current.items(), InventoryReservationStatus.CONSUMED,
                 current.createdAt(), current.expiresAt(), now);
+        return new InventoryReservationLifecycleResult(consumed, true);
     }
 
-    // ---------- standalone wrappers (own their own Tx.call; safe to call with no outer session) ----------
+    // ---------- standalone wrappers (own their own Tx.call; record metrics after commit) ----------
 
-    /**
-     * Reserves stock for one order. {@code reservationId}/{@code expiresAt}/{@code now} are all
-     * fixed HERE, before {@link Tx#call}, so a driver retry of this SAME logical call is stable.
-     */
+    /** Convenience: {@code prepare} then reserve, in one call. */
     public InventoryReservation reserve(String orderId, String fulfillmentLocationId,
                                         List<InventoryReservationItem> items) {
-        Instant now = clock.instant();
-        Instant expiresAt = now.plus(Duration.ofSeconds(properties.getTtlSeconds()));
-        InventoryReservationCommand command = new InventoryReservationCommand(orderId, fulfillmentLocationId, items,
-                InventoryReservationId.generate(), expiresAt);
+        InventoryReservationCommand prepared = prepare(new InventoryReservationRequest(orderId,
+                fulfillmentLocationId, items));
         try {
             // tx.call returns the LAST attempt's immutable value straight from the driver retry loop.
-            return tx.call(session -> reserve(session, command, now));
+            InventoryReservation result = tx.call(session -> reserve(session, prepared));
+            observability.success(InventoryReservationObservability.Operation.RESERVE);
+            return result;
+        } catch (InventoryReservationFailure e) {
+            observability.failure(InventoryReservationObservability.Operation.RESERVE, e.reason());
+            throw e;
         } catch (MongoWriteException e) {
             if (e.getError().getCode() == 11000) {
                 // lost a concurrent same-order create race: resolve to the winner's ONE durable header
                 Document winner = reservations.findByOrderId(orderId);
                 if (winner != null) {
-                    return resolveExisting(winner, fingerprintOf(command));
+                    try {
+                        InventoryReservation resolved = resolveExisting(winner, fingerprintOf(prepared));
+                        observability.success(InventoryReservationObservability.Operation.RESERVE);
+                        return resolved;
+                    } catch (InventoryReservationFailure e2) {
+                        observability.failure(InventoryReservationObservability.Operation.RESERVE, e2.reason());
+                        throw e2;
+                    }
                 }
             }
-            throw e;
+            observability.failure(InventoryReservationObservability.Operation.RESERVE,
+                    InventoryReservationFailure.Reason.UNAVAILABLE);
+            log.error("inventory_reservation_datastore_failed operation=reserve type={}",
+                    e.getClass().getSimpleName());
+            throw new InventoryReservationFailure(InventoryReservationFailure.Reason.UNAVAILABLE,
+                    "datastore error during reserve");
+        } catch (MongoException e) {
+            observability.failure(InventoryReservationObservability.Operation.RESERVE,
+                    InventoryReservationFailure.Reason.UNAVAILABLE);
+            log.error("inventory_reservation_datastore_failed operation=reserve type={}",
+                    e.getClass().getSimpleName());
+            throw new InventoryReservationFailure(InventoryReservationFailure.Reason.UNAVAILABLE,
+                    "datastore unavailable during reserve");
         }
     }
 
     public InventoryReservation release(InventoryReservationId reservationId) {
-        Instant now = clock.instant();
-        return tx.call(session -> release(session, reservationId, now));
+        return releaseWithOutcome(reservationId).reservation();
     }
 
     public InventoryReservation consume(InventoryReservationId reservationId) {
+        return consumeWithOutcome(reservationId).reservation();
+    }
+
+    /** Package-private: exposes whether THIS call caused the transition, for
+     *  {@link InventoryReservationExpiryWorker}'s own expiry-specific accounting. */
+    InventoryReservationLifecycleResult releaseWithOutcome(InventoryReservationId reservationId) {
         Instant now = clock.instant();
-        return tx.call(session -> consume(session, reservationId, now));
+        try {
+            InventoryReservationLifecycleResult result = tx.call(session -> releaseInternal(session, reservationId,
+                    now));
+            if (result.transitioned()) {
+                observability.transition(InventoryReservationStatus.RESERVED, InventoryReservationStatus.RELEASED);
+            }
+            observability.success(InventoryReservationObservability.Operation.RELEASE);
+            return result;
+        } catch (InventoryReservationFailure e) {
+            observability.failure(InventoryReservationObservability.Operation.RELEASE, e.reason());
+            throw e;
+        } catch (MongoException e) {
+            observability.failure(InventoryReservationObservability.Operation.RELEASE,
+                    InventoryReservationFailure.Reason.UNAVAILABLE);
+            log.error("inventory_reservation_datastore_failed operation=release type={}",
+                    e.getClass().getSimpleName());
+            throw new InventoryReservationFailure(InventoryReservationFailure.Reason.UNAVAILABLE,
+                    "datastore unavailable during release");
+        }
     }
 
-    public java.util.Optional<InventoryReservation> findByOrderId(String orderId) {
-        Document d = reservations.findByOrderId(orderId);
-        return d == null ? java.util.Optional.empty() : java.util.Optional.of(InventoryReservationRepository
-                .toReservation(d));
+    InventoryReservationLifecycleResult consumeWithOutcome(InventoryReservationId reservationId) {
+        Instant now = clock.instant();
+        try {
+            InventoryReservationLifecycleResult result = tx.call(session -> consumeInternal(session, reservationId,
+                    now));
+            if (result.transitioned()) {
+                observability.transition(InventoryReservationStatus.RESERVED, InventoryReservationStatus.CONSUMED);
+            }
+            observability.success(InventoryReservationObservability.Operation.CONSUME);
+            return result;
+        } catch (InventoryReservationFailure e) {
+            observability.failure(InventoryReservationObservability.Operation.CONSUME, e.reason());
+            throw e;
+        } catch (MongoException e) {
+            observability.failure(InventoryReservationObservability.Operation.CONSUME,
+                    InventoryReservationFailure.Reason.UNAVAILABLE);
+            log.error("inventory_reservation_datastore_failed operation=consume type={}",
+                    e.getClass().getSimpleName());
+            throw new InventoryReservationFailure(InventoryReservationFailure.Reason.UNAVAILABLE,
+                    "datastore unavailable during consume");
+        }
     }
 
-    public java.util.Optional<InventoryReservation> findById(InventoryReservationId reservationId) {
-        Document d = reservations.findById(reservationId.value());
-        return d == null ? java.util.Optional.empty() : java.util.Optional.of(InventoryReservationRepository
-                .toReservation(d));
+    public Optional<InventoryReservation> findByOrderId(String orderId) {
+        Document d;
+        try {
+            d = reservations.findByOrderId(orderId);
+        } catch (MongoException e) {
+            observability.failure(InventoryReservationObservability.Operation.READ,
+                    InventoryReservationFailure.Reason.UNAVAILABLE);
+            throw new InventoryReservationFailure(InventoryReservationFailure.Reason.UNAVAILABLE,
+                    "datastore unavailable during read");
+        }
+        return d == null ? Optional.empty() : Optional.of(InventoryReservationRepository.toReservation(d));
+    }
+
+    public Optional<InventoryReservation> findById(InventoryReservationId reservationId) {
+        Document d;
+        try {
+            d = reservations.findById(reservationId.value());
+        } catch (MongoException e) {
+            observability.failure(InventoryReservationObservability.Operation.READ,
+                    InventoryReservationFailure.Reason.UNAVAILABLE);
+            throw new InventoryReservationFailure(InventoryReservationFailure.Reason.UNAVAILABLE,
+                    "datastore unavailable during read");
+        }
+        return d == null ? Optional.empty() : Optional.of(InventoryReservationRepository.toReservation(d));
     }
 
     // ---------- fingerprint ----------
