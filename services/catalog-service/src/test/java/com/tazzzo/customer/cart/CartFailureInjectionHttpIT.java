@@ -118,6 +118,7 @@ class CartFailureInjectionHttpIT extends AbstractApiIT {
 
     @Test void repository_failure_is_a_controlled_503_without_leaking_details_and_recovers() {
         String t = token();
+        long cartsBefore = db.getCollection("customer_carts").countDocuments(); // shared DB: compare, don't assume empty
         REPO_DOWN.set(true);
         try {
             for (ResponseEntity<JsonNode> r : java.util.List.of(
@@ -134,7 +135,8 @@ class CartFailureInjectionHttpIT extends AbstractApiIT {
             REPO_DOWN.set(false);
         }
         assertThat(call(HttpMethod.GET, "/v1/customer/cart", t, null, null).getStatusCode().value()).isEqualTo(200);
-        assertThat(db.getCollection("customer_carts").countDocuments()).isZero();
+        assertThat(db.getCollection("customer_carts").countDocuments()).as("no cart created by the failed requests")
+                .isEqualTo(cartsBefore);
     }
 
     @Test void an_unexpected_defect_is_a_safe_500_counted_exactly_once_as_internal() {

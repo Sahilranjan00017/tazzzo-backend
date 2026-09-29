@@ -90,7 +90,12 @@ public class SchemaBootstrap {
             // client re-create over newer history. Expiry is an explicit runtime state transition that
             // clears items and ADVANCES the version; physical cleanup is deferred to a future design
             // that preserves version monotonicity (e.g. archival).
-            "customer_carts");
+            "customer_carts",
+            // PR-13A: immutable checkout quotes. Deliberately NO TTL index: an expired quote must stay
+            // distinguishable from an unknown one (GET returns 410, not 404) and expiry is derived
+            // from expiresAt. Unique (customerId, idempotencyKeyDigest) below is the concurrent
+            // same-key create guard.
+            "checkout_quotes");
 
     /**
      * PAG-2-SORT-1 transport support: the equality prefix the consumer-eligibility predicate uses,
@@ -271,6 +276,11 @@ public class SchemaBootstrap {
                 Indexes.compoundIndex(Indexes.ascending("customerId"), Indexes.descending("updatedAt"),
                         Indexes.ascending("_id")),
                 new IndexOptions().name("address_by_customer_updated"));
+        // PR-13A: exactly one quote per (customer, Idempotency-Key digest) -- the structural guard
+        // that makes concurrent same-key POSTs resolve to ONE durable quote identity.
+        db.getCollection("checkout_quotes").createIndex(
+                Indexes.ascending("customerId", "idempotencyKeyDigest"),
+                new IndexOptions().name("checkout_quote_one_per_idempotency_key").unique(true));
     }
 
     /**

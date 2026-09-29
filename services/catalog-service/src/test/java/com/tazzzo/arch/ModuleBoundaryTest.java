@@ -195,6 +195,45 @@ class ModuleBoundaryTest {
                     .allowEmptyShould(true);
 
     /**
+     * PR-13A — {@code customer.checkout} consumes the auth foundation, the address read model, the cart
+     * read/enrichment API, the commerce.read seam (through the cart) and the shared transaction
+     * primitive. NOTHING upstream may depend on it.
+     */
+    @ArchTest
+    static final ArchRule upstream_modules_do_not_depend_on_customer_checkout =
+            noClasses().that().resideInAnyPackage(
+                            "com.tazzzo.auth..",
+                            "com.tazzzo.customer.profile..",
+                            "com.tazzzo.customer.address..",
+                            "com.tazzzo.customer.cart..",
+                            "com.tazzzo.catalog..",
+                            "com.tazzzo.commerce..",
+                            "com.tazzzo.pricing..",
+                            "com.tazzzo.inventory..",
+                            "com.tazzzo.serviceability..")
+                    .should().dependOnClassesThat().resideInAPackage("com.tazzzo.customer.checkout..")
+                    .allowEmptyShould(true);
+
+    /**
+     * PR-13A — checkout revalidates current commerce truth ONLY through the cart/commerce.read seam;
+     * it never touches the domain modules directly (one price/stock/serviceability/buyable authority),
+     * is not profile, and must not depend on the future Order/Payment domains.
+     */
+    @ArchTest
+    static final ArchRule customer_checkout_reads_commerce_only_through_the_seam_and_not_future_domains =
+            noClasses().that().resideInAPackage("com.tazzzo.customer.checkout..")
+                    .should().dependOnClassesThat().resideInAnyPackage(
+                            "com.tazzzo.pricing..",
+                            "com.tazzzo.inventory..",
+                            "com.tazzzo.serviceability..",
+                            "com.tazzzo.media..",
+                            "com.tazzzo.customer.profile..",
+                            "com.tazzzo.customer.order..",
+                            "com.tazzzo.order..",
+                            "com.tazzzo.payment..")
+                    .allowEmptyShould(true);
+
+    /**
      * No dependency cycles between top-level Tazzzo modules.
      *
      * <p>Dependencies INTO {@code com.tazzzo.commerce.contract} are excluded from cycle

@@ -103,6 +103,16 @@ public class CartService {
         }
     }
 
+    /**
+     * PR-13A — read-only cart snapshot inside the CALLER's transaction (Checkout's cart recheck).
+     * Never writes and never clears: an expired cart is reported as logically empty at its persisted
+     * version, with the SAME expiry semantics as every other read.
+     */
+    public CartState snapshot(com.mongodb.client.ClientSession session, CustomerId customerId, Instant now) {
+        Document doc = carts.findById(session, customerId.value());
+        return doc == null ? CartState.empty(0) : toState(doc, now);
+    }
+
     // ---------- mutations ----------
 
     public CartState setItem(CustomerId customerId, String skuId, int quantity, long expectedVersion) {
