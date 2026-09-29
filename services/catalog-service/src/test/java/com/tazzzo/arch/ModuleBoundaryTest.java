@@ -318,6 +318,23 @@ class ModuleBoundaryTest {
                     .allowEmptyShould(true);
 
     /**
+     * PR-15A-0 — {@code customer.order} may touch the cart ONLY through the narrow session-aware
+     * purchase port (and its result/integrity types): never {@code CartService}, {@code CartRepository}
+     * or any cart document/DTO. The reverse direction (cart -> order) is already forbidden by
+     * {@code upstream_modules_do_not_depend_on_customer_order}, which lists {@code customer.cart}.
+     */
+    @ArchTest
+    static final ArchRule customer_order_uses_cart_only_through_the_purchase_port =
+            noClasses().that().resideInAPackage("com.tazzzo.customer.order..")
+                    .should().dependOnClassesThat(
+                            resideInAnyPackage("com.tazzzo.customer.cart..")
+                                    .and(DescribedPredicate.not(belongToAnyOf(
+                                            com.tazzzo.customer.cart.CartPurchasePort.class,
+                                            com.tazzzo.customer.cart.CartPurchaseOutcome.class,
+                                            com.tazzzo.customer.cart.CartPurchaseIntegrityException.class))))
+                    .allowEmptyShould(true);
+
+    /**
      * No dependency cycles between top-level Tazzzo modules.
      *
      * <p>Dependencies INTO {@code com.tazzzo.commerce.contract} are excluded from cycle

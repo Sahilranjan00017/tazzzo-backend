@@ -56,6 +56,36 @@ public class CartRepository {
                 .getModifiedCount() > 0;
     }
 
+    /**
+     * PR-15A-0 — purchase finalization CAS: clears the items ONLY if the live version is exactly the
+     * purchased source version, advancing (never resetting) it, and raises
+     * {@code purchasedThroughVersion} with {@code $max} in the same atomic update. Session-aware: it
+     * commits or rolls back with the caller's transaction.
+     *
+     * @return true iff it applied
+     */
+    public boolean clearPurchasedIfVersion(ClientSession session, String customerId, long sourceVersion,
+                                           Instant now, Instant newExpiresAt) {
+        return collection().updateOne(session,
+                Filters.and(Filters.eq("_id", customerId), Filters.eq("version", sourceVersion)),
+                Updates.combine(Updates.set("items", List.of()), Updates.set("version", sourceVersion + 1),
+                        Updates.set("updatedAt", Date.from(now)), Updates.set("expiresAt", Date.from(newExpiresAt)),
+                        Updates.max(CartPurchaseService.MARKER, sourceVersion)))
+                .getModifiedCount() > 0;
+    }
+
+    /**
+     * PR-15A-0 — raises ONLY {@code purchasedThroughVersion} ({@code $max}, monotonic). Deliberately
+     * touches no items, no version, no timestamps: a newer cart's content and its clients'
+     * {@code If-Match} version are unaffected.
+     *
+     * @return true iff the cart document exists (an already-covered marker is a valid no-op)
+     */
+    public boolean markPurchasedThrough(ClientSession session, String customerId, long sourceVersion) {
+        return collection().updateOne(session, Filters.eq("_id", customerId),
+                Updates.max(CartPurchaseService.MARKER, sourceVersion)).getMatchedCount() > 0;
+    }
+
     /** Housekeeping CAS used by GET: clears an EXPIRED cart, advancing (never resetting) the version. */
     public boolean clearExpiredIfVersion(String customerId, long seenVersion, Instant now, Instant newExpiresAt) {
         return collection().updateOne(
