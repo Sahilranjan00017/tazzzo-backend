@@ -20,9 +20,16 @@ import java.util.Set;
  * {@code ProductCardBaseProjection}/{@code AddressId}/{@code CheckoutQuoteId} elsewhere in this
  * codebase. int64 paise only; totals are cross-checked with exact ({@code Math.*Exact}) arithmetic,
  * never trusted as independently-stored numbers.
+ *
+ * <p>PR-13B — {@code addressVersion} is INTERNAL provenance only (never in {@link CheckoutQuoteDto}
+ * or the public OpenAPI response): the exact version of {@code addressId} that commerce validation
+ * actually ran against, captured from {@code CheckoutService.ValidatedAddress} (never re-read, never
+ * client-supplied), so a future Order can prove the saved address has not changed since this quote
+ * was validated. This is exactly why it is validated here too — a future Order trusts it unseen.
  */
-public record CheckoutQuote(String quoteId, long cartVersion, String addressId, List<Line> lines, int itemCount,
-                            long subtotalPaise, String currency, Instant createdAt, Instant expiresAt) {
+public record CheckoutQuote(String quoteId, long cartVersion, String addressId, long addressVersion,
+                            List<Line> lines, int itemCount, long subtotalPaise, String currency,
+                            Instant createdAt, Instant expiresAt) {
 
     public record Line(String skuId, int quantity, long unitPricePaise, long lineTotalPaise) {
         public Line {
@@ -56,6 +63,9 @@ public record CheckoutQuote(String quoteId, long cartVersion, String addressId, 
             throw new IllegalArgumentException("addressId required");
         }
         new AddressId(addressId); // throws IllegalArgumentException on an invalid shape
+        if (addressVersion < 0) {
+            throw new IllegalArgumentException("addressVersion must be >= 0: " + addressVersion);
+        }
         if (lines == null || lines.isEmpty()) {
             throw new IllegalArgumentException("lines must be non-empty");
         }

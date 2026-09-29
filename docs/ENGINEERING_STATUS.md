@@ -382,11 +382,12 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   transaction, labeled transient error after the body, the driver's own retry loop) plus a structural
   guard against Auth result holders. No public contract change.
 
-`main` = `5c7e4df72bda7e06e543d34e67b7f414e2abff5a` — **1557-test regression floor** (PR-13A adds tests on its branch → 1617 (after final-review hardening); not yet merged).
+`main` = `1f73668785372b957b60dfc2bbb40bf4bf944188` — **1617-test regression floor**.
 
-## In review (NOT merged)
-
-- **PR-13A — Checkout validation and quote foundation** (`com.tazzzo.customer.checkout`): **IN REVIEW**.
+- **PR-13A — Checkout validation and quote foundation** (`com.tazzzo.customer.checkout`): **COMPLETE**.
+  Merged as PR #23 — pre-merge head `4d8c479`, squash `1f73668785372b957b60dfc2bbb40bf4bf944188`;
+  merged-main backend-ci run `36501097297` (Compile & test + Validate API contracts: SUCCESS) —
+  **1617-test regression floor**.
   Hardened after final review: (M1) an idempotent POST replay of an EXPIRED quote returns 410
   `QUOTE_EXPIRED` (never 200, never re-priced, never a replacement quote) in every replay path
   (pre-validation, in-transaction, duplicate-key-race-winner) — a new quote after expiry needs a new
@@ -410,6 +411,19 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   returns the original quote (not re-priced, expiry not extended). **A quote is NOT a reservation**: no
   stock is held and price is not locked beyond the snapshot; a future Order MUST revalidate stock and
   quote validity. No routing identity is stored or exposed. No Order/Payment/COD/slots/coupons/GST.
+
+## In review (NOT merged)
+
+- **PR-13B — Checkout quote address provenance** (`com.tazzzo.customer.checkout`): **IN REVIEW**.
+  `CheckoutQuote` now carries `addressVersion` — the EXACT version of `addressId` that commerce
+  validation ran against (captured once from `CheckoutService.ValidatedAddress`, never re-read,
+  never client-supplied), validated `>= 0` by the compact constructor like every other invariant.
+  Persisted in `checkout_quotes`; a row written before this field existed (or corrupted to drop it)
+  fails loud (no default to 0) — the public boundary maps that to a safe 500 `INTERNAL`, never
+  200/404/410/503. **INTERNAL-ONLY provenance**: not in `CheckoutQuoteDto`, not in the public
+  OpenAPI response, no OpenAPI diff at all. Exists so a future Order can prove the saved address
+  has not changed since the quote was validated (`currentAddress.version == quote.addressVersion`),
+  without a second address read. No Order, Inventory Reservation, or Payment code in this PR.
 
 ## Follow-up debt (recorded)
 
@@ -468,7 +482,7 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   `PublicServiceability`, pincode-keyed routing) is **COMPLETE** and unchanged; the
   customer-address BINDING to it (PR-12B) is **COMPLETE**.
   (Address ↔ Serviceability binding: COMPLETE.)
-- Cart (PR-12C): **COMPLETE** (PR #21, squash `ce868f4212531b6461678989869a76beaea7f004`). Auth transaction retry hardening (PR-11D): **COMPLETE** (PR #22, squash `5c7e4df72bda7e06e543d34e67b7f414e2abff5a`). Checkout (PR-13A): **IN REVIEW** (not merged). Order: **NOT STARTED**. Payment: **NOT STARTED**.
+- Cart (PR-12C): **COMPLETE** (PR #21, squash `ce868f4212531b6461678989869a76beaea7f004`). Auth transaction retry hardening (PR-11D): **COMPLETE** (PR #22, squash `5c7e4df72bda7e06e543d34e67b7f414e2abff5a`). Checkout (PR-13A): **COMPLETE** (PR #23, squash `1f73668785372b957b60dfc2bbb40bf4bf944188`). Checkout provenance (PR-13B): **IN REVIEW** (not merged). Inventory Reservation lifecycle: **NOT STARTED**. Order: **NOT STARTED**. Payment: **NOT STARTED**. Real payment gateway: **NOT STARTED**.
 
 ## Next (ratified sequence)
 
@@ -506,6 +520,8 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-09-29** — `./mvnw clean test` on Java 21 + Docker on `feature/pr13b-checkout-address-provenance`
+  (based on `main` `1f73668`): **BUILD SUCCESS**, 1625 tests, 0 failures / 0 errors / 0 skipped (1617 baseline + 8 new).
 - **2026-09-29** — `./mvnw clean test` on Java 21 + Docker on `feature/pr13a-checkout-quote`
   (based on `main` `5c7e4df`): **BUILD SUCCESS**, **1589 tests, 0 failures / 0 errors / 0 skipped**.
 - **2026-09-28** — `./mvnw clean test` on Java 21 + Docker on `feature/pr11d-auth-transaction-retry-safety`
