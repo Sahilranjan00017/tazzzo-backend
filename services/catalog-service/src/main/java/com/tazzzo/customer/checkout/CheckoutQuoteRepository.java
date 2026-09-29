@@ -38,6 +38,21 @@ public class CheckoutQuoteRepository {
                 .first();
     }
 
+    /**
+     * PR-14B — loads the immutable, owned quote WITHOUT judging its temporal validity: unlike
+     * {@code CheckoutService.readQuote} (the customer-facing read, which DOES enforce
+     * {@code isExpired}), this exists for a caller — a future {@code customer.order} — whose OWN
+     * transaction must be the expiry authority. A durable, already-committed Order must be able to
+     * replay successfully even after its source quote has since expired; if this method enforced
+     * expiry too, Order could never reach its own existing-order check first. Reuses the existing
+     * {@link #findOwned} + {@link #toQuote} — no duplicated Mongo decoding. Returns {@code null} when
+     * the quote is unknown/foreign, the same convention {@link #findOwned} already follows.
+     */
+    public CheckoutQuote findOwnedQuote(String quoteId, String customerId) {
+        Document d = findOwned(quoteId, customerId);
+        return d == null ? null : toQuote(d);
+    }
+
     public Document findByIdempotency(String customerId, String keyDigest) {
         return collection().find(idempotencyFilter(customerId, keyDigest)).first();
     }

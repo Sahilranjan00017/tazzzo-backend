@@ -45,48 +45,25 @@ class InventoryReservationDomainTest {
 
     // ---------- PreparedInventoryReservation ----------
 
-    private static PreparedInventoryReservation command(List<InventoryReservationItem> items) {
-        return new PreparedInventoryReservation("ORD-1", "FUL-1", items, InventoryReservationId.generate(), NOW, EXPIRES);
-    }
-
-    @Test void command_rejects_blank_orderId_and_location() {
-        assertThrows(IllegalArgumentException.class, () -> new PreparedInventoryReservation(null, "FUL-1",
-                List.of(new InventoryReservationItem("TZP-1", 1)), InventoryReservationId.generate(), NOW, EXPIRES));
-        assertThrows(IllegalArgumentException.class, () -> new PreparedInventoryReservation("ORD-1", " ",
-                List.of(new InventoryReservationItem("TZP-1", 1)), InventoryReservationId.generate(), NOW, EXPIRES));
-    }
-
-    @Test void command_rejects_empty_items() {
-        assertThrows(IllegalArgumentException.class, () -> command(List.of()));
-    }
-
-    @Test void command_rejects_duplicate_sku() {
-        assertThrows(IllegalArgumentException.class, () -> command(List.of(
-                new InventoryReservationItem("TZP-1", 1), new InventoryReservationItem("TZP-1", 2))));
-    }
-
-    @Test void command_rejects_too_many_distinct_items() {
-        List<InventoryReservationItem> items = new java.util.ArrayList<>();
-        for (int i = 0; i < PreparedInventoryReservation.MAX_DISTINCT_ITEMS + 1; i++) {
-            items.add(new InventoryReservationItem("TZP-" + i, 1));
-        }
-        assertThrows(IllegalArgumentException.class, () -> command(items));
+    @Test void command_rejects_blank_orderId() {
+        assertThrows(IllegalArgumentException.class,
+                () -> new PreparedInventoryReservation(InventoryReservationId.generate(), null, NOW, EXPIRES));
+        assertThrows(IllegalArgumentException.class,
+                () -> new PreparedInventoryReservation(InventoryReservationId.generate(), " ", NOW, EXPIRES));
     }
 
     @Test void command_rejects_missing_reservationId_or_expiresAt() {
-        assertThrows(IllegalArgumentException.class, () -> new PreparedInventoryReservation("ORD-1", "FUL-1",
-                List.of(new InventoryReservationItem("TZP-1", 1)), null, NOW, EXPIRES));
-        assertThrows(IllegalArgumentException.class, () -> new PreparedInventoryReservation("ORD-1", "FUL-1",
-                List.of(new InventoryReservationItem("TZP-1", 1)), InventoryReservationId.generate(), NOW, null));
+        assertThrows(IllegalArgumentException.class,
+                () -> new PreparedInventoryReservation(null, "ORD-1", NOW, EXPIRES));
+        assertThrows(IllegalArgumentException.class,
+                () -> new PreparedInventoryReservation(InventoryReservationId.generate(), "ORD-1", NOW, null));
     }
 
     @Test void command_rejects_preparedAt_not_before_expiresAt() {
-        assertThrows(IllegalArgumentException.class, () -> new PreparedInventoryReservation("ORD-1", "FUL-1",
-                List.of(new InventoryReservationItem("TZP-1", 1)), InventoryReservationId.generate(), EXPIRES,
-                EXPIRES));
-        assertThrows(IllegalArgumentException.class, () -> new PreparedInventoryReservation("ORD-1", "FUL-1",
-                List.of(new InventoryReservationItem("TZP-1", 1)), InventoryReservationId.generate(),
-                EXPIRES.plusSeconds(1), EXPIRES));
+        assertThrows(IllegalArgumentException.class,
+                () -> new PreparedInventoryReservation(InventoryReservationId.generate(), "ORD-1", EXPIRES, EXPIRES));
+        assertThrows(IllegalArgumentException.class, () -> new PreparedInventoryReservation(
+                InventoryReservationId.generate(), "ORD-1", EXPIRES.plusSeconds(1), EXPIRES));
     }
 
     @Test void the_canonical_constructor_is_not_public_so_it_cannot_be_forged_outside_this_package() throws Exception {
@@ -95,32 +72,55 @@ class InventoryReservationDomainTest {
                 "PreparedInventoryReservation must only be constructible via prepare(), never directly");
     }
 
-    // ---------- InventoryReservationRequest ----------
+    @Test void prepared_carries_no_fulfillment_location_or_items() {
+        // PR-14B — a compile-level guarantee, not merely a runtime one: PreparedInventoryReservation
+        // has no accessor exposing a fulfillment location or an item list. Verified reflectively so a
+        // future regression (re-adding either field) fails this test loudly.
+        java.util.Set<String> accessorNames = new java.util.HashSet<>();
+        for (var m : PreparedInventoryReservation.class.getDeclaredMethods()) {
+            if (java.lang.reflect.Modifier.isPublic(m.getModifiers()) && m.getParameterCount() == 0) {
+                accessorNames.add(m.getName());
+            }
+        }
+        assertFalse(accessorNames.contains("fulfillmentLocationId"));
+        assertFalse(accessorNames.contains("items"));
+    }
 
-    @Test void request_rejects_blank_orderId_location_empty_or_duplicate_items() {
+    // ---------- InventoryReservationAllocation ----------
+
+    @Test void allocation_rejects_blank_location_empty_or_duplicate_items() {
         assertThrows(IllegalArgumentException.class,
-                () -> new InventoryReservationRequest(null, "FUL-1", List.of(new InventoryReservationItem("TZP-1", 1))));
+                () -> new InventoryReservationAllocation(null, List.of(new InventoryReservationItem("TZP-1", 1))));
         assertThrows(IllegalArgumentException.class,
-                () -> new InventoryReservationRequest("ORD-1", " ", List.of(new InventoryReservationItem("TZP-1", 1))));
-        assertThrows(IllegalArgumentException.class, () -> new InventoryReservationRequest("ORD-1", "FUL-1", List.of()));
-        assertThrows(IllegalArgumentException.class, () -> new InventoryReservationRequest("ORD-1", "FUL-1",
+                () -> new InventoryReservationAllocation(" ", List.of(new InventoryReservationItem("TZP-1", 1))));
+        assertThrows(IllegalArgumentException.class, () -> new InventoryReservationAllocation("FUL-1", List.of()));
+        assertThrows(IllegalArgumentException.class, () -> new InventoryReservationAllocation("FUL-1",
                 List.of(new InventoryReservationItem("TZP-1", 1), new InventoryReservationItem("TZP-1", 2))));
     }
 
+    @Test void allocation_rejects_too_many_distinct_items() {
+        List<InventoryReservationItem> items = new java.util.ArrayList<>();
+        for (int i = 0; i < PreparedInventoryReservation.MAX_DISTINCT_ITEMS + 1; i++) {
+            items.add(new InventoryReservationItem("TZP-" + i, 1));
+        }
+        assertThrows(IllegalArgumentException.class, () -> new InventoryReservationAllocation("FUL-1", items));
+    }
+
     @Test void fingerprint_input_ignores_input_item_ordering() {
-        PreparedInventoryReservation a = new PreparedInventoryReservation("ORD-1", "FUL-1",
-                List.of(new InventoryReservationItem("TZP-2", 2), new InventoryReservationItem("TZP-1", 1)),
-                InventoryReservationId.generate(), NOW, EXPIRES);
-        PreparedInventoryReservation b = new PreparedInventoryReservation("ORD-1", "FUL-1",
-                List.of(new InventoryReservationItem("TZP-1", 1), new InventoryReservationItem("TZP-2", 2)),
-                InventoryReservationId.generate(), NOW, EXPIRES);
-        assertEquals(a.canonicalFingerprintInput("v1"), b.canonicalFingerprintInput("v1"));
+        InventoryReservationAllocation a = new InventoryReservationAllocation("FUL-1",
+                List.of(new InventoryReservationItem("TZP-2", 2), new InventoryReservationItem("TZP-1", 1)));
+        InventoryReservationAllocation b = new InventoryReservationAllocation("FUL-1",
+                List.of(new InventoryReservationItem("TZP-1", 1), new InventoryReservationItem("TZP-2", 2)));
+        assertEquals(a.canonicalFingerprintInput("v1", "ORD-1"), b.canonicalFingerprintInput("v1", "ORD-1"));
     }
 
     @Test void fingerprint_input_changes_with_quantity_or_location() {
-        PreparedInventoryReservation base = command(List.of(new InventoryReservationItem("TZP-1", 1)));
-        PreparedInventoryReservation differentQty = command(List.of(new InventoryReservationItem("TZP-1", 2)));
-        assertNotEquals(base.canonicalFingerprintInput("v1"), differentQty.canonicalFingerprintInput("v1"));
+        InventoryReservationAllocation base =
+                new InventoryReservationAllocation("FUL-1", List.of(new InventoryReservationItem("TZP-1", 1)));
+        InventoryReservationAllocation differentQty =
+                new InventoryReservationAllocation("FUL-1", List.of(new InventoryReservationItem("TZP-1", 2)));
+        assertNotEquals(base.canonicalFingerprintInput("v1", "ORD-1"),
+                differentQty.canonicalFingerprintInput("v1", "ORD-1"));
     }
 
     // ---------- InventoryReservation ----------

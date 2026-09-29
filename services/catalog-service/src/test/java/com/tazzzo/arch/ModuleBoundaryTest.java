@@ -1,10 +1,13 @@
 package com.tazzzo.arch;
 
+import com.tngtech.archunit.base.DescribedPredicate;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchRule;
 
+import static com.tngtech.archunit.core.domain.JavaClass.Predicates.belongToAnyOf;
+import static com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAnyPackage;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices;
 
@@ -246,6 +249,72 @@ class ModuleBoundaryTest {
                             "com.tazzzo.customer..",
                             "com.tazzzo.order..",
                             "com.tazzzo.payment..")
+                    .allowEmptyShould(true);
+
+    /**
+     * PR-14B — {@code customer.order} consumes the auth foundation, the address read model, the
+     * checkout quote read model, the transactional companion ports (Pricing/Serviceability/Catalog)
+     * and the Inventory reservation port. NOTHING upstream may depend on it.
+     */
+    @ArchTest
+    static final ArchRule upstream_modules_do_not_depend_on_customer_order =
+            noClasses().that().resideInAnyPackage(
+                            "com.tazzzo.auth..",
+                            "com.tazzzo.customer.profile..",
+                            "com.tazzzo.customer.address..",
+                            "com.tazzzo.customer.cart..",
+                            "com.tazzzo.customer.checkout..",
+                            "com.tazzzo.catalog..",
+                            "com.tazzzo.commerce..",
+                            "com.tazzzo.pricing..",
+                            "com.tazzzo.inventory..",
+                            "com.tazzzo.serviceability..")
+                    .should().dependOnClassesThat().resideInAPackage("com.tazzzo.customer.order..")
+                    .allowEmptyShould(true);
+
+    /**
+     * PR-14B — {@code customer.order}'s access to normally-restricted domains is narrow: the
+     * session-aware TRANSACTIONAL companion ports and their value types, and the Inventory
+     * reservation port and its value types, never the concrete services/repositories/collections
+     * those domains own, and never the general-purpose non-session ports (whose contract does not
+     * promise session participation). This is deliberately WIDER than
+     * {@code customer_cart_reads_commerce_only_through_commerce_read}/
+     * {@code customer_checkout_reads_commerce_only_through_the_seam_and_not_future_domains} above:
+     * Order legitimately needs direct access to pricing/serviceability/inventory for the specific
+     * reason of session-aware transactional composition, not merely the composed runtime-card view
+     * Cart/Checkout read through {@code commerce.read}.
+     */
+    @ArchTest
+    static final ArchRule customer_order_does_not_depend_on_concrete_read_services =
+            noClasses().that().resideInAPackage("com.tazzzo.customer.order..")
+                    .should().dependOnClassesThat(
+                            resideInAnyPackage("com.tazzzo.pricing..", "com.tazzzo.serviceability..",
+                                    "com.tazzzo.inventory..", "com.tazzzo.media..")
+                                    .and(DescribedPredicate.not(belongToAnyOf(
+                                            com.tazzzo.pricing.TransactionalPriceReadPort.class,
+                                            com.tazzzo.pricing.PriceLookup.class,
+                                            com.tazzzo.pricing.Price.class,
+                                            com.tazzzo.pricing.PriceStatus.class,
+                                            com.tazzzo.serviceability.TransactionalServiceabilityReadPort.class,
+                                            com.tazzzo.serviceability.ServiceabilityResolution.class,
+                                            com.tazzzo.serviceability.ServiceabilityResolution.Status.class,
+                                            com.tazzzo.inventory.InventoryReservationPort.class,
+                                            com.tazzzo.inventory.PreparedInventoryReservation.class,
+                                            com.tazzzo.inventory.InventoryReservationAllocation.class,
+                                            com.tazzzo.inventory.InventoryReservation.class,
+                                            com.tazzzo.inventory.InventoryReservationId.class,
+                                            com.tazzzo.inventory.InventoryReservationItem.class,
+                                            com.tazzzo.inventory.InventoryReservationStatus.class,
+                                            com.tazzzo.inventory.InventoryReservationFailure.class,
+                                            com.tazzzo.inventory.InventoryReservationFailure.Reason.class))))
+                    .allowEmptyShould(true);
+
+    /** PR-14B — Order never depends on future Payment/Admin. */
+    @ArchTest
+    static final ArchRule customer_order_does_not_depend_on_future_payment_or_admin =
+            noClasses().that().resideInAPackage("com.tazzzo.customer.order..")
+                    .should().dependOnClassesThat().resideInAnyPackage(
+                            "com.tazzzo.customer.payment..", "com.tazzzo.payment..", "com.tazzzo.admin..")
                     .allowEmptyShould(true);
 
     /**

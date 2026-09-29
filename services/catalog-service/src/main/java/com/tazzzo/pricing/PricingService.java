@@ -1,6 +1,7 @@
 package com.tazzzo.pricing;
 
 import com.mongodb.MongoWriteException;
+import com.mongodb.client.ClientSession;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.UpdateOptions;
@@ -40,7 +41,7 @@ import java.util.Objects;
  * price_write_success, price_write_validation_failure, price_write_conflict, price_read_missing,
  * price_read_expired. Logged as skuId+outcome+version only — never the full command payload.
  */
-public class PricingService implements PriceReadPort {
+public class PricingService implements PriceReadPort, TransactionalPriceReadPort {
 
     private static final Logger log = LoggerFactory.getLogger(PricingService.class);
     static final String CURRENT = "price_current";
@@ -175,6 +176,19 @@ public class PricingService implements PriceReadPort {
     public PriceLookup findCurrentPrice(String skuId) {
         Document d = db.getCollection(CURRENT).find(
                 Filters.and(Filters.eq("sku_id", skuId), Filters.eq("currency", Currency.INR.name()))).first();
+        return toLookup(skuId, d);
+    }
+
+    /** PR-14B — session-aware companion; reuses the EXACT same decode/status algorithm as
+     *  {@link #findCurrentPrice(String)} via {@link #toLookup}. Only the Mongo call shape differs. */
+    @Override
+    public PriceLookup findCurrentPrice(ClientSession session, String skuId) {
+        Document d = db.getCollection(CURRENT).find(session,
+                Filters.and(Filters.eq("sku_id", skuId), Filters.eq("currency", Currency.INR.name()))).first();
+        return toLookup(skuId, d);
+    }
+
+    private PriceLookup toLookup(String skuId, Document d) {
         if (d == null) {
             log.debug("price_read_missing sku={}", skuId);
             return PriceLookup.missing();
@@ -203,25 +217,58 @@ public class PricingService implements PriceReadPort {
     @Override
     public java.util.Map<String, PriceLookup> findCurrentPrices(
             java.util.Collection<String> skuIds, Currency currency) {
+        java.util.LinkedHashSet<String> distinct = validateBatch(skuIds, currency);
+        java.util.Map<String, PriceLookup> out = missingByDefault(distinct);
+        if (distinct.isEmpty()) {
+            return out;
+        }
+        fillPresent(out, db.getCollection(CURRENT).find(Filters.and(
+                Filters.in("sku_id", distinct), Filters.eq("currency", Currency.INR.name()))));
+        return out;
+    }
+
+    /** PR-14B — session-aware companion; reuses the EXACT same validation/decode algorithm via
+     *  {@link #validateBatch}/{@link #missingByDefault}/{@link #fillPresent}. Only the Mongo call
+     *  shape differs. */
+    @Override
+    public java.util.Map<String, PriceLookup> findCurrentPrices(
+            ClientSession session, java.util.Collection<String> skuIds, Currency currency) {
+        java.util.LinkedHashSet<String> distinct = validateBatch(skuIds, currency);
+        java.util.Map<String, PriceLookup> out = missingByDefault(distinct);
+        if (distinct.isEmpty()) {
+            return out;
+        }
+        fillPresent(out, db.getCollection(CURRENT).find(session, Filters.and(
+                Filters.in("sku_id", distinct), Filters.eq("currency", Currency.INR.name()))));
+        return out;
+    }
+
+    private static java.util.LinkedHashSet<String> validateBatch(
+            java.util.Collection<String> skuIds, Currency currency) {
         java.util.Objects.requireNonNull(skuIds, "skuIds required");
         if (currency != Currency.INR) {
             throw new IllegalArgumentException("only INR is supported: " + currency);
         }
         java.util.LinkedHashSet<String> distinct = new java.util.LinkedHashSet<>(skuIds);
-        java.util.Map<String, PriceLookup> out = new LinkedHashMap<>();
         for (String id : distinct) {
             if (id == null || id.isBlank()) {
                 throw new IllegalArgumentException("skuId required in batch");
             }
+        }
+        return distinct;
+    }
+
+    private static java.util.Map<String, PriceLookup> missingByDefault(java.util.Collection<String> skuIds) {
+        java.util.Map<String, PriceLookup> out = new LinkedHashMap<>();
+        for (String id : skuIds) {
             out.put(id, PriceLookup.missing()); // default: MISSING until a row proves otherwise
         }
-        if (distinct.isEmpty()) {
-            return out;
-        }
+        return out;
+    }
+
+    private void fillPresent(java.util.Map<String, PriceLookup> out, Iterable<Document> rows) {
         Instant now = clock.instant();
-        for (Document d : db.getCollection(CURRENT).find(Filters.and(
-                Filters.in("sku_id", distinct),
-                Filters.eq("currency", Currency.INR.name())))) {
+        for (Document d : rows) {
             String skuId = d.getString("sku_id");
             Price price = new Price(skuId, Currency.INR,
                     asLong(d.get("selling_price_paise")), asLong(d.get("mrp_paise")),
@@ -229,7 +276,6 @@ public class PricingService implements PriceReadPort {
                     toInstant(d.getDate("effective_from")), toInstant(d.getDate("effective_to")));
             out.put(skuId, PriceLookup.of(price.statusAt(now), price));
         }
-        return out;
     }
 
     // --- validation (STEP 13) -------------------------------------------------

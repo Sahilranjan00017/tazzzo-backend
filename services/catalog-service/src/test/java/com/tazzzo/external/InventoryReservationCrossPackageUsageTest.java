@@ -6,9 +6,8 @@ import com.tazzzo.catalog.AbstractMongoIT;
 import com.tazzzo.catalog.CatalogApplication;
 import com.tazzzo.catalog.tx.Tx;
 import com.tazzzo.inventory.InventoryReservation;
-import com.tazzzo.inventory.InventoryReservationId;
+import com.tazzzo.inventory.InventoryReservationAllocation;
 import com.tazzzo.inventory.InventoryReservationItem;
-import com.tazzzo.inventory.InventoryReservationRequest;
 import com.tazzzo.inventory.InventoryReservationService;
 import com.tazzzo.inventory.PreparedInventoryReservation;
 import org.bson.Document;
@@ -48,18 +47,19 @@ class InventoryReservationCrossPackageUsageTest extends AbstractMongoIT {
 
     @Test void an_external_package_can_prepare_and_reserve_using_the_public_type_by_name() {
         seed("TZP-EXT1", "FL-EXT-1", 10);
-        InventoryReservationRequest request = new InventoryReservationRequest("ORD-EXT1", "FL-EXT-1",
-                List.of(new InventoryReservationItem("TZP-EXT1", 3)));
 
         // an ordinary, explicitly-typed local variable -- not `var`, not held opaquely
-        PreparedInventoryReservation prepared = reservations.prepare(request);
+        PreparedInventoryReservation prepared = reservations.prepare("ORD-EXT1");
         assertThat(prepared.orderId()).isEqualTo("ORD-EXT1");
-        assertThat(prepared.fulfillmentLocationId()).isEqualTo("FL-EXT-1");
-        assertThat(prepared.items()).hasSize(1);
         assertThat(prepared.reservationId()).isNotNull();
         assertThat(prepared.expiresAt()).isAfter(prepared.preparedAt());
 
-        InventoryReservation r = tx.call(session -> reservations.reserve(session, prepared)); // proves it composes as documented
+        // the allocation (fulfillment location + items) is freely caller-constructible, INSIDE the
+        // transaction, from whatever route/items are currently valid -- exactly the shape a future
+        // customer.order composes through.
+        InventoryReservationAllocation allocation = new InventoryReservationAllocation("FL-EXT-1",
+                List.of(new InventoryReservationItem("TZP-EXT1", 3)));
+        InventoryReservation r = tx.call(session -> reservations.reserve(session, prepared, allocation)); // proves it composes as documented
         assertThat(r.reservationId()).isEqualTo(prepared.reservationId().value());
     }
 

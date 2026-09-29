@@ -3,13 +3,15 @@ package com.tazzzo.inventory;
 import com.mongodb.client.ClientSession;
 
 /**
- * PR-14A — the narrow, session-aware seam a future {@code customer.order} composes reservation
- * lifecycle operations through, inside ITS OWN outer transaction:
+ * PR-14A/PR-14B — the narrow, session-aware seam a future {@code customer.order} composes
+ * reservation lifecycle operations through, inside ITS OWN outer transaction:
  *
  * <pre>
- * PreparedInventoryReservation prepared = reservationPort.prepare(request); // BEFORE the transaction
+ * PreparedInventoryReservation prepared = reservationPort.prepare(orderId); // BEFORE the transaction
  * tx.call(session -&gt; {
- *     InventoryReservation r = reservationPort.reserve(session, prepared);
+ *     InventoryReservationAllocation allocation = new InventoryReservationAllocation(
+ *             currentRoute.fulfillmentLocationId(), quoteItems); // constructed INSIDE the callback
+ *     InventoryReservation r = reservationPort.reserve(session, prepared, allocation);
  *     orderRepository.insert(session, order.withReservationId(r.reservationId()));
  *     return order;
  * });
@@ -25,14 +27,22 @@ import com.mongodb.client.ClientSession;
  * <p><b>PR-14A hardening — Inventory owns reservation identity and TTL.</b> {@link #prepare} is the
  * ONLY way to obtain a {@link PreparedInventoryReservation} (that type's constructor is
  * package-private, though the type itself is public and freely usable across packages): it
- * validates the request, generates the opaque reservation id, and computes {@code expiresAt} from
+ * generates the opaque reservation id and computes {@code expiresAt} from
  * {@link InventoryReservationProperties}' configured TTL — a caller can never supply or override a
  * reservation's lifetime. {@code prepare} itself does NOT touch Mongo and is called BEFORE any
  * transaction, so its output is retry-stable across whatever transaction the caller later runs it
- * through. {@link #reserve} separately re-checks {@code expiresAt} against Inventory's OWN LIVE
- * clock at the moment it actually runs (never trusting {@code preparedAt}), because time may have
- * passed between {@code prepare} and {@code reserve} — expiry is runtime-authoritative, never merely
- * "whatever the reconciliation worker hasn't gotten to yet".
+ * through.
+ *
+ * <p><b>PR-14B — preparation carries NO routing/items.</b> {@link #prepare} takes only an
+ * {@code orderId}: it fixes Inventory-owned identity/lifetime and nothing else, so a caller never
+ * needs to resolve mutable routing before entering its own transaction. The caller-supplied
+ * "what/where" — {@link InventoryReservationAllocation} — is constructed separately, and may be
+ * constructed freshly on every {@code reserve} call (including inside a transaction retry), from
+ * whatever route/items are CURRENTLY valid at that moment; see that type's own javadoc for why this
+ * is safe. {@link #reserve} separately re-checks {@code prepared.expiresAt()} against Inventory's
+ * OWN LIVE clock at the moment it actually runs (never trusting {@code preparedAt}), because time
+ * may have passed between {@code prepare} and {@code reserve} — expiry is runtime-authoritative,
+ * never merely "whatever the reconciliation worker hasn't gotten to yet".
  *
  * <p><b>PR-14A hardening (clock authority) — Inventory owns "now" for release/consume too.</b>
  * Neither {@link #release} nor {@link #consume} accepts a caller-supplied {@code Instant}: both
@@ -53,21 +63,23 @@ import com.mongodb.client.ClientSession;
  */
 public interface InventoryReservationPort {
 
-    /** Validates {@code request}, generates a fresh reservation id, and fixes {@code expiresAt}
+    /** Validates {@code orderId}, generates a fresh reservation id, and fixes {@code expiresAt}
      *  using the CONFIGURED TTL. No Mongo access; safe to call any number of times before a
      *  transaction — each call mints a genuinely new id, so a caller must call this ONCE per
      *  logical reserve attempt and reuse the SAME returned value across any transaction retry. */
-    PreparedInventoryReservation prepare(InventoryReservationRequest request);
+    PreparedInventoryReservation prepare(String orderId);
 
     /**
-     * All-or-nothing multi-SKU reservation of a command from {@link #prepare}. Idempotent by
-     * {@code orderId}: a call for an order that already has a durable reservation with the SAME
-     * semantic fingerprint returns that reservation unchanged (no re-reservation, no double
+     * All-or-nothing multi-SKU reservation of {@code allocation} against the identity/lifetime
+     * fixed by {@link #prepare}. Idempotent by {@code orderId}: a call for an order that already
+     * has a durable reservation with the SAME semantic fingerprint (derived from {@code orderId} +
+     * {@code allocation}) returns that reservation unchanged (no re-reservation, no double
      * increment); a DIFFERENT fingerprint for the same order throws
      * {@link InventoryReservationFailure} with
      * {@link InventoryReservationFailure.Reason#ALREADY_RESERVED_DIFFERENT_INPUT}.
      */
-    InventoryReservation reserve(ClientSession session, PreparedInventoryReservation prepared);
+    InventoryReservation reserve(ClientSession session, PreparedInventoryReservation prepared,
+                                 InventoryReservationAllocation allocation);
 
     /**
      * Releases a {@code RESERVED} reservation (un-reserves every line). Idempotent: already
