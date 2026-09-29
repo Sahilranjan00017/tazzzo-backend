@@ -382,7 +382,7 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   transaction, labeled transient error after the body, the driver's own retry loop) plus a structural
   guard against Auth result holders. No public contract change.
 
-`main` = `1f73668785372b957b60dfc2bbb40bf4bf944188` — **1617-test regression floor**.
+`main` = `8b4fabb9b82e4e3502202ffaff1aadd35f9ba311` — **1625-test regression floor**.
 
 - **PR-13A — Checkout validation and quote foundation** (`com.tazzzo.customer.checkout`): **COMPLETE**.
   Merged as PR #23 — pre-merge head `4d8c479`, squash `1f73668785372b957b60dfc2bbb40bf4bf944188`;
@@ -412,9 +412,10 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   stock is held and price is not locked beyond the snapshot; a future Order MUST revalidate stock and
   quote validity. No routing identity is stored or exposed. No Order/Payment/COD/slots/coupons/GST.
 
-## In review (NOT merged)
-
-- **PR-13B — Checkout quote address provenance** (`com.tazzzo.customer.checkout`): **IN REVIEW**.
+- **PR-13B — Checkout quote address provenance** (`com.tazzzo.customer.checkout`): **COMPLETE**.
+  Merged as PR #24 — pre-merge head `bc5b611`, squash `8b4fabb9b82e4e3502202ffaff1aadd35f9ba311`;
+  merged-main backend-ci run `36504827179` (Compile & test + Validate API contracts: SUCCESS) —
+  **1625-test regression floor**.
   `CheckoutQuote` now carries `addressVersion` — the EXACT version of `addressId` that commerce
   validation ran against (captured once from `CheckoutService.ValidatedAddress`, never re-read,
   never client-supplied), validated `>= 0` by the compact constructor like every other invariant.
@@ -424,6 +425,31 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   OpenAPI response, no OpenAPI diff at all. Exists so a future Order can prove the saved address
   has not changed since the quote was validated (`currentAddress.version == quote.addressVersion`),
   without a second address read. No Order, Inventory Reservation, or Payment code in this PR.
+
+## In review (NOT merged)
+
+- **PR-14A — Inventory reservation lifecycle** (`com.tazzzo.inventory`): **IN REVIEW**. The real
+  order-facing reservation lifecycle `InventoryService.tryReserve`'s own javadoc said did not yet
+  exist (no id/expiry/release/reconciliation/idempotency). `InventoryReservationService` +
+  `InventoryReservationPort` (`reserve`/`release`/`consume`, session-aware — participates in a
+  CALLER's transaction, never starts its own) over `inventory_reservations` (opaque `RESV_` id,
+  unique `orderId` index = one-reservation-per-order + concurrent-create guard, NO TTL so an
+  expired/released header stays inspectable). Multi-SKU reserve is ONE Mongo transaction: a
+  per-SKU conditional update (`InventoryService.reserveOneSkuInSession`, shared with the legacy
+  single-SKU `tryReserve` so there is exactly ONE reservation-mechanics implementation) in a
+  deterministic sorted order, any failing line aborts the whole transaction and MongoDB itself
+  rolls back every earlier line's increment — no manual undo anywhere. Idempotent by `orderId` +
+  a semantic fingerprint (same input replays the durable reservation; different input is a typed
+  `ALREADY_RESERVED_DIFFERENT_INPUT` conflict). `release`/`consume` are CAS status-guarded
+  (`RESERVED` only), idempotent when already terminal, and reject the wrong terminal transition.
+  Expiry is reconciled by `InventoryReservationExpiryWorker` calling the SAME `release` lifecycle
+  (never a bulk bypass), scheduled behind the two-flag `tazzzo.scheduler.enabled` +
+  `tazzzo.scheduler.inventory-reservation-expiry-enabled` gate (off in every test profile — same
+  discipline as `CommerceProjectionScheduler`). Session-aware success is never counted as durable
+  (only the standalone wrappers record success, after their own commit) — a future Order composing
+  the port owns its own outer-transaction success metric. New ArchUnit rule:
+  `inventory` may never depend on any `customer.*`/`order`/`payment` package. No Order, Payment, or
+  gateway code in this PR.
 
 ## Follow-up debt (recorded)
 
@@ -482,7 +508,7 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   `PublicServiceability`, pincode-keyed routing) is **COMPLETE** and unchanged; the
   customer-address BINDING to it (PR-12B) is **COMPLETE**.
   (Address ↔ Serviceability binding: COMPLETE.)
-- Cart (PR-12C): **COMPLETE** (PR #21, squash `ce868f4212531b6461678989869a76beaea7f004`). Auth transaction retry hardening (PR-11D): **COMPLETE** (PR #22, squash `5c7e4df72bda7e06e543d34e67b7f414e2abff5a`). Checkout (PR-13A): **COMPLETE** (PR #23, squash `1f73668785372b957b60dfc2bbb40bf4bf944188`). Checkout provenance (PR-13B): **IN REVIEW** (not merged). Inventory Reservation lifecycle: **NOT STARTED**. Order: **NOT STARTED**. Payment: **NOT STARTED**. Real payment gateway: **NOT STARTED**.
+- Cart (PR-12C): **COMPLETE** (PR #21). Auth transaction retry hardening (PR-11D): **COMPLETE** (PR #22). Checkout (PR-13A): **COMPLETE** (PR #23). Checkout provenance (PR-13B): **COMPLETE** (PR #24, squash `8b4fabb9b82e4e3502202ffaff1aadd35f9ba311`). Inventory Reservation lifecycle (PR-14A): **IN REVIEW** (not merged). Order: **NOT STARTED**. Payment: **NOT STARTED**. Real payment gateway: **NOT STARTED**.
 
 ## Next (ratified sequence)
 
@@ -520,6 +546,8 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-09-29** — `./mvnw clean test` on Java 21 + Docker on `feature/pr14a-inventory-reservation`
+  (based on `main` `8b4fabb`): **BUILD SUCCESS**, 1665 tests, 0 failures / 0 errors / 0 skipped (1625 baseline + 40 new).
 - **2026-09-29** — `./mvnw clean test` on Java 21 + Docker on `feature/pr13b-checkout-address-provenance`
   (based on `main` `1f73668`): **BUILD SUCCESS**, 1625 tests, 0 failures / 0 errors / 0 skipped (1617 baseline + 8 new).
 - **2026-09-29** — `./mvnw clean test` on Java 21 + Docker on `feature/pr13a-checkout-quote`

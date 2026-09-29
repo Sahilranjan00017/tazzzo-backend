@@ -1,6 +1,7 @@
 package com.tazzzo.inventory;
 
 import com.mongodb.MongoWriteException;
+import com.mongodb.client.ClientSession;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.Updates;
@@ -14,6 +15,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -173,38 +175,23 @@ public class InventoryService implements InventoryReadPort {
      *
      * <p><b>PACKAGE-PRIVATE BY DESIGN (PR-04 review, Option A).</b> A reservation without a
      * reservationId, expiry, release path, recovery/reconciliation and an idempotency key can
-     * strand {@code reserved} stock forever if called twice or abandoned. Until that lifecycle
-     * exists (checkout phase), NOTHING outside {@code com.tazzzo.inventory} may invoke this —
-     * the atomic mechanics stay proven by tests through a same-package test bridge only.
-     * Widening this to public is a review-gated change, not a convenience edit.
+     * strand {@code reserved} stock forever if called twice or abandoned. NOTHING outside
+     * {@code com.tazzzo.inventory} may invoke this raw primitive directly.
+     *
+     * <p><b>PR-14A superseded this as THE production reservation path.</b> Order-facing
+     * reservations go through {@link InventoryReservationService} (a real lifecycle: opaque id,
+     * TTL, release, consume, reconciliation, idempotency by {@code orderId}), which shares this
+     * class's per-row atomic mechanics via {@link #reserveOneSkuInSession} rather than
+     * reimplementing them — there is exactly ONE conditional-update shape for "reserve one SKU
+     * row", never two subtly different ones. This method remains only as a single-SKU,
+     * no-lifecycle convenience for existing same-package tests.
      */
     boolean tryReserve(String skuId, String fulfillmentLocationId, long qty) {
-        new InventoryKey(skuId, fulfillmentLocationId);
-        if (qty < 1 || qty > MAX_QUANTITY) {
-            log.info("inventory_write_validation_failure sku={} loc={} reason=bad_reserve_qty {}",
-                    skuId, fulfillmentLocationId, qty);
-            throw new InvalidInventoryException("reserve qty must be in [1," + MAX_QUANTITY + "]: " + qty);
-        }
-        Date now = Date.from(clock.instant());
-        EventPayload event = new EventPayload("INVENTORY_RESERVED", skuId,
-                Map.of("fulfillment_location_id", fulfillmentLocationId, "qty", qty));
+        validateReserveQty(skuId, fulfillmentLocationId, qty);
+        Instant now = clock.instant();
         try {
             tx.run(session -> {
-                UpdateResult[] r = new UpdateResult[1];
-                // Event-before-state (C-3) is preserved: the audit event is appended first, and if
-                // the conditional update matches nothing the control exception aborts the
-                // transaction so NO event survives a failed reservation.
-                writePath.auxWrite(session, COLLECTION, event, c -> r[0] = c.updateOne(session,
-                        Filters.and(keyFilter(skuId, fulfillmentLocationId),
-                                Filters.eq("active", true),
-                                Filters.expr(new Document("$gte", java.util.List.of(
-                                        new Document("$subtract", java.util.List.of("$on_hand", "$reserved")),
-                                        qty)))),
-                        Updates.combine(
-                                Updates.inc("reserved", qty),
-                                Updates.inc("version", 1L),
-                                Updates.set("updated_at", now))));
-                if (r[0].getModifiedCount() == 0) {
+                if (!reserveOneSkuInSession(session, skuId, fulfillmentLocationId, qty, now)) {
                     throw ReservationUnavailable.INSTANCE;
                 }
             });
@@ -214,6 +201,86 @@ public class InventoryService implements InventoryReadPort {
         }
         log.info("inventory_reserve_success sku={} loc={} qty={}", skuId, fulfillmentLocationId, qty);
         return true;
+    }
+
+    private void validateReserveQty(String skuId, String fulfillmentLocationId, long qty) {
+        new InventoryKey(skuId, fulfillmentLocationId);
+        if (qty < 1 || qty > MAX_QUANTITY) {
+            log.info("inventory_write_validation_failure sku={} loc={} reason=bad_reserve_qty {}",
+                    skuId, fulfillmentLocationId, qty);
+            throw new InvalidInventoryException("reserve qty must be in [1," + MAX_QUANTITY + "]: " + qty);
+        }
+    }
+
+    /**
+     * PR-14A — the ONE atomic "reserve one SKU row" primitive, usable INSIDE a caller-owned
+     * transaction (no {@code tx.run}/{@code tx.call} here — see {@link Tx}'s multiple-invocation
+     * contract, which this method's caller alone is responsible for satisfying). Package-private:
+     * only {@link InventoryReservationService}, in the SAME package, may compose several calls to
+     * this (one per SKU) inside its own multi-document reservation transaction.
+     *
+     * @return true iff the row was active and had enough available stock (mutated); false
+     *         otherwise (nothing mutated, no audit residue for this call).
+     */
+    boolean reserveOneSkuInSession(ClientSession session, String skuId, String fulfillmentLocationId, long qty,
+                                   Instant now) {
+        new InventoryKey(skuId, fulfillmentLocationId);
+        Date nowDate = Date.from(now);
+        EventPayload event = new EventPayload("INVENTORY_RESERVED", skuId,
+                Map.of("fulfillment_location_id", fulfillmentLocationId, "qty", qty));
+        UpdateResult[] r = new UpdateResult[1];
+        // Event-before-state (C-3): appended first, so a failed conditional update (0 modified)
+        // leaves the event to be rolled back with the rest of the CALLER's transaction — never
+        // surviving alone, since this method never commits anything itself.
+        writePath.auxWrite(session, COLLECTION, event, c -> r[0] = c.updateOne(session,
+                Filters.and(keyFilter(skuId, fulfillmentLocationId), Filters.eq("active", true),
+                        Filters.expr(new Document("$gte", java.util.List.of(
+                                new Document("$subtract", java.util.List.of("$on_hand", "$reserved")), qty)))),
+                Updates.combine(Updates.inc("reserved", qty), Updates.inc("version", 1L),
+                        Updates.set("updated_at", nowDate))));
+        return r[0].getModifiedCount() > 0;
+    }
+
+    /**
+     * PR-14A — the ONE atomic "release (un-reserve) one SKU row" primitive, session-aware, same
+     * discipline as {@link #reserveOneSkuInSession}. The guard ({@code reserved >= qty}) makes
+     * {@code reserved} structurally unable to go negative; a {@code false} return is a
+     * data-integrity signal for the caller (which owns the transaction and decides whether to
+     * abort it), never silently ignored here.
+     */
+    boolean releaseOneSkuInSession(ClientSession session, String skuId, String fulfillmentLocationId, long qty,
+                                   Instant now) {
+        new InventoryKey(skuId, fulfillmentLocationId);
+        Date nowDate = Date.from(now);
+        EventPayload event = new EventPayload("INVENTORY_RESERVATION_RELEASED", skuId,
+                Map.of("fulfillment_location_id", fulfillmentLocationId, "qty", qty));
+        UpdateResult[] r = new UpdateResult[1];
+        writePath.auxWrite(session, COLLECTION, event, c -> r[0] = c.updateOne(session,
+                Filters.and(keyFilter(skuId, fulfillmentLocationId), Filters.gte("reserved", qty)),
+                Updates.combine(Updates.inc("reserved", -qty), Updates.inc("version", 1L),
+                        Updates.set("updated_at", nowDate))));
+        return r[0].getModifiedCount() > 0;
+    }
+
+    /**
+     * PR-14A — the ONE atomic "consume (decrement on_hand and reserved) one SKU row" primitive,
+     * session-aware, same discipline as {@link #reserveOneSkuInSession}. Both guards
+     * ({@code reserved >= qty} and {@code on_hand >= qty}) apply in the SAME conditional update,
+     * so a row can never be left with {@code reserved > on_hand}.
+     */
+    boolean consumeOneSkuInSession(ClientSession session, String skuId, String fulfillmentLocationId, long qty,
+                                   Instant now) {
+        new InventoryKey(skuId, fulfillmentLocationId);
+        Date nowDate = Date.from(now);
+        EventPayload event = new EventPayload("INVENTORY_RESERVATION_CONSUMED", skuId,
+                Map.of("fulfillment_location_id", fulfillmentLocationId, "qty", qty));
+        UpdateResult[] r = new UpdateResult[1];
+        writePath.auxWrite(session, COLLECTION, event, c -> r[0] = c.updateOne(session,
+                Filters.and(keyFilter(skuId, fulfillmentLocationId), Filters.gte("reserved", qty),
+                        Filters.gte("on_hand", qty)),
+                Updates.combine(Updates.inc("on_hand", -qty), Updates.inc("reserved", -qty),
+                        Updates.inc("version", 1L), Updates.set("updated_at", nowDate))));
+        return r[0].getModifiedCount() > 0;
     }
 
     /**
