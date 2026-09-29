@@ -580,6 +580,9 @@ is FUTURE work and not required for the production modular monolith.
 ## Last verification
 
 - **2026-09-29** — `./mvnw clean test` on Java 21 + Docker on `feature/pr14a-inventory-reservation`
+  (based on `main` `8b4fabb`, after the final clock-authority fix): **BUILD SUCCESS**,
+  1688 tests, 0 failures / 0 errors / 0 skipped (1625 baseline + 63 new).
+- **2026-09-29** — `./mvnw clean test` on Java 21 + Docker on `feature/pr14a-inventory-reservation`
   (based on `main` `8b4fabb`, after final expiry/port-contract hardening): **BUILD SUCCESS**,
   1685 tests, 0 failures / 0 errors / 0 skipped (1625 baseline + 60 new).
 - **2026-09-29** — `./mvnw clean test` on Java 21 + Docker on `feature/pr14a-inventory-reservation`

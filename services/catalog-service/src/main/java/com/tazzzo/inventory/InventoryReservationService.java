@@ -186,17 +186,26 @@ public class InventoryReservationService implements InventoryReservationPort {
     }
 
     @Override
-    public InventoryReservation release(ClientSession session, InventoryReservationId reservationId, Instant now) {
-        return releaseInternal(session, reservationId, now).reservation();
+    public InventoryReservation release(ClientSession session, InventoryReservationId reservationId) {
+        return releaseInternal(session, reservationId).reservation();
     }
 
     @Override
-    public InventoryReservation consume(ClientSession session, InventoryReservationId reservationId, Instant now) {
-        return consumeInternal(session, reservationId, now).reservation();
+    public InventoryReservation consume(ClientSession session, InventoryReservationId reservationId) {
+        return consumeInternal(session, reservationId).reservation();
     }
 
+    /**
+     * PR-14A hardening (clock authority) — {@code now} is read from Inventory's OWN injected
+     * {@link Clock} HERE, never accepted as a parameter: a caller-supplied {@code Instant} could be
+     * stale relative to Inventory's real clock, which for {@code consume} specifically would let an
+     * already-expired reservation be silently honoured. Read fresh on every invocation (including a
+     * {@code Tx.call} driver retry) — if a retry crosses {@code expiresAt} mid-flight, the LATER
+     * attempt must see the LATER time.
+     */
     private InventoryReservationLifecycleResult releaseInternal(ClientSession session,
-                                                                 InventoryReservationId reservationId, Instant now) {
+                                                                 InventoryReservationId reservationId) {
+        Instant now = clock.instant();
         Document doc = reservations.findById(session, reservationId.value());
         if (doc == null) {
             throw new InventoryReservationFailure(InventoryReservationFailure.Reason.NOT_FOUND,
@@ -231,8 +240,11 @@ public class InventoryReservationService implements InventoryReservationPort {
         return new InventoryReservationLifecycleResult(released, true);
     }
 
+    /** Same clock-authority discipline as {@link #releaseInternal}: {@code now} is read fresh from
+     *  Inventory's OWN {@link Clock} here, never a caller-supplied value. */
     private InventoryReservationLifecycleResult consumeInternal(ClientSession session,
-                                                                 InventoryReservationId reservationId, Instant now) {
+                                                                 InventoryReservationId reservationId) {
+        Instant now = clock.instant();
         Document doc = reservations.findById(session, reservationId.value());
         if (doc == null) {
             throw new InventoryReservationFailure(InventoryReservationFailure.Reason.NOT_FOUND,
@@ -371,10 +383,11 @@ public class InventoryReservationService implements InventoryReservationPort {
     /** Package-private: exposes whether THIS call caused the transition, for
      *  {@link InventoryReservationExpiryWorker}'s own expiry-specific accounting. */
     InventoryReservationLifecycleResult releaseWithOutcome(InventoryReservationId reservationId) {
-        Instant now = clock.instant();
         try {
-            InventoryReservationLifecycleResult result = tx.call(session -> releaseInternal(session, reservationId,
-                    now));
+            // No "now" fixed here: releaseInternal reads clock.instant() itself, fresh on every
+            // Tx.call attempt (release is not expiry-gated, so this is purely about updatedAt
+            // ownership, not a correctness-critical check the way consume's is).
+            InventoryReservationLifecycleResult result = tx.call(session -> releaseInternal(session, reservationId));
             if (result.transitioned()) {
                 observability.transition(InventoryReservationStatus.RESERVED, InventoryReservationStatus.RELEASED);
             }
@@ -394,10 +407,12 @@ public class InventoryReservationService implements InventoryReservationPort {
     }
 
     InventoryReservationLifecycleResult consumeWithOutcome(InventoryReservationId reservationId) {
-        Instant now = clock.instant();
         try {
-            InventoryReservationLifecycleResult result = tx.call(session -> consumeInternal(session, reservationId,
-                    now));
+            // No "now" fixed here EITHER: consumeInternal reads clock.instant() itself, fresh on
+            // every Tx.call attempt — this is the correctness-critical case. If a driver retry
+            // crosses expiresAt mid-flight, the later attempt must see the later time and correctly
+            // reject RESERVATION_EXPIRED rather than committing a stale attempt's earlier "now".
+            InventoryReservationLifecycleResult result = tx.call(session -> consumeInternal(session, reservationId));
             if (result.transitioned()) {
                 observability.transition(InventoryReservationStatus.RESERVED, InventoryReservationStatus.CONSUMED);
             }

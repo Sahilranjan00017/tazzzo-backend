@@ -2,8 +2,6 @@ package com.tazzzo.inventory;
 
 import com.mongodb.client.ClientSession;
 
-import java.time.Instant;
-
 /**
  * PR-14A — the narrow, session-aware seam a future {@code customer.order} composes reservation
  * lifecycle operations through, inside ITS OWN outer transaction:
@@ -36,6 +34,18 @@ import java.time.Instant;
  * passed between {@code prepare} and {@code reserve} — expiry is runtime-authoritative, never merely
  * "whatever the reconciliation worker hasn't gotten to yet".
  *
+ * <p><b>PR-14A hardening (clock authority) — Inventory owns "now" for release/consume too.</b>
+ * Neither {@link #release} nor {@link #consume} accepts a caller-supplied {@code Instant}: both
+ * read {@code clock.instant()} internally, fresh on EVERY invocation (including a
+ * {@code Tx.call} driver retry), and use that SAME value for the runtime expiry check, every
+ * inventory row's {@code updated_at}, and the reservation header's own {@code updatedAt}/status
+ * transition. A caller supplying its own (possibly stale) "now" could otherwise pass an
+ * {@code Instant} that predates {@code expiresAt} even though Inventory's real clock has already
+ * moved past it — silently letting an expired reservation be consumed. Reading the clock fresh on
+ * every attempt is deliberately different from {@code prepare}'s fixed-before-the-transaction
+ * values: if a retry crosses {@code expiresAt} mid-flight, the LATER attempt must see the LATER
+ * time and correctly fail {@code RESERVATION_EXPIRED}, aborting the whole transaction.
+ *
  * <p>Order must never edit the {@code inventory} collection or the {@code inventory_reservations}
  * header directly — only through this port. Inventory, in turn, knows nothing about
  * {@code customer.order}/{@code customer.payment}/{@code customer.checkout} (enforced by
@@ -64,13 +74,15 @@ public interface InventoryReservationPort {
      * {@code RELEASED} returns the current reservation unchanged; {@code CONSUMED} throws
      * {@link InventoryReservationFailure.Reason#INVALID_TRANSITION}.
      */
-    InventoryReservation release(ClientSession session, InventoryReservationId reservationId, Instant now);
+    InventoryReservation release(ClientSession session, InventoryReservationId reservationId);
 
     /**
      * Consumes a {@code RESERVED} reservation (decrements {@code on_hand} AND {@code reserved} for
      * every line — the point physical stock actually leaves). Idempotent: already {@code CONSUMED}
      * returns the current reservation unchanged; {@code RELEASED} throws
-     * {@link InventoryReservationFailure.Reason#INVALID_TRANSITION}.
+     * {@link InventoryReservationFailure.Reason#INVALID_TRANSITION}. Rejects a {@code RESERVED} but
+     * already-expired reservation with {@link InventoryReservationFailure.Reason#RESERVATION_EXPIRED}
+     * — checked against Inventory's OWN live clock, never a caller-supplied value.
      */
-    InventoryReservation consume(ClientSession session, InventoryReservationId reservationId, Instant now);
+    InventoryReservation consume(ClientSession session, InventoryReservationId reservationId);
 }

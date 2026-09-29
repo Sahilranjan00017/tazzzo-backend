@@ -527,7 +527,7 @@ class InventoryReservationServiceIT extends AbstractMongoIT {
         Tx tx = new Tx(client);
         class OuterAbort extends RuntimeException { }
         assertThatThrownBy(() -> tx.call(session -> {
-            svc.release(session, new InventoryReservationId(r.reservationId()), NOW);
+            svc.release(session, new InventoryReservationId(r.reservationId()));
             throw new OuterAbort();
         })).isInstanceOf(OuterAbort.class);
 
@@ -544,7 +544,7 @@ class InventoryReservationServiceIT extends AbstractMongoIT {
         Tx tx = new Tx(client);
         class OuterAbort extends RuntimeException { }
         assertThatThrownBy(() -> tx.call(session -> {
-            svc.consume(session, new InventoryReservationId(r.reservationId()), NOW);
+            svc.consume(session, new InventoryReservationId(r.reservationId()));
             throw new OuterAbort();
         })).isInstanceOf(OuterAbort.class);
 
@@ -719,7 +719,7 @@ class InventoryReservationServiceIT extends AbstractMongoIT {
         // (only the STANDALONE wrapper, after the transaction has fully failed, performs that mapping).
         Tx tx = new Tx(client);
         InventoryReservationService svc = service(tx, Clock.fixed(NOW, ZoneOffset.UTC));
-        assertThatThrownBy(() -> tx.call(session -> svc.release(session, InventoryReservationId.generate(), NOW)))
+        assertThatThrownBy(() -> tx.call(session -> svc.release(session, InventoryReservationId.generate())))
                 .isInstanceOf(InventoryReservationFailure.class)
                 .satisfies(e -> assertThat(((InventoryReservationFailure) e).reason())
                         .isEqualTo(InventoryReservationFailure.Reason.NOT_FOUND));
@@ -836,5 +836,95 @@ class InventoryReservationServiceIT extends AbstractMongoIT {
         assertThat(count(registry, "inventory_reservation_failure", "operation", "reserve", "reason", "unavailable")
                 - failBefore).as("counted exactly once").isEqualTo(1);
         assertThat(count(registry, "inventory_reservation_success", "operation", "reserve")).isEqualTo(successBefore);
+    }
+
+    // ---------- PR-14A hardening (clock authority): Inventory owns "now" for release/consume ----------
+
+    @Test void explicit_bypass_proof_consume_cannot_use_a_stale_caller_instant_the_public_api_accepts_none() {
+        seed("TZP-CLK1", LOC, 10, true);
+        java.util.concurrent.atomic.AtomicReference<Instant> liveNow = new java.util.concurrent.atomic.AtomicReference<>(NOW);
+        Clock movable = new Clock() {
+            @Override public ZoneOffset getZone() { return ZoneOffset.UTC; }
+            @Override public Clock withZone(java.time.ZoneId zone) { return this; }
+            @Override public Instant instant() { return liveNow.get(); }
+        };
+        InventoryReservationProperties shortTtl = properties();
+        shortTtl.setTtlSeconds(60);
+        var registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        InventoryReservationService svc = new InventoryReservationService(inventory(new Tx(client), movable),
+                new InventoryReservationRepository(db), shortTtl, new InventoryReservationObservability(registry),
+                movable, new Tx(client));
+
+        InventoryReservation r = svc.reserve("ORD-CLK1", LOC, List.of(new InventoryReservationItem("TZP-CLK1", 4)));
+        // "capture an Instant that is BEFORE expiresAt" -- there is nowhere left to hand it to: the
+        // session-aware consume(session, reservationId) signature has no Instant parameter at all.
+        Instant beforeExpiry = liveNow.get();
+        assertThat(beforeExpiry).isBefore(r.expiresAt());
+
+        liveNow.set(NOW.plusSeconds(120)); // advance Inventory's LIVE injected clock past expiresAt
+        double transitionBefore = count(registry, "inventory_reservation_transition", "from", "reserved", "to",
+                "consumed");
+
+        Tx tx = new Tx(client);
+        assertThatThrownBy(() -> tx.call(session -> svc.consume(session, new InventoryReservationId(r.reservationId()))))
+                .isInstanceOf(InventoryReservationFailure.class)
+                .satisfies(e -> assertThat(((InventoryReservationFailure) e).reason())
+                        .isEqualTo(InventoryReservationFailure.Reason.RESERVATION_EXPIRED));
+
+        assertThat(onHand("TZP-CLK1", LOC)).as("on_hand unchanged").isEqualTo(10);
+        assertThat(reserved("TZP-CLK1", LOC)).as("reserved unchanged").isEqualTo(4);
+        assertThat(svc.findById(new InventoryReservationId(r.reservationId())).orElseThrow().status())
+                .as("status remains RESERVED").isEqualTo(InventoryReservationStatus.RESERVED);
+        assertThat(count(registry, "inventory_reservation_transition", "from", "reserved", "to", "consumed"))
+                .as("no transition metric from a session-aware call that never committed").isEqualTo(transitionBefore);
+    }
+
+    @Test void a_forced_transaction_retry_that_crosses_expiry_fails_the_later_attempt_and_rolls_back_the_earlier_one() {
+        seed("TZP-CLK2", LOC, 10, true);
+        java.util.concurrent.atomic.AtomicReference<Instant> liveNow = new java.util.concurrent.atomic.AtomicReference<>(NOW);
+        Clock movable = new Clock() {
+            @Override public ZoneOffset getZone() { return ZoneOffset.UTC; }
+            @Override public Clock withZone(java.time.ZoneId zone) { return this; }
+            @Override public Instant instant() { return liveNow.get(); }
+        };
+        InventoryReservationProperties shortTtl = properties();
+        shortTtl.setTtlSeconds(60);
+        InventoryReservationService prepSvc = new InventoryReservationService(inventory(new Tx(client), movable),
+                new InventoryReservationRepository(db), shortTtl, observability(), movable, new Tx(client));
+        InventoryReservation r = prepSvc.reserve("ORD-CLK2", LOC, List.of(new InventoryReservationItem("TZP-CLK2", 4)));
+
+        RetryInjectingTx retryTx = new RetryInjectingTx(client);
+        InventoryReservationService svc = new InventoryReservationService(inventory(retryTx, movable),
+                new InventoryReservationRepository(db), shortTtl, observability(), movable, retryTx);
+
+        // attempt 1 runs the consume body fully (still valid) but its commit is forced to "fail
+        // transiently"; BEFORE attempt 2 begins, advance the clock past expiresAt.
+        retryTx.arm(1, n -> {
+            if (n == 2) {
+                liveNow.set(NOW.plusSeconds(120));
+            }
+        });
+
+        assertThatThrownBy(() -> svc.consume(new InventoryReservationId(r.reservationId())))
+                .isInstanceOf(InventoryReservationFailure.class)
+                .satisfies(e -> assertThat(((InventoryReservationFailure) e).reason())
+                        .isEqualTo(InventoryReservationFailure.Reason.RESERVATION_EXPIRED));
+
+        assertThat(retryTx.attempts()).isEqualTo(2);
+        assertThat(onHand("TZP-CLK2", LOC)).as("attempt 1's decrement was rolled back").isEqualTo(10);
+        assertThat(reserved("TZP-CLK2", LOC)).as("still held").isEqualTo(4);
+        assertThat(svc.findById(new InventoryReservationId(r.reservationId())).orElseThrow().status())
+                .as("no commit survived either attempt").isEqualTo(InventoryReservationStatus.RESERVED);
+    }
+
+    @Test void release_does_not_accept_a_caller_supplied_timestamp_either_inventory_sets_it() {
+        seed("TZP-CLK3", LOC, 10, true);
+        InventoryReservationService svc = service();
+        InventoryReservation r = svc.reserve("ORD-CLK3", LOC, List.of(new InventoryReservationItem("TZP-CLK3", 2)));
+        Tx tx = new Tx(client);
+        InventoryReservation released = tx.call(session -> svc.release(session, new InventoryReservationId(r.reservationId())));
+        // the ONLY way to have supplied a timestamp here would be a 3rd constructor argument -- there
+        // isn't one; updatedAt is whatever Inventory's own clock produced.
+        assertThat(released.updatedAt()).isEqualTo(NOW);
     }
 }
