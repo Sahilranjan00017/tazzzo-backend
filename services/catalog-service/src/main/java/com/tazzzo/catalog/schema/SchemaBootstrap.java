@@ -95,7 +95,13 @@ public class SchemaBootstrap {
             // distinguishable from an unknown one (GET returns 410, not 404) and expiry is derived
             // from expiresAt. Unique (customerId, idempotencyKeyDigest) below is the concurrent
             // same-key create guard.
-            "checkout_quotes");
+            "checkout_quotes",
+            // PR-14A: immutable inventory reservation headers. Deliberately NO TTL index: an
+            // expired-but-not-yet-reconciled reservation must stay inspectable and distinguishable
+            // from one that never existed. Unique orderId below is BOTH the one-reservation-per-order
+            // invariant and the concurrent-create race guard; expiry reconciliation always goes
+            // through the same idempotent release() lifecycle, never a direct bulk edit.
+            "inventory_reservations");
 
     /**
      * PAG-2-SORT-1 transport support: the equality prefix the consumer-eligibility predicate uses,
@@ -281,6 +287,14 @@ public class SchemaBootstrap {
         db.getCollection("checkout_quotes").createIndex(
                 Indexes.ascending("customerId", "idempotencyKeyDigest"),
                 new IndexOptions().name("checkout_quote_one_per_idempotency_key").unique(true));
+        // PR-14A: exactly one reservation per order -- the structural guard that makes a concurrent
+        // same-order reserve() race resolve to ONE durable reservation identity.
+        db.getCollection("inventory_reservations").createIndex(
+                Indexes.ascending("orderId"), new IndexOptions().name("inventory_reservation_one_per_order")
+                        .unique(true));
+        // Bounded scan for the expiry-reconciliation worker: RESERVED headers past their expiresAt.
+        db.getCollection("inventory_reservations").createIndex(
+                Indexes.ascending("status", "expiresAt"), new IndexOptions().name("inventory_reservation_expiry"));
     }
 
     /**

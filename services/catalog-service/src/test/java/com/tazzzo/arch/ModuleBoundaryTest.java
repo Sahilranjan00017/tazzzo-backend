@@ -234,6 +234,21 @@ class ModuleBoundaryTest {
                     .allowEmptyShould(true);
 
     /**
+     * PR-14A — {@code inventory} (including its reservation lifecycle) must never depend on any
+     * customer-facing domain, present or future: it is a foundation-layer module, the same layer
+     * as {@code pricing}/{@code serviceability}. A future {@code customer.order} may depend ON
+     * {@code inventory.InventoryReservationPort}; the dependency never points the other way.
+     */
+    @ArchTest
+    static final ArchRule inventory_does_not_depend_on_any_customer_domain =
+            noClasses().that().resideInAPackage("com.tazzzo.inventory..")
+                    .should().dependOnClassesThat().resideInAnyPackage(
+                            "com.tazzzo.customer..",
+                            "com.tazzzo.order..",
+                            "com.tazzzo.payment..")
+                    .allowEmptyShould(true);
+
+    /**
      * No dependency cycles between top-level Tazzzo modules.
      *
      * <p>Dependencies INTO {@code com.tazzzo.commerce.contract} are excluded from cycle
