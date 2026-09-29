@@ -28,11 +28,16 @@ import java.util.Optional;
  * <p><b>Two call shapes, one algorithm:</b> the {@link InventoryReservationPort} methods
  * (session-aware) do the actual work and participate in WHATEVER transaction their caller owns —
  * they never start one themselves. This class's own {@code reserve(...)}/{@code release(...)}/
- * {@code consume(InventoryReservationId)} are STANDALONE wrappers: {@link #prepare} (for reserve)
- * or a fixed {@code now} (for release/consume) is computed BEFORE {@link Tx#call}, then delegated
- * to the session-aware method inside it — the same "fix everything before the transaction, return
- * the committed attempt's value" discipline {@code CheckoutService}/{@code OtpService} already
- * established.
+ * {@code consume(InventoryReservationId)} are STANDALONE wrappers: {@link #prepare} fixes
+ * {@code reservationId}/{@code preparedAt}/{@code expiresAt} BEFORE {@link Tx#call} (for
+ * {@code reserve}), then delegates to the session-aware method inside it — the same "fix identity
+ * before the transaction, return the committed attempt's value" discipline
+ * {@code CheckoutService}/{@code OtpService} already established. {@code release}/{@code consume}
+ * take NO precomputed {@code now} at all: their session-aware implementations
+ * ({@code releaseInternal}/{@code consumeInternal}) read {@code clock.instant()} THEMSELVES, fresh
+ * on every invocation of the callback — including every {@code Tx.call} driver-retry re-invocation
+ * — so a transaction retry always judges validity against the CURRENT authoritative time, never a
+ * value fixed before the retry began (see the clock-authority hardening below).
  *
  * <p><b>Multi-SKU all-or-nothing (the load-bearing guarantee):</b> {@code reserve} performs one
  * atomic conditional update per SKU ({@link InventoryService#reserveOneSkuInSession}), in a
