@@ -1,6 +1,7 @@
 package com.tazzzo.serviceability;
 
 import com.mongodb.MongoWriteException;
+import com.mongodb.client.ClientSession;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.Updates;
@@ -48,7 +49,7 @@ import java.util.Objects;
  * _no_active_route, serviceability_write_success / _validation_failure / _conflict. PINs are
  * MASKED in logs (first 3 digits only) — coarse geography, no precise location data.
  */
-public class ServiceabilityService implements ServiceabilityReadPort {
+public class ServiceabilityService implements ServiceabilityReadPort, TransactionalServiceabilityReadPort {
 
     private static final Logger log = LoggerFactory.getLogger(ServiceabilityService.class);
     static final String COLLECTION = "service_areas";
@@ -81,6 +82,19 @@ public class ServiceabilityService implements ServiceabilityReadPort {
     public ServiceabilityResolution resolveByPincode(Pincode pin) {
         Objects.requireNonNull(pin, "pin required");
         Document d = db.getCollection(COLLECTION).find(Filters.eq("pincode", pin.value())).first();
+        return resolveFromDocument(pin, d);
+    }
+
+    /** PR-14B — session-aware companion; reuses the EXACT same resolution algorithm via
+     *  {@link #resolveFromDocument}. Only the Mongo call shape differs. */
+    @Override
+    public ServiceabilityResolution resolveByPincode(ClientSession session, Pincode pin) {
+        Objects.requireNonNull(pin, "pin required");
+        Document d = db.getCollection(COLLECTION).find(session, Filters.eq("pincode", pin.value())).first();
+        return resolveFromDocument(pin, d);
+    }
+
+    private ServiceabilityResolution resolveFromDocument(Pincode pin, Document d) {
         if (d == null) {
             log.debug("serviceability_resolve_unserviceable pin={}", mask(pin));
             return ServiceabilityResolution.unserviceable();

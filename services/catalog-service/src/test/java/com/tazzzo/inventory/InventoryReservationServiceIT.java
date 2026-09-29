@@ -108,9 +108,12 @@ class InventoryReservationServiceIT extends AbstractMongoIT {
         return inventoryRow(sku, loc).get("on_hand", Number.class).longValue();
     }
 
-    private static PreparedInventoryReservation command(String orderId, List<InventoryReservationItem> items) {
-        return new PreparedInventoryReservation(orderId, LOC, items, InventoryReservationId.generate(), NOW,
-                NOW.plusSeconds(600));
+    private static PreparedInventoryReservation command(String orderId) {
+        return new PreparedInventoryReservation(InventoryReservationId.generate(), orderId, NOW, NOW.plusSeconds(600));
+    }
+
+    private static InventoryReservationAllocation allocation(List<InventoryReservationItem> items) {
+        return new InventoryReservationAllocation(LOC, items);
     }
 
     // ---------- multi-SKU reserve: all-or-nothing ----------
@@ -249,6 +252,53 @@ class InventoryReservationServiceIT extends AbstractMongoIT {
                 .isGreaterThanOrEqualTo(0);
     }
 
+    // ---------- PR-14B preparation-contract evolution: allocation may change across a retry ----------
+
+    @Test void a_retry_may_resolve_a_different_current_route_after_the_prior_attempts_rollback() {
+        seed("TZP-ROUTE-A", "FL-A", 10, true);
+        seed("TZP-ROUTE-A", "FL-B", 10, true);
+        RetryInjectingTx retryTx = new RetryInjectingTx(client);
+        Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
+        InventoryReservationService svc = service(retryTx, clock);
+        java.util.concurrent.atomic.AtomicReference<String> currentRoute =
+                new java.util.concurrent.atomic.AtomicReference<>("FL-A");
+        // attempt 1 fails transiently (rolls back), THEN the route "changes" before attempt 2 runs --
+        // simulating a future Order re-resolving serviceability fresh on every Tx.call attempt.
+        retryTx.arm(1, attemptNumber -> {
+            if (attemptNumber == 2) {
+                currentRoute.set("FL-B");
+            }
+        });
+
+        PreparedInventoryReservation prepared = svc.prepare("ORD-ROUTE-CHANGE");
+        InventoryReservation r = retryTx.call(session -> svc.reserve(session, prepared,
+                new InventoryReservationAllocation(currentRoute.get(),
+                        List.of(new InventoryReservationItem("TZP-ROUTE-A", 3)))));
+
+        assertThat(retryTx.attempts()).isEqualTo(2);
+        assertThat(r.fulfillmentLocationId()).as("the committed attempt used the LATEST route")
+                .isEqualTo("FL-B");
+        assertThat(reserved("TZP-ROUTE-A", "FL-A")).as("the rolled-back attempt's route was never charged")
+                .isZero();
+        assertThat(reserved("TZP-ROUTE-A", "FL-B")).isEqualTo(3);
+        // reservationId/expiresAt are Inventory-owned and fixed BEFORE the transaction -- stable
+        // across the retry regardless of which allocation each attempt used.
+        assertThat(r.reservationId()).isEqualTo(prepared.reservationId().value());
+        assertThat(r.expiresAt()).isEqualTo(prepared.expiresAt());
+    }
+
+    @Test void same_order_committed_reservation_then_a_different_allocation_still_conflicts() {
+        seed("TZP-ALLOC-CONF", LOC, 10, true);
+        InventoryReservationService svc = service();
+        svc.reserve("ORD-ALLOC-CONF", LOC, List.of(new InventoryReservationItem("TZP-ALLOC-CONF", 3)));
+
+        assertThatThrownBy(() -> svc.reserve("ORD-ALLOC-CONF", LOC,
+                List.of(new InventoryReservationItem("TZP-ALLOC-CONF", 4))))
+                .isInstanceOf(InventoryReservationFailure.class)
+                .satisfies(e -> assertThat(((InventoryReservationFailure) e).reason())
+                        .isEqualTo(InventoryReservationFailure.Reason.ALREADY_RESERVED_DIFFERENT_INPUT));
+    }
+
     // ---------- forced transaction retry ----------
 
     @Test void a_forced_retry_does_not_double_reserve_and_keeps_the_reservationId_and_expiresAt_stable() {
@@ -270,13 +320,12 @@ class InventoryReservationServiceIT extends AbstractMongoIT {
 
     @Test void a_retry_that_finds_its_own_committed_attempt_returns_it_without_reincrementing() {
         seed("TZP-AMBIG", LOC, 10, true);
-        PreparedInventoryReservation fixedCommand = command("ORD-AMBIG", List.of(new InventoryReservationItem("TZP-AMBIG", 3)));
         RetryInjectingTx retryTx = new RetryInjectingTx(client);
         InventoryReservationService svc = service(retryTx, Clock.fixed(NOW, ZoneOffset.UTC));
         // simulate the "ambiguous commit" case: force a second attempt even though attempt 1 fully
         // committed (RetryInjectingTx re-runs the callback regardless of what the DB now shows).
         retryTx.arm(1);
-        InventoryReservation r = svc.reserve(fixedCommand.orderId(), LOC, fixedCommand.items());
+        InventoryReservation r = svc.reserve("ORD-AMBIG", LOC, List.of(new InventoryReservationItem("TZP-AMBIG", 3)));
         assertThat(retryTx.attemptResults()).extracting(o -> ((InventoryReservation) o).reservationId())
                 .containsExactly(r.reservationId(), r.reservationId());
         assertThat(reserved("TZP-AMBIG", LOC)).isEqualTo(3);
@@ -411,12 +460,12 @@ class InventoryReservationServiceIT extends AbstractMongoIT {
         shortTtl.setTtlSeconds(60);
         InventoryReservationService svc = service(new Tx(client), movable, shortTtl);
 
-        PreparedInventoryReservation prepared = svc.prepare(new InventoryReservationRequest("ORD-H1A", LOC,
-                List.of(new InventoryReservationItem("TZP-H1A", 3))));
+        PreparedInventoryReservation prepared = svc.prepare("ORD-H1A");
+        InventoryReservationAllocation allocation = allocation(List.of(new InventoryReservationItem("TZP-H1A", 3)));
         liveNow.set(NOW.plusSeconds(120)); // advance the injected clock past expiresAt BEFORE reserve() runs
 
         Tx tx = new Tx(client);
-        assertThatThrownBy(() -> tx.call(session -> svc.reserve(session, prepared)))
+        assertThatThrownBy(() -> tx.call(session -> svc.reserve(session, prepared, allocation)))
                 .isInstanceOf(InventoryReservationFailure.class)
                 .satisfies(e -> assertThat(((InventoryReservationFailure) e).reason())
                         .isEqualTo(InventoryReservationFailure.Reason.RESERVATION_EXPIRED));
@@ -507,11 +556,12 @@ class InventoryReservationServiceIT extends AbstractMongoIT {
         seed("TZP-OUTER", LOC, 10, true);
         Tx tx = new Tx(client);
         InventoryReservationService svc = service(tx, Clock.fixed(NOW, ZoneOffset.UTC));
-        PreparedInventoryReservation cmd = command("ORD-OUTER", List.of(new InventoryReservationItem("TZP-OUTER", 4)));
+        PreparedInventoryReservation cmd = command("ORD-OUTER");
+        InventoryReservationAllocation alloc = allocation(List.of(new InventoryReservationItem("TZP-OUTER", 4)));
 
         class OuterAbort extends RuntimeException { }
         assertThatThrownBy(() -> tx.call(session -> {
-            svc.reserve(session, cmd);
+            svc.reserve(session, cmd, alloc);
             throw new OuterAbort(); // the CALLER's own reason to roll back, unrelated to reservation logic
         })).isInstanceOf(OuterAbort.class);
 
@@ -558,11 +608,12 @@ class InventoryReservationServiceIT extends AbstractMongoIT {
         seed("TZP-COMPOSE", LOC, 10, true);
         Tx tx = new Tx(client);
         InventoryReservationService svc = service(tx, Clock.fixed(NOW, ZoneOffset.UTC));
-        PreparedInventoryReservation cmd = command("ORD-COMPOSE", List.of(new InventoryReservationItem("TZP-COMPOSE", 4)));
+        PreparedInventoryReservation cmd = command("ORD-COMPOSE");
+        InventoryReservationAllocation alloc = allocation(List.of(new InventoryReservationItem("TZP-COMPOSE", 4)));
 
         // simulates: tx.call(session -> { reserve(session,...); orderRepository.insert(session,...); return order; })
         String result = tx.call(session -> {
-            InventoryReservation r = svc.reserve(session, cmd);
+            InventoryReservation r = svc.reserve(session, cmd, alloc);
             db.getCollection("inventory_reservations_order_marker").insertOne(session,
                     new Document("_id", cmd.orderId()).append("reservationId", r.reservationId()));
             return r.reservationId();
@@ -579,8 +630,7 @@ class InventoryReservationServiceIT extends AbstractMongoIT {
         InventoryReservationProperties props = properties();
         props.setTtlSeconds(120);
         InventoryReservationService svc = service(new Tx(client), Clock.fixed(NOW, ZoneOffset.UTC), props);
-        PreparedInventoryReservation prepared = svc.prepare(new InventoryReservationRequest("ORD-PREP", LOC,
-                List.of(new InventoryReservationItem("TZP-PREP", 1))));
+        PreparedInventoryReservation prepared = svc.prepare("ORD-PREP");
         assertThat(prepared.preparedAt()).isEqualTo(NOW);
         assertThat(prepared.expiresAt()).isEqualTo(NOW.plusSeconds(120));
         assertThat(InventoryReservationId.isValid(prepared.reservationId().value())).isTrue();
@@ -589,10 +639,10 @@ class InventoryReservationServiceIT extends AbstractMongoIT {
     @Test void a_future_caller_uses_prepare_then_reserve_never_inventing_its_own_lifetime() {
         seed("TZP-PREP2", LOC, 10, true);
         InventoryReservationService svc = service();
-        PreparedInventoryReservation prepared = svc.prepare(new InventoryReservationRequest("ORD-PREP2", LOC,
-                List.of(new InventoryReservationItem("TZP-PREP2", 3))));
+        PreparedInventoryReservation prepared = svc.prepare("ORD-PREP2");
+        InventoryReservationAllocation alloc = allocation(List.of(new InventoryReservationItem("TZP-PREP2", 3)));
         Tx tx = new Tx(client);
-        InventoryReservation r = tx.call(session -> svc.reserve(session, prepared));
+        InventoryReservation r = tx.call(session -> svc.reserve(session, prepared, alloc));
         assertThat(r.expiresAt()).isEqualTo(prepared.expiresAt());
         assertThat(reserved("TZP-PREP2", LOC)).isEqualTo(3);
     }
@@ -650,12 +700,12 @@ class InventoryReservationServiceIT extends AbstractMongoIT {
         InventoryReservationService svc = new InventoryReservationService(inventory(new Tx(client),
                 Clock.fixed(NOW, ZoneOffset.UTC)), new InventoryReservationRepository(db), properties(),
                 new InventoryReservationObservability(registry), Clock.fixed(NOW, ZoneOffset.UTC), new Tx(client));
-        PreparedInventoryReservation prepared = svc.prepare(new InventoryReservationRequest("ORD-OBS4", LOC,
-                List.of(new InventoryReservationItem("TZP-OBS4", 2))));
+        PreparedInventoryReservation prepared = svc.prepare("ORD-OBS4");
+        InventoryReservationAllocation alloc = allocation(List.of(new InventoryReservationItem("TZP-OBS4", 2)));
         Tx tx = new Tx(client);
         // called DIRECTLY, bypassing the standalone wrapper -- exactly what a future Order composing
         // its own outer transaction would do.
-        tx.call(session -> svc.reserve(session, prepared));
+        tx.call(session -> svc.reserve(session, prepared, alloc));
         assertThat(registry.getMeters()).as("a session-aware call alone claims no durable success/transition")
                 .noneMatch(m -> m.getId().getName().startsWith("inventory_reservation_success")
                         || m.getId().getName().startsWith("inventory_reservation_transition"));

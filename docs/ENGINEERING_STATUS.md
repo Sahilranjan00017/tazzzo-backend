@@ -426,9 +426,10 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   has not changed since the quote was validated (`currentAddress.version == quote.addressVersion`),
   without a second address read. No Order, Inventory Reservation, or Payment code in this PR.
 
-## In review (NOT merged)
+## Merged on `main` (continued)
 
-- **PR-14A — Inventory reservation lifecycle** (`com.tazzzo.inventory`): **IN REVIEW**. Hardened
+- **PR-14A — Inventory reservation lifecycle** (`com.tazzzo.inventory`): **COMPLETE** (PR #25,
+  squash `44438031022238334ecdf3995ba1096101e2e47f`). Hardened
   after final review: (M1) `prepare(InventoryReservationRequest)` is the ONLY way to obtain a
   reservation command — reservation id and TTL are Inventory's own policy, never caller-supplied;
   the PUBLIC opaque `PreparedInventoryReservation` type has a package-private constructor (a caller
@@ -483,6 +484,44 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   the port owns its own outer-transaction success metric. New ArchUnit rule:
   `inventory` may never depend on any `customer.*`/`order`/`payment` package. No Order, Payment, or
   gateway code in this PR.
+
+  **PR-14B preparation-contract evolution** (see the PR-14B entry below): `prepare` now takes only
+  an `orderId` (no location/items) and `reserve` takes a separate caller-constructed
+  `InventoryReservationAllocation` (location + items) — the earlier `InventoryReservationRequest`
+  type this block describes has been removed; the standalone `reserve(orderId, location, items)`
+  convenience method's external signature/behavior is unchanged.
+
+## In review (NOT merged)
+
+- **PR-14B — Order Foundation** (`com.tazzzo.customer.order`): **IN REVIEW**. Internal Order
+  creation from an owned, unexpired `CheckoutQuote`, atomically alongside an Inventory reservation.
+  The durable `(customerId, quoteId)` Order row is the idempotency authority: once it exists, it
+  wins over every later mutable authority (quote expiry, address, serviceability, price, catalog
+  eligibility, stock) by construction — the ONLY reads before the existing-Order check (both the
+  pre-transaction fast path and the in-transaction authoritative one) are the Order lookup itself
+  and `CheckoutQuoteRepository.findOwnedQuote` (new — loads the immutable quote WITHOUT judging its
+  expiry, unlike the customer-facing `CheckoutService.readQuote`). Every mutable read (address,
+  serviceability, pricing, catalog eligibility, inventory) happens exclusively INSIDE one outer
+  `Tx.call`, after that check. New session-aware companion ports — `TransactionalPriceReadPort`,
+  `TransactionalServiceabilityReadPort`, `TransactionalCatalogCardReadPort` — added as SEPARATE
+  interfaces (not new abstract methods on the existing `PriceReadPort`/`ServiceabilityReadPort`/
+  `CatalogCardReadPort`, which stay functional-interface-compatible for existing lambdas/stubs);
+  `PricingService`/`ServiceabilityService`/`CatalogCardReader` implement both, sharing one
+  decode/algorithm each. Order (`OrderId` opaque `ORD_` id, `OrderStatus.CREATED` only this PR,
+  `OrderLine`/`OrderAddressSnapshot` immutable snapshots, fail-loud `Order` compact constructor, no
+  discount/tax/fee/payment field) persists to `orders` with a unique `(customerId, quoteId)` index
+  (structural one-quote-one-order + concurrent-create guard), no status/history index, no TTL.
+  Failure enum: `INVALID_REQUEST, QUOTE_NOT_FOUND, QUOTE_EXPIRED, ADDRESS_CHANGED, NOT_SERVICEABLE,
+  PRICE_CHANGED, PRODUCT_UNAVAILABLE, STOCK_UNAVAILABLE, RESERVATION_EXPIRED, INTEGRITY_FAILURE,
+  UNAVAILABLE` — no `SERVICEABILITY_CHANGED` (one authoritative route, read once, inside the
+  transaction) and no `ALREADY_EXISTS_DIFFERENT_INPUT` (unreachable: a quote is immutable, so
+  replaying order-creation for it always means the same order). New ArchUnit rules: upstream
+  modules never depend on `customer.order`; Order never depends on the concrete
+  `PricingService`/`ServiceabilityService`/`CatalogCardReader`/`InventoryService`/
+  `InventoryReservationRepository` or the general-purpose non-session ports, only the transactional
+  companions and `InventoryReservationPort`; Order never depends on future Payment/Admin. No
+  Payment, COD confirmation, prepaid flow, gateway, Membership, Benefits/Promotion, coupons,
+  Admin/CMS, fulfilment workflow, or customer-facing Order HTTP endpoint in this PR.
 
 ## Follow-up debt (recorded)
 
@@ -541,7 +580,7 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   `PublicServiceability`, pincode-keyed routing) is **COMPLETE** and unchanged; the
   customer-address BINDING to it (PR-12B) is **COMPLETE**.
   (Address ↔ Serviceability binding: COMPLETE.)
-- Cart (PR-12C): **COMPLETE** (PR #21). Auth transaction retry hardening (PR-11D): **COMPLETE** (PR #22). Checkout (PR-13A): **COMPLETE** (PR #23). Checkout provenance (PR-13B): **COMPLETE** (PR #24, squash `8b4fabb9b82e4e3502202ffaff1aadd35f9ba311`). Inventory Reservation lifecycle (PR-14A): **IN REVIEW** (not merged). Order: **NOT STARTED**. Payment: **NOT STARTED**. Real payment gateway: **NOT STARTED**.
+- Cart (PR-12C): **COMPLETE** (PR #21). Auth transaction retry hardening (PR-11D): **COMPLETE** (PR #22). Checkout (PR-13A): **COMPLETE** (PR #23). Checkout provenance (PR-13B): **COMPLETE** (PR #24, squash `8b4fabb9b82e4e3502202ffaff1aadd35f9ba311`). Inventory Reservation lifecycle (PR-14A): **COMPLETE** (PR #25, squash `44438031022238334ecdf3995ba1096101e2e47f`). Order Foundation (PR-14B): **IN REVIEW** (not merged). Membership: **NOT STARTED**. Benefits/Promotion: **NOT STARTED**. Payment: **NOT STARTED**. Real payment gateway: **NOT STARTED**.
 
 ## Next (ratified sequence)
 

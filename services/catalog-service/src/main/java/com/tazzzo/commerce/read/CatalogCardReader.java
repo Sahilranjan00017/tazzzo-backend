@@ -1,5 +1,6 @@
 package com.tazzzo.commerce.read;
 
+import com.mongodb.client.ClientSession;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.Filters;
 import com.tazzzo.catalog.consumer.ConsumerEligibility;
@@ -18,8 +19,13 @@ import java.util.Optional;
  * <p>At launch {@code skuId == productId}, so the lookup key is the product {@code _id}; when
  * variants introduce SKU documents, ONLY this reader changes — the port and the projection
  * schema already carry both ids.
+ *
+ * <p>PR-14B — also implements {@link TransactionalCatalogCardReadPort}: the session-aware
+ * companion a future {@code customer.order} composes through, reusing the EXACT same
+ * {@link #toFacts} mapping and eligibility predicate via {@link #lookup}. Only the Mongo call
+ * shape differs.
  */
-public class CatalogCardReader implements CatalogCardReadPort {
+public class CatalogCardReader implements CatalogCardReadPort, TransactionalCatalogCardReadPort {
 
     private final MongoDatabase db;
 
@@ -33,16 +39,33 @@ public class CatalogCardReader implements CatalogCardReadPort {
             return Optional.empty();
         }
         Document p = db.getCollection("products").find(Filters.eq("_id", skuId)).first();
+        return lookup(skuId, p);
+    }
+
+    @Override
+    public Optional<CatalogCardFacts> findEligibleCard(ClientSession session, String skuId) {
+        if (skuId == null || skuId.isBlank()) {
+            return Optional.empty();
+        }
+        Document p = db.getCollection("products").find(session, Filters.eq("_id", skuId)).first();
+        return lookup(skuId, p);
+    }
+
+    private static Optional<CatalogCardFacts> lookup(String skuId, Document p) {
         if (p == null || !ConsumerEligibility.isEligible(p)) {
             return Optional.empty();
         }
+        return Optional.of(toFacts(skuId, p));
+    }
+
+    private static CatalogCardFacts toFacts(String skuId, Document p) {
         Document classification = p.get("classification", Document.class);
-        return Optional.of(new CatalogCardFacts(
+        return new CatalogCardFacts(
                 skuId,
                 skuId, // launch: product _id IS the SKU id; carried separately by design
                 p.getString("title"),
                 p.getString("brand_code"),
                 classification == null ? null : classification.getString("vertical_id"),
-                p.get("version") == null ? 0L : ((Number) p.get("version")).longValue()));
+                p.get("version") == null ? 0L : ((Number) p.get("version")).longValue());
     }
 }

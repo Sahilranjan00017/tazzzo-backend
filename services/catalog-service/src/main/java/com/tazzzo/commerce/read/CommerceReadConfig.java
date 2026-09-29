@@ -93,6 +93,17 @@ public class CommerceReadConfig {
         return new ProductCardBaseReader(db);
     }
 
+    /**
+     * PR-14B: {@code customer.order} is the first caller that needs {@link CatalogCardReader} as a
+     * standalone Spring bean (for its {@link TransactionalCatalogCardReadPort} companion) rather than
+     * an inline instance built only for {@link CommerceSkuBatchReader}'s own composition. Reused
+     * below so exactly ONE instance backs both consumers.
+     */
+    @Bean
+    public CatalogCardReader commerceCatalogCardReader() {
+        return new CatalogCardReader(db);
+    }
+
     @Bean
     public ProductCardRuntimeEnricher commerceEnricher(InventoryService inventory,
                                                        ServiceabilityService serviceability,
@@ -102,9 +113,10 @@ public class CommerceReadConfig {
 
     /** PR-12C: the authoritative batch read the customer cart composes (no forked buyable logic). */
     @Bean
-    public CommerceSkuBatchReader commerceSkuBatchReader(ProductCardBaseReader baseReader, PricingService pricing,
+    public CommerceSkuBatchReader commerceSkuBatchReader(CatalogCardReader catalogCardReader,
+                                                         ProductCardBaseReader baseReader, PricingService pricing,
                                                          ProductCardRuntimeEnricher enricher) {
-        return new CommerceSkuBatchReader(new CatalogCardReader(db), baseReader, pricing, enricher);
+        return new CommerceSkuBatchReader(catalogCardReader, baseReader, pricing, enricher);
     }
 
     @Bean

@@ -101,15 +101,14 @@ public class InventoryReservationService implements InventoryReservationPort {
     // ---------- preparation (Inventory-owned identity/TTL; no Mongo access) ----------
 
     @Override
-    public PreparedInventoryReservation prepare(InventoryReservationRequest request) {
-        if (request == null) {
+    public PreparedInventoryReservation prepare(String orderId) {
+        if (orderId == null || orderId.isBlank()) {
             throw new InventoryReservationFailure(InventoryReservationFailure.Reason.INVALID_REQUEST,
-                    "request required");
+                    "orderId required");
         }
         Instant now = clock.instant();
         Instant expiresAt = now.plus(Duration.ofSeconds(properties.getTtlSeconds()));
-        return new PreparedInventoryReservation(request.orderId(), request.fulfillmentLocationId(), request.items(),
-                InventoryReservationId.generate(), now, expiresAt);
+        return new PreparedInventoryReservation(InventoryReservationId.generate(), orderId, now, expiresAt);
     }
 
     // ---------- session-aware port (participates in the CALLER's transaction) ----------
@@ -127,8 +126,9 @@ public class InventoryReservationService implements InventoryReservationPort {
      * an already-stale allocation.
      */
     @Override
-    public InventoryReservation reserve(ClientSession session, PreparedInventoryReservation prepared) {
-        String fingerprint = fingerprintOf(prepared);
+    public InventoryReservation reserve(ClientSession session, PreparedInventoryReservation prepared,
+                                        InventoryReservationAllocation allocation) {
+        String fingerprint = fingerprintOf(prepared.orderId(), allocation);
         Instant authoritativeNow = clock.instant();
 
         Document existing = reservations.findByOrderId(session, prepared.orderId());
@@ -141,11 +141,11 @@ public class InventoryReservationService implements InventoryReservationPort {
                     "prepared reservation for order " + prepared.orderId() + " expired before it could be reserved");
         }
 
-        List<InventoryReservationItem> sorted = prepared.items().stream()
+        List<InventoryReservationItem> sorted = allocation.items().stream()
                 .sorted(java.util.Comparator.comparing(InventoryReservationItem::skuId)).toList();
         for (InventoryReservationItem item : sorted) {
             boolean applied = inventory.reserveOneSkuInSession(session, item.skuId(),
-                    prepared.fulfillmentLocationId(), item.quantity(), prepared.preparedAt());
+                    allocation.fulfillmentLocationId(), item.quantity(), prepared.preparedAt());
             if (!applied) {
                 // MongoDB rolls back every EARLIER line's increment in this attempt, and the header
                 // is never inserted — nothing partial survives.
@@ -155,7 +155,7 @@ public class InventoryReservationService implements InventoryReservationPort {
         }
 
         InventoryReservation reservation = new InventoryReservation(prepared.reservationId().value(),
-                prepared.orderId(), prepared.fulfillmentLocationId(), prepared.items(),
+                prepared.orderId(), allocation.fulfillmentLocationId(), allocation.items(),
                 InventoryReservationStatus.RESERVED, prepared.preparedAt(), prepared.expiresAt(),
                 prepared.preparedAt());
         reservations.insert(session, reservation, fingerprint);
@@ -295,14 +295,17 @@ public class InventoryReservationService implements InventoryReservationPort {
 
     // ---------- standalone wrappers (own their own Tx.call; record metrics after commit) ----------
 
-    /** Convenience: {@code prepare} then reserve, in one call. */
+    /** Convenience: {@code prepare} then reserve, in one call — the standalone entry point PR-14A
+     *  callers/tests already use. Internally builds the SAME {@link PreparedInventoryReservation} +
+     *  {@link InventoryReservationAllocation} split the session-aware port now requires; external
+     *  signature and behavior are unchanged from before the PR-14B preparation-contract evolution. */
     public InventoryReservation reserve(String orderId, String fulfillmentLocationId,
                                         List<InventoryReservationItem> items) {
-        PreparedInventoryReservation prepared = prepare(new InventoryReservationRequest(orderId,
-                fulfillmentLocationId, items));
+        PreparedInventoryReservation prepared = prepare(orderId);
+        InventoryReservationAllocation allocation = new InventoryReservationAllocation(fulfillmentLocationId, items);
         try {
             // tx.call returns the LAST attempt's immutable value straight from the driver retry loop.
-            InventoryReservation result = tx.call(session -> reserve(session, prepared));
+            InventoryReservation result = tx.call(session -> reserve(session, prepared, allocation));
             observability.success(InventoryReservationObservability.Operation.RESERVE);
             return result;
         } catch (InventoryReservationFailure e) {
@@ -322,7 +325,7 @@ public class InventoryReservationService implements InventoryReservationPort {
                 // straight past the sibling `catch (InventoryReservationFailure e)` above without
                 // ever being counted.
                 try {
-                    InventoryReservation resolved = resolveDuplicateWinner(orderId, prepared);
+                    InventoryReservation resolved = resolveDuplicateWinner(orderId, prepared, allocation);
                     if (resolved != null) {
                         observability.success(InventoryReservationObservability.Operation.RESERVE);
                         return resolved;
@@ -362,7 +365,8 @@ public class InventoryReservationService implements InventoryReservationPort {
      *         caller as {@code UNAVAILABLE} — a duplicate-key error with no winning row is itself a
      *         data-integrity anomaly, not a business outcome).
      */
-    private InventoryReservation resolveDuplicateWinner(String orderId, PreparedInventoryReservation prepared) {
+    private InventoryReservation resolveDuplicateWinner(String orderId, PreparedInventoryReservation prepared,
+                                                        InventoryReservationAllocation allocation) {
         Document winner;
         try {
             winner = reservations.findByOrderId(orderId);
@@ -374,7 +378,8 @@ public class InventoryReservationService implements InventoryReservationPort {
             throw new InventoryReservationFailure(InventoryReservationFailure.Reason.UNAVAILABLE,
                     "datastore error reading the duplicate-key winner");
         }
-        return winner == null ? null : resolveExisting(winner, fingerprintOf(prepared), clock.instant());
+        return winner == null ? null
+                : resolveExisting(winner, fingerprintOf(prepared.orderId(), allocation), clock.instant());
     }
 
     public InventoryReservation release(InventoryReservationId reservationId) {
@@ -465,13 +470,16 @@ public class InventoryReservationService implements InventoryReservationPort {
     // ---------- fingerprint ----------
 
     /**
-     * PR-14A — {@code v1|orderId|fulfillmentLocationId|sku:qty|sku:qty...}, items sorted by
-     * skuId so the caller's original ordering never changes identity. Bumping
+     * PR-14A/PR-14B — {@code v1|orderId|fulfillmentLocationId|sku:qty|sku:qty...}, items sorted by
+     * skuId so the caller's original ordering never changes identity. The input now comes from
+     * {@code prepared.orderId()} (Inventory-owned identity) plus a caller-supplied
+     * {@link InventoryReservationAllocation} (the semantic "what/where") — split across two objects
+     * since PR-14B's preparation-contract evolution, same fingerprint SHAPE as PR-14A. Bumping
      * {@code FINGERPRINT_VERSION} is REQUIRED before adding any new meaning-bearing field to the
      * fingerprint input — an unbumped version could let an old and a new semantic meaning collide.
      */
-    String fingerprintOf(PreparedInventoryReservation prepared) {
-        return sha256Hex(prepared.canonicalFingerprintInput(FINGERPRINT_VERSION));
+    String fingerprintOf(String orderId, InventoryReservationAllocation allocation) {
+        return sha256Hex(allocation.canonicalFingerprintInput(FINGERPRINT_VERSION, orderId));
     }
 
     private static String sha256Hex(String value) {

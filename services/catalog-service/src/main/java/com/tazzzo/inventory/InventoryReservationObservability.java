@@ -17,11 +17,11 @@ import java.util.Locale;
  * STANDALONE wrapper methods only, called AFTER their own {@code Tx.call} has committed — exactly
  * the same "success only after commit" rule every other domain in this codebase follows. The
  * SESSION-AWARE port methods ({@link InventoryReservationService#reserve(com.mongodb.client.ClientSession,
- * InventoryReservationCommand, java.time.Instant)} and friends) never call this: a session-aware
- * call is one step inside a CALLER's outer transaction, whose eventual commit or rollback this
- * class cannot observe — claiming durable success there would be a lie if the caller's transaction
- * later rolls back. A future Order composing this port is responsible for its OWN success metric,
- * recorded after ITS OWN outer transaction commits.
+ * PreparedInventoryReservation, InventoryReservationAllocation)} and friends) never call this: a
+ * session-aware call is one step inside a CALLER's outer transaction, whose eventual commit or
+ * rollback this class cannot observe — claiming durable success there would be a lie if the
+ * caller's transaction later rolls back. {@code customer.order} composes this port and is
+ * responsible for its OWN success metric, recorded after ITS OWN outer transaction commits.
  */
 @Component
 public class InventoryReservationObservability {

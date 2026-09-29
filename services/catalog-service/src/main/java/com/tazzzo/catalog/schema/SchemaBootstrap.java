@@ -101,7 +101,13 @@ public class SchemaBootstrap {
             // from one that never existed. Unique orderId below is BOTH the one-reservation-per-order
             // invariant and the concurrent-create race guard; expiry reconciliation always goes
             // through the same idempotent release() lifecycle, never a direct bulk edit.
-            "inventory_reservations");
+            "inventory_reservations",
+            // PR-14B: immutable Order Foundation documents, _id the opaque ORD_* id. Deliberately NO
+            // status/customer-history index and NO TTL in this PR -- no query needs one yet. Unique
+            // (customerId, quoteId) below is BOTH the structural one-quote-to-one-order invariant AND
+            // the concurrent-create race guard, the same idiom checkout_quotes/inventory_reservations
+            // already establish.
+            "orders");
 
     /**
      * PAG-2-SORT-1 transport support: the equality prefix the consumer-eligibility predicate uses,
@@ -295,6 +301,11 @@ public class SchemaBootstrap {
         // Bounded scan for the expiry-reconciliation worker: RESERVED headers past their expiresAt.
         db.getCollection("inventory_reservations").createIndex(
                 Indexes.ascending("status", "expiresAt"), new IndexOptions().name("inventory_reservation_expiry"));
+        // PR-14B: exactly one Order per (customer, quote) -- the structural guard that makes a
+        // concurrent same-(customerId, quoteId) createOrder race resolve to ONE durable Order.
+        db.getCollection("orders").createIndex(
+                Indexes.ascending("customerId", "quoteId"), new IndexOptions().name("order_one_per_quote")
+                        .unique(true));
     }
 
     /**

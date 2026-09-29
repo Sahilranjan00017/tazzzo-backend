@@ -1,0 +1,38 @@
+package com.tazzzo.customer.order;
+
+/**
+ * PR-14B — every way {@code OrderService.createOrder} can fail, as one typed exception carrying a
+ * closed {@link Reason}. This is an INTERNAL domain outcome — no customer HTTP endpoint exists in
+ * this PR — so messages may be as specific as useful; nothing here is a public error contract.
+ *
+ * <p>Deliberately excludes {@code SERVICEABILITY_CHANGED}: the final design resolves routing with
+ * exactly ONE authoritative read, taken INSIDE the transaction, so there is no stale pre-transaction
+ * route to compare against. Also excludes {@code ALREADY_EXISTS_DIFFERENT_INPUT}: unlike Inventory
+ * (which has a real allocation fingerprint an idempotent replay can conflict with),
+ * {@code (customerId, quoteId)} has no second semantic dimension to conflict on — a quote is
+ * immutable once created, so replaying order-creation for the same quote always means the same
+ * order. An unreachable reason kept merely "defensively" is exactly the dead surface this
+ * codebase's own conventions avoid.
+ */
+public final class OrderFailure extends RuntimeException {
+
+    public enum Reason {
+        INVALID_REQUEST, QUOTE_NOT_FOUND, QUOTE_EXPIRED, ADDRESS_CHANGED, NOT_SERVICEABLE, PRICE_CHANGED,
+        PRODUCT_UNAVAILABLE, STOCK_UNAVAILABLE, RESERVATION_EXPIRED, INTEGRITY_FAILURE, UNAVAILABLE
+    }
+
+    private final Reason reason;
+
+    public OrderFailure(Reason reason) {
+        this(reason, reason.name());
+    }
+
+    public OrderFailure(Reason reason, String message) {
+        super(message);
+        this.reason = reason;
+    }
+
+    public Reason reason() {
+        return reason;
+    }
+}
