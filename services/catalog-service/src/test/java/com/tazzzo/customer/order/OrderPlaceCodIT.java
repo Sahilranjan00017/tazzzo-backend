@@ -1,5 +1,8 @@
 package com.tazzzo.customer.order;
 
+import com.mongodb.MongoWriteException;
+import com.mongodb.ServerAddress;
+import com.mongodb.WriteError;
 import com.mongodb.client.ClientSession;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoDatabase;
@@ -37,6 +40,7 @@ import com.tazzzo.pricing.PricingService;
 import com.tazzzo.serviceability.ServiceabilityService;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import org.bson.BsonDocument;
 import org.bson.Document;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -970,6 +974,157 @@ class OrderPlaceCodIT extends AbstractMongoIT {
                 "com.tazzzo.customer.order.PaymentConditionAuthority", "com.tazzzo.customer.payment.PaymentService")) {
             assertThatThrownBy(() -> Class.forName(name)).isInstanceOf(ClassNotFoundException.class);
         }
+    }
+
+    // ============================================================
+    // duplicate-key (11000) recovery: the proof is the durable row, never MongoDB's error text
+    // ============================================================
+
+    /**
+     * TEST-ONLY. Reproduces a lost race: the contender's pre-transaction and in-transaction replay reads
+     * both saw "no Order yet", and its insert then fails with a synthetic 11000 whose message is chosen by
+     * the test. After the failure the reads see the real collection again (what recovery re-reads).
+     */
+    private static final class DuplicateKeyOnInsertOrders extends OrderRepository {
+        private final String message;
+        private volatile boolean hideExisting = true;
+
+        DuplicateKeyOnInsertOrders(MongoDatabase db, String message) {
+            super(db);
+            this.message = message;
+        }
+
+        @Override public Document findByCustomerAndQuote(String customerId, String quoteId) {
+            return hideExisting ? null : super.findByCustomerAndQuote(customerId, quoteId);
+        }
+
+        @Override public Document findByCustomerAndQuote(ClientSession session, String customerId, String quoteId) {
+            return hideExisting ? null : super.findByCustomerAndQuote(session, customerId, quoteId);
+        }
+
+        @Override public void insert(ClientSession session, Order order) {
+            hideExisting = false;
+            throw new MongoWriteException(new WriteError(11000, message, new BsonDocument()), new ServerAddress());
+        }
+    }
+
+    private OrderService contender(String duplicateMessage) {
+        Tx tx = new Tx(client);
+        Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
+        return service(tx, clock, new DuplicateKeyOnInsertOrders(db, duplicateMessage),
+                reservationService(tx, clock, 600), realCart(clock));
+    }
+
+    /** After a winner committed, put cart and stock back to their pre-placement state, so the contender
+     *  passes every guard and reaches its insert — and any side effect it leaves behind is detectable. */
+    private void rewindCartAndStock(Fixture f) {
+        db.getCollection("customer_carts").deleteMany(new Document());
+        seedCart(f.customerId().value(), f.cartVersion());
+        db.getCollection("inventory").updateOne(new Document("sku_id", SKU), new Document("$set",
+                new Document("on_hand", 10L).append("reserved", 0L)));
+    }
+
+    @Test void a_same_quote_duplicate_key_race_returns_the_durable_winner_create_only() {
+        Fixture f = fixture(1);
+        Order winner = service().createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD); // CREATED
+        long reservedBefore = reserved(LOC);
+        long reservationsBefore = count("inventory_reservations");
+
+        Order result = contender("unrelated text, no index name").createOrder(f.customerId(), f.quoteId().value(),
+                PaymentMethod.COD);
+
+        assertThat(result).isEqualTo(winner);
+        assertThat(count("orders")).isEqualTo(1);
+        assertThat(count("inventory_reservations")).isEqualTo(reservationsBefore); // contender rolled back
+        assertThat(reserved(LOC)).isEqualTo(reservedBefore);
+    }
+
+    @Test void cod_duplicate_recovery_with_a_CONFIRMED_winner_replays_without_any_second_mutation() {
+        Fixture f = fixture(1);
+        Order winner = service().placeCodOrder(f.customerId(), f.quoteId().value());
+        rewindCartAndStock(f);
+        Document cartBefore = cart(f);
+        long reservationsBefore = count("inventory_reservations");
+
+        Order result = contender("").placeCodOrder(f.customerId(), f.quoteId().value());
+
+        assertThat(result).isEqualTo(winner);
+        assertThat(result.status()).isEqualTo(OrderStatus.CONFIRMED);
+        assertThat(count("orders")).isEqualTo(1);
+        assertThat(count("inventory_reservations")).isEqualTo(reservationsBefore); // no second reserve
+        assertThat(onHand(LOC)).isEqualTo(10);                                      // no second consume
+        assertThat(reserved(LOC)).isZero();
+        assertThat(cart(f)).isEqualTo(cartBefore);                                  // no second cart mutation
+        assertThat(cart(f).containsKey("purchasedThroughVersion")).isFalse();       // marker not advanced by the loser
+        assertThat(counter("order_place_cod_success")).isEqualTo(2);                // winner + recovered replay
+    }
+
+    @Test void cod_duplicate_recovery_with_a_CREATED_winner_fails_closed_and_converts_nothing() {
+        Fixture f = fixture(1);
+        Order created = service().createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD);
+        Document cartBefore = cart(f);
+        long reservedBefore = reserved(LOC);
+
+        assertFailure(() -> contender("anything").placeCodOrder(f.customerId(), f.quoteId().value()),
+                OrderFailure.Reason.INTEGRITY_FAILURE);
+
+        Document stored = db.getCollection("orders").find(new Document("_id", created.orderId().value())).first();
+        assertThat(stored.getString("status")).isEqualTo("CREATED");                // not silently converted
+        assertThat(reservationDoc(created.reservationId()).getString("status")).isEqualTo("RESERVED");
+        assertThat(count("orders")).isEqualTo(1);
+        assertThat(reserved(LOC)).isEqualTo(reservedBefore);
+        assertThat(cart(f)).isEqualTo(cartBefore);
+    }
+
+    @Test void an_unrelated_duplicate_key_with_no_same_quote_order_is_an_integrity_failure() {
+        Fixture f = fixture(1);
+        Document cartBefore = cart(f);
+
+        assertFailure(() -> contender("E11000 duplicate key error ... some other unique index")
+                .placeCodOrder(f.customerId(), f.quoteId().value()), OrderFailure.Reason.INTEGRITY_FAILURE);
+
+        assertNothingCommitted(f, cartBefore); // the aborted transaction left nothing behind
+        assertThat(counter("order_place_cod_failure", "reason", "integrity_failure")).isEqualTo(1);
+    }
+
+    @Test void duplicate_recovery_never_depends_on_the_mongo_message_or_index_name() {
+        // the message that USED to be the discriminator, with NO same-quote Order: still an integrity
+        // failure -- the error text cannot turn an unrelated duplicate into a replay.
+        Fixture f = fixture(1);
+        Document cartBefore = cart(f);
+        assertFailure(() -> contender("index: order_one_per_quote dup key")
+                .placeCodOrder(f.customerId(), f.quoteId().value()), OrderFailure.Reason.INTEGRITY_FAILURE);
+        assertNothingCommitted(f, cartBefore);
+
+        // ... and with a same-quote Order present, ANY message (empty, unrelated, or naming another index)
+        // recovers the durable winner identically.
+        Fixture g = fixture2(f);
+        Order winner = service().placeCodOrder(g.customerId(), g.quoteId().value());
+        rewindCartAndStock(g);
+        for (String message : List.of("", "totally unrelated", "index: inventory_reservation_one_per_order dup key")) {
+            assertThat(contender(message).placeCodOrder(g.customerId(), g.quoteId().value())).isEqualTo(winner);
+        }
+        assertThat(count("orders")).isEqualTo(1);
+    }
+
+    /** A second, independent customer/quote on the same seeded world (price/product/stock/route are shared). */
+    private Fixture fixture2(Fixture base) {
+        CustomerId customerId = CustomerId.generate();
+        String addressId = AddressId.generate().value();
+        seedAddress(addressId, customerId.value(), 1L, "123 Test Street");
+        seedCart(customerId.value(), 1);
+        CheckoutQuoteId quoteId = CheckoutQuoteId.generate();
+        insertQuote(quoteId.value(), customerId, addressId, 1, NOW.plusSeconds(600));
+        return new Fixture(customerId, addressId, quoteId, 1);
+    }
+
+    @Test void order_service_source_does_not_parse_mongo_error_text() throws Exception {
+        java.nio.file.Path src = java.nio.file.Path.of("src/main/java/com/tazzzo/customer/order/OrderService.java");
+        org.junit.jupiter.api.Assumptions.assumeTrue(java.nio.file.Files.exists(src));
+        String code = java.nio.file.Files.readString(src);
+        assertThat(code).doesNotContain("order_one_per_quote");
+        assertThat(code).doesNotContain("getMessage().contains");
+        assertThat(code).doesNotContain(".getMessage()");
     }
 
     // ============================================================

@@ -223,25 +223,33 @@ public class OrderService {
             });
         } catch (MongoWriteException e) {
             if (e.getError().getCode() == 11000) {
-                if (e.getMessage() != null && e.getMessage().contains("order_one_per_quote")) {
-                    // lost a concurrent same-(customer,quote) race: resolve to the winner's ONE durable
-                    // Order, AS-IS -- the winner's own transaction already validated everything.
-                    Document winner = orders.findByCustomerAndQuote(customerId.value(), quoteIdRaw);
-                    if (winner != null) {
-                        return replay(OrderRepository.toOrder(winner), mode);
-                    }
-                    log.error("customer_order_duplicate_key_no_winner");
-                    throw new OrderFailure(OrderFailure.Reason.INTEGRITY_FAILURE,
-                            "duplicate-key error with no winning order row found");
-                }
-                // a duplicate key from ANY OTHER unique invariant is not a replay and must never be
-                // laundered into one.
-                log.error("customer_order_unexpected_duplicate_key");
-                throw new OrderFailure(OrderFailure.Reason.INTEGRITY_FAILURE,
-                        "duplicate key on an unexpected unique index");
+                return recoverFromDuplicateKey(customerId, quoteIdRaw, mode);
             }
             throw e;
         }
+    }
+
+    /**
+     * Duplicate-key (11000) recovery. Business correctness deliberately does NOT depend on anything
+     * MongoDB says about WHICH unique invariant tripped (no index name, no message text): the proof is
+     * the durable row, read OUTSIDE the failed transaction (which aborted and committed nothing).
+     * <ul>
+     *   <li>A same-(customerId, quoteId) Order exists: it is the authoritative result of this
+     *       idempotent request — whether this attempt lost the same-quote race or merely ALSO tripped
+     *       some other duplicate — so it is reconstructed strictly and passed through {@link #replay}
+     *       (for COD a {@code CREATED} winner therefore still fails closed, never converted).</li>
+     *   <li>No such Order exists: the duplicate came from some other unique invariant or an
+     *       inconsistent condition, and is never laundered into a replay: {@code INTEGRITY_FAILURE}.</li>
+     * </ul>
+     */
+    private Order recoverFromDuplicateKey(CustomerId customerId, String quoteIdRaw, Mode mode) {
+        Document winner = orders.findByCustomerAndQuote(customerId.value(), quoteIdRaw);
+        if (winner != null) {
+            return replay(OrderRepository.toOrder(winner), mode);
+        }
+        log.error("customer_order_duplicate_key_without_same_quote_order");
+        throw new OrderFailure(OrderFailure.Reason.INTEGRITY_FAILURE,
+                "duplicate key with no existing order for this customer and quote");
     }
 
     /** What an already-durable Order means to each mode. A COD placement only ever produces

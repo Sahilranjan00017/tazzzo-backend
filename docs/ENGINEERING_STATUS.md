@@ -566,8 +566,10 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   mean collected/authorized/captured, and a future `COD_COLLECTED` is a separate event. Only `COD` and
   `COD_DUE` exist (no prepaid/`PAYMENT_SUCCEEDED`/gateway vocabulary). New failure reason
   `CART_VERSION_ALREADY_PURCHASED`; Inventory `RELEASED`/expired at consume maps to
-  `RESERVATION_EXPIRED`; cart integrity problems map to `INTEGRITY_FAILURE`; a duplicate key on any
-  index other than `order_one_per_quote` is never treated as a replay. Metrics
+  `RESERVATION_EXPIRED`; cart integrity problems map to `INTEGRITY_FAILURE`; a duplicate key (11000) is
+  recovered by re-reading the durable same-(customer, quote) Order outside the aborted transaction —
+  found: strictly reconstructed and replayed (a COD `CREATED` winner still fails closed); not found:
+  `INTEGRITY_FAILURE`. Nothing depends on MongoDB's error text or index name. Metrics
   `order_place_cod_success`/`order_place_cod_failure{reason}` recorded only after the outer operation
   returns. No Membership, Benefits, prepaid, gateway, COD collection, cancellation, fulfilment or Admin.
   **DEPLOYMENT / PRODUCTION ROLLOUT BLOCKED UNTIL the deployed persistent `orders` collection has
@@ -674,6 +676,8 @@ is FUTURE work and not required for the production modular monolith.
 - **2026-09-30** — `./mvnw clean test` on Java 21 + Docker on `feature/pr15a1-cod-order-domain`
   (based on `main` `611829c`): **BUILD SUCCESS**, 1801 tests, 0 failures / 0 errors / 0 skipped
   (1764 baseline + 37 new in `OrderPlaceCodIT`); `ModuleBoundaryTest` 21/21.
+- **2026-09-30** — same branch after the duplicate-key recovery hardening: **BUILD SUCCESS**, 1807 tests,
+  0 failures / 0 errors / 0 skipped (+6 duplicate-recovery tests).
 - **2026-09-29** — `./mvnw clean test` on Java 21 + Docker on `feature/pr14a-inventory-reservation`
   (based on `main` `8b4fabb`, after the final clock-authority fix): **BUILD SUCCESS**,
   1688 tests, 0 failures / 0 errors / 0 skipped (1625 baseline + 63 new).
