@@ -24,7 +24,11 @@ public final class OrderFailure extends RuntimeException {
          *  produced an Order. Not an idempotency conflict — this quote has no Order; its source cart
          *  intent was consumed by another. Never raised for a same-quote replay (the durable Order
          *  lookup returns first). */
-        CART_VERSION_ALREADY_PURCHASED
+        CART_VERSION_ALREADY_PURCHASED,
+        /** PR-15A-2 — READ path only ({@code OrderService.getOrder}): the id is malformed, unknown,
+         *  owned by another customer, or names an internal non-{@code CONFIRMED} row. All four are one
+         *  indistinguishable outcome by design. The placement path never raises it. */
+        ORDER_NOT_FOUND
     }
 
     private final Reason reason;

@@ -152,12 +152,19 @@ class OrderPlaceCodIT extends AbstractMongoIT {
     // ---------- seeding ----------
 
     private void seedAddress(String addressId, String customerId, long version, String line1) {
+        seedAddress(addressId, customerId, version, line1, 12.9716, 77.5946);
+    }
+
+    /** {@code latitude}/{@code longitude} both null models a VALID coordinate-less saved address (stored as nulls,
+     *  exactly as the Address domain persists it). */
+    private void seedAddress(String addressId, String customerId, long version, String line1, Double latitude,
+                             Double longitude) {
         db.getCollection("customer_addresses").insertOne(new Document("_id", addressId)
                 .append("customerId", customerId).append("label", "HOME").append("recipientName", "Test Recipient")
                 .append("recipientPhone", "9999999999").append("addressLine1", line1)
                 .append("addressLine2", "Near Landmark").append("landmark", "Landmark")
                 .append("city", "Bengaluru").append("state", "Karnataka").append("postalCode", PIN)
-                .append("latitude", 12.9716).append("longitude", 77.5946).append("version", version)
+                .append("latitude", latitude).append("longitude", longitude).append("version", version)
                 .append("createdAt", Date.from(NOW)).append("updatedAt", Date.from(NOW)));
     }
 
@@ -219,9 +226,17 @@ class OrderPlaceCodIT extends AbstractMongoIT {
     /** One customer with cart at {@code cartVersion}, one address, one route, stock 10, and one unexpired
      *  quote (2 x 5000) taken from that cart version. */
     private Fixture fixture(long cartVersion) {
+        return fixture(cartVersion, true);
+    }
+
+    private Fixture fixture(long cartVersion, boolean withCoordinates) {
         CustomerId customerId = CustomerId.generate();
         String addressId = AddressId.generate().value();
-        seedAddress(addressId, customerId.value(), 1L, "123 Test Street");
+        if (withCoordinates) {
+            seedAddress(addressId, customerId.value(), 1L, "123 Test Street");
+        } else {
+            seedAddress(addressId, customerId.value(), 1L, "123 Test Street", null, null);
+        }
         seedServiceArea(LOC);
         seedPrice(5000);
         seedProduct();
@@ -969,9 +984,9 @@ class OrderPlaceCodIT extends AbstractMongoIT {
         assertThat(Arrays.stream(ConfirmedPaymentCondition.values()).map(Enum::name)).containsExactly("COD_DUE");
     }
 
-    @Test void no_order_http_controller_and_no_payment_types_exist_in_this_pr() {
-        for (String name : List.of("com.tazzzo.customer.order.OrderController",
-                "com.tazzzo.customer.order.PaymentConditionAuthority", "com.tazzzo.customer.payment.PaymentService")) {
+    @Test void no_speculative_payment_types_exist() {
+        for (String name : List.of("com.tazzzo.customer.order.PaymentConditionAuthority",
+                "com.tazzzo.customer.payment.PaymentService")) {
             assertThatThrownBy(() -> Class.forName(name)).isInstanceOf(ClassNotFoundException.class);
         }
     }
@@ -1125,6 +1140,104 @@ class OrderPlaceCodIT extends AbstractMongoIT {
         assertThat(code).doesNotContain("order_one_per_quote");
         assertThat(code).doesNotContain("getMessage().contains");
         assertThat(code).doesNotContain(".getMessage()");
+    }
+
+    // ============================================================
+    // optional coordinates: the Order snapshot follows the Address contract (both absent, or both valid)
+    // ============================================================
+
+    @Test void a_coordinate_less_address_places_a_normal_confirmed_cod_order() {
+        Fixture f = fixture(1, false);
+        Order o = service().placeCodOrder(f.customerId(), f.quoteId().value());
+
+        assertThat(o.status()).isEqualTo(OrderStatus.CONFIRMED);
+        assertThat(o.paymentMethod()).isEqualTo(PaymentMethod.COD);
+        assertThat(o.confirmedPaymentCondition()).isEqualTo(ConfirmedPaymentCondition.COD_DUE);
+        assertThat(o.addressSnapshot().latitude()).isNull();
+        assertThat(o.addressSnapshot().longitude()).isNull();
+        assertThat(o.addressSnapshot().addressLine1()).isEqualTo("123 Test Street");
+
+        assertThat(reservationDoc(o.reservationId()).getString("status")).isEqualTo("CONSUMED"); // inventory consumed
+        assertThat(onHand(LOC)).isEqualTo(8);
+        assertThat(reserved(LOC)).isZero();
+        Document cart = cart(f);                                                                  // cart finalized
+        assertThat(cart.getList("items", Document.class)).isEmpty();
+        assertThat(cart.get("version", Number.class).longValue()).isEqualTo(2);
+        assertThat(marker(cart)).isEqualTo(1);
+
+        Document stored = db.getCollection("orders").find(new Document("_id", o.orderId().value())).first();
+        Document addr = stored.get("addressSnapshot", Document.class);
+        assertThat(addr.get("latitude")).isNull();                   // persisted as absent, never 0.0 / NaN / a default
+        assertThat(addr.get("longitude")).isNull();
+        assertThat(OrderRepository.toOrder(stored)).isEqualTo(o);    // strict reconstruction succeeds
+        assertThat(service().placeCodOrder(f.customerId(), f.quoteId().value())).isEqualTo(o); // replay works too
+        assertThat(count("orders")).isEqualTo(1);
+        assertThat(onHand(LOC)).isEqualTo(8);
+    }
+
+    @Test void an_address_with_coordinates_still_persists_and_replays_them_unchanged() {
+        Fixture f = fixture(1, true);
+        Order o = service().placeCodOrder(f.customerId(), f.quoteId().value());
+        assertThat(o.addressSnapshot().latitude()).isEqualTo(12.9716);
+        assertThat(o.addressSnapshot().longitude()).isEqualTo(77.5946);
+        Document stored = db.getCollection("orders").find(new Document("_id", o.orderId().value())).first();
+        assertThat(stored.get("addressSnapshot", Document.class).getDouble("latitude")).isEqualTo(12.9716);
+        assertThat(stored.get("addressSnapshot", Document.class).getDouble("longitude")).isEqualTo(77.5946);
+        assertThat(OrderRepository.toOrder(stored)).isEqualTo(o);
+    }
+
+    /** Sets/clears one coordinate field on the stored Order's address snapshot. */
+    private void corruptSnapshotCoordinates(String orderId, Object latitude, Object longitude) {
+        Document set = new Document();
+        Document unset = new Document();
+        if (latitude == null) unset.append("addressSnapshot.latitude", ""); else set.append("addressSnapshot.latitude", latitude);
+        if (longitude == null) unset.append("addressSnapshot.longitude", ""); else set.append("addressSnapshot.longitude", longitude);
+        Document update = new Document();
+        if (!set.isEmpty()) update.append("$set", set);
+        if (!unset.isEmpty()) update.append("$unset", unset);
+        db.getCollection("orders").updateOne(new Document("_id", orderId), update);
+    }
+
+    @Test void a_persisted_half_coordinate_pair_fails_loud_on_reconstruction_and_replay_never_defaulted() {
+        Fixture f = fixture(1, true);
+        Order o = service().placeCodOrder(f.customerId(), f.quoteId().value());
+        String id = o.orderId().value();
+
+        corruptSnapshotCoordinates(id, 12.9716, null);   // latitude present, longitude absent
+        assertThatThrownBy(() -> OrderRepository.toOrder(db.getCollection("orders").find(new Document("_id", id)).first()))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service().placeCodOrder(f.customerId(), f.quoteId().value()))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        corruptSnapshotCoordinates(id, null, 77.5946);   // longitude present, latitude absent
+        assertThatThrownBy(() -> OrderRepository.toOrder(db.getCollection("orders").find(new Document("_id", id)).first()))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service().placeCodOrder(f.customerId(), f.quoteId().value()))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test void persisted_out_of_range_or_non_finite_snapshot_coordinates_fail_loud() {
+        Fixture f = fixture(1, true);
+        String id = service().placeCodOrder(f.customerId(), f.quoteId().value()).orderId().value();
+        for (double[] bad : new double[][]{{91.0, 0.0}, {-91.0, 0.0}, {0.0, 181.0}, {0.0, -181.0},
+                {Double.NaN, 0.0}, {0.0, Double.NaN}, {Double.POSITIVE_INFINITY, 0.0}, {0.0, Double.NEGATIVE_INFINITY}}) {
+            corruptSnapshotCoordinates(id, bad[0], bad[1]);
+            assertThatThrownBy(() -> OrderRepository.toOrder(db.getCollection("orders").find(new Document("_id", id)).first()))
+                    .as("lat=%s lon=%s", bad[0], bad[1]).isInstanceOf(IllegalArgumentException.class);
+        }
+        corruptSnapshotCoordinates(id, "north", "east"); // present but not numeric: corruption, never defaulted
+        assertThatThrownBy(() -> OrderRepository.toOrder(db.getCollection("orders").find(new Document("_id", id)).first()))
+                .isInstanceOf(RuntimeException.class);
+    }
+
+    @Test void a_corrupt_half_pair_on_the_SOURCE_address_aborts_the_placement_and_writes_nothing() {
+        Fixture f = fixture(1, true);
+        db.getCollection("customer_addresses").updateOne(new Document("_id", f.addressId()),
+                new Document("$set", new Document("longitude", null))); // latitude present, longitude null
+        Document cartBefore = cart(f);
+        assertThatThrownBy(() -> service().placeCodOrder(f.customerId(), f.quoteId().value()))
+                .isInstanceOf(IllegalArgumentException.class); // never defaulted into an Order
+        assertNothingCommitted(f, cartBefore);
     }
 
     // ============================================================

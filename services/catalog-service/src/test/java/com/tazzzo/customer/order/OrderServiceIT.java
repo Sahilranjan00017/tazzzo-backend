@@ -679,8 +679,15 @@ class OrderServiceIT extends AbstractMongoIT {
         brokenClient.close();
     }
 
-    @Test void no_order_http_controller_exists_in_this_pr() {
-        assertThatThrownBy(() -> Class.forName("com.tazzzo.customer.order.OrderController"))
-                .isInstanceOf(ClassNotFoundException.class);
+    @Test void the_internal_create_only_path_is_not_public_so_no_http_layer_can_reach_it() throws Exception {
+        // PR-15A-2 adds the customer HTTP surface; the ONLY placement it may call is placeCodOrder. The
+        // create-only path (CREATED + RESERVED) stays package-private (ModuleBoundaryTest also forbids any
+        // controller from calling it).
+        java.lang.reflect.Method createOnly = OrderService.class.getDeclaredMethod("createOrder", CustomerId.class,
+                String.class, PaymentMethod.class);
+        assertThat(java.lang.reflect.Modifier.isPublic(createOnly.getModifiers())).isFalse();
+        java.lang.reflect.Method cod = OrderService.class.getDeclaredMethod("placeCodOrder", CustomerId.class,
+                String.class);
+        assertThat(java.lang.reflect.Modifier.isPublic(cod.getModifiers())).isTrue();
     }
 }

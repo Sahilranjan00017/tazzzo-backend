@@ -179,7 +179,14 @@ final class OrderDraftAssembler {
         return new OrderAddressSnapshot(a.getString("label"), a.getString("recipientName"),
                 a.getString("recipientPhone"), a.getString("addressLine1"), a.getString("addressLine2"),
                 a.getString("landmark"), a.getString("city"), a.getString("state"), a.getString("postalCode"),
-                a.get("latitude", Number.class).doubleValue(), a.get("longitude", Number.class).doubleValue());
+                nullableDouble(a, "latitude"), nullableDouble(a, "longitude"));
+    }
+
+    /** A coordinate-less saved address is VALID (both absent): preserve null, never call doubleValue()
+     *  on it and never invent a default. A half pair is rejected by {@link OrderAddressSnapshot}. */
+    private static Double nullableDouble(Document a, String field) {
+        Number n = a.get(field, Number.class);
+        return n == null ? null : n.doubleValue();
     }
 
     private void verifyIdentityExists(ClientSession session, CustomerId customerId) {
