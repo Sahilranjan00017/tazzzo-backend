@@ -47,6 +47,22 @@ public class OrderObservability {
                 .tag("reason", reason.name().toLowerCase(Locale.ROOT)).register(registry).increment());
     }
 
+    /**
+     * PR-15A-1 — COD placement success: a placed-OR-replayed operation (same definition as
+     * {@link #success}), recorded ONLY by {@code OrderService.placeCodOrder} after its outer
+     * transaction (or the durable fast path) has returned a value. Never from a session-aware
+     * collaborator (Inventory, CartPurchase, the assembler): only the outer operation knows the commit
+     * happened, and a rolled-back attempt must never be counted.
+     */
+    public void placeCodSuccess() {
+        safely(() -> Counter.builder("order_place_cod_success").register(registry).increment());
+    }
+
+    public void placeCodFailure(OrderFailure.Reason reason) {
+        safely(() -> Counter.builder("order_place_cod_failure")
+                .tag("reason", reason.name().toLowerCase(Locale.ROOT)).register(registry).increment());
+    }
+
     private static void safely(Runnable recording) {
         try {
             recording.run();

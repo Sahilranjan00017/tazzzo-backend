@@ -1,14 +1,19 @@
 package com.tazzzo.customer.order;
 
 /**
- * PR-14B — Order Foundation ships exactly ONE reachable status. No speculative values: an Order
- * created by this PR is always {@code CREATED} (paired 1:1 with a {@code RESERVED} Inventory
- * reservation, never inserted otherwise). A future PR-15A introduces {@code CONFIRMED} — reachable
- * only when a payment condition is satisfied AND the reservation transitions to {@code CONSUMED}
- * atomically with the Order status change (see {@code OrderService}'s class-level documentation) —
- * and {@code CANCELLED}. Adding a status this PR can never produce would be exactly the kind of
- * defensive-but-dead surface this codebase's own conventions avoid elsewhere.
+ * PR-15A-1 — the Order state machine, exactly two reachable statuses, each with a real producer:
+ * <ul>
+ *   <li>{@code CREATED} (version 1) — produced ONLY by the internal create-only path
+ *       ({@code OrderService.createOrder}, paired with a {@code RESERVED} reservation). No customer-
+ *       reachable operation produces it; it exists so a future prepaid flow can compose it.</li>
+ *   <li>{@code CONFIRMED} (version 2) — produced by COD placement
+ *       ({@code OrderService.placeCodOrder}), born confirmed in ONE transaction alongside a
+ *       {@code CONSUMED} reservation. {@code version} is the state-machine position, not a count of
+ *       Mongo writes: a direct COD placement never commits {@code CREATED}, yet is still version 2 so a
+ *       future {@code CREATED -> CONFIRMED} CAS ({@code 1 -> 2}) yields the same coherent model.</li>
+ * </ul>
+ * No {@code CANCELLED}/{@code SHIPPED}/... — nothing produces them yet.
  */
 public enum OrderStatus {
-    CREATED
+    CREATED, CONFIRMED
 }
