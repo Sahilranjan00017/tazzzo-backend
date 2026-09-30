@@ -1,7 +1,7 @@
 package com.tazzzo.customer.order;
 
 /**
- * PR-14B — every way {@code OrderService.createOrder} can fail, as one typed exception carrying a
+ * PR-14B — every way {@code OrderService.createOrder}/{@code placeCodOrder} can fail, as one typed exception carrying a
  * closed {@link Reason}. This is an INTERNAL domain outcome — no customer HTTP endpoint exists in
  * this PR — so messages may be as specific as useful; nothing here is a public error contract.
  *
@@ -18,7 +18,13 @@ public final class OrderFailure extends RuntimeException {
 
     public enum Reason {
         INVALID_REQUEST, QUOTE_NOT_FOUND, QUOTE_EXPIRED, ADDRESS_CHANGED, NOT_SERVICEABLE, PRICE_CHANGED,
-        PRODUCT_UNAVAILABLE, STOCK_UNAVAILABLE, RESERVATION_EXPIRED, INTEGRITY_FAILURE, UNAVAILABLE
+        PRODUCT_UNAVAILABLE, STOCK_UNAVAILABLE, RESERVATION_EXPIRED, INTEGRITY_FAILURE, UNAVAILABLE,
+        /** PR-15A-1 — a FRESH placement whose source cart version is already covered by
+         *  {@code purchasedThroughVersion}: a DIFFERENT quote from the same (or an older) cart already
+         *  produced an Order. Not an idempotency conflict — this quote has no Order; its source cart
+         *  intent was consumed by another. Never raised for a same-quote replay (the durable Order
+         *  lookup returns first). */
+        CART_VERSION_ALREADY_PURCHASED
     }
 
     private final Reason reason;

@@ -10,22 +10,38 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * PR-14B — the immutable Order Foundation record: the durable result of one successful
- * {@code OrderService.createOrder} transaction. Every value carried here was validated/read INSIDE
- * that SAME transaction — never a pre-transaction snapshot, never re-derived afterward. The
- * compact constructor validates every invariant a caller relies on and fails LOUD (never
- * normalizes), the same convention {@code CheckoutQuote}/{@code InventoryReservation} already
- * established, including when reconstructing from a corrupt Mongo document.
+ * The immutable Order record: the durable result of one successful order transaction. Every value
+ * carried here was validated/read INSIDE that SAME transaction — never a pre-transaction snapshot,
+ * never re-derived afterward. The compact constructor validates every invariant a caller relies on
+ * and fails LOUD (never normalizes), the same convention {@code CheckoutQuote}/
+ * {@code InventoryReservation} established, including when reconstructing from a corrupt Mongo
+ * document.
  *
- * <p>Deliberately excludes {@code discountPaise}/{@code taxPaise}/{@code feePaise} and any payment
- * field: Membership/Benefits/Promotion/Payment do not exist yet in this codebase, and a
- * placeholder-zero field would misrepresent "this concept has been designed for" when it has only
- * been left a gap for. See {@code OrderService}'s class-level documentation for the ratified
- * forward-compatible money model those future PRs will extend into.
+ * <p><b>PR-15A-1 strict schema.</b> Adds {@code version}, {@code paymentMethod},
+ * {@code confirmedPaymentCondition} and {@code confirmedAt}. There is NO compatibility shim and NO
+ * default for a persisted row: a document missing a required field fails loudly (see
+ * {@code OrderRepository.toOrder}). Rolling this schema out is gated on the deployed {@code orders}
+ * collection being empty in every persistent environment — an operational prerequisite recorded in
+ * {@code docs/ENGINEERING_STATUS.md}.
+ *
+ * <p><b>Status invariants</b> (the state machine, see {@link OrderStatus}):
+ * <ul>
+ *   <li>{@code CREATED}: {@code version == 1}, {@code confirmedAt == null},
+ *       {@code confirmedPaymentCondition == null}.</li>
+ *   <li>{@code CONFIRMED}: {@code version == 2}, {@code paymentMethod == COD},
+ *       {@code confirmedPaymentCondition == COD_DUE}, {@code confirmedAt != null},
+ *       {@code confirmedAt >= createdAt}, {@code updatedAt >= confirmedAt}.</li>
+ * </ul>
+ *
+ * <p>Deliberately excludes {@code discountPaise}/{@code taxPaise}/{@code feePaise}: Membership/
+ * Benefits/Promotion do not exist yet, and a placeholder-zero field would misrepresent "designed for"
+ * when it has only been left a gap for. See {@code OrderService}'s class-level documentation.
  */
-public record Order(OrderId orderId, String customerId, String quoteId, OrderStatus status, String addressId,
-                    long addressVersion, OrderAddressSnapshot addressSnapshot, List<OrderLine> lines, int itemCount,
-                    long subtotalPaise, String currency, String reservationId, Instant createdAt,
+public record Order(OrderId orderId, String customerId, String quoteId, OrderStatus status,
+                    PaymentMethod paymentMethod, long version, String addressId, long addressVersion,
+                    OrderAddressSnapshot addressSnapshot, List<OrderLine> lines, int itemCount,
+                    long subtotalPaise, String currency, String reservationId,
+                    ConfirmedPaymentCondition confirmedPaymentCondition, Instant createdAt, Instant confirmedAt,
                     Instant updatedAt) {
 
     public Order {
@@ -40,6 +56,9 @@ public record Order(OrderId orderId, String customerId, String quoteId, OrderSta
         }
         if (status == null) {
             throw new IllegalArgumentException("status required");
+        }
+        if (paymentMethod == null) {
+            throw new IllegalArgumentException("paymentMethod required");
         }
         if (addressId == null) {
             throw new IllegalArgumentException("addressId required");
@@ -88,6 +107,36 @@ public record Order(OrderId orderId, String customerId, String quoteId, OrderSta
         }
         if (updatedAt.isBefore(createdAt)) {
             throw new IllegalArgumentException("updatedAt must not precede createdAt");
+        }
+        switch (status) {
+            case CREATED -> {
+                if (version != 1) {
+                    throw new IllegalArgumentException("CREATED order must be version 1: " + version);
+                }
+                if (confirmedAt != null || confirmedPaymentCondition != null) {
+                    throw new IllegalArgumentException("CREATED order must not carry confirmation fields");
+                }
+            }
+            case CONFIRMED -> {
+                if (version != 2) {
+                    throw new IllegalArgumentException("CONFIRMED order must be version 2: " + version);
+                }
+                if (paymentMethod != PaymentMethod.COD) {
+                    throw new IllegalArgumentException("CONFIRMED order requires paymentMethod COD");
+                }
+                if (confirmedPaymentCondition != ConfirmedPaymentCondition.COD_DUE) {
+                    throw new IllegalArgumentException("CONFIRMED COD order requires condition COD_DUE");
+                }
+                if (confirmedAt == null) {
+                    throw new IllegalArgumentException("CONFIRMED order requires confirmedAt");
+                }
+                if (confirmedAt.isBefore(createdAt)) {
+                    throw new IllegalArgumentException("confirmedAt must not precede createdAt");
+                }
+                if (updatedAt.isBefore(confirmedAt)) {
+                    throw new IllegalArgumentException("updatedAt must not precede confirmedAt");
+                }
+            }
         }
     }
 }

@@ -491,9 +491,9 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   type this block describes has been removed; the standalone `reserve(orderId, location, items)`
   convenience method's external signature/behavior is unchanged.
 
-## In review (NOT merged)
-
-- **PR-14B — Order Foundation** (`com.tazzzo.customer.order`): **IN REVIEW**. Internal Order
+- **PR-14B — Order Foundation** (`com.tazzzo.customer.order`): **COMPLETE** (PR #26, squash
+  `b620538e34afc35f7f080461750681b467ed4096`). *(PR-15A-1 below evolves this entry's schema and adds COD
+  placement.)* Internal Order
   creation from an owned, unexpired `CheckoutQuote`, atomically alongside an Inventory reservation.
   The durable `(customerId, quoteId)` Order row is the idempotency authority: once it exists, it
   wins over every later mutable authority (quote expiry, address, serviceability, price, catalog
@@ -523,7 +523,8 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   Payment, COD confirmation, prepaid flow, gateway, Membership, Benefits/Promotion, coupons,
   Admin/CMS, fulfilment workflow, or customer-facing Order HTTP endpoint in this PR.
 
-- **PR-15A-0 — Cart purchase-finalization seam** (`com.tazzzo.customer.cart`): **IN REVIEW**. First
+- **PR-15A-0 — Cart purchase-finalization seam** (`com.tazzzo.customer.cart`): **COMPLETE** (PR #28, squash
+  `611829c3649de3f5c37dec4ac5b375a1d8ef454e`). First
   of three PR-15A steps (15A-1 Order COD domain, 15A-2 customer HTTP). Cart-only: no Order code, no
   HTTP. Adds `CartPurchasePort` (session-aware, joins the CALLER's transaction, never opens one,
   records no metrics) so a future COD placement can keep a purchased cart from yielding a second
@@ -539,6 +540,41 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   rule that `customer.order` may reach the cart only through this port and its result/integrity
   types. **Operational gate (PENDING, not verified from the repo):** the `orders` collection must
   contain 0 documents in every deployed persistent environment before PR-15A-1 is deployed.
+
+## In review (NOT merged)
+
+- **PR-15A-1 — COD Order domain** (`com.tazzzo.customer.order`): **IN REVIEW**. Domain only — **NOT
+  customer reachable** (PR-15A-2 adds `POST/GET /v1/customer/orders`; no controller, no OpenAPI here).
+  `OrderService.placeCodOrder(customerId, quoteId)` atomically produces, in ONE outer Mongo
+  transaction: Order `CONFIRMED` (version 2, `paymentMethod=COD`, `confirmedPaymentCondition=COD_DUE`,
+  `confirmedAt`), its Inventory reservation `CONSUMED` (reserve then consume in the same session via
+  `InventoryReservationPort`), `purchasedThroughVersion` raised, and the source cart cleared only if
+  still at the quote's version (`CartPurchasePort`, PR-15A-0). A COD placement never commits an
+  intermediate `CREATED`, so there is no recoverable two-transaction gap and no dead-`CREATED` failure
+  mode; a COD reservation is never committed `RESERVED`, so the expiry worker has nothing to race.
+  Sequence inside `Tx.call`: durable same-quote replay (authoritative, FIRST — `CONFIRMED` returned
+  untouched, never rejected by the cart marker) -> quote expiry + identity -> **cart-purchase guard**
+  (`CART_VERSION_ALREADY_PURCHASED`, before any destructive write) -> address / serviceability /
+  price / catalog / allocation / reserve -> consume (+ order-linkage check) -> cart finalization ->
+  insert. The shared checks live in ONE package-private `OrderDraftAssembler` (session-aware, opens no
+  transaction, records no metric) used by both the internal create-only path (`CREATED`, version 1,
+  `RESERVED` reservation — package-private `createOrder`, no customer-reachable caller, kept for a
+  future prepaid composition) and COD placement, which differ only in how they finish. Strict Order
+  schema: `version`, `paymentMethod`, `confirmedPaymentCondition`, `confirmedAt` are required where the
+  status demands them and a persisted row missing one **fails loudly — no compatibility shim, no
+  defaults**. `COD_DUE` means confirmed + inventory consumed + payment owed on delivery; it does not
+  mean collected/authorized/captured, and a future `COD_COLLECTED` is a separate event. Only `COD` and
+  `COD_DUE` exist (no prepaid/`PAYMENT_SUCCEEDED`/gateway vocabulary). New failure reason
+  `CART_VERSION_ALREADY_PURCHASED`; Inventory `RELEASED`/expired at consume maps to
+  `RESERVATION_EXPIRED`; cart integrity problems map to `INTEGRITY_FAILURE`; a duplicate key on any
+  index other than `order_one_per_quote` is never treated as a replay. Metrics
+  `order_place_cod_success`/`order_place_cod_failure{reason}` recorded only after the outer operation
+  returns. No Membership, Benefits, prepaid, gateway, COD collection, cancellation, fulfilment or Admin.
+  **DEPLOYMENT / PRODUCTION ROLLOUT BLOCKED UNTIL the deployed persistent `orders` collection has
+  document count == 0 in EVERY persistent environment receiving this strict schema — PENDING, NOT
+  verified (repository inspection is not proof).** If rows are ever found, stop: an explicit
+  migration-or-deletion decision is required before deploying. Do not claim production readiness while
+  this is pending.
 
 ## Follow-up debt (recorded)
 
@@ -597,7 +633,7 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   `PublicServiceability`, pincode-keyed routing) is **COMPLETE** and unchanged; the
   customer-address BINDING to it (PR-12B) is **COMPLETE**.
   (Address ↔ Serviceability binding: COMPLETE.)
-- Cart (PR-12C): **COMPLETE** (PR #21). Auth transaction retry hardening (PR-11D): **COMPLETE** (PR #22). Checkout (PR-13A): **COMPLETE** (PR #23). Checkout provenance (PR-13B): **COMPLETE** (PR #24, squash `8b4fabb9b82e4e3502202ffaff1aadd35f9ba311`). Inventory Reservation lifecycle (PR-14A): **COMPLETE** (PR #25, squash `44438031022238334ecdf3995ba1096101e2e47f`). Order Foundation (PR-14B): **IN REVIEW** (not merged). Membership: **NOT STARTED**. Benefits/Promotion: **NOT STARTED**. Payment: **NOT STARTED**. Real payment gateway: **NOT STARTED**.
+- Cart (PR-12C): **COMPLETE** (PR #21). Auth transaction retry hardening (PR-11D): **COMPLETE** (PR #22). Checkout (PR-13A): **COMPLETE** (PR #23). Checkout provenance (PR-13B): **COMPLETE** (PR #24, squash `8b4fabb9b82e4e3502202ffaff1aadd35f9ba311`). Inventory Reservation lifecycle (PR-14A): **COMPLETE** (PR #25, squash `44438031022238334ecdf3995ba1096101e2e47f`). Order Foundation (PR-14B): **COMPLETE** (PR #26, squash `b620538e34afc35f7f080461750681b467ed4096`). Cart purchase-finalization seam (PR-15A-0): **COMPLETE** (PR #28, squash `611829c3649de3f5c37dec4ac5b375a1d8ef454e`). COD Order domain (PR-15A-1): **IN REVIEW** (not merged; not customer reachable — PR-15A-2 HTTP **NOT STARTED**; operational `orders`-count==0 gate **PENDING**). Membership: **NOT STARTED**. Benefits/Promotion: **NOT STARTED**. Payment: **NOT STARTED**. Real payment gateway: **NOT STARTED**.
 
 ## Next (ratified sequence)
 
@@ -635,6 +671,9 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-09-30** — `./mvnw clean test` on Java 21 + Docker on `feature/pr15a1-cod-order-domain`
+  (based on `main` `611829c`): **BUILD SUCCESS**, 1801 tests, 0 failures / 0 errors / 0 skipped
+  (1764 baseline + 37 new in `OrderPlaceCodIT`); `ModuleBoundaryTest` 21/21.
 - **2026-09-29** — `./mvnw clean test` on Java 21 + Docker on `feature/pr14a-inventory-reservation`
   (based on `main` `8b4fabb`, after the final clock-authority fix): **BUILD SUCCESS**,
   1688 tests, 0 failures / 0 errors / 0 skipped (1625 baseline + 63 new).

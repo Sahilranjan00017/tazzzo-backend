@@ -12,7 +12,8 @@ import java.util.Date;
 import java.util.List;
 
 /**
- * PR-14B — {@code orders}, one immutable document per committed Order, {@code _id} the opaque
+ * PR-14B/PR-15A-1 — {@code orders}, one document per committed Order (PR-15A-1 introduces the strict
+ * schema — see {@link Order}; nothing mutates a row in this PR), {@code _id} the opaque
  * {@code ORD_...} id. The unique {@code (customerId, quoteId)} index (see {@code SchemaBootstrap})
  * is BOTH the structural one-quote-to-one-order guarantee AND the concurrent-create race guard —
  * the same idiom {@code InventoryReservationRepository.orderId} and
@@ -64,13 +65,19 @@ public class OrderRepository {
                 .append("addressLine2", a.addressLine2()).append("landmark", a.landmark())
                 .append("city", a.city()).append("state", a.state()).append("postalCode", a.postalCode())
                 .append("latitude", a.latitude()).append("longitude", a.longitude());
-        return new Document("_id", o.orderId().value()).append("customerId", o.customerId())
+        Document d = new Document("_id", o.orderId().value()).append("customerId", o.customerId())
                 .append("quoteId", o.quoteId()).append("status", o.status().name())
+                .append("paymentMethod", o.paymentMethod().name()).append("version", o.version())
                 .append("addressId", o.addressId()).append("addressVersion", o.addressVersion())
                 .append("addressSnapshot", addressSnapshot).append("lines", lines)
                 .append("itemCount", o.itemCount()).append("subtotalPaise", o.subtotalPaise())
                 .append("currency", o.currency()).append("reservationId", o.reservationId())
                 .append("createdAt", Date.from(o.createdAt())).append("updatedAt", Date.from(o.updatedAt()));
+        if (o.confirmedAt() != null) { // present ONLY on a CONFIRMED order (Order's constructor enforces it)
+            d.append("confirmedPaymentCondition", o.confirmedPaymentCondition().name())
+                    .append("confirmedAt", Date.from(o.confirmedAt()));
+        }
+        return d;
     }
 
     /**
@@ -92,11 +99,35 @@ public class OrderRepository {
                 a.getString("addressLine2"), a.getString("landmark"), a.getString("city"), a.getString("state"),
                 a.getString("postalCode"), a.get("latitude", Number.class).doubleValue(),
                 a.get("longitude", Number.class).doubleValue());
+        OrderStatus status = OrderStatus.valueOf(requireString(d, "status"));
+        Object rawCondition = d.get("confirmedPaymentCondition");
+        Object rawConfirmedAt = d.get("confirmedAt");
         return new Order(new OrderId(d.getString("_id")), d.getString("customerId"), d.getString("quoteId"),
-                OrderStatus.valueOf(d.getString("status")), d.getString("addressId"),
-                d.get("addressVersion", Number.class).longValue(), addressSnapshot, List.copyOf(lines),
-                d.get("itemCount", Number.class).intValue(), d.get("subtotalPaise", Number.class).longValue(),
-                d.getString("currency"), d.getString("reservationId"), d.getDate("createdAt").toInstant(),
+                status, PaymentMethod.valueOf(requireString(d, "paymentMethod")), requireLong(d, "version"),
+                d.getString("addressId"), d.get("addressVersion", Number.class).longValue(), addressSnapshot,
+                List.copyOf(lines), d.get("itemCount", Number.class).intValue(),
+                d.get("subtotalPaise", Number.class).longValue(), d.getString("currency"),
+                d.getString("reservationId"),
+                rawCondition == null ? null : ConfirmedPaymentCondition.valueOf(requireString(d, "confirmedPaymentCondition")),
+                d.getDate("createdAt").toInstant(),
+                rawConfirmedAt == null ? null : d.getDate("confirmedAt").toInstant(),
                 d.getDate("updatedAt").toInstant());
+    }
+
+    /** PR-15A-1 — strict schema: no default for a missing required field, ever. */
+    private static String requireString(Document d, String field) {
+        Object v = d.get(field);
+        if (!(v instanceof String s) || s.isBlank()) {
+            throw new IllegalStateException("order document missing/invalid required field: " + field);
+        }
+        return s;
+    }
+
+    private static long requireLong(Document d, String field) {
+        Object v = d.get(field);
+        if (!(v instanceof Number n)) {
+            throw new IllegalStateException("order document missing/invalid required field: " + field);
+        }
+        return n.longValue();
     }
 }

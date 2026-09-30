@@ -93,7 +93,9 @@ class OrderServiceIT extends AbstractMongoIT {
                 new InventoryReservationObservability(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()),
                 clock, tx);
         return new OrderService(new OrderRepository(db), new CheckoutQuoteRepository(db), new AddressRepository(db),
-                serviceability, pricing, catalog, reservations, clock, ALWAYS_EXISTS, tx,
+                serviceability, pricing, catalog, reservations,
+                new com.tazzzo.customer.cart.CartPurchaseService(new com.tazzzo.customer.cart.CartRepository(db), clock),
+                clock, ALWAYS_EXISTS, tx,
                 new OrderObservability(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
     }
 
@@ -193,7 +195,7 @@ class OrderServiceIT extends AbstractMongoIT {
 
     @Test void a_valid_fresh_quote_creates_an_order_in_CREATED_status() {
         Fixture f = standardFixture();
-        Order order = orderService().createOrder(f.customerId(), f.quoteId().value());
+        Order order = orderService().createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD);
         assertThat(order.status()).isEqualTo(OrderStatus.CREATED);
         assertThat(order.lines()).hasSize(1);
         assertThat(order.lines().get(0).title()).isEqualTo("Order Widget");
@@ -202,7 +204,7 @@ class OrderServiceIT extends AbstractMongoIT {
 
     @Test void the_paired_inventory_reservation_is_RESERVED_after_creation() {
         Fixture f = standardFixture();
-        Order order = orderService().createOrder(f.customerId(), f.quoteId().value());
+        Order order = orderService().createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD);
         Document reservation = db.getCollection("inventory_reservations")
                 .find(new Document("_id", order.reservationId())).first();
         assertThat(reservation).isNotNull();
@@ -212,7 +214,7 @@ class OrderServiceIT extends AbstractMongoIT {
 
     @Test void the_unique_customerId_quoteId_index_structurally_forbids_a_second_order_for_one_quote() {
         Fixture f = standardFixture();
-        orderService().createOrder(f.customerId(), f.quoteId().value()); // inserts itself via its own tx
+        orderService().createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD); // inserts itself via its own tx
         // a raw second insert attempt with the SAME (customerId, quoteId) but a different _id must
         // violate the unique index -- proving the structural guarantee, not merely a service-level check.
         assertThatThrownBy(() -> db.getCollection("orders").insertOne(new Document("_id", "ORD_second")
@@ -227,8 +229,8 @@ class OrderServiceIT extends AbstractMongoIT {
 
     @Test void a_replay_of_the_same_quote_returns_the_same_order() {
         Fixture f = standardFixture();
-        Order first = orderService().createOrder(f.customerId(), f.quoteId().value());
-        Order second = orderService().createOrder(f.customerId(), f.quoteId().value());
+        Order first = orderService().createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD);
+        Order second = orderService().createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD);
         assertThat(second.orderId()).isEqualTo(first.orderId());
         assertThat(db.getCollection("orders").countDocuments()).isEqualTo(1);
     }
@@ -239,84 +241,84 @@ class OrderServiceIT extends AbstractMongoIT {
 
     @Test void existing_order_fast_path_never_touches_checkout_quote_storage() {
         Fixture f = standardFixture();
-        orderService().createOrder(f.customerId(), f.quoteId().value());
+        orderService().createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD);
         db.getCollection("checkout_quotes").deleteMany(new Document()); // remove the quote entirely
-        Order replay = orderService().createOrder(f.customerId(), f.quoteId().value());
+        Order replay = orderService().createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD);
         assertThat(replay.quoteId()).isEqualTo(f.quoteId().value());
     }
 
     @Test void existing_order_returned_after_quote_deleted() {
         Fixture f = standardFixture();
-        Order first = orderService().createOrder(f.customerId(), f.quoteId().value());
+        Order first = orderService().createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD);
         db.getCollection("checkout_quotes").deleteMany(new Document());
-        Order replay = orderService().createOrder(f.customerId(), f.quoteId().value());
+        Order replay = orderService().createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD);
         assertThat(replay.orderId()).isEqualTo(first.orderId());
     }
 
     @Test void existing_order_returned_after_quote_corrupted() {
         Fixture f = standardFixture();
-        Order first = orderService().createOrder(f.customerId(), f.quoteId().value());
+        Order first = orderService().createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD);
         db.getCollection("checkout_quotes").updateOne(new Document("_id", f.quoteId().value()),
                 new Document("$unset", new Document("addressVersion", "")));
-        Order replay = orderService().createOrder(f.customerId(), f.quoteId().value());
+        Order replay = orderService().createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD);
         assertThat(replay.orderId()).isEqualTo(first.orderId());
     }
 
     @Test void existing_order_returned_after_quote_expired() {
         Fixture f = standardFixture(NOW.plusSeconds(5));
         Order first = orderService(new Tx(client), Clock.fixed(NOW, ZoneOffset.UTC))
-                .createOrder(f.customerId(), f.quoteId().value());
+                .createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD);
         Order replay = orderService(new Tx(client), Clock.fixed(NOW.plusSeconds(1000), ZoneOffset.UTC))
-                .createOrder(f.customerId(), f.quoteId().value());
+                .createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD);
         assertThat(replay.orderId()).isEqualTo(first.orderId());
     }
 
     @Test void existing_order_returned_after_address_changed() {
         Fixture f = standardFixture();
-        Order first = orderService().createOrder(f.customerId(), f.quoteId().value());
+        Order first = orderService().createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD);
         db.getCollection("customer_addresses").deleteMany(new Document());
-        Order replay = orderService().createOrder(f.customerId(), f.quoteId().value());
+        Order replay = orderService().createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD);
         assertThat(replay.orderId()).isEqualTo(first.orderId());
     }
 
     @Test void existing_order_returned_after_serviceability_changed() {
         Fixture f = standardFixture();
-        Order first = orderService().createOrder(f.customerId(), f.quoteId().value());
+        Order first = orderService().createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD);
         db.getCollection("service_areas").deleteMany(new Document());
-        Order replay = orderService().createOrder(f.customerId(), f.quoteId().value());
+        Order replay = orderService().createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD);
         assertThat(replay.orderId()).isEqualTo(first.orderId());
     }
 
     @Test void existing_order_returned_after_price_changed() {
         Fixture f = standardFixture();
-        Order first = orderService().createOrder(f.customerId(), f.quoteId().value());
+        Order first = orderService().createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD);
         db.getCollection("price_current").updateOne(new Document("sku_id", f.sku()),
                 new Document("$set", new Document("selling_price_paise", 5500L)));
-        Order replay = orderService().createOrder(f.customerId(), f.quoteId().value());
+        Order replay = orderService().createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD);
         assertThat(replay.orderId()).isEqualTo(first.orderId());
     }
 
     @Test void existing_order_returned_after_product_ineligible() {
         Fixture f = standardFixture();
-        Order first = orderService().createOrder(f.customerId(), f.quoteId().value());
+        Order first = orderService().createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD);
         db.getCollection("products").deleteMany(new Document());
-        Order replay = orderService().createOrder(f.customerId(), f.quoteId().value());
+        Order replay = orderService().createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD);
         assertThat(replay.orderId()).isEqualTo(first.orderId());
     }
 
     @Test void existing_order_returned_after_stock_changed() {
         Fixture f = standardFixture();
-        Order first = orderService().createOrder(f.customerId(), f.quoteId().value());
+        Order first = orderService().createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD);
         db.getCollection("inventory").updateOne(new Document("sku_id", f.sku()).append("fulfillment_location_id", LOC),
                 new Document("$set", new Document("on_hand", 0L)));
-        Order replay = orderService().createOrder(f.customerId(), f.quoteId().value());
+        Order replay = orderService().createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD);
         assertThat(replay.orderId()).isEqualTo(first.orderId());
     }
 
     @Test void existing_order_returned_even_when_everything_mutates_simultaneously() {
         Fixture f = standardFixture(NOW.plusSeconds(5));
         Order first = orderService(new Tx(client), Clock.fixed(NOW, ZoneOffset.UTC))
-                .createOrder(f.customerId(), f.quoteId().value());
+                .createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD);
         db.getCollection("customer_addresses").deleteMany(new Document());
         db.getCollection("service_areas").deleteMany(new Document());
         db.getCollection("price_current").deleteMany(new Document());
@@ -324,7 +326,7 @@ class OrderServiceIT extends AbstractMongoIT {
         db.getCollection("inventory").updateOne(new Document("sku_id", f.sku()).append("fulfillment_location_id", LOC),
                 new Document("$set", new Document("on_hand", 0L)));
         Order replay = orderService(new Tx(client), Clock.fixed(NOW.plusSeconds(1000), ZoneOffset.UTC))
-                .createOrder(f.customerId(), f.quoteId().value());
+                .createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD);
         assertThat(replay.orderId()).isEqualTo(first.orderId());
     }
 
@@ -333,7 +335,7 @@ class OrderServiceIT extends AbstractMongoIT {
     // ============================================================
 
     @Test void unknown_foreign_quote_is_QUOTE_NOT_FOUND() {
-        assertThatThrownBy(() -> orderService().createOrder(CustomerId.generate(), CheckoutQuoteId.generate().value()))
+        assertThatThrownBy(() -> orderService().createOrder(CustomerId.generate(), CheckoutQuoteId.generate().value(), PaymentMethod.COD))
                 .isInstanceOf(OrderFailure.class)
                 .satisfies(e -> assertThat(((OrderFailure) e).reason()).isEqualTo(OrderFailure.Reason.QUOTE_NOT_FOUND));
     }
@@ -341,7 +343,7 @@ class OrderServiceIT extends AbstractMongoIT {
     @Test void expired_quote_with_no_existing_order_is_QUOTE_EXPIRED() {
         Fixture f = standardFixture(NOW.plusSeconds(5));
         assertThatThrownBy(() -> orderService(new Tx(client), Clock.fixed(NOW.plusSeconds(1000), ZoneOffset.UTC))
-                .createOrder(f.customerId(), f.quoteId().value()))
+                .createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD))
                 .isInstanceOf(OrderFailure.class)
                 .satisfies(e -> assertThat(((OrderFailure) e).reason()).isEqualTo(OrderFailure.Reason.QUOTE_EXPIRED));
     }
@@ -362,7 +364,7 @@ class OrderServiceIT extends AbstractMongoIT {
             }
         });
         OrderService svc = orderService(retryTx, indirection);
-        assertThatThrownBy(() -> svc.createOrder(f.customerId(), f.quoteId().value()))
+        assertThatThrownBy(() -> svc.createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD))
                 .isInstanceOf(OrderFailure.class)
                 .satisfies(e -> assertThat(((OrderFailure) e).reason()).isEqualTo(OrderFailure.Reason.QUOTE_EXPIRED));
         assertThat(db.getCollection("orders").countDocuments()).isZero();
@@ -376,7 +378,7 @@ class OrderServiceIT extends AbstractMongoIT {
     @Test void address_removed_is_ADDRESS_CHANGED() {
         Fixture f = standardFixture();
         db.getCollection("customer_addresses").deleteMany(new Document());
-        assertThatThrownBy(() -> orderService().createOrder(f.customerId(), f.quoteId().value()))
+        assertThatThrownBy(() -> orderService().createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD))
                 .isInstanceOf(OrderFailure.class)
                 .satisfies(e -> assertThat(((OrderFailure) e).reason()).isEqualTo(OrderFailure.Reason.ADDRESS_CHANGED));
     }
@@ -385,14 +387,14 @@ class OrderServiceIT extends AbstractMongoIT {
         Fixture f = standardFixture();
         db.getCollection("customer_addresses").updateOne(new Document("_id", f.addressId()),
                 new Document("$set", new Document("version", 2L)));
-        assertThatThrownBy(() -> orderService().createOrder(f.customerId(), f.quoteId().value()))
+        assertThatThrownBy(() -> orderService().createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD))
                 .isInstanceOf(OrderFailure.class)
                 .satisfies(e -> assertThat(((OrderFailure) e).reason()).isEqualTo(OrderFailure.Reason.ADDRESS_CHANGED));
     }
 
     @Test void immutable_address_textual_and_coordinate_snapshot_survives_a_later_edit() {
         Fixture f = standardFixture();
-        Order order = orderService().createOrder(f.customerId(), f.quoteId().value());
+        Order order = orderService().createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD);
         db.getCollection("customer_addresses").updateOne(new Document("_id", f.addressId()),
                 new Document("$set", new Document("city", "Mumbai").append("latitude", 19.0760)
                         .append("longitude", 72.8777).append("version", 2L)));
@@ -410,7 +412,7 @@ class OrderServiceIT extends AbstractMongoIT {
     @Test void unserviceable_current_pin_is_NOT_SERVICEABLE() {
         Fixture f = standardFixture();
         db.getCollection("service_areas").deleteMany(new Document());
-        assertThatThrownBy(() -> orderService().createOrder(f.customerId(), f.quoteId().value()))
+        assertThatThrownBy(() -> orderService().createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD))
                 .isInstanceOf(OrderFailure.class)
                 .satisfies(e -> assertThat(((OrderFailure) e).reason()).isEqualTo(OrderFailure.Reason.NOT_SERVICEABLE));
     }
@@ -427,7 +429,7 @@ class OrderServiceIT extends AbstractMongoIT {
             }
         });
         OrderService svc = orderService(retryTx, Clock.fixed(NOW, ZoneOffset.UTC));
-        Order order = svc.createOrder(f.customerId(), f.quoteId().value());
+        Order order = svc.createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD);
         assertThat(retryTx.attempts()).isEqualTo(2);
         Document reservation = db.getCollection("inventory_reservations")
                 .find(new Document("_id", order.reservationId())).first();
@@ -443,7 +445,7 @@ class OrderServiceIT extends AbstractMongoIT {
         Fixture f = standardFixture();
         db.getCollection("price_current").updateOne(new Document("sku_id", f.sku()),
                 new Document("$set", new Document("selling_price_paise", 5500L)));
-        assertThatThrownBy(() -> orderService().createOrder(f.customerId(), f.quoteId().value()))
+        assertThatThrownBy(() -> orderService().createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD))
                 .isInstanceOf(OrderFailure.class)
                 .satisfies(e -> assertThat(((OrderFailure) e).reason()).isEqualTo(OrderFailure.Reason.PRICE_CHANGED));
     }
@@ -451,7 +453,7 @@ class OrderServiceIT extends AbstractMongoIT {
     @Test void price_missing_or_inactive_is_PRICE_CHANGED() {
         Fixture f = standardFixture();
         db.getCollection("price_current").deleteMany(new Document());
-        assertThatThrownBy(() -> orderService().createOrder(f.customerId(), f.quoteId().value()))
+        assertThatThrownBy(() -> orderService().createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD))
                 .isInstanceOf(OrderFailure.class)
                 .satisfies(e -> assertThat(((OrderFailure) e).reason()).isEqualTo(OrderFailure.Reason.PRICE_CHANGED));
     }
@@ -476,7 +478,7 @@ class OrderServiceIT extends AbstractMongoIT {
         insertQuote(q, customerId.value());
         db.getCollection("price_current").updateOne(new Document("sku_id", skuB),
                 new Document("$set", new Document("selling_price_paise", 2200L)));
-        assertThatThrownBy(() -> orderService().createOrder(customerId, quoteId.value()))
+        assertThatThrownBy(() -> orderService().createOrder(customerId, quoteId.value(), PaymentMethod.COD))
                 .isInstanceOf(OrderFailure.class)
                 .satisfies(e -> assertThat(((OrderFailure) e).reason()).isEqualTo(OrderFailure.Reason.PRICE_CHANGED));
         assertThat(db.getCollection("orders").countDocuments()).isZero();
@@ -489,7 +491,7 @@ class OrderServiceIT extends AbstractMongoIT {
     @Test void product_ineligible_is_PRODUCT_UNAVAILABLE() {
         Fixture f = standardFixture();
         db.getCollection("products").deleteMany(new Document());
-        assertThatThrownBy(() -> orderService().createOrder(f.customerId(), f.quoteId().value()))
+        assertThatThrownBy(() -> orderService().createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD))
                 .isInstanceOf(OrderFailure.class)
                 .satisfies(e -> assertThat(((OrderFailure) e).reason()).isEqualTo(OrderFailure.Reason.PRODUCT_UNAVAILABLE));
     }
@@ -498,13 +500,13 @@ class OrderServiceIT extends AbstractMongoIT {
         Fixture f = standardFixture();
         db.getCollection("products").updateOne(new Document("_id", f.sku()),
                 new Document("$set", new Document("title", "Renamed Before Order")));
-        Order order = orderService().createOrder(f.customerId(), f.quoteId().value());
+        Order order = orderService().createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD);
         assertThat(order.lines().get(0).title()).isEqualTo("Renamed Before Order");
     }
 
     @Test void product_renamed_after_order_commit_does_not_change_the_stored_title() {
         Fixture f = standardFixture();
-        Order order = orderService().createOrder(f.customerId(), f.quoteId().value());
+        Order order = orderService().createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD);
         db.getCollection("products").updateOne(new Document("_id", f.sku()),
                 new Document("$set", new Document("title", "Renamed After Order")));
         Document stored = db.getCollection("orders").find(new Document("_id", order.orderId().value())).first();
@@ -520,7 +522,7 @@ class OrderServiceIT extends AbstractMongoIT {
         Fixture f = standardFixture();
         db.getCollection("inventory").updateOne(new Document("sku_id", f.sku()).append("fulfillment_location_id", LOC),
                 new Document("$set", new Document("on_hand", 0L)));
-        assertThatThrownBy(() -> orderService().createOrder(f.customerId(), f.quoteId().value()))
+        assertThatThrownBy(() -> orderService().createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD))
                 .isInstanceOf(OrderFailure.class)
                 .satisfies(e -> assertThat(((OrderFailure) e).reason()).isEqualTo(OrderFailure.Reason.STOCK_UNAVAILABLE));
         assertThat(db.getCollection("orders").countDocuments()).isZero();
@@ -548,7 +550,9 @@ class OrderServiceIT extends AbstractMongoIT {
                 new InventoryReservationObservability(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()),
                 movable, retryTx);
         OrderService svc = new OrderService(new OrderRepository(db), new CheckoutQuoteRepository(db),
-                new AddressRepository(db), serviceability, pricing, catalog, reservations, movable, ALWAYS_EXISTS,
+                new AddressRepository(db), serviceability, pricing, catalog, reservations,
+                new com.tazzzo.customer.cart.CartPurchaseService(new com.tazzzo.customer.cart.CartRepository(db), movable),
+                movable, ALWAYS_EXISTS,
                 retryTx, new OrderObservability(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
 
         retryTx.arm(1, n -> {
@@ -556,7 +560,7 @@ class OrderServiceIT extends AbstractMongoIT {
                 liveNow.set(NOW.plusSeconds(120)); // advance past the 60s TTL before attempt 2
             }
         });
-        assertThatThrownBy(() -> svc.createOrder(f.customerId(), f.quoteId().value()))
+        assertThatThrownBy(() -> svc.createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD))
                 .isInstanceOf(OrderFailure.class)
                 .satisfies(e -> assertThat(((OrderFailure) e).reason()).isEqualTo(OrderFailure.Reason.RESERVATION_EXPIRED));
         assertThat(db.getCollection("orders").countDocuments()).isZero();
@@ -568,7 +572,7 @@ class OrderServiceIT extends AbstractMongoIT {
         // forcing the SAME transaction's order insert to fail after the reservation already applied
         // its increments -- MongoDB must roll back BOTH together.
         Fixture f = standardFixture();
-        Order preExisting = orderService().createOrder(f.customerId(), f.quoteId().value());
+        Order preExisting = orderService().createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD);
         // seed a SECOND quote whose freshly-generated OrderId happens to collide is impractical
         // (CSPRNG); instead verify the ratified guarantee directly: a forced outer-transaction abort
         // after reserve() leaves neither reservation nor order behind (the transactional-atomicity
@@ -592,7 +596,7 @@ class OrderServiceIT extends AbstractMongoIT {
             }
         };
         OrderService svc = orderService(abortingTx, Clock.fixed(NOW, ZoneOffset.UTC));
-        assertThatThrownBy(() -> svc.createOrder(c2, q2.value())).hasMessageContaining("forced abort");
+        assertThatThrownBy(() -> svc.createOrder(c2, q2.value(), PaymentMethod.COD)).hasMessageContaining("forced abort");
         assertThat(db.getCollection("orders").find(new Document("quoteId", q2.value())).first()).isNull();
         assertThat(db.getCollection("inventory").find(new Document("sku_id", sku2)).first()
                 .get("reserved", Number.class).longValue()).isZero();
@@ -603,7 +607,7 @@ class OrderServiceIT extends AbstractMongoIT {
         RetryInjectingTx retryTx = new RetryInjectingTx(client);
         retryTx.arm(1);
         OrderService svc = orderService(retryTx, Clock.fixed(NOW, ZoneOffset.UTC));
-        Order order = svc.createOrder(f.customerId(), f.quoteId().value());
+        Order order = svc.createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD);
         assertThat(retryTx.attempts()).isEqualTo(2);
         assertThat(db.getCollection("orders").countDocuments()).isEqualTo(1);
         assertThat(db.getCollection("inventory_reservations").countDocuments()).isEqualTo(1);
@@ -617,14 +621,14 @@ class OrderServiceIT extends AbstractMongoIT {
 
     @Test void order_carries_no_public_fulfillmentLocationId_field() {
         Fixture f = standardFixture();
-        Order order = orderService().createOrder(f.customerId(), f.quoteId().value());
+        Order order = orderService().createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD);
         Document stored = db.getCollection("orders").find(new Document("_id", order.orderId().value())).first();
         assertThat(stored.keySet()).doesNotContain("fulfillmentLocationId");
     }
 
     @Test void reservationId_is_the_only_routing_provenance_on_the_order() {
         Fixture f = standardFixture();
-        Order order = orderService().createOrder(f.customerId(), f.quoteId().value());
+        Order order = orderService().createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD);
         assertThat(order.reservationId()).isNotBlank();
         Document reservation = db.getCollection("inventory_reservations")
                 .find(new Document("_id", order.reservationId())).first();
@@ -633,14 +637,14 @@ class OrderServiceIT extends AbstractMongoIT {
 
     @Test void money_subtotal_and_itemCount_are_exact() {
         Fixture f = standardFixture();
-        Order order = orderService().createOrder(f.customerId(), f.quoteId().value());
+        Order order = orderService().createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD);
         assertThat(order.subtotalPaise()).isEqualTo(10000L); // 2 * 5000
         assertThat(order.itemCount()).isEqualTo(2);
     }
 
     @Test void a_corrupt_persisted_order_fails_loud_on_reconstruction() {
         Fixture f = standardFixture();
-        Order order = orderService().createOrder(f.customerId(), f.quoteId().value());
+        Order order = orderService().createOrder(f.customerId(), f.quoteId().value(), PaymentMethod.COD);
         db.getCollection("orders").updateOne(new Document("_id", order.orderId().value()),
                 new Document("$unset", new Document("reservationId", "")));
         Document corrupt = db.getCollection("orders").find(new Document("_id", order.orderId().value())).first();
@@ -666,9 +670,10 @@ class OrderServiceIT extends AbstractMongoIT {
                         new InventoryReservationRepository(brokenDb), new InventoryReservationProperties(),
                         new InventoryReservationObservability(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()),
                         clock, brokenTx),
+                new com.tazzzo.customer.cart.CartPurchaseService(new com.tazzzo.customer.cart.CartRepository(brokenDb), clock),
                 clock, ALWAYS_EXISTS, brokenTx,
                 new OrderObservability(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
-        assertThatThrownBy(() -> svc.createOrder(CustomerId.generate(), CheckoutQuoteId.generate().value()))
+        assertThatThrownBy(() -> svc.createOrder(CustomerId.generate(), CheckoutQuoteId.generate().value(), PaymentMethod.COD))
                 .isInstanceOf(OrderFailure.class)
                 .satisfies(e -> assertThat(((OrderFailure) e).reason()).isEqualTo(OrderFailure.Reason.UNAVAILABLE));
         brokenClient.close();
