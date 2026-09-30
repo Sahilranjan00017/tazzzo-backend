@@ -118,6 +118,33 @@
         }
       }
     },
+    "/v1/customer/orders" : {
+      "post" : {
+        "tags" : [ "order-controller" ],
+        "operationId" : "place",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/JsonNode"
+              }
+            }
+          }
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/CustomerOrderDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/customer/checkout/quote" : {
       "post" : {
         "tags" : [ "checkout-controller" ],
@@ -1414,6 +1441,32 @@
         }
       }
     },
+    "/v1/customer/orders/{orderId}" : {
+      "get" : {
+        "tags" : [ "order-controller" ],
+        "operationId" : "read",
+        "parameters" : [ {
+          "name" : "orderId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/CustomerOrderDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/customer/checkout/quotes/{quoteId}" : {
       "get" : {
         "tags" : [ "checkout-controller" ],
@@ -2105,6 +2158,84 @@
         "properties" : {
           "serviceable" : {
             "type" : "boolean"
+          }
+        }
+      },
+      "CustomerOrderDto" : {
+        "type" : "object",
+        "properties" : {
+          "orderId" : {
+            "type" : "string"
+          },
+          "status" : {
+            "type" : "string"
+          },
+          "paymentMethod" : {
+            "type" : "string"
+          },
+          "paymentCondition" : {
+            "type" : "string"
+          },
+          "items" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/Item"
+            }
+          },
+          "itemCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "subtotalPaise" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "currency" : {
+            "type" : "string"
+          },
+          "deliveryAddress" : {
+            "$ref" : "#/components/schemas/DeliveryAddress"
+          },
+          "createdAt" : {
+            "type" : "string"
+          },
+          "confirmedAt" : {
+            "type" : "string"
+          },
+          "requestId" : {
+            "type" : "string"
+          }
+        }
+      },
+      "DeliveryAddress" : {
+        "type" : "object",
+        "properties" : {
+          "label" : {
+            "type" : "string"
+          },
+          "recipientName" : {
+            "type" : "string"
+          },
+          "recipientPhone" : {
+            "type" : "string"
+          },
+          "addressLine1" : {
+            "type" : "string"
+          },
+          "addressLine2" : {
+            "type" : "string"
+          },
+          "landmark" : {
+            "type" : "string"
+          },
+          "city" : {
+            "type" : "string"
+          },
+          "state" : {
+            "type" : "string"
+          },
+          "postalCode" : {
+            "type" : "string"
           }
         }
       },

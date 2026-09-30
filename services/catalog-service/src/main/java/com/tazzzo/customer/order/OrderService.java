@@ -177,6 +177,35 @@ public class OrderService {
         }
     }
 
+    /**
+     * PR-15A-2 — the owned read behind {@code GET /v1/customer/orders/{orderId}}. Returns the Order's
+     * stored immutable snapshot; never re-reads Product/Address/Pricing. A malformed id, an unknown id,
+     * another customer's Order, and an internal {@code CREATED} row (an intermediate state no customer
+     * operation may observe) are ONE outcome: {@code ORDER_NOT_FOUND}. A corrupt persisted row is not
+     * caught here: it fails loud ({@code IllegalStateException}/{@code IllegalArgumentException}) and the
+     * HTTP boundary maps it to a safe 500. Records no domain metric (reads are counted at the HTTP layer).
+     */
+    public Order getOrder(CustomerId customerId, String orderIdRaw) {
+        if (!OrderId.isValid(orderIdRaw)) {
+            throw new OrderFailure(OrderFailure.Reason.ORDER_NOT_FOUND);
+        }
+        Document stored;
+        try {
+            stored = orders.findOwnedById(orderIdRaw, customerId.value());
+        } catch (MongoException e) {
+            log.error("customer_order_read_failed type={}", e.getClass().getSimpleName());
+            throw new OrderFailure(OrderFailure.Reason.UNAVAILABLE, "datastore unavailable during order read");
+        }
+        if (stored == null) {
+            throw new OrderFailure(OrderFailure.Reason.ORDER_NOT_FOUND);
+        }
+        Order order = OrderRepository.toOrder(stored);
+        if (order.status() != OrderStatus.CONFIRMED) {
+            throw new OrderFailure(OrderFailure.Reason.ORDER_NOT_FOUND);
+        }
+        return order;
+    }
+
     private Order execute(CustomerId customerId, String quoteIdRaw, PaymentMethod paymentMethod, Mode mode) {
         // 0 -- durable replay fast-path, BEFORE anything about the source quote is touched.
         Document existing = orders.findByCustomerAndQuote(customerId.value(), quoteIdRaw);

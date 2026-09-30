@@ -77,6 +77,19 @@ tags:
       must revalidate stock and quote validity. `subtotalPaise` is the sum of line totals at the
       quoted current prices — not a final payable total. Internal routing/fulfillment identifiers are
       never exposed. No order or payment endpoints exist yet.
+  - name: customer-orders
+    description: >
+      PR-15A-2 — Cash-on-Delivery order placement for the authenticated customer. One operation places an
+      order from one of the caller's OWN checkout quotes: it confirms the order, consumes the held stock
+      and finalizes the source cart in one atomic step, so a successful placement is directly
+      `CONFIRMED` (there is no intermediate state to observe). `customerId` always comes from the token,
+      never from the request. Cash on delivery is the only payment method. `paymentCondition` `COD_DUE`
+      means the order is confirmed and payment is OWED ON DELIVERY — nothing has been collected.
+      Placement is idempotent by `quoteId` (no `Idempotency-Key`): replaying the same quote returns the
+      same order. The order is the immutable snapshot taken at placement — title, brand, price and
+      address never change with later catalog, pricing or address edits. Internal identifiers (customer,
+      quote, reservation, address, fulfillment/routing, coordinates) are never exposed. Responses are
+      no-store.
 paths:
   /v1/categories:
     get:
@@ -736,6 +749,66 @@ paths:
         '404': { $ref: '#/components/responses/CheckoutNotFound' }
         '410': { $ref: '#/components/responses/CheckoutQuoteExpired' }
         '503': { $ref: '#/components/responses/CheckoutUnavailable' }
+  /v1/customer/orders:
+    post:
+      tags: [customer-orders]
+      operationId: placeCustomerOrder
+      summary: >
+        Place a Cash-on-Delivery order from one of the caller's OWN checkout quotes. On success the order is
+        `CONFIRMED` with `paymentCondition` `COD_DUE`. Idempotent by `quoteId`: the first placement and any
+        replay of the same quote both return 200 with the same order (and never reserve, consume or clear
+        the cart again). Only `quoteId` and `paymentMethod` are read from the body; any other field is
+        ignored. Fails as a whole — a failed placement leaves stock, cart and orders untouched.
+      security:
+        - customerBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CustomerOrderPlaceRequest' }
+      responses:
+        '200':
+          description: The confirmed order (placed now, or the same order on an idempotent replay).
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerOrder' }
+        '400': { $ref: '#/components/responses/OrderBadRequest' }
+        '401': { $ref: '#/components/responses/OrderUnauthenticated' }
+        '404': { $ref: '#/components/responses/OrderNotFound' }
+        '409': { $ref: '#/components/responses/OrderConflict' }
+        '410': { $ref: '#/components/responses/OrderQuoteExpired' }
+        '415': { $ref: '#/components/responses/OrderUnsupportedMediaType' }
+        '500': { $ref: '#/components/responses/OrderInternalError' }
+        '503': { $ref: '#/components/responses/OrderUnavailable' }
+  /v1/customer/orders/{orderId}:
+    get:
+      tags: [customer-orders]
+      operationId: getCustomerOrder
+      summary: >
+        Read one of the caller's OWN orders. A malformed, unknown or foreign id is the identical 404. Returns
+        the immutable snapshot taken at placement; it is never re-derived from current product, price or
+        address data.
+      security:
+        - customerBearerAuth: []
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema: { type: string, pattern: '^ORD_[A-Za-z0-9_-]{6,64}$' }
+      responses:
+        '200':
+          description: The order exactly as it was placed.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerOrder' }
+        '401': { $ref: '#/components/responses/OrderUnauthenticated' }
+        '404': { $ref: '#/components/responses/OrderNotFound' }
+        '500': { $ref: '#/components/responses/OrderInternalError' }
+        '503': { $ref: '#/components/responses/OrderUnavailable' }
 components:
   parameters:
     AddressIdParam:
@@ -1331,6 +1404,80 @@ components:
               reason:
                 type: string
                 enum: [PRODUCT_UNAVAILABLE, PRICE_UNAVAILABLE, OUT_OF_STOCK, INSUFFICIENT_STOCK, STOCK_UNKNOWN, NOT_BUYABLE]
+    CustomerOrderPlaceRequest:
+      type: object
+      required: [quoteId, paymentMethod]
+      description: >
+        Only `quoteId` and `paymentMethod` are read. Any other field (status, payment condition, customerId,
+        reservation, inventory location, price ...) is ignored and never used.
+      properties:
+        quoteId: { type: string, maxLength: 64, example: CHKQ_0123456789abcdef }
+        paymentMethod:
+          type: string
+          enum: [COD]
+          description: Cash on delivery is the only supported payment method. Anything else is 400 PAYMENT_METHOD_UNSUPPORTED.
+    CustomerOrderLine:
+      type: object
+      required: [skuId, title, brandCode, quantity, unitPricePaise, lineTotalPaise]
+      description: Title, brand and price as they were when the order was placed.
+      properties:
+        skuId: { type: string }
+        title: { type: string }
+        brandCode: { type: string }
+        quantity: { type: integer }
+        unitPricePaise: { type: integer, format: int64 }
+        lineTotalPaise: { type: integer, format: int64 }
+    CustomerOrderAddress:
+      type: object
+      required: [label, recipientName, recipientPhone, addressLine1, city, state, postalCode]
+      description: >
+        The delivery address as it was when the order was placed (a snapshot — later address edits do not
+        change it). Never carries coordinates or an address id/version.
+      properties:
+        label: { type: string }
+        recipientName: { type: string }
+        recipientPhone: { type: string }
+        addressLine1: { type: string }
+        addressLine2: { type: string }
+        landmark: { type: string }
+        city: { type: string }
+        state: { type: string }
+        postalCode: { type: string }
+    CustomerOrder:
+      type: object
+      description: >
+        A placed order. `status` is always `CONFIRMED`. `paymentCondition` `COD_DUE` means the order is
+        confirmed and payment is owed on delivery; nothing has been collected.
+      required: [orderId, status, paymentMethod, paymentCondition, items, itemCount, subtotalPaise, currency,
+                 deliveryAddress, createdAt, confirmedAt, requestId]
+      properties:
+        orderId: { type: string, pattern: '^ORD_[A-Za-z0-9_-]{6,64}$' }
+        status: { type: string, enum: [CONFIRMED] }
+        paymentMethod: { type: string, enum: [COD] }
+        paymentCondition: { type: string, enum: [COD_DUE] }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/CustomerOrderLine' }
+        itemCount: { type: integer }
+        subtotalPaise: { type: integer, format: int64 }
+        currency: { type: string, enum: [INR] }
+        deliveryAddress: { $ref: '#/components/schemas/CustomerOrderAddress' }
+        createdAt: { type: string, format: date-time }
+        confirmedAt: { type: string, format: date-time }
+        requestId: { type: string }
+    CustomerOrderErrorEnvelope:
+      type: object
+      description: Safe, generic. Never carries routing, inventory internals, Mongo text or PII.
+      required: [code, message, requestId]
+      properties:
+        code:
+          type: string
+          enum: [INVALID_REQUEST, PAYMENT_METHOD_UNSUPPORTED, UNSUPPORTED_MEDIA_TYPE, UNAUTHENTICATED, NOT_FOUND,
+                 QUOTE_EXPIRED, ADDRESS_CHANGED, NOT_SERVICEABLE, PRICE_CHANGED, PRODUCT_UNAVAILABLE,
+                 STOCK_UNAVAILABLE, RESERVATION_EXPIRED, CART_VERSION_ALREADY_PURCHASED, SERVICE_UNAVAILABLE,
+                 INTERNAL]
+        message: { type: string }
+        requestId: { type: string }
   responses:
     BadRequest:
       description: Invalid request or cursor
@@ -1641,6 +1788,70 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/CustomerCheckoutErrorEnvelope' }
+    OrderBadRequest:
+      description: >
+        Malformed body, missing `quoteId` or `paymentMethod` (INVALID_REQUEST), or a payment method other than COD (PAYMENT_METHOD_UNSUPPORTED).
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CustomerOrderErrorEnvelope' }
+    OrderUnauthenticated:
+      description: >
+        Missing/invalid customer access token (UNAUTHENTICATED).
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CustomerOrderErrorEnvelope' }
+    OrderNotFound:
+      description: >
+        Unknown, foreign or malformed quote / order id (identical NOT_FOUND).
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CustomerOrderErrorEnvelope' }
+    OrderConflict:
+      description: >
+        The order could not be placed: ADDRESS_CHANGED, NOT_SERVICEABLE, PRICE_CHANGED, PRODUCT_UNAVAILABLE, STOCK_UNAVAILABLE, RESERVATION_EXPIRED, or CART_VERSION_ALREADY_PURCHASED (a different quote from this cart was already ordered). Nothing was created, reserved or cleared.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CustomerOrderErrorEnvelope' }
+    OrderQuoteExpired:
+      description: >
+        The quote's validity window has passed (QUOTE_EXPIRED). Create a new quote.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CustomerOrderErrorEnvelope' }
+    OrderUnsupportedMediaType:
+      description: >
+        Body was not `application/json` (UNSUPPORTED_MEDIA_TYPE).
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CustomerOrderErrorEnvelope' }
+    OrderInternalError:
+      description: >
+        A safe, generic server error (INTERNAL). No internal detail is exposed.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CustomerOrderErrorEnvelope' }
+    OrderUnavailable:
+      description: >
+        A datastore dependency was unavailable (SERVICE_UNAVAILABLE); safe to retry the same request.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CustomerOrderErrorEnvelope' }
   securitySchemes:
     customerBearerAuth:
       type: http

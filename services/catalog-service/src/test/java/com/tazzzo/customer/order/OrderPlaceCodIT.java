@@ -969,9 +969,9 @@ class OrderPlaceCodIT extends AbstractMongoIT {
         assertThat(Arrays.stream(ConfirmedPaymentCondition.values()).map(Enum::name)).containsExactly("COD_DUE");
     }
 
-    @Test void no_order_http_controller_and_no_payment_types_exist_in_this_pr() {
-        for (String name : List.of("com.tazzzo.customer.order.OrderController",
-                "com.tazzzo.customer.order.PaymentConditionAuthority", "com.tazzzo.customer.payment.PaymentService")) {
+    @Test void no_speculative_payment_types_exist() {
+        for (String name : List.of("com.tazzzo.customer.order.PaymentConditionAuthority",
+                "com.tazzzo.customer.payment.PaymentService")) {
             assertThatThrownBy(() -> Class.forName(name)).isInstanceOf(ClassNotFoundException.class);
         }
     }

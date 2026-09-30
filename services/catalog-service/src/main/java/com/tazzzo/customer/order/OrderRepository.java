@@ -44,6 +44,16 @@ public class OrderRepository {
         return collection().find(session, byCustomerAndQuote(customerId, quoteId)).first();
     }
 
+    /**
+     * PR-15A-2 — the owned read: ONE query on {@code _id} AND {@code customerId}. A foreign Order
+     * simply does not match, so its existence is never observable (no load-then-authorize). {@code _id}
+     * already has its unique index; no new index is needed.
+     */
+    public Document findOwnedById(String orderId, String customerId) {
+        return collection().find(Filters.and(Filters.eq("_id", orderId), Filters.eq("customerId", customerId)))
+                .first();
+    }
+
     public void insert(ClientSession session, Order order) {
         collection().insertOne(session, toDocument(order));
     }

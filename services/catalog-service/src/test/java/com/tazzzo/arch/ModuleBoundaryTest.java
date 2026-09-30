@@ -1,5 +1,9 @@
 package com.tazzzo.arch;
 
+import com.tazzzo.auth.CustomerId;
+import com.tazzzo.customer.order.OrderRepository;
+import com.tazzzo.customer.order.OrderService;
+import com.tazzzo.customer.order.PaymentMethod;
 import com.tngtech.archunit.base.DescribedPredicate;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.junit.AnalyzeClasses;
@@ -332,6 +336,40 @@ class ModuleBoundaryTest {
                                             com.tazzzo.customer.cart.CartPurchasePort.class,
                                             com.tazzzo.customer.cart.CartPurchaseOutcome.class,
                                             com.tazzzo.customer.cart.CartPurchaseIntegrityException.class))))
+                    .allowEmptyShould(true);
+
+    /**
+     * PR-15A-2 — the Order HTTP layer (controller, exception handler, DTOs) depends on the Order domain
+     * ({@code OrderService} and its value types) and the auth principal ONLY: never the repository,
+     * Mongo, Inventory, Cart, Pricing, Serviceability, Checkout, Address, Media or any Payment package.
+     * Business logic stays in the domain; the controller only delegates.
+     */
+    @ArchTest
+    static final ArchRule customer_order_http_layer_only_delegates_to_the_order_service =
+            noClasses().that(com.tngtech.archunit.core.domain.JavaClass.Predicates
+                            .resideInAPackage("com.tazzzo.customer.order..")
+                            .and(com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameEndingWith("Controller")
+                                    .or(com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameEndingWith("ExceptionHandler"))
+                                    .or(com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameEndingWith("Dto"))))
+                    .should().dependOnClassesThat(
+                            resideInAnyPackage("com.mongodb..", "com.tazzzo.inventory..",
+                                    "com.tazzzo.customer.cart..", "com.tazzzo.pricing..",
+                                    "com.tazzzo.serviceability..", "com.tazzzo.customer.checkout..",
+                                    "com.tazzzo.customer.address..", "com.tazzzo.media..",
+                                    "com.tazzzo.customer.payment..", "com.tazzzo.payment..")
+                                    .or(belongToAnyOf(OrderRepository.class)))
+                    .allowEmptyShould(true);
+
+    /**
+     * PR-15A-2 — customer reachability: no HTTP class may call the internal create-only path
+     * ({@code OrderService.createOrder}, which produces an intermediate {@code CREATED} Order). The only
+     * customer-reachable placement is {@code placeCodOrder}.
+     */
+    @ArchTest
+    static final ArchRule customer_order_controller_never_calls_the_create_only_path =
+            noClasses().that().haveSimpleNameEndingWith("Controller")
+                    .should().callMethod(OrderService.class, "createOrder", CustomerId.class, String.class,
+                            PaymentMethod.class)
                     .allowEmptyShould(true);
 
     /**

@@ -541,10 +541,9 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   types. **Operational gate (PENDING, not verified from the repo):** the `orders` collection must
   contain 0 documents in every deployed persistent environment before PR-15A-1 is deployed.
 
-## In review (NOT merged)
-
-- **PR-15A-1 — COD Order domain** (`com.tazzzo.customer.order`): **IN REVIEW**. Domain only — **NOT
-  customer reachable** (PR-15A-2 adds `POST/GET /v1/customer/orders`; no controller, no OpenAPI here).
+- **PR-15A-1 — COD Order domain** (`com.tazzzo.customer.order`): **COMPLETE** (PR #29, squash
+  `e8d4d45e88ad4935f7ad84a46ae65a671e50ba63`). Domain only — customer reachability comes only with
+  PR-15A-2 below.
   `OrderService.placeCodOrder(customerId, quoteId)` atomically produces, in ONE outer Mongo
   transaction: Order `CONFIRMED` (version 2, `paymentMethod=COD`, `confirmedPaymentCondition=COD_DUE`,
   `confirmedAt`), its Inventory reservation `CONSUMED` (reserve then consume in the same session via
@@ -578,8 +577,42 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   migration-or-deletion decision is required before deploying. Do not claim production readiness while
   this is pending.
 
+## In review (NOT merged)
+
+- **PR-15A-2 — Customer Order HTTP surface** (`com.tazzzo.customer.order`): **IN REVIEW**. The FIRST
+  customer-reachable Order surface: `POST /v1/customer/orders` and `GET /v1/customer/orders/{orderId}`.
+  **COD placement becomes customer reachable ONLY after this PR merges.** Both endpoints are
+  `CUSTOMER_AUTHENTICATED`; the customer is always the verified principal (never read from body, path,
+  query or headers). POST reads only `quoteId` + `paymentMethod` (exactly `COD`; anything else is 400
+  `PAYMENT_METHOD_UNSUPPORTED`, missing/non-string is 400 `INVALID_REQUEST`, a malformed quote id is the
+  domain's 404; unknown body fields are ignored, per the existing customer-controller convention) and
+  delegates ONLY to `OrderService.placeCodOrder`; it never reaches the internal create-only path
+  (ArchUnit-enforced) and has no `Idempotency-Key` (`(customerId, quoteId)` is already unique). Always
+  `200`, first placement and replay alike. GET is one owned query (`_id` AND `customerId`, never
+  load-then-authorize) via `OrderService.getOrder`; a malformed, unknown, foreign or internal-`CREATED`
+  id is the identical 404; a corrupt stored row is a safe 500; an outage is 503. The response
+  (`CustomerOrderDto`) is built only from the Order's stored snapshots and hides customerId, quoteId,
+  reservationId, addressId/version, Order version, fulfillment location and coordinates; `paymentMethod`
+  `COD` + `paymentCondition` `COD_DUE` mean confirmed, payment owed on delivery, nothing collected. All
+  responses `no-store`; errors are `{code, message, requestId}`. Failure mapping: 400/404/410, 409
+  (`ADDRESS_CHANGED`, `NOT_SERVICEABLE`, `PRICE_CHANGED`, `PRODUCT_UNAVAILABLE`, `STOCK_UNAVAILABLE`,
+  `RESERVATION_EXPIRED`, `CART_VERSION_ALREADY_PURCHASED`), 500 `INTERNAL`, 503. No double counting:
+  the domain owns `order_place_cod_*`; the HTTP layer counts only request-shape rejections, unexpected
+  500s and every GET outcome. OpenAPI gains both paths and their schemas. No order list endpoint, no
+  Membership, Benefits, prepaid, gateway, COD collection, cancellation or fulfilment.
+  **Known domain gap found while testing over real HTTP (NOT fixed here, needs a ruling):** the address
+  API treats coordinates as OPTIONAL, but `OrderAddressSnapshot` requires `latitude`/`longitude`, so
+  placing an order from a coordinate-less saved address fails with a safe, rolled-back 500 (an NPE in
+  `OrderDraftAssembler.snapshotFrom`). The HTTP fixtures save addresses WITH coordinates. **DEPLOYMENT /
+  PRODUCTION ROLLOUT remains BLOCKED on the `orders`-count == 0 gate (PENDING, not verified).**
+
 ## Follow-up debt (recorded)
 
+- **Order address snapshot requires coordinates (found in PR-15A-2, open):** the address API treats
+  `latitude`/`longitude` as optional, but `OrderAddressSnapshot` requires them, so placing a COD order from a
+  coordinate-less saved address fails with a safe, rolled-back 500 (NPE in `OrderDraftAssembler.snapshotFrom`).
+  Needs an explicit decision (nullable coordinates in the snapshot vs. requiring them at checkout) before
+  this is relied on in production.
 - **Non-Auth `tx.run` result-holder audit (PR-11D, no action taken):** `AttributeAuthoringService`
   (`version[]`, two sites), `EvidenceService` (`outcome[]`), `RollupService.purge` (`deleted[]`) and
   `TaintService.processBatch` (`last[]`) share the same STRUCTURE (a one-element array written in the
@@ -635,7 +668,7 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   `PublicServiceability`, pincode-keyed routing) is **COMPLETE** and unchanged; the
   customer-address BINDING to it (PR-12B) is **COMPLETE**.
   (Address ↔ Serviceability binding: COMPLETE.)
-- Cart (PR-12C): **COMPLETE** (PR #21). Auth transaction retry hardening (PR-11D): **COMPLETE** (PR #22). Checkout (PR-13A): **COMPLETE** (PR #23). Checkout provenance (PR-13B): **COMPLETE** (PR #24, squash `8b4fabb9b82e4e3502202ffaff1aadd35f9ba311`). Inventory Reservation lifecycle (PR-14A): **COMPLETE** (PR #25, squash `44438031022238334ecdf3995ba1096101e2e47f`). Order Foundation (PR-14B): **COMPLETE** (PR #26, squash `b620538e34afc35f7f080461750681b467ed4096`). Cart purchase-finalization seam (PR-15A-0): **COMPLETE** (PR #28, squash `611829c3649de3f5c37dec4ac5b375a1d8ef454e`). COD Order domain (PR-15A-1): **IN REVIEW** (not merged; not customer reachable — PR-15A-2 HTTP **NOT STARTED**; operational `orders`-count==0 gate **PENDING**). Membership: **NOT STARTED**. Benefits/Promotion: **NOT STARTED**. Payment: **NOT STARTED**. Real payment gateway: **NOT STARTED**.
+- Cart (PR-12C): **COMPLETE** (PR #21). Auth transaction retry hardening (PR-11D): **COMPLETE** (PR #22). Checkout (PR-13A): **COMPLETE** (PR #23). Checkout provenance (PR-13B): **COMPLETE** (PR #24, squash `8b4fabb9b82e4e3502202ffaff1aadd35f9ba311`). Inventory Reservation lifecycle (PR-14A): **COMPLETE** (PR #25, squash `44438031022238334ecdf3995ba1096101e2e47f`). Order Foundation (PR-14B): **COMPLETE** (PR #26, squash `b620538e34afc35f7f080461750681b467ed4096`). Cart purchase-finalization seam (PR-15A-0): **COMPLETE** (PR #28, squash `611829c3649de3f5c37dec4ac5b375a1d8ef454e`). COD Order domain (PR-15A-1): **COMPLETE** (PR #29, squash `e8d4d45e88ad4935f7ad84a46ae65a671e50ba63`). Customer Order HTTP (PR-15A-2): **IN REVIEW** (not merged; COD is not customer reachable until it merges; operational `orders`-count==0 gate **PENDING**). Membership: **NOT STARTED**. Benefits/Promotion: **NOT STARTED**. Payment: **NOT STARTED**. Real payment gateway: **NOT STARTED**.
 
 ## Next (ratified sequence)
 
@@ -673,6 +706,10 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-09-30** — `./mvnw clean test` on Java 21 + Docker on `feature/pr15a2-customer-order-http`
+  (based on `main` `e8d4d45`): **BUILD SUCCESS**, 1840 tests, 0 failures / 0 errors / 0 skipped
+  (1807 baseline + 31 `OrderHttpIT` + 2 ArchUnit rules); `ModuleBoundaryTest` 23/23; OpenAPI validates
+  (`swagger-cli validate`).
 - **2026-09-30** — `./mvnw clean test` on Java 21 + Docker on `feature/pr15a1-cod-order-domain`
   (based on `main` `611829c`): **BUILD SUCCESS**, 1801 tests, 0 failures / 0 errors / 0 skipped
   (1764 baseline + 37 new in `OrderPlaceCodIT`); `ModuleBoundaryTest` 21/21.
