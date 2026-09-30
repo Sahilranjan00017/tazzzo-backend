@@ -107,8 +107,7 @@ public class OrderRepository {
         OrderAddressSnapshot addressSnapshot = new OrderAddressSnapshot(a.getString("label"),
                 a.getString("recipientName"), a.getString("recipientPhone"), a.getString("addressLine1"),
                 a.getString("addressLine2"), a.getString("landmark"), a.getString("city"), a.getString("state"),
-                a.getString("postalCode"), a.get("latitude", Number.class).doubleValue(),
-                a.get("longitude", Number.class).doubleValue());
+                a.getString("postalCode"), nullableDouble(a, "latitude"), nullableDouble(a, "longitude"));
         OrderStatus status = OrderStatus.valueOf(requireString(d, "status"));
         Object rawCondition = d.get("confirmedPaymentCondition");
         Object rawConfirmedAt = d.get("confirmedAt");
@@ -122,6 +121,13 @@ public class OrderRepository {
                 d.getDate("createdAt").toInstant(),
                 rawConfirmedAt == null ? null : d.getDate("confirmedAt").toInstant(),
                 d.getDate("updatedAt").toInstant());
+    }
+
+    /** PR-15A-2 — coordinates are nullable as a PAIR (enforced by {@link OrderAddressSnapshot}); a present
+     *  but non-numeric value is corruption and fails loud (ClassCastException), never defaulted. */
+    private static Double nullableDouble(Document d, String field) {
+        Number n = d.get(field, Number.class);
+        return n == null ? null : n.doubleValue();
     }
 
     /** PR-15A-1 — strict schema: no default for a missing required field, ever. */

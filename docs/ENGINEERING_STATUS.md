@@ -600,19 +600,19 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   the domain owns `order_place_cod_*`; the HTTP layer counts only request-shape rejections, unexpected
   500s and every GET outcome. OpenAPI gains both paths and their schemas. No order list endpoint, no
   Membership, Benefits, prepaid, gateway, COD collection, cancellation or fulfilment.
-  **Known domain gap found while testing over real HTTP (NOT fixed here, needs a ruling):** the address
-  API treats coordinates as OPTIONAL, but `OrderAddressSnapshot` requires `latitude`/`longitude`, so
-  placing an order from a coordinate-less saved address fails with a safe, rolled-back 500 (an NPE in
-  `OrderDraftAssembler.snapshotFrom`). The HTTP fixtures save addresses WITH coordinates. **DEPLOYMENT /
+  **Optional coordinates (found by real-HTTP testing, fixed in this PR):** the address API treats
+  coordinates as OPTIONAL (both absent, or both present and valid), but the merged Order snapshot required
+  them, so a coordinate-less saved address crashed placement (safe, rolled-back 500). `OrderAddressSnapshot`
+  now follows the Address contract: `Double latitude/longitude`, both null, or both finite and in range
+  (lat [-90,90], lon [-180,180]); exactly one present, out-of-range or non-finite fails loud; nothing is
+  ever defaulted (`0.0`, `NaN`, a city centre) or geocoded. `snapshotFrom` and `OrderRepository` preserve
+  null safely. Coordinates remain internal and are never in `CustomerOrderDto`; address creation/patch,
+  checkout and PIN-based serviceability are unchanged.
+  **DEPLOYMENT /
   PRODUCTION ROLLOUT remains BLOCKED on the `orders`-count == 0 gate (PENDING, not verified).**
 
 ## Follow-up debt (recorded)
 
-- **Order address snapshot requires coordinates (found in PR-15A-2, open):** the address API treats
-  `latitude`/`longitude` as optional, but `OrderAddressSnapshot` requires them, so placing a COD order from a
-  coordinate-less saved address fails with a safe, rolled-back 500 (NPE in `OrderDraftAssembler.snapshotFrom`).
-  Needs an explicit decision (nullable coordinates in the snapshot vs. requiring them at checkout) before
-  this is relied on in production.
 - **Non-Auth `tx.run` result-holder audit (PR-11D, no action taken):** `AttributeAuthoringService`
   (`version[]`, two sites), `EvidenceService` (`outcome[]`), `RollupService.purge` (`deleted[]`) and
   `TaintService.processBatch` (`last[]`) share the same STRUCTURE (a one-element array written in the
@@ -706,6 +706,9 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-09-30** — same branch after the optional-coordinates fix: **BUILD SUCCESS**, 1854 tests,
+  0 failures / 0 errors / 0 skipped (1840 + 7 `OrderAddressSnapshotTest` + 5 domain + 2 HTTP); `ModuleBoundaryTest`
+  23/23; OpenAPI valid and the generated export unchanged (no public contract change).
 - **2026-09-30** — `./mvnw clean test` on Java 21 + Docker on `feature/pr15a2-customer-order-http`
   (based on `main` `e8d4d45`): **BUILD SUCCESS**, 1840 tests, 0 failures / 0 errors / 0 skipped
   (1807 baseline + 31 `OrderHttpIT` + 2 ArchUnit rules); `ModuleBoundaryTest` 23/23; OpenAPI validates

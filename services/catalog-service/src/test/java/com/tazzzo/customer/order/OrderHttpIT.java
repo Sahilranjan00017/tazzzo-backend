@@ -213,6 +213,10 @@ class OrderHttpIT extends AbstractApiIT {
     /** A customer with a cart (2 x 5000 paise, stock 10), one saved address in its own serviceable PIN, and
      *  one fresh quote. Everything is unique per call so tests can mutate freely. */
     private Shopper shopper() {
+        return shopper(true);
+    }
+
+    private Shopper shopper(boolean withCoordinates) {
         String pin = String.format("5603%02d", ++seq % 100);
         serviceability.upsertServiceArea(new UpsertServiceAreaCommand(pin, "SA-ORD-" + seq,
                 List.of(new ServiceabilityRoute(LOC, 0, true)), "seed", null));
@@ -230,10 +234,12 @@ class OrderHttpIT extends AbstractApiIT {
         a.put("city", "Bengaluru");
         a.put("state", "Karnataka");
         a.put("postalCode", pin);
-        // coordinates are OPTIONAL in the address API but the Order address snapshot currently requires them
-        // (a pre-existing PR-14B/15A-1 domain gap, reported separately); these fixtures supply them.
-        a.put("latitude", 12.9716);
-        a.put("longitude", 77.5946);
+        // coordinates are OPTIONAL in the address API (both absent, or both present): a coordinate-less saved
+        // address is valid and the Order snapshot preserves that, so the fixture can go either way.
+        if (withCoordinates) {
+            a.put("latitude", 12.9716);
+            a.put("longitude", 77.5946);
+        }
         String addressId = post("/v1/customer/addresses", a, token, JsonNode.class).getBody().get("addressId").asText();
         ResponseEntity<JsonNode> q = quote(token, addressId, 1);
         assertThat(q.getStatusCode().value()).as("quote: %s", q.getBody()).isEqualTo(200);
@@ -681,6 +687,69 @@ class OrderHttpIT extends AbstractApiIT {
         Shopper s = shopper();
         Order created = orderService.createOrder(new CustomerId(s.customerId()), s.quoteId(), PaymentMethod.COD);
         assertSafeError(read(s.token(), created.orderId().value()), 404, "NOT_FOUND");
+    }
+
+    // ============================================================
+    // optional coordinates
+    // ============================================================
+
+    @Test void a_coordinate_less_address_places_and_reads_a_normal_order_with_no_coordinates_anywhere() {
+        Shopper with = shopper(true);
+        Shopper without = shopper(false);
+        assertThat(db.getCollection("customer_addresses").find(new Document("_id", without.addressId())).first()
+                .get("latitude")).isNull(); // the address really is coordinate-less (valid per the Address domain)
+
+        ResponseEntity<JsonNode> r = placeCod(without);
+        assertThat(r.getStatusCode().value()).isEqualTo(200);
+        assertThat(r.getBody().get("status").asText()).isEqualTo("CONFIRMED");
+        assertThat(r.getBody().get("paymentMethod").asText()).isEqualTo("COD");
+        assertThat(r.getBody().get("paymentCondition").asText()).isEqualTo("COD_DUE");
+        String orderId = r.getBody().get("orderId").asText();
+
+        Document stored = orderDoc(orderId);                                               // persisted as absent
+        assertThat(stored.get("addressSnapshot", Document.class).get("latitude")).isNull();
+        assertThat(stored.get("addressSnapshot", Document.class).get("longitude")).isNull();
+        assertThat(db.getCollection("inventory_reservations").find(new Document("_id", stored.getString("reservationId")))
+                .first().getString("status")).isEqualTo("CONSUMED");                        // inventory consumed
+        assertThat(onHand(without.sku())).isEqualTo(8);
+        assertThat(cart(without).getList("items", Document.class)).isEmpty();               // cart finalized
+        assertThat(cart(without).get("purchasedThroughVersion", Number.class).longValue()).isEqualTo(1);
+
+        ResponseEntity<JsonNode> g = read(without.token(), orderId);                        // GET works
+        assertThat(g.getStatusCode().value()).isEqualTo(200);
+        for (JsonNode body : List.of(r.getBody(), g.getBody())) {
+            assertThat(body.toString()).doesNotContain("latitude").doesNotContain("longitude");
+        }
+        assertThat(g.getBody().get("deliveryAddress").get("addressLine1").asText()).isEqualTo("12 MG Road");
+
+        // the public contract is identical with and without coordinates
+        JsonNode withBody = placeCod(with).getBody();
+        assertThat(keys(g.getBody())).isEqualTo(keys(withBody));
+        assertThat(keys(g.getBody().get("deliveryAddress"))).isEqualTo(keys(withBody.get("deliveryAddress")));
+        assertThat(withBody.toString()).doesNotContain("latitude").doesNotContain("longitude");
+
+        assertThat(placeCod(without).getBody().get("orderId").asText()).isEqualTo(orderId); // replay unchanged
+        assertThat(onHand(without.sku())).isEqualTo(8);
+    }
+
+    @Test void a_corrupt_half_coordinate_pair_in_a_stored_order_is_a_safe_500_in_both_directions() {
+        Shopper s = shopper(true);
+        String orderId = placeCod(s).getBody().get("orderId").asText();
+
+        db.getCollection("orders").updateOne(new Document("_id", orderId),
+                new Document("$unset", new Document("addressSnapshot.longitude", ""))); // latitude present only
+        ResponseEntity<JsonNode> a = read(s.token(), orderId);
+        assertSafeError(a, 500, "INTERNAL");
+
+        db.getCollection("orders").updateOne(new Document("_id", orderId), new Document("$set",
+                new Document("addressSnapshot.longitude", 77.5946)).append("$unset",
+                new Document("addressSnapshot.latitude", ""))); // longitude present only
+        ResponseEntity<JsonNode> b = read(s.token(), orderId);
+        assertSafeError(b, 500, "INTERNAL");
+        for (ResponseEntity<JsonNode> r : List.of(a, b)) {
+            assertThat(r.getBody().toString()).doesNotContain("latitude").doesNotContain("longitude")
+                    .doesNotContain("both present");
+        }
     }
 
     // ============================================================

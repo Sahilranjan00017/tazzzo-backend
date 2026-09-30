@@ -7,14 +7,18 @@ package com.tazzzo.customer.order;
  * commit, never re-read" discipline {@link OrderLine} follows for product display data.
  *
  * <p>Fields mirror {@code AddressRepository}'s stored document exactly — no invented fields.
- * {@code latitude}/{@code longitude} are carried for INTERNAL order history/fulfilment routing
- * only; no customer-facing HTTP DTO exists in this PR, so no coordinate-leak boundary is needed
- * yet (a future public Order surface must exclude them explicitly, the same way
- * {@code CheckoutQuoteDto} excludes {@code addressVersion}).
+ *
+ * <p><b>Coordinates follow the Address domain's own contract</b> (the authority): the pair is either
+ * BOTH absent ({@code null}, a valid coordinate-less address) or BOTH present, finite and in range
+ * (latitude in [-90, 90], longitude in [-180, 180]). Exactly one present, out-of-range or non-finite is
+ * corrupt/inconsistent state and fails LOUD — never defaulted ({@code 0.0}, {@code NaN}, a city centre)
+ * and never geocoded. They are carried for INTERNAL order history/fulfilment routing only and are
+ * NEVER exposed publicly ({@code CustomerOrderDto} excludes them). Serviceability remains PIN-based and
+ * does not depend on coordinates.
  */
 public record OrderAddressSnapshot(String label, String recipientName, String recipientPhone, String addressLine1,
                                    String addressLine2, String landmark, String city, String state,
-                                   String postalCode, double latitude, double longitude) {
+                                   String postalCode, Double latitude, Double longitude) {
 
     public OrderAddressSnapshot {
         if (label == null || label.isBlank()) {
@@ -40,5 +44,19 @@ public record OrderAddressSnapshot(String label, String recipientName, String re
         }
         // addressLine2/landmark are nullable, mirroring the source Address document's own
         // nullability -- this snapshot invents no stricter contract than its source.
+        if (latitude == null != (longitude == null)) {
+            throw new IllegalArgumentException("latitude and longitude must be both present or both absent");
+        }
+        if (latitude != null) {
+            if (!Double.isFinite(latitude) || !Double.isFinite(longitude)) {
+                throw new IllegalArgumentException("coordinates must be finite");
+            }
+            if (latitude < -90.0 || latitude > 90.0) {
+                throw new IllegalArgumentException("latitude out of range: " + latitude);
+            }
+            if (longitude < -180.0 || longitude > 180.0) {
+                throw new IllegalArgumentException("longitude out of range: " + longitude);
+            }
+        }
     }
 }
