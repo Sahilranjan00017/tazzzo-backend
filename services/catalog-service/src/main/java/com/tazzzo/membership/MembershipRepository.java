@@ -28,9 +28,9 @@ import java.util.Optional;
  * uniqueness mechanism — the partial {@code openTerm} index stays the sole write/concurrency slot authority.
  *
  * <p><b>{@code openTerm} encoding.</b> {@code ACTIVE} rows carry the BSON boolean {@code true};
- * {@code EXPIRED} rows have the field ABSENT (the expiry CAS {@code $unset}s it) — never
+ * {@code EXPIRED}/{@code REVOKED} rows have the field ABSENT (the expiry/revoke CAS {@code $unset}s it) — never
  * {@code false}/{@code null}, which would fall outside the partial filter and silently bypass the
- * one-open-term guarantee. Reconstruction rejects every other encoding. Every open-term query includes
+ * one-open-term guarantee. (PR-16A-3: {@code REVOKED} rows are terminal too — the revoke CAS $unsets the marker.) Reconstruction rejects every other encoding. Every open-term query includes
  * the literal {@code openTerm: true} so the planner can use the partial index.
  *
  * <p><b>Primary reads.</b> The non-session reads (duplicate-key recovery, and the future standalone
@@ -136,6 +136,50 @@ public class MembershipRepository {
         return r.getModifiedCount() == 1;
     }
 
+    /** PR-16A-3 — the revoke target lookup, on the {@code _id} access path (no scan); strictly reconstructed. */
+    public Optional<Membership> findById(ClientSession session, MembershipId id) {
+        return reconstruct(collection().find(session, Filters.eq("_id", id.value())).first());
+    }
+
+    /**
+     * PR-16A-3 CAS: records a cancel-at-period-end request. The filter pins {@code _id}, {@code status = ACTIVE},
+     * the expected {@code version}, the {@code openTerm = true} marker, the ABSENCE of a previous
+     * {@code cancelRequestedAt} (so an original timestamp can never be rewritten) and the live window
+     * ({@code validFrom <= now < validUntil}). Sets only {@code cancelRequestedAt}, {@code version + 1} and
+     * {@code updatedAt}: status, {@code openTerm}, {@code validUntil} and every snapshot field are untouched.
+     *
+     * @return true iff it applied
+     */
+    public boolean markCancelRequested(ClientSession session, MembershipId id, long expectedVersion, Instant now) {
+        UpdateResult r = collection().updateOne(session,
+                Filters.and(Filters.eq("_id", id.value()), Filters.eq("status", MembershipStatus.ACTIVE.name()),
+                        Filters.eq("version", expectedVersion), Filters.eq("openTerm", true),
+                        Filters.exists("cancelRequestedAt", false),
+                        Filters.lte("validFrom", Date.from(now)), Filters.gt("validUntil", Date.from(now))),
+                Updates.combine(Updates.set("cancelRequestedAt", Date.from(now)),
+                        Updates.set("version", expectedVersion + 1), Updates.set("updatedAt", Date.from(now))));
+        return r.getModifiedCount() == 1;
+    }
+
+    /**
+     * PR-16A-3 CAS ACTIVE -> REVOKED. Same guards as the cancel CAS (without the cancel-absence guard: a prior
+     * {@code cancelRequestedAt} is preserved as history). Sets {@code status}, {@code revokedAt},
+     * {@code version + 1}, {@code updatedAt} and $unsets {@code openTerm} (never false/null), so the one-open-term
+     * slot is released structurally.
+     *
+     * @return true iff it applied
+     */
+    public boolean markRevoked(ClientSession session, MembershipId id, long expectedVersion, Instant now) {
+        UpdateResult r = collection().updateOne(session,
+                Filters.and(Filters.eq("_id", id.value()), Filters.eq("status", MembershipStatus.ACTIVE.name()),
+                        Filters.eq("version", expectedVersion), Filters.eq("openTerm", true),
+                        Filters.lte("validFrom", Date.from(now)), Filters.gt("validUntil", Date.from(now))),
+                Updates.combine(Updates.set("status", MembershipStatus.REVOKED.name()),
+                        Updates.set("revokedAt", Date.from(now)), Updates.set("version", expectedVersion + 1),
+                        Updates.set("updatedAt", Date.from(now)), Updates.unset("openTerm")));
+        return r.getModifiedCount() == 1;
+    }
+
     private static org.bson.conversions.Bson byGrantReference(MembershipGrantReference reference) {
         return Filters.and(Filters.eq("grantSource", reference.source().name()),
                 Filters.eq("grantRef", reference.reference()));
@@ -160,7 +204,7 @@ public class MembershipRepository {
         if (m.status() == MembershipStatus.ACTIVE) {
             d.append("openTerm", true); // present ONLY while ACTIVE; absent (never false/null) when terminal
         }
-        return d.append("version", m.version())
+        d.append("version", m.version())
                 .append("grantSource", m.grantReference().source().name())
                 .append("grantRef", m.grantReference().reference())
                 .append("planId", m.planId()).append("planVersion", m.planVersion())
@@ -169,6 +213,13 @@ public class MembershipRepository {
                 .append("periodCount", m.periodCount())
                 .append("validFrom", Date.from(m.validFrom())).append("validUntil", Date.from(m.validUntil()))
                 .append("createdAt", Date.from(m.createdAt())).append("updatedAt", Date.from(m.updatedAt()));
+        if (m.cancelRequestedAt() != null) { // additive PR-16A-3 facts: ABSENT (never null) on a row without them
+            d.append("cancelRequestedAt", Date.from(m.cancelRequestedAt()));
+        }
+        if (m.revokedAt() != null) {
+            d.append("revokedAt", Date.from(m.revokedAt()));
+        }
+        return d;
     }
 
     /** Strict reconstruction: ANY defect becomes {@code INTEGRITY_FAILURE}; nothing is defaulted. */
@@ -184,7 +235,8 @@ public class MembershipRepository {
                     new Money(requireIntegral(d, "planPricePaise"), Currency.valueOf(requireString(d, "planCurrency"))),
                     Math.toIntExact(requireIntegral(d, "planPeriodMonths")), requireString(d, "billingZoneId"),
                     requireIntegral(d, "periodCount"), requireInstant(d, "validFrom"),
-                    requireInstant(d, "validUntil"), requireInstant(d, "createdAt"), requireInstant(d, "updatedAt"));
+                    requireInstant(d, "validUntil"), requireInstant(d, "createdAt"), requireInstant(d, "updatedAt"),
+                    optionalInstant(d, "cancelRequestedAt"), optionalInstant(d, "revokedAt"));
         } catch (RuntimeException e) {
             log.error("membership_document_corrupt type={}", e.getClass().getSimpleName());
             throw new MembershipFailure(MembershipFailure.Reason.INTEGRITY_FAILURE,
@@ -219,6 +271,12 @@ public class MembershipRepository {
             return l;
         }
         throw new IllegalStateException("membership document missing/invalid required field: " + field);
+    }
+
+    /** Absent => null (a row written before PR-16A-3, or one that never had the fact). PRESENT must be a real date:
+     *  an explicit null, a string or a number is corruption, never "absent". */
+    private static Instant optionalInstant(Document d, String field) {
+        return d.containsKey(field) ? requireInstant(d, field) : null;
     }
 
     private static Instant requireInstant(Document d, String field) {

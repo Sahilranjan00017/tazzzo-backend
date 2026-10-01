@@ -43,7 +43,8 @@ class MembershipValueTypesTest {
     @Test
     void the_grant_source_namespace_currently_holds_exactly_the_internal_producer() {
         assertThat(GrantSource.values()).containsExactly(GrantSource.INTERNAL_GRANT);
-        assertThat(MembershipStatus.values()).containsExactly(MembershipStatus.ACTIVE, MembershipStatus.EXPIRED);
+        assertThat(MembershipStatus.values()).containsExactly(MembershipStatus.ACTIVE, MembershipStatus.EXPIRED,
+                MembershipStatus.REVOKED);
     }
 
     @Test

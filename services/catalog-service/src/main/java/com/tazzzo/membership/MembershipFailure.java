@@ -18,6 +18,10 @@ public final class MembershipFailure extends RuntimeException {
         GRANT_REF_CONFLICT,
         /** A corrupt persisted row, or a guarded write that cannot be explained by durable state. */
         INTEGRITY_FAILURE,
+        /** PR-16A-3: no current/open term to cancel, or no term with the revoked id. */
+        NOT_FOUND,
+        /** PR-16A-3: the term is not in a state this command can act on (time-ended or terminal). */
+        INVALID_TRANSITION,
         UNAVAILABLE
     }
 

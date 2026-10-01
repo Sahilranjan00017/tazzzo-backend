@@ -26,7 +26,7 @@ public class MembershipObservability {
 
     private static final Logger log = LoggerFactory.getLogger(MembershipObservability.class);
 
-    public enum Operation { GRANT, ENTITLEMENT_READ }
+    public enum Operation { GRANT, ENTITLEMENT_READ, CANCEL_AT_PERIOD_END, REVOKE }
 
     private final MeterRegistry registry;
 

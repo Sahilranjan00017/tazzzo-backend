@@ -663,9 +663,8 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
     have document count == 0 in every persistent environment. Nothing here weakens or replaces it; do not
     claim production readiness.
 
-## In review (NOT merged)
-
-- **PR-16A-2 — Membership entitlement read seam** (`com.tazzzo.membership`): **IN REVIEW**. **READ ONLY.**
+- **PR-16A-2 — Membership entitlement read seam** (`com.tazzzo.membership`): **COMPLETE** (PR #32, squash
+  `580633abbc8d162f45110443f503d4998f4caa48`). **READ ONLY.**
   Answers one question: does this customer have a Membership entitlement at Membership's own current
   authoritative time? Two narrow ports and one minimal value type: `MembershipEntitlementPort`
   (standalone, `currentEntitlement(CustomerId)`), `TransactionalMembershipEntitlementPort` (session-aware,
@@ -705,6 +704,59 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
     gates recorded under PR-16A-1 (no conflicting `memberships` collection, SchemaBootstrap privileges,
     identical plan configuration, no Mongo `readPreference` override, cluster default read/write concern).
     Not verified; do not claim production readiness.
+
+## In review (NOT merged)
+
+- **PR-16A-3 — Membership termination** (`com.tazzzo.membership`): **IN REVIEW**. The last Membership
+  Foundation slice: exactly two INTERNAL, standalone lifecycle commands in `MembershipTerminationService` —
+  **no HTTP, no Benefits, no Payment/refund, no renewal, no upgrade, no audit subsystem (no actor/reason),
+  no worker, no new index, no session-aware termination seam** (no caller needs one).
+  - **New producer/state:** `MembershipStatus.REVOKED` (terminal, never an entitlement, `openTerm` ABSENT) and two
+    additive nullable timestamps `cancelRequestedAt` / `revokedAt` (absent on every pre-existing row, never
+    backfilled). Cancel-at-period-end is NOT a status: it is the `cancelRequestedAt` fact on an ACTIVE term.
+    Strict reconstruction rejects every impossible combination (`INTEGRITY_FAILURE`): REVOKED with an open marker
+    (true/false/null) or without `revokedAt`; `revokedAt` on a non-REVOKED row; non-date/null representations;
+    timestamps outside `[validFrom, validUntil)`; a REVOKED/cancelled row not last updated by its own mutation. A
+    valid historical EXPIRED row may carry `cancelRequestedAt` but never an open marker. PR-16A-2's candidate read is
+    unchanged (REVOKED rows carry no marker so they are not candidates; REVOKED + marker is a claimed-open corrupt row
+    and fails loud).
+  - **`cancelAtPeriodEnd(CustomerId)`:** resolves the customer's single current/open term (the established candidate
+    read, no history scan). On an entitling term with no prior request it sets `cancelRequestedAt = now` (service
+    clock, ms precision), version + 1; status, `openTerm`, `validUntil` and every snapshot field are untouched and
+    entitlement continues until the window ends. Idempotent: an already-cancelled term is returned with NO mutation
+    (original timestamp, version and `updatedAt` stable; a recorded request replays as success even after the window
+    ended — the replay check intentionally precedes the window check so an already-succeeded command stays safely
+    replayable across `validUntil`). No current/open term => `NOT_FOUND`: this includes a customer whose term was just
+    revoked (REVOKED rows carry no open marker, so cancel-after-revoke and a revoke-wins cancel/revoke race are
+    `NOT_FOUND`, never `INVALID_TRANSITION`; the command targets current lifecycle authority, so there is deliberately
+    NO historical REVOKED lookup). A FIRST cancel request on a stale (window ended) or not-yet-started ACTIVE term
+    (no prior `cancelRequestedAt`) => `INVALID_TRANSITION` with no mutation (never rewritten as REVOKED or silently
+    expired); corrupt candidate => `INTEGRITY_FAILURE`. There is no un-cancel.
+  - **`revoke(MembershipId)`:** on an entitling ACTIVE term it sets `status = REVOKED`, `revokedAt = now`, version + 1
+    and REMOVES `openTerm` (`$unset`, never false); a prior `cancelRequestedAt` is preserved as history; the slot is
+    freed for a new grant and entitlement ends immediately. Idempotent on an already REVOKED term (first `revokedAt`
+    stable). Unknown id => `NOT_FOUND`; EXPIRED, stale or not-yet-started ACTIVE => `INVALID_TRANSITION`; corrupt row
+    => `INTEGRITY_FAILURE`. `NOT_FOUND` and `INVALID_TRANSITION` join the closed failure vocabulary (real producers);
+    there is no `VERSION_CONFLICT`.
+  - **CAS / transactions:** each command owns exactly one `Tx.call`; an authoritative same-session read precedes a CAS
+    guarded on `_id`, `status = ACTIVE`, expected `version`, `openTerm = true`, the live window and (cancel) the
+    absence of a previous request. A concurrent writer surfaces as a transient write conflict that the driver resolves
+    by re-running the callback, which re-reads and lands on the stable domain result; a CAS miss after a same-session
+    read is `INTEGRITY_FAILURE`. Metrics (`cancel_at_period_end`, `revoke` operations; the `ACTIVE -> REVOKED`
+    transition) are recorded once, only after `Tx.call` returns; closed-enum tags only.
+  - **Tests and boundaries:** unit reconstruction tests; `MembershipTerminationIT` (domain, idempotency, entitlement,
+    retry, outage, repository CAS guards); real-Mongo concurrency (cancel/cancel, revoke/revoke, cancel/revoke,
+    revoke/grant) asserting the FINAL persisted document under a ticking clock. Four new ArchUnit rules (nothing
+    outside Membership depends on the termination service; it depends on no other domain, HTTP or plan source;
+    repository/domain objects emit no metrics; entitlement reads never call the termination writes). New rules and
+    five production mutations (cancel rewrite, missing `$unset`, stale revoke, CAS bypass, REVOKED without
+    `revokedAt`) were mutation-checked.
+  - **Roll-forward constraint:** once persisted `REVOKED` (or `cancelRequestedAt`) rows exist, code that cannot
+    reconstruct them (PR-16A-1/16A-2 builds) must NOT be redeployed — it fails loud on a REVOKED row.
+  - **Deployment gates unchanged and PENDING (none verified):** the Order `orders`-count == 0 gate and the five
+    Membership gates (no conflicting `memberships` collection, SchemaBootstrap privileges, identical plan
+    configuration, no Mongo `readPreference` override, cluster default read/write concern). Do not claim
+    production readiness.
 
 ## Follow-up debt (recorded)
 
@@ -763,12 +815,12 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   `PublicServiceability`, pincode-keyed routing) is **COMPLETE** and unchanged; the
   customer-address BINDING to it (PR-12B) is **COMPLETE**.
   (Address ↔ Serviceability binding: COMPLETE.)
-- Cart (PR-12C): **COMPLETE** (PR #21). Auth transaction retry hardening (PR-11D): **COMPLETE** (PR #22). Checkout (PR-13A): **COMPLETE** (PR #23). Checkout provenance (PR-13B): **COMPLETE** (PR #24, squash `8b4fabb9b82e4e3502202ffaff1aadd35f9ba311`). Inventory Reservation lifecycle (PR-14A): **COMPLETE** (PR #25, squash `44438031022238334ecdf3995ba1096101e2e47f`). Order Foundation (PR-14B): **COMPLETE** (PR #26, squash `b620538e34afc35f7f080461750681b467ed4096`). Cart purchase-finalization seam (PR-15A-0): **COMPLETE** (PR #28, squash `611829c3649de3f5c37dec4ac5b375a1d8ef454e`). COD Order domain (PR-15A-1): **COMPLETE** (PR #29, squash `e8d4d45e88ad4935f7ad84a46ae65a671e50ba63`). Customer Order HTTP (PR-15A-2): **COMPLETE** (PR #30, squash `0cdcc97b8fcf5f7c079815b8cb276874635d15d6`; operational `orders`-count==0 deployment gate **PENDING**, not verified). Membership write foundation (PR-16A-1): **COMPLETE** (PR #31, squash `d32a23fb2e4b52fa8076de45a07bf3b60912b1e2`; Membership deployment gates **PENDING**, not verified). Membership entitlement read seam (PR-16A-2): **IN REVIEW** (read only; no HTTP, no Benefits). Membership termination (PR-16A-3): **NOT STARTED**. Benefits/Promotion: **NOT STARTED**. Payment: **NOT STARTED**. Real payment gateway: **NOT STARTED**.
+- Cart (PR-12C): **COMPLETE** (PR #21). Auth transaction retry hardening (PR-11D): **COMPLETE** (PR #22). Checkout (PR-13A): **COMPLETE** (PR #23). Checkout provenance (PR-13B): **COMPLETE** (PR #24, squash `8b4fabb9b82e4e3502202ffaff1aadd35f9ba311`). Inventory Reservation lifecycle (PR-14A): **COMPLETE** (PR #25, squash `44438031022238334ecdf3995ba1096101e2e47f`). Order Foundation (PR-14B): **COMPLETE** (PR #26, squash `b620538e34afc35f7f080461750681b467ed4096`). Cart purchase-finalization seam (PR-15A-0): **COMPLETE** (PR #28, squash `611829c3649de3f5c37dec4ac5b375a1d8ef454e`). COD Order domain (PR-15A-1): **COMPLETE** (PR #29, squash `e8d4d45e88ad4935f7ad84a46ae65a671e50ba63`). Customer Order HTTP (PR-15A-2): **COMPLETE** (PR #30, squash `0cdcc97b8fcf5f7c079815b8cb276874635d15d6`; operational `orders`-count==0 deployment gate **PENDING**, not verified). Membership write foundation (PR-16A-1): **COMPLETE** (PR #31, squash `d32a23fb2e4b52fa8076de45a07bf3b60912b1e2`; Membership deployment gates **PENDING**, not verified). Membership entitlement read seam (PR-16A-2): **COMPLETE** (PR #32, squash `580633abbc8d162f45110443f503d4998f4caa48`). Membership termination (PR-16A-3): **IN REVIEW** (cancel-at-period-end and immediate revoke; internal only, no HTTP, no Benefits, no Payment). Benefits/Promotion: **NOT STARTED**. Payment: **NOT STARTED**. Real payment gateway: **NOT STARTED**.
 
 ## Next (ratified sequence)
 
 1. **Membership Foundation** — PR-16A-1 write foundation (complete), PR-16A-2 entitlement read seam
-   (in review), PR-16A-3 termination (cancel-at-period-end, immediate revoke).
+   (complete), PR-16A-3 termination (cancel-at-period-end, immediate revoke; in review).
 2. Benefits / Promotion engine (the only place discount percentages and thresholds will live).
 3. Checkout + Order money-model upgrade.
 4. Payment domain, then the prepaid Order flow, then a real gateway.
@@ -807,6 +859,10 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-10-01** — `./mvnw clean test` on Java 21 + Docker on `feature/pr16a3-membership-termination`
+  (based on `main` `580633a`): **BUILD SUCCESS**, 2028 tests, 0 failures / 0 errors / 0 skipped
+  (1989 baseline + 24 `MembershipTerminationIT` + 4 `MembershipTerminationConcurrencyIT` + 7 reconstruction
+  tests + 4 ArchUnit rules); `ModuleBoundaryTest` 47/47.
 - **2026-10-01** — `./mvnw clean test` on Java 21 + Docker on `feature/pr16a2-membership-entitlement-read`
   (based on `main` `d32a23f`): **BUILD SUCCESS**, 1989 tests, 0 failures / 0 errors / 0 skipped
   (1951 baseline + 28 `MembershipEntitlementIT` + 3 `MembershipRepositoryIT` + 7 ArchUnit rules, after the
