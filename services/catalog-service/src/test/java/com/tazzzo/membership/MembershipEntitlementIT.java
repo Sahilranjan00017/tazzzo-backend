@@ -320,7 +320,7 @@ class MembershipEntitlementIT extends AbstractMembershipIT {
         clock.set(T0.plusSeconds(60));
         // openTerm=true means "this row claims to be the customer's current/open membership": a corrupt status on
         // that slot must fail loud, whatever the status string is (and the write path agrees)
-        for (String badStatus : List.of("REVOKED", "BROKEN", "active", "Active", "PENDING_ACTIVATION", "")) {
+        for (String badStatus : List.of("SUSPENDED", "BROKEN", "active", "Active", "PENDING_ACTIVATION", "")) {
             CustomerId customer = newCustomer();
             Document d = openTermDoc(customer); // keeps openTerm=true
             d.put("status", badStatus);
@@ -338,7 +338,7 @@ class MembershipEntitlementIT extends AbstractMembershipIT {
         // The read audits only rows that ARE or CLAIM the current membership. A row with no openTerm field and a
         // status that is not ACTIVE is history, whatever it contains; it must not turn into a failure or an entitlement.
         CustomerId customer = newCustomer();
-        for (String garbage : List.of("BROKEN", "REVOKED", "")) {
+        for (String garbage : List.of("BROKEN", "SUSPENDED", "")) {
             Document d = expiredDoc(customer);
             d.put("status", garbage);
             insertRaw(d);
@@ -369,7 +369,7 @@ class MembershipEntitlementIT extends AbstractMembershipIT {
         List<Consumer<Document>> corruptTwins = List.of(
                 d -> d.remove("openTerm"),                                   // ACTIVE twin that lost its marker
                 d -> d.put("openTerm", false),                               // ACTIVE twin, marker false
-                d -> { d.put("status", "REVOKED"); d.put("openTerm", false); }, // unknown status claiming the slot (false)
+                d -> { d.put("status", "REVOKED"); d.put("openTerm", false); }, // REVOKED must never carry the marker, even false
                 d -> { d.put("status", "BROKEN"); d.put("openTerm", "true"); }, // unknown status, non-boolean claim
                 d -> { d.put("status", "EXPIRED"); d.put("openTerm", null); }); // terminal twin with a null claim
         for (Consumer<Document> corrupt : corruptTwins) {

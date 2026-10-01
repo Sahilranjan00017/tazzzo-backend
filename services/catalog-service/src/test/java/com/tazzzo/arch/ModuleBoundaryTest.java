@@ -18,7 +18,9 @@ import com.tazzzo.membership.MembershipId;
 import com.tazzzo.membership.MembershipObservability;
 import com.tazzzo.membership.MembershipPlan;
 import com.tazzzo.membership.MembershipPlanSource;
+import com.tazzzo.membership.MembershipGrantReference;
 import com.tazzzo.membership.MembershipRepository;
+import com.tazzzo.membership.MembershipTerminationService;
 import com.tazzzo.membership.TransactionalMembershipEntitlementPort;
 import com.tazzzo.membership.MembershipPlanProperties;
 import com.tazzzo.membership.MembershipService;
@@ -589,6 +591,56 @@ class ModuleBoundaryTest {
     static final ArchRule customer_controllers_cannot_access_membership =
             noClasses().that().resideInAPackage("com.tazzzo.customer..").and().haveSimpleNameEndingWith("Controller")
                     .should().dependOnClassesThat().resideInAPackage(MEMBERSHIP)
+                    .allowEmptyShould(true);
+
+    // ---------------------------------------------------------------------------------------------
+    // PR-16A-3 -- Membership TERMINATION (cancel-at-period-end, immediate revoke): internal commands only.
+    // ---------------------------------------------------------------------------------------------
+
+    /** PR-16A-3 -- like {@code grant}, the termination commands are INTERNAL domain API for a trusted orchestrator:
+     *  NO class outside the membership package may depend on {@code MembershipTerminationService}. A future allowlist
+     *  is added only when a real orchestrator (Admin/Payment) exists. (HTTP-layer classes are additionally covered by
+     *  {@code http_layer_never_depends_on_membership}.) */
+    @ArchTest
+    static final ArchRule nothing_outside_membership_depends_on_membership_termination_service =
+            noClasses().that().resideOutsideOfPackage(MEMBERSHIP)
+                    .should().dependOnClassesThat().belongToAnyOf(MembershipTerminationService.class)
+                    .allowEmptyShould(true);
+
+    /** PR-16A-3 -- termination is a pure Membership lifecycle operation: it depends on no Benefits/Payment/Admin or other
+     *  domain, no Spring Web (no HTTP), no plan source or configuration (a term is terminated on its own stored facts)
+     *  and not on the grant service. */
+    @ArchTest
+    static final ArchRule membership_termination_depends_on_no_other_domain_http_or_plan_configuration =
+            noClasses().that().belongToAnyOf(MembershipTerminationService.class)
+                    .should().dependOnClassesThat().resideInAnyPackage(
+                            "com.tazzzo.benefits..", "com.tazzzo.payment..", "com.tazzzo.order..",
+                            "com.tazzzo.customer..", "com.tazzzo.commerce..", "com.tazzzo.pricing..",
+                            "com.tazzzo.inventory..", "com.tazzzo.serviceability..", "com.tazzzo.admin..",
+                            "org.springframework.web..", "org.springframework.http..", "jakarta.servlet..")
+                    .orShould().dependOnClassesThat().belongToAnyOf(MembershipPlanSource.class, MembershipPlan.class,
+                            ConfigBackedMembershipPlanSource.class, MembershipConfig.class,
+                            MembershipPlanProperties.class, MembershipService.class, MembershipGrantReference.class)
+                    .allowEmptyShould(true);
+
+    /** PR-16A-3 -- metrics live in the standalone service layer ONLY: the repository and the domain/value objects have
+     *  no observability or Micrometer dependency (a metric can never be emitted before commit from a CAS). */
+    @ArchTest
+    static final ArchRule membership_repository_and_domain_objects_emit_no_metrics =
+            noClasses().that().belongToAnyOf(MembershipRepository.class, Membership.class, MembershipEntitlement.class,
+                            MembershipId.class, MembershipPlan.class, MembershipGrantReference.class)
+                    .should().dependOnClassesThat().belongToAnyOf(MembershipObservability.class)
+                    .orShould().dependOnClassesThat().resideInAPackage("io.micrometer..")
+                    .allowEmptyShould(true);
+
+    /** PR-16A-3 -- the entitlement READ implementations stay read only: they never call the termination CAS writes. */
+    @ArchTest
+    static final ArchRule entitlement_read_implementations_never_call_the_termination_writes =
+            noClasses().that().belongToAnyOf(MembershipEntitlementReader.class, MembershipEntitlementService.class)
+                    .should().callMethod(MembershipRepository.class, "markCancelRequested",
+                            com.mongodb.client.ClientSession.class, MembershipId.class, long.class, java.time.Instant.class)
+                    .orShould().callMethod(MembershipRepository.class, "markRevoked",
+                            com.mongodb.client.ClientSession.class, MembershipId.class, long.class, java.time.Instant.class)
                     .allowEmptyShould(true);
 
     private static final String BENEFIT_VOCABULARY =

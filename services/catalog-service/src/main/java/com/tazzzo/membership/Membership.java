@@ -20,11 +20,18 @@ import java.time.Instant;
  * enforces every structural invariant, including that {@code validUntil} equals
  * {@link MembershipBillingCalendar#validUntil} — so a reconstructed row can never disagree with the
  * one billing-calendar formula.
+ *
+ * <p><b>PR-16A-3 termination facts</b> (both nullable, absent on every pre-existing row, never backfilled):
+ * {@code cancelRequestedAt} records a cancel-at-period-end request on a term — it changes neither the status nor
+ * {@code validUntil}, entitlement continues until the window ends; {@code revokedAt} is present if and only if the
+ * status is {@code REVOKED}, the immediate administrative termination (non-entitling at once; a prior
+ * {@code cancelRequestedAt} is preserved as history). Both come from the service clock and are written once.
  */
 public record Membership(MembershipId membershipId, CustomerId customerId, MembershipStatus status, long version,
                          MembershipGrantReference grantReference, String planId, int planVersion,
                          Money planPrice, int planPeriodMonths, String billingZoneId, long periodCount,
-                         Instant validFrom, Instant validUntil, Instant createdAt, Instant updatedAt) {
+                         Instant validFrom, Instant validUntil, Instant createdAt, Instant updatedAt,
+                         Instant cancelRequestedAt, Instant revokedAt) {
 
     public Membership {
         if (membershipId == null || customerId == null || status == null || grantReference == null
@@ -70,6 +77,37 @@ public record Membership(MembershipId membershipId, CustomerId customerId, Membe
         if (!validUntil.equals(MembershipBillingCalendar.validUntil(validFrom, periodCount, planPeriodMonths))) {
             throw new IllegalArgumentException("validUntil does not match the billing-calendar formula");
         }
+        if (cancelRequestedAt != null) {
+            requireMillis(cancelRequestedAt);
+            // a cancel is only ever recorded on a started, not-yet-ended window
+            if (cancelRequestedAt.isBefore(validFrom) || !cancelRequestedAt.isBefore(validUntil)) {
+                throw new IllegalArgumentException("cancelRequestedAt must lie within [validFrom, validUntil)");
+            }
+        }
+        if ((revokedAt != null) != (status == MembershipStatus.REVOKED)) {
+            throw new IllegalArgumentException("revokedAt must be present if and only if the status is REVOKED");
+        }
+        if (revokedAt != null) {
+            requireMillis(revokedAt);
+            // a revoke is only ever recorded on a started, not-yet-ended window, as the one mutation that moved it
+            if (revokedAt.isBefore(validFrom) || !revokedAt.isBefore(validUntil)) {
+                throw new IllegalArgumentException("revokedAt must lie within [validFrom, validUntil)");
+            }
+            if (!updatedAt.equals(revokedAt)) {
+                throw new IllegalArgumentException("a REVOKED term was last updated by its revoke");
+            }
+            if (version < 2) {
+                throw new IllegalArgumentException("a REVOKED term must have transitioned at least once");
+            }
+        }
+        if (status == MembershipStatus.ACTIVE && cancelRequestedAt != null) {
+            if (version < 2) {
+                throw new IllegalArgumentException("a cancel request advances the version");
+            }
+            if (!updatedAt.equals(cancelRequestedAt)) {
+                throw new IllegalArgumentException("an ACTIVE term with a cancel request was last updated by it");
+            }
+        }
         if (status == MembershipStatus.EXPIRED) {
             // expiry is only ever persisted at/after the window end, by a version-incrementing CAS
             if (version < 2) {
@@ -94,7 +132,7 @@ public record Membership(MembershipId membershipId, CustomerId customerId, Membe
         Instant validUntil = MembershipBillingCalendar.validUntil(validFrom, 1L, plan.periodMonths());
         return new Membership(id, customerId, MembershipStatus.ACTIVE, 1L, reference, plan.planId(),
                 plan.version(), plan.price(), plan.periodMonths(), MembershipBillingCalendar.BILLING_ZONE_ID, 1L,
-                validFrom, validUntil, validFrom, validFrom);
+                validFrom, validUntil, validFrom, validFrom, null, null);
     }
 
     /**

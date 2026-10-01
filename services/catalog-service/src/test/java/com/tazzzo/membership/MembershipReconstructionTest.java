@@ -121,7 +121,7 @@ class MembershipReconstructionTest {
 
     @Test
     void an_unknown_status_or_grant_source_fails_loud() {
-        assertCorrupt(d -> d.put("status", "REVOKED"), "REVOKED does not exist in PR-16A-1");
+        assertCorrupt(d -> d.put("status", "SUSPENDED"), "unknown status");
         assertCorrupt(d -> d.put("status", "active"), "case");
         assertCorrupt(d -> d.put("grantSource", "PAYMENT"), "PAYMENT source does not exist yet");
         assertCorrupt(d -> d.put("grantSource", ""), "blank source");
@@ -186,5 +186,103 @@ class MembershipReconstructionTest {
         Document d = MembershipRepository.toDocument(m);
         d.put("someFutureField", "x");
         assertThat(MembershipRepository.toMembership(d)).isEqualTo(m);
+    }
+
+    // ---------- PR-16A-3: termination facts ----------
+
+    private static final Date CANCEL_AT = Date.from(FROM.plusSeconds(3600));
+    private static final Date REVOKE_AT = Date.from(FROM.plusSeconds(7200));
+
+    private static Document cancelledActiveDoc() {
+        Document d = activeDoc();
+        d.put("cancelRequestedAt", CANCEL_AT);
+        d.put("version", 2L);
+        d.put("updatedAt", CANCEL_AT);
+        return d;
+    }
+
+    /** A well-formed REVOKED row: marker ABSENT, revokedAt set, version advanced, updatedAt == revokedAt. */
+    private static Document revokedDoc() {
+        Document d = activeDoc();
+        d.put("status", "REVOKED");
+        d.remove("openTerm");
+        d.put("revokedAt", REVOKE_AT);
+        d.put("version", 2L);
+        d.put("updatedAt", REVOKE_AT);
+        return d;
+    }
+
+    private static Document mutated(Document d, Consumer<Document> mutate) {
+        mutate.accept(d);
+        return d;
+    }
+
+    @Test
+    void the_valid_termination_shapes_round_trip_exactly() {
+        for (Document d : List.of(cancelledActiveDoc(), revokedDoc(),
+                mutated(revokedDoc(), x -> { x.put("cancelRequestedAt", CANCEL_AT); x.put("version", 3L); }),
+                mutated(expiredDoc(), x -> x.put("cancelRequestedAt", CANCEL_AT)))) { // cancelled, then lazily expired
+            Membership m = MembershipRepository.toMembership(d);
+            assertThat(MembershipRepository.toDocument(m)).isEqualTo(d);
+        }
+        assertThat(MembershipRepository.toMembership(revokedDoc()).status()).isEqualTo(MembershipStatus.REVOKED);
+        assertThat(MembershipRepository.toMembership(revokedDoc()).isEntitlingAt(FROM.plusSeconds(60)))
+                .as("a REVOKED term is never an entitlement").isFalse();
+        assertThat(MembershipRepository.toMembership(cancelledActiveDoc()).isEntitlingAt(FROM.plusSeconds(7200)))
+                .as("cancel-at-period-end leaves the window intact").isTrue();
+    }
+
+    @Test
+    void a_legacy_row_without_the_new_facts_still_reconstructs_with_both_absent() {
+        Membership legacy = MembershipRepository.toMembership(activeDoc());
+        assertThat(legacy.cancelRequestedAt()).isNull();
+        assertThat(legacy.revokedAt()).isNull();
+        assertThat(activeDoc().containsKey("cancelRequestedAt")).isFalse();
+    }
+
+    @Test
+    void impossible_REVOKED_shapes_are_integrity_failures() {
+        assertCorrupt(mutated(revokedDoc(), d -> d.remove("revokedAt")), "REVOKED missing revokedAt");
+        assertCorrupt(mutated(revokedDoc(), d -> d.put("openTerm", true)), "REVOKED + openTerm=true");
+        assertCorrupt(mutated(revokedDoc(), d -> d.put("openTerm", false)), "REVOKED + openTerm=false");
+        assertCorrupt(mutated(revokedDoc(), d -> d.put("openTerm", null)), "REVOKED + openTerm=null");
+        assertCorrupt(mutated(revokedDoc(), d -> d.put("version", 1L)), "REVOKED never transitioned");
+        assertCorrupt(mutated(revokedDoc(), d -> d.put("updatedAt", Date.from(FROM.plusSeconds(7201)))),
+                "REVOKED last updated by something other than its revoke");
+        assertCorrupt(mutated(revokedDoc(), d -> { d.put("revokedAt", Date.from(FROM.minusSeconds(1))); d.put("updatedAt", Date.from(FROM.minusSeconds(1))); }),
+                "revokedAt before validFrom");
+        assertCorrupt(mutated(revokedDoc(), d -> { d.put("revokedAt", d.get("validUntil")); d.put("updatedAt", d.get("validUntil")); }),
+                "revokedAt at validUntil (the window had ended)");
+    }
+
+    @Test
+    void a_revokedAt_on_a_non_REVOKED_row_is_an_integrity_failure() {
+        assertCorrupt(d -> d.put("revokedAt", REVOKE_AT), "ACTIVE + revokedAt");
+        assertCorrupt(mutated(cancelledActiveDoc(), d -> d.put("revokedAt", REVOKE_AT)), "cancelled ACTIVE + revokedAt");
+        assertCorrupt(mutated(expiredDoc(), d -> d.put("revokedAt", REVOKE_AT)), "EXPIRED + revokedAt");
+    }
+
+    @Test
+    void invalid_representations_of_the_new_timestamps_are_integrity_failures() {
+        for (Object bad : new Object[] {null, "2027-01-31T05:30:00Z", 1_800_000_000_000L, 5, true, new Document()}) {
+            assertCorrupt(mutated(cancelledActiveDoc(), d -> d.put("cancelRequestedAt", bad)), "cancelRequestedAt=" + bad);
+            assertCorrupt(mutated(revokedDoc(), d -> d.put("revokedAt", bad)), "revokedAt=" + bad);
+        }
+    }
+
+    @Test
+    void a_cancel_request_must_lie_within_the_window_and_advance_the_version() {
+        assertCorrupt(mutated(cancelledActiveDoc(), d -> { d.put("cancelRequestedAt", Date.from(FROM.minusSeconds(1))); d.put("updatedAt", d.get("cancelRequestedAt")); }),
+                "cancelRequestedAt before validFrom");
+        assertCorrupt(mutated(cancelledActiveDoc(), d -> { d.put("cancelRequestedAt", d.get("validUntil")); d.put("updatedAt", d.get("validUntil")); }),
+                "cancelRequestedAt at validUntil");
+        assertCorrupt(mutated(cancelledActiveDoc(), d -> d.put("version", 1L)), "a cancel request that did not advance the version");
+        assertCorrupt(mutated(cancelledActiveDoc(), d -> d.put("updatedAt", Date.from(FROM.plusSeconds(3601)))),
+                "cancelled ACTIVE last updated by something else");
+    }
+
+    @Test
+    void a_valid_historical_EXPIRED_row_must_not_acquire_an_open_marker() {
+        assertCorrupt(mutated(expiredDoc(), d -> d.put("openTerm", true)), "EXPIRED + openTerm");
     }
 }
