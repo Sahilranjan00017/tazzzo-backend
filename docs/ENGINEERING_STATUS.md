@@ -577,11 +577,11 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   migration-or-deletion decision is required before deploying. Do not claim production readiness while
   this is pending.
 
-## In review (NOT merged)
-
-- **PR-15A-2 — Customer Order HTTP surface** (`com.tazzzo.customer.order`): **IN REVIEW**. The FIRST
+- **PR-15A-2 — Customer Order HTTP surface** (`com.tazzzo.customer.order`): **COMPLETE** (PR #30, squash
+  `0cdcc97b8fcf5f7c079815b8cb276874635d15d6`). The FIRST
   customer-reachable Order surface: `POST /v1/customer/orders` and `GET /v1/customer/orders/{orderId}`.
-  **COD placement becomes customer reachable ONLY after this PR merges.** Both endpoints are
+  **COD placement became customer reachable in code when this PR merged; it is NOT deployed or
+  production-ready while the `orders`-count gate below is PENDING.** Both endpoints are
   `CUSTOMER_AUTHENTICATED`; the customer is always the verified principal (never read from body, path,
   query or headers). POST reads only `quoteId` + `paymentMethod` (exactly `COD`; anything else is 400
   `PAYMENT_METHOD_UNSUPPORTED`, missing/non-string is 400 `INVALID_REQUEST`, a malformed quote id is the
@@ -610,6 +610,59 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   checkout and PIN-based serviceability are unchanged.
   **DEPLOYMENT /
   PRODUCTION ROLLOUT remains BLOCKED on the `orders`-count == 0 gate (PENDING, not verified).**
+
+## In review (NOT merged)
+
+- **PR-16A-1 — Membership write foundation** (`com.tazzzo.membership`, a NEW top-level domain peer of
+  `inventory`/`pricing`, its own ArchUnit slice): **IN REVIEW**. **Foundation only — there is no
+  entitlement read seam yet (PR-16A-2), no REVOKED/cancellation (PR-16A-3), no renewal, no worker, no
+  HTTP endpoint (no purchase, no customer status), no Benefits (no discount percentages, thresholds or
+  coupons anywhere), no Payment/prepaid/gateway and no customer subscription purchase.** The only
+  operation is an INTERNAL, idempotent, payment-free `MembershipService.grant(customerId, planId,
+  planVersion, internalReference)` for a trusted orchestrator that has already established the customer
+  (Membership checks the `CustomerId` shape only and never queries customer existence); nothing outside
+  the package may depend on it (ArchUnit). A term carries no payment facts: its plan price is the list
+  price at grant, not money collected.
+  - **Model.** `memberships`, one document per TERM, `_id` `MBR_*`; `MembershipStatus` is exactly
+    `ACTIVE` and `EXPIRED` (each has a producer: grant, and lazy expiry during a later grant). Plan facts
+    (`planId`, `planVersion`, `planPricePaise`, `planCurrency`, `planPeriodMonths`) are SNAPSHOTTED so a
+    later plan edit cannot reinterpret history; `billingZoneId` (`Asia/Kolkata`) is persisted on every term
+    and strictly required (no "missing means Kolkata" shim). Strict reconstruction validates every field
+    and that `validUntil` equals the one billing-calendar formula.
+  - **Billing calendar.** `MembershipBillingCalendar`: monthly periods are calendar months in
+    `Asia/Kolkata` (anchored on the original activation, Java month-end clamping, exact
+    `Math.multiplyExact`, fail-loud on overflow), independent of the JVM default zone; timestamps stay
+    `Instant`/Mongo dates truncated to milliseconds. Only that class may do calendar arithmetic and no
+    Membership class may read ambient time (both ArchUnit-enforced; time is the injected `Clock`).
+  - **Launch plan.** `TAZZZO_PLUS_MONTHLY` v1, 9900 paise INR, 1 month, from an immutable config-backed
+    `MembershipPlanSource` validated at startup (empty list, duplicates, bad id/version/price/currency/
+    period, bad or overlapping version windows and an open-ended non-final version all fail the start).
+    Plan effectiveness gates NEW grants only; a durable idempotent replay wins before it.
+  - **One open term per customer** is a storage guarantee: `openTerm` is the BSON boolean `true` only
+    while `ACTIVE` and is `$unset` (never false/null) when terminal; partial unique index
+    `membership_one_open_per_customer`. `membership_one_per_grant_reference` is unique on
+    `(grantSource, grantRef)` (`GrantSource` is exactly `INTERNAL_GRANT`; the caller never supplies it).
+    No TTL, history or expiry-scan index.
+  - **Concurrency.** One transaction repeats the reference check, applies plan effectiveness at a fresh
+    per-attempt clock read, and either rejects (`now < validUntil` => `ALREADY_ACTIVE`) or CAS-expires the
+    time-ended term (`_id`, status, version AND `validUntil <= now`; unsets `openTerm`) and inserts the
+    replacement — together or not at all. A duplicate key (code 11000, never message/index name) is
+    resolved from durable PRIMARY reads: reference row => replay / `GRANT_REF_CONFLICT`; open term still
+    holding the slot => `ALREADY_ACTIVE`; otherwise ONE bounded whole-grant retry, then
+    `INTEGRITY_FAILURE`. Non-transactional reads use a handle pinned to `ReadPreference.primary()`
+    (global Mongo settings untouched).
+  - **Failure/metrics.** `MembershipFailure`: `INVALID_REQUEST`, `PLAN_NOT_ACTIVE`, `ALREADY_ACTIVE`,
+    `GRANT_REF_CONFLICT`, `INTEGRITY_FAILURE`, `UNAVAILABLE`. Metrics (closed enum tags only) are recorded
+    after the whole operation resolves, never per transaction attempt.
+  - **Membership operational gates — all PENDING, NOT verified from the repository, to be confirmed
+    before deployment:** (1) no pre-existing conflicting `memberships` collection/schema in each persistent
+    environment; (2) `SchemaBootstrap` has collection/index privileges; (3) the effective
+    `tazzzo.membership.plans` configuration is identical across environments as intended; (4) the deployed
+    Mongo URI has no unexpected `readPreference` override; (5) the deployed cluster default read/write
+    concern is as assumed. These do not block source review.
+  - **The existing Order deployment gate is unchanged and still PENDING:** the `orders` collection must
+    have document count == 0 in every persistent environment. Nothing here weakens or replaces it; do not
+    claim production readiness.
 
 ## Follow-up debt (recorded)
 
@@ -668,12 +721,18 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   `PublicServiceability`, pincode-keyed routing) is **COMPLETE** and unchanged; the
   customer-address BINDING to it (PR-12B) is **COMPLETE**.
   (Address ↔ Serviceability binding: COMPLETE.)
-- Cart (PR-12C): **COMPLETE** (PR #21). Auth transaction retry hardening (PR-11D): **COMPLETE** (PR #22). Checkout (PR-13A): **COMPLETE** (PR #23). Checkout provenance (PR-13B): **COMPLETE** (PR #24, squash `8b4fabb9b82e4e3502202ffaff1aadd35f9ba311`). Inventory Reservation lifecycle (PR-14A): **COMPLETE** (PR #25, squash `44438031022238334ecdf3995ba1096101e2e47f`). Order Foundation (PR-14B): **COMPLETE** (PR #26, squash `b620538e34afc35f7f080461750681b467ed4096`). Cart purchase-finalization seam (PR-15A-0): **COMPLETE** (PR #28, squash `611829c3649de3f5c37dec4ac5b375a1d8ef454e`). COD Order domain (PR-15A-1): **COMPLETE** (PR #29, squash `e8d4d45e88ad4935f7ad84a46ae65a671e50ba63`). Customer Order HTTP (PR-15A-2): **IN REVIEW** (not merged; COD is not customer reachable until it merges; operational `orders`-count==0 gate **PENDING**). Membership: **NOT STARTED**. Benefits/Promotion: **NOT STARTED**. Payment: **NOT STARTED**. Real payment gateway: **NOT STARTED**.
+- Cart (PR-12C): **COMPLETE** (PR #21). Auth transaction retry hardening (PR-11D): **COMPLETE** (PR #22). Checkout (PR-13A): **COMPLETE** (PR #23). Checkout provenance (PR-13B): **COMPLETE** (PR #24, squash `8b4fabb9b82e4e3502202ffaff1aadd35f9ba311`). Inventory Reservation lifecycle (PR-14A): **COMPLETE** (PR #25, squash `44438031022238334ecdf3995ba1096101e2e47f`). Order Foundation (PR-14B): **COMPLETE** (PR #26, squash `b620538e34afc35f7f080461750681b467ed4096`). Cart purchase-finalization seam (PR-15A-0): **COMPLETE** (PR #28, squash `611829c3649de3f5c37dec4ac5b375a1d8ef454e`). COD Order domain (PR-15A-1): **COMPLETE** (PR #29, squash `e8d4d45e88ad4935f7ad84a46ae65a671e50ba63`). Customer Order HTTP (PR-15A-2): **COMPLETE** (PR #30, squash `0cdcc97b8fcf5f7c079815b8cb276874635d15d6`; operational `orders`-count==0 deployment gate **PENDING**, not verified). Membership write foundation (PR-16A-1): **IN REVIEW** (foundation only: no entitlement seam, no HTTP, no purchase; entitlement read seam PR-16A-2 and termination PR-16A-3 **NOT STARTED**). Benefits/Promotion: **NOT STARTED**. Payment: **NOT STARTED**. Real payment gateway: **NOT STARTED**.
 
 ## Next (ratified sequence)
 
-1. **PR-12C+** — Cart, Checkout, Orders, Search, Notifications, app integration, AWS
-   infrastructure: not started, not scoped yet.
+1. **Membership Foundation** — PR-16A-1 write foundation (in review), PR-16A-2 entitlement read seam,
+   PR-16A-3 termination (cancel-at-period-end, immediate revoke).
+2. Benefits / Promotion engine (the only place discount percentages and thresholds will live).
+3. Checkout + Order money-model upgrade.
+4. Payment domain, then the prepaid Order flow, then a real gateway.
+5. Admin/CMS expansion.
+
+Search, Notifications, app integration and AWS infrastructure remain unscoped.
 
 ## Not started (honest boundary)
 
@@ -706,6 +765,9 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-10-01** — `./mvnw clean test` on Java 21 + Docker on `feature/pr16a1-membership-write-foundation`
+  (based on `main` `0cdcc97`): **BUILD SUCCESS**, 1951 tests, 0 failures / 0 errors / 0 skipped
+  (1854 baseline + 84 Membership + 13 ArchUnit rules); `ModuleBoundaryTest` 36/36.
 - **2026-09-30** — same branch after the optional-coordinates fix: **BUILD SUCCESS**, 1854 tests,
   0 failures / 0 errors / 0 skipped (1840 + 7 `OrderAddressSnapshotTest` + 5 domain + 2 HTTP); `ModuleBoundaryTest`
   23/23; OpenAPI valid and the generated export unchanged (no public contract change).

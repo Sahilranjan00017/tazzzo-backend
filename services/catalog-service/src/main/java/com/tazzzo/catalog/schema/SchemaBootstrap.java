@@ -107,7 +107,11 @@ public class SchemaBootstrap {
             // (customerId, quoteId) below is BOTH the structural one-quote-to-one-order invariant AND
             // the concurrent-create race guard, the same idiom checkout_quotes/inventory_reservations
             // already establish.
-            "orders");
+            "orders",
+            // PR-16A-1: one document per Membership TERM (entitlement window under one immutable plan
+            // version), _id the opaque MBR_* id. Deliberately NO TTL, NO customer-history index and NO
+            // validUntil expiry-scan index -- no query needs one yet; each arrives with its query.
+            "memberships");
 
     /**
      * PAG-2-SORT-1 transport support: the equality prefix the consumer-eligibility predicate uses,
@@ -306,6 +310,18 @@ public class SchemaBootstrap {
         db.getCollection("orders").createIndex(
                 Indexes.ascending("customerId", "quoteId"), new IndexOptions().name("order_one_per_quote")
                         .unique(true));
+        // PR-16A-1: at most ONE open Membership term per customer. "openTerm" is the BSON boolean true
+        // ONLY while a term is ACTIVE and is $unset (never false/null) on every terminal transition, so
+        // the partial filter is structurally unambiguous -- the same partial-unique idiom as
+        // otp_one_active_per_phone. This is a storage guarantee, not an application check-then-insert.
+        db.getCollection("memberships").createIndex(
+                Indexes.ascending("customerId"), new IndexOptions().name("membership_one_open_per_customer")
+                        .unique(true).partialFilterExpression(new Document("openTerm", true)));
+        // PR-16A-1: exactly one durable term per (grantSource, grantRef) -- the namespaced idempotency
+        // key, so the same external reference can never create (or later extend) a term twice.
+        db.getCollection("memberships").createIndex(
+                Indexes.ascending("grantSource", "grantRef"),
+                new IndexOptions().name("membership_one_per_grant_reference").unique(true));
     }
 
     /**
