@@ -165,9 +165,15 @@ class MembershipTerminationIT extends AbstractMembershipIT {
         clock.set(MID);
         Membership first = termination().cancelAtPeriodEnd(customer);
 
+        Document before = raw(term.membershipId());
+
         clock.set(T0_UNTIL.plusSeconds(5)); // stale now, but the request is a recorded fact (replay wins)
         assertThat(termination().cancelAtPeriodEnd(customer)).isEqualTo(first);
-        assertThat(raw(term.membershipId()).get("cancelRequestedAt")).isEqualTo(Date.from(MID));
+        Document after = raw(term.membershipId());
+        assertThat(after.get("cancelRequestedAt")).isEqualTo(Date.from(MID));
+        assertThat(after).as("replay performs NO mutation: version, updatedAt, validUntil, status, openTerm unchanged")
+                .isEqualTo(before);
+        assertThat(after.get("openTerm")).isEqualTo(Boolean.TRUE);
     }
 
     @Test

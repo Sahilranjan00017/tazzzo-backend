@@ -725,9 +725,13 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
     clock, ms precision), version + 1; status, `openTerm`, `validUntil` and every snapshot field are untouched and
     entitlement continues until the window ends. Idempotent: an already-cancelled term is returned with NO mutation
     (original timestamp, version and `updatedAt` stable; a recorded request replays as success even after the window
-    ended). No current term => `NOT_FOUND` (this includes a customer whose term was just revoked: REVOKED rows have no
-    open marker by design); a stale or not-yet-started ACTIVE term => `INVALID_TRANSITION` (never rewritten as REVOKED
-    or silently expired); corrupt candidate => `INTEGRITY_FAILURE`. There is no un-cancel.
+    ended — the replay check intentionally precedes the window check so an already-succeeded command stays safely
+    replayable across `validUntil`). No current/open term => `NOT_FOUND`: this includes a customer whose term was just
+    revoked (REVOKED rows carry no open marker, so cancel-after-revoke and a revoke-wins cancel/revoke race are
+    `NOT_FOUND`, never `INVALID_TRANSITION`; the command targets current lifecycle authority, so there is deliberately
+    NO historical REVOKED lookup). A FIRST cancel request on a stale (window ended) or not-yet-started ACTIVE term
+    (no prior `cancelRequestedAt`) => `INVALID_TRANSITION` with no mutation (never rewritten as REVOKED or silently
+    expired); corrupt candidate => `INTEGRITY_FAILURE`. There is no un-cancel.
   - **`revoke(MembershipId)`:** on an entitling ACTIVE term it sets `status = REVOKED`, `revokedAt = now`, version + 1
     and REMOVES `openTerm` (`$unset`, never false); a prior `cancelRequestedAt` is preserved as history; the slot is
     freed for a new grant and entitlement ends immediately. Idempotent on an already REVOKED term (first `revokedAt`
