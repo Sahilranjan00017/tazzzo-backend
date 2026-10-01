@@ -322,6 +322,12 @@ public class SchemaBootstrap {
         db.getCollection("memberships").createIndex(
                 Indexes.ascending("grantSource", "grantRef"),
                 new IndexOptions().name("membership_one_per_grant_reference").unique(true));
+        // PR-16A-2: the entitlement read is a LIFECYCLE query (customerId + status = ACTIVE), not the openTerm slot
+        // query, so a corrupt ACTIVE row with a missing/malformed marker cannot hide behind the partial filter.
+        // Deliberately NON-unique: status is lifecycle data and openTerm (above) remains the sole uniqueness
+        // authority -- two competing uniqueness mechanisms would be worse than one. No TTL, no history sort.
+        db.getCollection("memberships").createIndex(
+                Indexes.ascending("customerId", "status"), new IndexOptions().name("membership_active_by_customer"));
     }
 
     /**

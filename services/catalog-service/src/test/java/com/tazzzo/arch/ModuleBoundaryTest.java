@@ -559,6 +559,17 @@ class ModuleBoundaryTest {
                             java.time.Instant.class)
                     .allowEmptyShould(true);
 
+    /** PR-16A-2 -- the entitlement reads use the LIFECYCLE query ({@code findActiveByCustomer}), never the
+     *  {@code openTerm} write-slot query: a corrupt ACTIVE row with a bad marker must reach strict reconstruction,
+     *  not hide behind the partial filter and turn "empty" into "unknown". */
+    @ArchTest
+    static final ArchRule entitlement_read_uses_the_lifecycle_query_not_the_open_slot_query =
+            noClasses().that().belongToAnyOf(MembershipEntitlementReader.class, MembershipEntitlementService.class)
+                    .should().callMethod(MembershipRepository.class, "findOpenByCustomer", CustomerId.class)
+                    .orShould().callMethod(MembershipRepository.class, "findOpenByCustomer",
+                            com.mongodb.client.ClientSession.class, CustomerId.class)
+                    .allowEmptyShould(true);
+
     /** PR-16A-2 -- the future dependency direction Benefits -> Membership, narrowly: a Benefits class may depend on
      *  Membership ONLY through the two entitlement ports and the value types below -- never the service, the
      *  repository, the Membership term, the plan, the plan source or a grant reference. Membership never depends on

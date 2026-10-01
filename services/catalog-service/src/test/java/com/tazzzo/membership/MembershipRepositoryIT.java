@@ -53,10 +53,15 @@ class MembershipRepositoryIT extends AbstractMembershipIT {
     }
 
     @Test
-    void bootstrap_creates_exactly_the_two_membership_indexes_and_no_ttl() {
+    void bootstrap_creates_exactly_the_three_membership_indexes_and_no_ttl() {
         Map<String, Document> idx = indexes();
         assertThat(idx.keySet()).containsExactlyInAnyOrder("_id_", "membership_one_open_per_customer",
-                "membership_one_per_grant_reference");
+                "membership_one_per_grant_reference", "membership_active_by_customer");
+
+        Document active = idx.get("membership_active_by_customer");
+        assertThat(active.get("key", Document.class)).isEqualTo(new Document("customerId", 1).append("status", 1));
+        assertThat(active.getBoolean("unique")).as("NOT a second uniqueness mechanism").isNull();
+        assertThat(active.containsKey("partialFilterExpression")).isFalse();
 
         Document open = idx.get("membership_one_open_per_customer");
         assertThat(open.get("key", Document.class)).isEqualTo(new Document("customerId", 1));
@@ -77,7 +82,7 @@ class MembershipRepositoryIT extends AbstractMembershipIT {
         schemaBootstrap.bootstrap(db);
         schemaBootstrap.bootstrap(db);
         assertThat(indexes().keySet()).containsExactlyInAnyOrder("_id_", "membership_one_open_per_customer",
-                "membership_one_per_grant_reference");
+                "membership_one_per_grant_reference", "membership_active_by_customer");
     }
 
     @Test
@@ -133,6 +138,25 @@ class MembershipRepositoryIT extends AbstractMembershipIT {
                 .append("verbosity", "queryPlanner"));
         assertThat(explain.toJson()).contains("IXSCAN").contains("membership_one_open_per_customer")
                 .doesNotContain("COLLSCAN");
+    }
+
+    @Test
+    void the_entitlement_lifecycle_query_is_served_by_the_active_by_customer_index_without_a_collection_scan() {
+        Document explain = db.runCommand(new Document("explain", new Document("find", MembershipRepository.COLLECTION)
+                .append("filter", new Document("customerId", newCustomer().value()).append("status", "ACTIVE")))
+                .append("verbosity", "queryPlanner"));
+        assertThat(explain.toJson()).contains("IXSCAN").contains("membership_active_by_customer")
+                .doesNotContain("COLLSCAN");
+    }
+
+    @Test
+    void the_lifecycle_read_returns_a_valid_open_term_and_ignores_terminal_rows() {
+        CustomerId customer = newCustomer();
+        Membership open = term(customer, newRef());
+        insertRaw(expiredShape(term(customer, newRef())));
+        insertRaw(MembershipRepository.toDocument(open));
+        assertThat(repository.findActiveByCustomer(customer)).hasValue(open);
+        assertThat(repository.findActiveByCustomer(newCustomer())).isEmpty();
     }
 
     @Test

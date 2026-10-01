@@ -23,7 +23,9 @@ import java.util.Optional;
  * PR-16A-1 — {@code memberships}, one document per Membership term, {@code _id} the opaque
  * {@code MBR_...} id. Two unique indexes (see {@code SchemaBootstrap}) make the invariants structural:
  * {@code membership_one_open_per_customer} (partial on {@code openTerm: true}) and
- * {@code membership_one_per_grant_reference}.
+ * {@code membership_one_per_grant_reference}. A third, NON-unique index {@code membership_active_by_customer}
+ * ({@code customerId, status}) serves the entitlement read ({@link #findActiveByCustomer}); it is not a second
+ * uniqueness mechanism — the partial {@code openTerm} index stays the sole write/concurrency slot authority.
  *
  * <p><b>{@code openTerm} encoding.</b> {@code ACTIVE} rows carry the BSON boolean {@code true};
  * {@code EXPIRED} rows have the field ABSENT (the expiry CAS {@code $unset}s it) — never
@@ -78,6 +80,36 @@ public class MembershipRepository {
         return reconstruct(collection().find(session, openTermOf(customerId)).first());
     }
 
+    /**
+     * The entitlement-read lifecycle query: {@code customerId + status = ACTIVE}, served by
+     * {@code membership_active_by_customer}. Deliberately NOT the {@code openTerm} slot query: a corrupt ACTIVE row
+     * whose marker is missing/false/null/non-boolean would be invisible to that filter and an empty result would
+     * silently stop meaning "authoritatively no entitlement". Every returned row goes through strict reconstruction,
+     * which rejects an ACTIVE row that does not carry exactly {@code openTerm = true}. At most TWO rows are
+     * fetched: more than one ACTIVE row for a customer violates the one-open-term invariant and is itself an
+     * {@code INTEGRITY_FAILURE} (never "pick one", which could hide the corrupt twin).
+     */
+    public Optional<Membership> findActiveByCustomer(CustomerId customerId) {
+        return singleActive(primaryReads().find(activeOf(customerId)).limit(2).into(new java.util.ArrayList<>()));
+    }
+
+    public Optional<Membership> findActiveByCustomer(ClientSession session, CustomerId customerId) {
+        return singleActive(collection().find(session, activeOf(customerId)).limit(2).into(new java.util.ArrayList<>()));
+    }
+
+    private static Optional<Membership> singleActive(java.util.List<Document> rows) {
+        java.util.List<Membership> terms = new java.util.ArrayList<>(rows.size());
+        for (Document d : rows) {
+            terms.add(toMembership(d)); // strict: a corrupt ACTIVE row fails loud here
+        }
+        if (terms.size() > 1) {
+            log.error("membership_multiple_active_rows");
+            throw new MembershipFailure(MembershipFailure.Reason.INTEGRITY_FAILURE,
+                    "more than one ACTIVE membership for one customer");
+        }
+        return terms.isEmpty() ? Optional.empty() : Optional.of(terms.get(0));
+    }
+
     public void insert(ClientSession session, Membership membership) {
         collection().insertOne(session, toDocument(membership));
     }
@@ -102,6 +134,11 @@ public class MembershipRepository {
     private static org.bson.conversions.Bson byGrantReference(MembershipGrantReference reference) {
         return Filters.and(Filters.eq("grantSource", reference.source().name()),
                 Filters.eq("grantRef", reference.reference()));
+    }
+
+    private static org.bson.conversions.Bson activeOf(CustomerId customerId) {
+        return Filters.and(Filters.eq("customerId", customerId.value()),
+                Filters.eq("status", MembershipStatus.ACTIVE.name()));
     }
 
     private static org.bson.conversions.Bson openTermOf(CustomerId customerId) {

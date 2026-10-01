@@ -38,7 +38,7 @@ public class MembershipEntitlementService implements MembershipEntitlementPort {
             }
             Optional<Membership> open;
             try {
-                open = repository.findOpenByCustomer(customerId); // pinned to ReadPreference.primary()
+                open = repository.findActiveByCustomer(customerId); // pinned to ReadPreference.primary()
             } catch (MongoException e) {
                 log.error("membership_datastore_failed operation=entitlement_read type={}", e.getClass().getSimpleName());
                 throw new MembershipFailure(MembershipFailure.Reason.UNAVAILABLE,

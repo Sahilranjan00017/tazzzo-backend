@@ -678,9 +678,14 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
     unset, no transaction, no grant call); lazy persistence stays owned by the PR-16A-1 grant path. An
     EXPIRED term is empty. `Optional.empty()` means authoritatively no entitlement — an outage
     (`UNAVAILABLE`) or a corrupt row (`INTEGRITY_FAILURE`, via strict reconstruction) is never collapsed to
-    it. Documented limitation: the read is the structural `customerId + openTerm:true` query (existing
-    `membership_one_open_per_customer`, no new index), so a row whose marker is missing/false/non-boolean
-    is invisible to it; strict reconstruction rejects those encodings on any path that reaches them.
+    it. **Lifecycle query (hardening):** the entitlement read is `customerId + status = ACTIVE`, served by
+    the new NON-unique index `membership_active_by_customer` `{customerId, status}`, NOT the `openTerm`
+    slot query — so a corrupt ACTIVE row whose marker is missing/false/null/non-boolean cannot hide behind
+    the partial filter: strict reconstruction rejects it (`INTEGRITY_FAILURE`). At most two rows are
+    fetched and more than one ACTIVE row for a customer is itself an `INTEGRITY_FAILURE`. The partial
+    unique `membership_one_open_per_customer` remains the sole write/concurrency uniqueness authority
+    (used by the grant path). Boundary: a row whose status is not exactly `ACTIVE` is by definition not an
+    active row (never an entitlement); strict reconstruction and the grant path still reject it loud.
   - **Transactional contract:** joins the caller's session, opens no transaction, mutates nothing, emits
     ZERO metrics (the caller's `Tx.call` may retry), never falls back to the standalone read. A transient
     transaction error propagates untouched so the caller's retry works; any other datastore failure is a
@@ -800,8 +805,9 @@ is FUTURE work and not required for the production modular monolith.
 ## Last verification
 
 - **2026-10-01** — `./mvnw clean test` on Java 21 + Docker on `feature/pr16a2-membership-entitlement-read`
-  (based on `main` `d32a23f`): **BUILD SUCCESS**, 1977 tests, 0 failures / 0 errors / 0 skipped
-  (1951 baseline + 20 `MembershipEntitlementIT` + 6 ArchUnit rules); `ModuleBoundaryTest` 42/42.
+  (based on `main` `d32a23f`): **BUILD SUCCESS**, 1985 tests, 0 failures / 0 errors / 0 skipped
+  (1951 baseline + 25 `MembershipEntitlementIT` + 2 `MembershipRepositoryIT` + 7 ArchUnit rules, after the
+  ACTIVE-row integrity hardening); `ModuleBoundaryTest` 43/43.
 - **2026-10-01** — `./mvnw clean test` on Java 21 + Docker on `feature/pr16a1-membership-write-foundation`
   (based on `main` `0cdcc97`): **BUILD SUCCESS**, 1951 tests, 0 failures / 0 errors / 0 skipped
   (1854 baseline + 84 Membership + 13 ArchUnit rules); `ModuleBoundaryTest` 36/36.

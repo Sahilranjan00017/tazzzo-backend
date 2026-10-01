@@ -18,9 +18,10 @@ import java.util.Optional;
  * <p>Structurally incapable of the things the port forbids: it has no {@code Tx} (cannot open a transaction), no
  * observability or registry (cannot emit a metric), no plan source (an entitlement is the stored TERM snapshot,
  * never reinterpreted against the current plan configuration) and no write method on the repository in sight
- * (ArchUnit-enforced). It reuses the structural {@code customerId + openTerm:true} query served by
- * {@code membership_one_open_per_customer} and the repository's strict reconstruction, so a corrupt row stays
- * fail-loud.
+ * (ArchUnit-enforced). It reads through the lifecycle query {@code customerId + status = ACTIVE} (served by
+ * {@code membership_active_by_customer}) and the repository's strict reconstruction, so a corrupt ACTIVE row —
+ * including one with a missing or malformed {@code openTerm} marker — stays fail-loud and {@code empty} keeps
+ * meaning "authoritatively no entitlement".
  */
 @Component
 public class MembershipEntitlementReader implements TransactionalMembershipEntitlementPort {
@@ -43,9 +44,9 @@ public class MembershipEntitlementReader implements TransactionalMembershipEntit
         if (customerId == null) {
             throw new MembershipFailure(MembershipFailure.Reason.INVALID_REQUEST, "customerId required");
         }
-        Optional<Membership> open;
+        Optional<Membership> active;
         try {
-            open = repository.findOpenByCustomer(session, customerId);
+            active = repository.findActiveByCustomer(session, customerId);
         } catch (MongoException e) {
             if (e.hasErrorLabel(MongoException.TRANSIENT_TRANSACTION_ERROR_LABEL)) {
                 throw e; // the caller's Tx.call inspects exactly this label to retry; never convert it
@@ -54,7 +55,7 @@ public class MembershipEntitlementReader implements TransactionalMembershipEntit
             throw new MembershipFailure(MembershipFailure.Reason.UNAVAILABLE, "datastore unavailable during entitlement read");
         }
         // fresh clock read for THIS call, taken after the read so a window that ended meanwhile is judged ended
-        return evaluate(open, MembershipBillingCalendar.truncate(clock.instant()));
+        return evaluate(active, MembershipBillingCalendar.truncate(clock.instant()));
     }
 
     /**
@@ -62,7 +63,7 @@ public class MembershipEntitlementReader implements TransactionalMembershipEntit
      * not runtime truth: a stale ACTIVE (window ended) or a not-yet-started ACTIVE (clock skew) is empty and is
      * NOT mutated; the row keeps holding its open slot until a later grant lazily expires it.
      */
-    static Optional<MembershipEntitlement> evaluate(Optional<Membership> open, Instant now) {
-        return open.filter(term -> term.isEntitlingAt(now)).map(MembershipEntitlement::of);
+    static Optional<MembershipEntitlement> evaluate(Optional<Membership> active, Instant now) {
+        return active.filter(term -> term.isEntitlingAt(now)).map(MembershipEntitlement::of);
     }
 }

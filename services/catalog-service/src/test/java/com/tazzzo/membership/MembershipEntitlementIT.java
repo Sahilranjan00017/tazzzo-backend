@@ -69,7 +69,7 @@ class MembershipEntitlementIT extends AbstractMembershipIT {
         }
 
         @Override
-        public Optional<Membership> findOpenByCustomer(ClientSession session, CustomerId customerId) {
+        public Optional<Membership> findActiveByCustomer(ClientSession session, CustomerId customerId) {
             sessionReads.incrementAndGet();
             sessionSeen = session;
             MongoException failure = sessionFailure;
@@ -79,7 +79,7 @@ class MembershipEntitlementIT extends AbstractMembershipIT {
                 }
                 throw failure;
             }
-            return super.findOpenByCustomer(session, customerId);
+            return super.findActiveByCustomer(session, customerId);
         }
     }
 
@@ -198,24 +198,56 @@ class MembershipEntitlementIT extends AbstractMembershipIT {
         assertFailure(() -> service().grant(customer, PLAN_ID, 1, newRef()), MembershipFailure.Reason.ALREADY_ACTIVE);
     }
 
-    @Test
-    void an_EXPIRED_term_is_empty_and_an_impossible_EXPIRED_row_with_an_open_marker_fails_loud() {
-        CustomerId customer = newCustomer();
+    private static Document expiredDoc(CustomerId customer) {
         Document expired = openTermDoc(customer);
         expired.put("status", "EXPIRED");
         expired.remove("openTerm");
         expired.put("version", 2L);
         expired.put("updatedAt", expired.get("validUntil"));
-        insertRaw(expired);
-        clock.set(T0.plusSeconds(60));
-        assertThat(standalone(new MembershipRepository(db)).currentEntitlement(customer)).isEmpty();
+        return expired;
+    }
 
-        CustomerId broken = newCustomer();
-        Document impossible = openTermDoc(broken);
+    @Test
+    void a_customer_with_no_membership_or_only_EXPIRED_terms_is_authoritatively_empty() {
+        MembershipRepository repo = new MembershipRepository(db);
+        assertThat(standalone(repo).currentEntitlement(newCustomer())).isEmpty();
+
+        CustomerId onlyExpired = newCustomer();
+        insertRaw(expiredDoc(onlyExpired));
+        insertRaw(expiredDoc(onlyExpired));
+        insertRaw(expiredDoc(onlyExpired));
+        clock.set(T0.plusSeconds(60)); // inside every one of those (historical) windows
+        assertThat(rows(onlyExpired)).hasSize(3);
+        assertThat(standalone(repo).currentEntitlement(onlyExpired)).as("historical terminal rows are never active").isEmpty();
+        assertThat(transactional(reader(repo), onlyExpired)).isEmpty();
+        assertThat(registry.getMeters()).as("an authoritative empty is not a failure").isEmpty();
+    }
+
+    @Test
+    void terminal_history_never_hides_or_replaces_the_one_current_ACTIVE_term() {
+        CustomerId customer = newCustomer();
+        insertRaw(expiredDoc(customer));
+        insertRaw(expiredDoc(customer));
+        Membership current = service().grant(customer, PLAN_ID, 1, newRef());
+        clock.set(T0.plusSeconds(60));
+
+        MembershipRepository repo = new MembershipRepository(db);
+        MembershipEntitlement expected = new MembershipEntitlement(current.membershipId(), PLAN_ID, 1, T0_UNTIL);
+        assertThat(standalone(repo).currentEntitlement(customer)).hasValue(expected);
+        assertThat(transactional(reader(repo), customer)).hasValue(expected);
+    }
+
+    @Test
+    void an_impossible_EXPIRED_row_still_carrying_an_open_marker_is_no_entitlement_but_fails_the_write_path_loud() {
+        CustomerId customer = newCustomer();
+        Document impossible = openTermDoc(customer);
         impossible.put("status", "EXPIRED"); // ... but still carrying openTerm=true
         insertRaw(impossible);
-        assertFailure(() -> standalone(new MembershipRepository(db)).currentEntitlement(broken),
-                MembershipFailure.Reason.INTEGRITY_FAILURE);
+        clock.set(T0.plusSeconds(60));
+
+        assertThat(standalone(new MembershipRepository(db)).currentEntitlement(customer))
+                .as("a terminal row can never be an entitlement").isEmpty();
+        assertFailure(() -> service().grant(customer, PLAN_ID, 1, newRef()), MembershipFailure.Reason.INTEGRITY_FAILURE);
     }
 
     @Test
@@ -271,7 +303,6 @@ class MembershipEntitlementIT extends AbstractMembershipIT {
     @Test
     void corrupt_persisted_rows_are_INTEGRITY_FAILURE_on_both_ports() {
         clock.set(T0.plusSeconds(60));
-        assertCorruptIsIntegrityFailure("invalid status", d -> d.put("status", "REVOKED"));
         assertCorruptIsIntegrityFailure("invalid billing zone", d -> d.put("billingZoneId", "UTC"));
         assertCorruptIsIntegrityFailure("missing billing zone", d -> d.remove("billingZoneId"));
         assertCorruptIsIntegrityFailure("incorrect validUntil",
@@ -284,25 +315,67 @@ class MembershipEntitlementIT extends AbstractMembershipIT {
     }
 
     @Test
-    void an_ACTIVE_row_without_a_true_open_marker_is_outside_the_structural_query_but_fails_strict_reconstruction() {
-        // Documented limitation: the read is the structural customerId+openTerm:true query served by the partial
-        // index, so a row whose marker is missing/false/null/non-boolean is invisible to it (BSON equality is
-        // type-strict). Those are exactly the encodings strict reconstruction rejects on any path that reaches
-        // the row, and the write path never produces them.
+    void a_row_whose_status_is_not_exactly_ACTIVE_is_not_an_active_row_but_strict_reconstruction_and_the_write_path_reject_it() {
+        // Documented boundary of the lifecycle query: it selects status == "ACTIVE", so an unknown/garbled status
+        // value is by definition not an ACTIVE row and cannot be an entitlement. It is still rejected by strict
+        // reconstruction on every path that reaches it, and the grant path (open-slot query) fails loud on it.
         clock.set(T0.plusSeconds(60));
-        List<Consumer<Document>> encodings = List.of(d -> d.remove("openTerm"), d -> d.put("openTerm", false),
-                d -> d.put("openTerm", null), d -> d.put("openTerm", "true"), d -> d.put("openTerm", 1));
-        for (Consumer<Document> encoding : encodings) {
+        for (String badStatus : List.of("REVOKED", "active", "Active", "PENDING_ACTIVATION", "")) {
             CustomerId customer = newCustomer();
-            Document bad = openTermDoc(customer);
-            encoding.accept(bad);
-            insertRaw(bad);
+            Document d = openTermDoc(customer); // keeps openTerm=true
+            d.put("status", badStatus);
+            insertRaw(d);
 
-            assertThat(standalone(new MembershipRepository(db)).currentEntitlement(customer)).isEmpty();
-            assertThatThrownBy(() -> MembershipRepository.toMembership(bad))
+            assertThat(standalone(new MembershipRepository(db)).currentEntitlement(customer))
+                    .as("status '" + badStatus + "' is not ACTIVE").isEmpty();
+            assertThatThrownBy(() -> MembershipRepository.toMembership(d)).as(badStatus)
                     .isInstanceOfSatisfying(MembershipFailure.class,
                             e -> assertThat(e.reason()).isEqualTo(MembershipFailure.Reason.INTEGRITY_FAILURE));
+            assertFailure(() -> service().grant(customer, PLAN_ID, 1, newRef()), MembershipFailure.Reason.INTEGRITY_FAILURE);
         }
+    }
+
+    @Test
+    void every_corrupt_ACTIVE_open_marker_shape_is_INTEGRITY_FAILURE_on_both_ports_never_empty() {
+        clock.set(T0.plusSeconds(60));
+        // The entitlement read is the LIFECYCLE query (customerId + status = ACTIVE), so a marker the openTerm
+        // slot filter could never match still reaches strict reconstruction -- and is rejected there.
+        assertCorruptIsIntegrityFailure("ACTIVE missing openTerm", d -> d.remove("openTerm"));
+        assertCorruptIsIntegrityFailure("ACTIVE openTerm=false", d -> d.put("openTerm", false));
+        assertCorruptIsIntegrityFailure("ACTIVE openTerm=null", d -> d.put("openTerm", null));
+        assertCorruptIsIntegrityFailure("ACTIVE openTerm=\"true\"", d -> d.put("openTerm", "true"));
+        assertCorruptIsIntegrityFailure("ACTIVE openTerm=1", d -> d.put("openTerm", 1));
+        assertCorruptIsIntegrityFailure("ACTIVE openTerm=document", d -> d.put("openTerm", new Document()));
+    }
+
+    @Test
+    void more_than_one_ACTIVE_row_for_a_customer_is_INTEGRITY_FAILURE_not_pick_one() {
+        CustomerId customer = newCustomer();
+        insertRaw(openTermDoc(customer));            // a valid open ACTIVE term ...
+        Document twin = openTermDoc(customer);        // ... and a corrupt ACTIVE twin that lost its marker
+        twin.remove("openTerm");
+        insertRaw(twin);
+        clock.set(T0.plusSeconds(60));
+
+        MembershipRepository repo = new MembershipRepository(db);
+        assertFailure(() -> standalone(repo).currentEntitlement(customer), MembershipFailure.Reason.INTEGRITY_FAILURE);
+        assertFailure(() -> transactional(reader(repo), customer), MembershipFailure.Reason.INTEGRITY_FAILURE);
+    }
+
+    @Test
+    void the_lifecycle_read_never_returns_a_stale_or_future_ACTIVE_row_as_corruption() {
+        CustomerId customer = newCustomer();
+        Membership term = service().grant(customer, PLAN_ID, 1, newRef());
+        Document before = raw(term.membershipId());
+        MembershipRepository repo = new MembershipRepository(db);
+
+        clock.set(T0_UNTIL.plusSeconds(1)); // valid stale ACTIVE: window ended, marker intact
+        assertThat(standalone(repo).currentEntitlement(customer)).isEmpty();
+        assertThat(transactional(reader(repo), customer)).isEmpty();
+        clock.set(T0.minusSeconds(1));      // valid future-window ACTIVE
+        assertThat(standalone(repo).currentEntitlement(customer)).isEmpty();
+        assertThat(transactional(reader(repo), customer)).isEmpty();
+        assertThat(raw(term.membershipId())).as("zero mutation").isEqualTo(before);
     }
 
     // ---------- snapshot independence ----------
