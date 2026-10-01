@@ -12,7 +12,10 @@ import java.util.regex.Pattern;
  * <p>The key is exact because a {@code MembershipEntitlement} reports the persisted term snapshot, not the live
  * plan configuration: a rule for version 2 must never touch a version-1 entitlement, and there is no
  * latest-version, plan-id-only or default fallback. A zero-bps rule is a meaningless promotion and is rejected,
- * as is a zero minimum (an eligible subtotal is always at least one paise).
+ * as is a zero minimum (an eligible subtotal is always at least one paise). A rule must also be ECONOMICALLY real at
+ * its own threshold: {@code floor(minimum * bps / 10000) >= 1} paise, so "subtotal >= minimum" always means a
+ * positive discount (a business that wants "every non-empty basket" configures a minimum of 1 paise). Because the
+ * discount is monotonic in the subtotal, this single check covers every admitted subtotal.
  */
 public record BenefitRule(String planId, int planVersion, Money minimumSubtotal, DiscountBps discountBps) {
 
@@ -34,6 +37,10 @@ public record BenefitRule(String planId, int planVersion, Money minimumSubtotal,
         }
         if (discountBps == null || discountBps.bps() < 1) {
             throw new IllegalArgumentException("discount bps must be >= 1");
+        }
+        if (discountBps.applyTo(minimumSubtotal).paise() < 1) {
+            throw new IllegalArgumentException(
+                    "a rule must discount at least 1 paise at its own minimum subtotal: floor(minimum * bps / 10000) >= 1");
         }
     }
 

@@ -81,7 +81,7 @@ class BenefitsEvaluationServiceTest {
     @Test
     void an_entitlement_without_a_rule_for_its_exact_version_is_no_rule_never_a_fallback() {
         // only v2 is configured; the entitlement is v1 => no rule, NOT v2's
-        BenefitsEvaluationService svc = standalone(entitled(1), rule(2, 1, 9_999));
+        BenefitsEvaluationService svc = standalone(entitled(1), rule(2, 10_000, 9_999));
         assertThat(noBenefit(svc.evaluate(CUSTOMER, inr(MIN * 10))).reason())
                 .isEqualTo(BenefitEvaluation.NoBenefitReason.NO_RULE);
 
@@ -136,12 +136,30 @@ class BenefitsEvaluationServiceTest {
     }
 
     @Test
-    void a_floor_discount_of_zero_paise_is_not_an_applied_benefit() {
-        // 1 bps of 9,999 paise floors to 0: not a real discount
-        BenefitsEvaluationService svc = standalone(entitled(1), rule(1, 1, 1));
+    void a_low_bps_boundary_rule_applies_exactly_at_its_threshold_and_not_one_paise_below() {
+        // the LOWEST valid pair: 1 bps needs a 10,000-paise minimum to reach 1 paise (9,999 would floor to 0)
+        BenefitsEvaluationService svc = standalone(entitled(1), rule(1, 10_000, 1));
+
         assertThat(noBenefit(svc.evaluate(CUSTOMER, inr(9_999))).reason())
                 .isEqualTo(BenefitEvaluation.NoBenefitReason.NOT_ELIGIBLE);
-        assertThat(svc.evaluate(CUSTOMER, inr(10_000))).isInstanceOf(BenefitEvaluation.Applied.class);
+        BenefitEvaluation.Applied atThreshold = (BenefitEvaluation.Applied) svc.evaluate(CUSTOMER, inr(10_000));
+        BenefitEvaluation.Applied above = (BenefitEvaluation.Applied) svc.evaluate(CUSTOMER, inr(10_001));
+        assertThat(atThreshold.discountAmount()).isEqualTo(inr(1));
+        assertThat(above.discountAmount()).as("10001 * 1 / 10000 floors to 1").isEqualTo(inr(1));
+        assertThat(((BenefitEvaluation.Applied) svc.evaluate(CUSTOMER, inr(19_999))).discountAmount())
+                .as("floor, not round: 1.9999 -> 1").isEqualTo(inr(1));
+        assertThat(((BenefitEvaluation.Applied) svc.evaluate(CUSTOMER, inr(20_000))).discountAmount())
+                .isEqualTo(inr(2));
+    }
+
+    @Test
+    void an_every_non_empty_basket_rule_is_a_one_paise_minimum_at_full_discount() {
+        BenefitsEvaluationService svc = standalone(entitled(1), rule(1, 1, 10_000));
+
+        assertThat(noBenefit(svc.evaluate(CUSTOMER, inr(0))).reason())
+                .isEqualTo(BenefitEvaluation.NoBenefitReason.NOT_ELIGIBLE);
+        assertThat(((BenefitEvaluation.Applied) svc.evaluate(CUSTOMER, inr(1))).discountAmount()).isEqualTo(inr(1));
+        assertThat(((BenefitEvaluation.Applied) svc.evaluate(CUSTOMER, inr(2))).discountAmount()).isEqualTo(inr(2));
     }
 
     @Test
@@ -210,19 +228,6 @@ class BenefitsEvaluationServiceTest {
 
         assertThatThrownBy(() -> svc.evaluate(CUSTOMER, inr(MIN))).isInstanceOf(BenefitsFailure.class)
                 .hasMessageNotContaining("cus_secret").hasNoCause();
-    }
-
-    @Test
-    void a_failing_rule_source_is_a_rule_configuration_failure_not_no_benefit() {
-        BenefitRuleSource broken = (p, v) -> {
-            throw new IllegalStateException("rule store exploded");
-        };
-        BenefitsEvaluationService svc = new BenefitsEvaluationService(entitled(1), broken,
-                new BenefitsObservability(registry));
-
-        assertFailure(() -> svc.evaluate(CUSTOMER, inr(MIN)), BenefitsFailure.Reason.RULE_CONFIGURATION_FAILURE);
-        assertThat(registry.find("benefits_failure").tag("reason", "rule_configuration_failure").counter().count())
-                .isEqualTo(1.0);
     }
 
     @Test

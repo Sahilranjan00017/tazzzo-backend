@@ -20,12 +20,8 @@ final class BenefitEvaluator {
             return new BenefitEvaluation.NoBenefit(BenefitEvaluation.NoBenefitReason.NO_MEMBERSHIP);
         }
         MembershipEntitlement e = entitlement.get();
-        Optional<BenefitRule> rule;
-        try {
-            rule = rules.find(e.planId(), e.planVersion()); // EXACT (planId, planVersion): no fallback, ever
-        } catch (RuntimeException ex) {
-            throw new BenefitsFailure(BenefitsFailure.Reason.RULE_CONFIGURATION_FAILURE, "benefit rule lookup failed");
-        }
+        // EXACT (planId, planVersion): no fallback, ever
+        Optional<BenefitRule> rule = rules.find(e.planId(), e.planVersion());
         if (rule.isEmpty()) {
             return new BenefitEvaluation.NoBenefit(BenefitEvaluation.NoBenefitReason.NO_RULE);
         }
@@ -34,7 +30,9 @@ final class BenefitEvaluator {
             return new BenefitEvaluation.NoBenefit(BenefitEvaluation.NoBenefitReason.NOT_ELIGIBLE);
         }
         Money discount = r.discountBps().applyTo(eligibleSubtotal);
-        if (discount.paise() < 1) { // floor rounded a tiny subtotal to nothing: not a real discount
+        // defense in depth only: BenefitRule guarantees >= 1 paise at its own threshold and the discount is monotonic
+        // in the subtotal, so an admitted subtotal can never reach 0 paise for a constructed rule
+        if (discount.paise() < 1) {
             return new BenefitEvaluation.NoBenefit(BenefitEvaluation.NoBenefitReason.NOT_ELIGIBLE);
         }
         return new BenefitEvaluation.Applied(e.membershipId(), e.planId(), e.planVersion(), eligibleSubtotal,

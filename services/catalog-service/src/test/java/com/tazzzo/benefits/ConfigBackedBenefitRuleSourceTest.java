@@ -37,7 +37,7 @@ class ConfigBackedBenefitRuleSourceTest {
     void a_later_version_does_not_affect_an_earlier_one() {
         BenefitRule v1 = rule(1, 50_000, 500);
         ConfigBackedBenefitRuleSource onlyV1 = new ConfigBackedBenefitRuleSource(List.of(v1));
-        ConfigBackedBenefitRuleSource both = new ConfigBackedBenefitRuleSource(List.of(v1, rule(2, 1, 9_999)));
+        ConfigBackedBenefitRuleSource both = new ConfigBackedBenefitRuleSource(List.of(v1, rule(2, 10_000, 9_999)));
 
         assertThat(both.find(PLAN, 1)).isEqualTo(onlyV1.find(PLAN, 1));
     }
@@ -63,7 +63,7 @@ class ConfigBackedBenefitRuleSourceTest {
         ConfigBackedBenefitRuleSource source = new ConfigBackedBenefitRuleSource(input);
 
         input.clear();
-        input.add(rule(2, 1, 1));
+        input.add(rule(2, 10_000, 1));
 
         assertThat(source.find(PLAN, 1)).isPresent();
         assertThat(source.find(PLAN, 2)).isEmpty();
@@ -81,6 +81,7 @@ class ConfigBackedBenefitRuleSourceTest {
                 propertiesRule(PLAN, 1, 50_000, "INR", 0),        // zero bps
                 propertiesRule(PLAN, 1, 50_000, "INR", 10_001),   // > 100%
                 propertiesRule(PLAN, 1, 0, "INR", 500),           // zero threshold
+                propertiesRule(PLAN, 1, 9_999, "INR", 1),         // floors to 0 paise AT its own threshold
                 propertiesRule(PLAN, 1, -5, "INR", 500),          // negative money
                 propertiesRule(PLAN, 1, 50_000, "USD", 500),      // unknown currency
                 propertiesRule(PLAN, 1, 50_000, null, 500),       // missing currency

@@ -772,10 +772,15 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
     A floor discount of 0 paise is NOT an applied benefit.
   - **Rule model/source:** `BenefitRule(planId, planVersion, minimumSubtotal, discountBps)` keyed by the EXACT
     `(planId, planVersion)` the `MembershipEntitlement` reports (the persisted term snapshot, never the live plan
-    config). Zero bps, a zero minimum, a bad plan id/version and non-INR are rejected. `ConfigBackedBenefitRuleSource`
-    is immutable, validates at construction (duplicate keys fail startup) and may be empty. **No launch percentage
-    or threshold is ratified: the production default configures NO rule** (`tazzzo.benefits.rules` is empty), so
-    an entitled customer resolves to `NO_RULE`. The client prototype's 5% / 500 / 10% / spend-milestone are NOT
+    config). Zero bps, a zero minimum, a bad plan id/version and non-INR are rejected, and so is a rule that is not
+    economically real at its own threshold (`floor(minimum * bps / 10000) >= 1` paise: 9,999 paise at 1 bps is
+    rejected, 10,000 paise at 1 bps is accepted), so `subtotal >= minimum` always means a positive discount. The
+    minimum stays strictly positive (a business wanting "every non-empty basket" configures 1 paise);
+    `DiscountBps(0)` itself remains a valid value type. `ConfigBackedBenefitRuleSource` is immutable, validates at
+    construction (duplicate keys and every malformed rule fail application start, never an evaluation) and may be
+    empty. **No launch percentage or threshold is ratified: no production Benefits rule is configured — the
+    `tazzzo.benefits.rules` property is absent (absent and an explicitly empty list both bind to an empty rule
+    set)**, so an entitled customer resolves to `NO_RULE`. The client prototype's 5% / 500 / 10% / spend-milestone are NOT
     backend policy and appear only as test fixtures. There is NO latest-version, plan-id-only or default fallback.
   - **Ports:** `BenefitsEvaluationPort.evaluate(CustomerId, Money eligibleSubtotal)` (standalone; owns no
     transaction, writes nothing) and `TransactionalBenefitsEvaluationPort.evaluate(ClientSession, CustomerId, Money)`
@@ -785,10 +790,12 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   - **Result:** `BenefitEvaluation` = `NoBenefit(NO_MEMBERSHIP | NO_RULE | NOT_ELIGIBLE)` (normal, never an error) or
     `Applied(membershipId, planId, planVersion, eligibleSubtotal, discountAmount, discountBps)` — enough for a
     later Checkout snapshot to persist its authority without re-running rules.
-  - **Failures (closed, Benefits-owned):** `INVALID_REQUEST`, `UNAVAILABLE`, `INTEGRITY_FAILURE`,
-    `RULE_CONFIGURATION_FAILURE`. `MembershipFailure` never leaks: `INVALID_REQUEST`/`UNAVAILABLE`/`INTEGRITY_FAILURE`
-    map one-to-one and any other Membership reason is `INTEGRITY_FAILURE`; an outage or corruption is never
-    reported as `NoBenefit`. A failing rule source is `RULE_CONFIGURATION_FAILURE`.
+  - **Failures (closed, Benefits-owned, only reasons with a runtime producer):** `INVALID_REQUEST`, `UNAVAILABLE`,
+    `INTEGRITY_FAILURE`. `MembershipFailure` never leaks: `INVALID_REQUEST`/`UNAVAILABLE`/`INTEGRITY_FAILURE` map
+    one-to-one and any other Membership reason is `INTEGRITY_FAILURE`; an outage or corruption is never reported as
+    `NoBenefit`. The rule source is an immutable in-process configuration whose defects fail at construction, so
+    there is no runtime rule-source failure; `BenefitRuleSource` stays the domain seam, and a future persistent source
+    introduces its own failure reason in its own PR.
   - **Membership boundary:** Benefits never inspects status, `openTerm`, `cancelRequestedAt`, `revokedAt` or
     `validFrom`; Membership owns lifecycle (cancel-at-period-end keeps the benefit until `validUntil`; revoke
     removes it at once). Benefits depends on Membership ONLY through `MembershipEntitlementPort`,
@@ -911,11 +918,13 @@ is FUTURE work and not required for the production modular monolith.
 ## Last verification
 
 - **2026-10-02** — `./mvnw clean test` on Java 21 + Docker on `feature/pr17a1-benefits-foundation`
-  (based on `main` `99e2d1b`): **BUILD SUCCESS**, 2082 tests, 0 failures / 0 errors / 0 skipped
-  (2028 baseline + 36 Benefits unit tests + 9 `BenefitsEvaluationIT` + 9 ArchUnit rules); `ModuleBoundaryTest` 56/56.
-  Eleven production mutations (latest-version fallback, ceiling rounding, exclusive threshold, bps > 100%, outage
-  mapped to no-benefit, version ignored, transactional metric/standalone-fallback dependency, Benefits -> Membership
-  service/termination dependency, zero-paise discount applied) were each killed by the tests/rules above.
+  (based on `main` `99e2d1b`, after the independent-review hardening): **BUILD SUCCESS**, 2090 tests, 0 failures /
+  0 errors / 0 skipped (2028 baseline + 44 Benefits unit/binding tests + 9 `BenefitsEvaluationIT` + 9 ArchUnit
+  rules); `ModuleBoundaryTest` 56/56. Mutation checks (each killed by the tests/rules named in the PR): removing the
+  economic-at-threshold validation, exclusive threshold, latest-version fallback, Membership outage mapped to
+  no-benefit, a forbidden Membership implementation dependency; plus the earlier rounding, bps-bound, version-lookup,
+  transactional-metric and Benefits -> Membership write mutations and, in a scratch export, one mutation per
+  remaining ArchUnit rule.
 - **2026-10-01** — `./mvnw clean test` on Java 21 + Docker on `feature/pr16a3-membership-termination`
   (based on `main` `580633a`): **BUILD SUCCESS**, 2028 tests, 0 failures / 0 errors / 0 skipped
   (1989 baseline + 24 `MembershipTerminationIT` + 4 `MembershipTerminationConcurrencyIT` + 7 reconstruction
