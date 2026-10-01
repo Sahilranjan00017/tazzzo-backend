@@ -53,10 +53,15 @@ class MembershipRepositoryIT extends AbstractMembershipIT {
     }
 
     @Test
-    void bootstrap_creates_exactly_the_two_membership_indexes_and_no_ttl() {
+    void bootstrap_creates_exactly_the_three_membership_indexes_and_no_ttl() {
         Map<String, Document> idx = indexes();
         assertThat(idx.keySet()).containsExactlyInAnyOrder("_id_", "membership_one_open_per_customer",
-                "membership_one_per_grant_reference");
+                "membership_one_per_grant_reference", "membership_active_by_customer");
+
+        Document active = idx.get("membership_active_by_customer");
+        assertThat(active.get("key", Document.class)).isEqualTo(new Document("customerId", 1).append("status", 1));
+        assertThat(active.getBoolean("unique")).as("NOT a second uniqueness mechanism").isNull();
+        assertThat(active.containsKey("partialFilterExpression")).isFalse();
 
         Document open = idx.get("membership_one_open_per_customer");
         assertThat(open.get("key", Document.class)).isEqualTo(new Document("customerId", 1));
@@ -77,7 +82,7 @@ class MembershipRepositoryIT extends AbstractMembershipIT {
         schemaBootstrap.bootstrap(db);
         schemaBootstrap.bootstrap(db);
         assertThat(indexes().keySet()).containsExactlyInAnyOrder("_id_", "membership_one_open_per_customer",
-                "membership_one_per_grant_reference");
+                "membership_one_per_grant_reference", "membership_active_by_customer");
     }
 
     @Test
@@ -133,6 +138,48 @@ class MembershipRepositoryIT extends AbstractMembershipIT {
                 .append("verbosity", "queryPlanner"));
         assertThat(explain.toJson()).contains("IXSCAN").contains("membership_one_open_per_customer")
                 .doesNotContain("COLLSCAN");
+    }
+
+    @Test
+    void the_entitlement_candidate_query_is_a_bounded_per_customer_index_scan_never_a_collection_scan() {
+        Document explain = db.runCommand(new Document("explain", new Document("find", MembershipRepository.COLLECTION)
+                .append("filter", new Document("customerId", newCustomer().value()).append("$or", List.of(
+                        new Document("status", "ACTIVE"), new Document("openTerm", new Document("$exists", true)))))
+                .append("limit", 2)).append("verbosity", "queryPlanner"));
+        String plan = explain.toJson();
+        assertThat(plan).contains("IXSCAN").contains("membership_active_by_customer").doesNotContain("COLLSCAN");
+        // the customer's equality bound is part of the scan: one customer's keys, not the whole index
+        assertThat(explain.get("queryPlanner", Document.class).get("winningPlan", Document.class).toJson())
+                .contains("\"customerId\": [\"[\\\"CUS_");
+    }
+
+    @Test
+    void the_candidate_read_returns_the_valid_current_term_and_ignores_valid_terminal_history() {
+        CustomerId customer = newCustomer();
+        Membership open = term(customer, newRef());
+        insertRaw(expiredShape(term(customer, newRef())));
+        insertRaw(expiredShape(term(customer, newRef())));
+        insertRaw(MembershipRepository.toDocument(open));
+        assertThat(repository.findCurrentCandidateByCustomer(customer)).hasValue(open);
+        assertThat(repository.findCurrentCandidateByCustomer(newCustomer())).isEmpty();
+
+        CustomerId onlyHistory = newCustomer();
+        insertRaw(expiredShape(term(onlyHistory, newRef())));
+        assertThat(repository.findCurrentCandidateByCustomer(onlyHistory)).isEmpty();
+    }
+
+    @Test
+    void the_candidate_read_fails_loud_on_any_row_that_claims_the_open_slot_or_is_ACTIVE() {
+        for (java.util.function.Consumer<Document> corrupt : List.<java.util.function.Consumer<Document>>of(
+                d -> d.remove("openTerm"), d -> d.put("openTerm", false), d -> d.put("status", "BROKEN"),
+                d -> d.put("status", "EXPIRED"))) {
+            CustomerId customer = newCustomer();
+            Document d = MembershipRepository.toDocument(term(customer, newRef()));
+            corrupt.accept(d);
+            insertRaw(d);
+            assertThatThrownBy(() -> repository.findCurrentCandidateByCustomer(customer))
+                    .isInstanceOf(MembershipFailure.class);
+        }
     }
 
     @Test

@@ -611,11 +611,10 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   **DEPLOYMENT /
   PRODUCTION ROLLOUT remains BLOCKED on the `orders`-count == 0 gate (PENDING, not verified).**
 
-## In review (NOT merged)
-
 - **PR-16A-1 — Membership write foundation** (`com.tazzzo.membership`, a NEW top-level domain peer of
-  `inventory`/`pricing`, its own ArchUnit slice): **IN REVIEW**. **Foundation only — there is no
-  entitlement read seam yet (PR-16A-2), no REVOKED/cancellation (PR-16A-3), no renewal, no worker, no
+  `inventory`/`pricing`, its own ArchUnit slice): **COMPLETE** (PR #31, squash
+  `d32a23fb2e4b52fa8076de45a07bf3b60912b1e2`). **Foundation only — at merge there was no
+  entitlement read seam (PR-16A-2 follows), no REVOKED/cancellation (PR-16A-3), no renewal, no worker, no
   HTTP endpoint (no purchase, no customer status), no Benefits (no discount percentages, thresholds or
   coupons anywhere), no Payment/prepaid/gateway and no customer subscription purchase.** The only
   operation is an INTERNAL, idempotent, payment-free `MembershipService.grant(customerId, planId,
@@ -663,6 +662,49 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   - **The existing Order deployment gate is unchanged and still PENDING:** the `orders` collection must
     have document count == 0 in every persistent environment. Nothing here weakens or replaces it; do not
     claim production readiness.
+
+## In review (NOT merged)
+
+- **PR-16A-2 — Membership entitlement read seam** (`com.tazzzo.membership`): **IN REVIEW**. **READ ONLY.**
+  Answers one question: does this customer have a Membership entitlement at Membership's own current
+  authoritative time? Two narrow ports and one minimal value type: `MembershipEntitlementPort`
+  (standalone, `currentEntitlement(CustomerId)`), `TransactionalMembershipEntitlementPort` (session-aware,
+  `currentEntitlement(ClientSession, CustomerId)`) and `MembershipEntitlement(membershipId, planId,
+  planVersion, validUntil)` — no customerId, status, version, grant reference, price, period, zone or
+  timestamps. Neither port accepts a caller-supplied time: the injected `Clock` is read fresh per call.
+  - **Runtime truth:** `status == ACTIVE AND validFrom <= now < validUntil` (half-open, millisecond exact).
+    A persisted ACTIVE row whose window has ended (valid stale state) or that has not started (clock skew)
+    yields `Optional.empty()` and is NOT mutated (no EXPIRED persisted, no version bump, no `openTerm`
+    unset, no transaction, no grant call); lazy persistence stays owned by the PR-16A-1 grant path. An
+    EXPIRED term is empty. `Optional.empty()` means authoritatively no entitlement — an outage
+    (`UNAVAILABLE`) or a corrupt row (`INTEGRITY_FAILURE`, via strict reconstruction) is never collapsed to
+    it. **Candidate query (hardening):** the entitlement read fetches the customer's current/open
+    CANDIDATES — `customerId AND (status = ACTIVE OR openTerm exists)` — served by the NON-unique index
+    `membership_active_by_customer` `{customerId, status}` (the plan is a bounded scan of that one customer's
+    key range plus a fetch filter and `LIMIT 2`; no collection scan, no new index for the `openTerm` branch).
+    It is NOT the write-slot query and NOT all history: valid terminal rows (EXPIRED, marker absent) are
+    ignored. Every candidate goes through strict reconstruction, so any row that is or CLAIMS the current
+    membership fails loud — an ACTIVE row with a missing/false/null/non-boolean marker, or an unknown or
+    terminal status carrying `openTerm` (`INTEGRITY_FAILURE`) — and `empty` keeps meaning "authoritatively no
+    entitlement". More than one candidate is itself an `INTEGRITY_FAILURE` (never pick one; this also guards a
+    missing/dropped unique index). The partial unique `membership_one_open_per_customer` remains the sole
+    write/concurrency uniqueness authority (used by the grant path).
+  - **Transactional contract:** joins the caller's session, opens no transaction, mutates nothing, emits
+    ZERO metrics (the caller's `Tx.call` may retry), never falls back to the standalone read. A transient
+    transaction error propagates untouched so the caller's retry works; any other datastore failure is a
+    typed `UNAVAILABLE`. The implementation has no `Tx`, observability or Micrometer dependency
+    (ArchUnit-enforced). The standalone read uses the primary-pinned handle and records only
+    `membership_failure{operation=entitlement_read,reason}`; there is no entitlement-result metric.
+  - **Snapshot:** an entitlement reports the stored TERM facts; the read implementations have no plan
+    source and never reinterpret a term against the current plan configuration (ArchUnit + test).
+  - **Boundary:** ArchUnit now also fixes the future direction Benefits -> Membership through an
+    allowlist (the two ports, `MembershipEntitlement`, `MembershipId`, `MembershipFailure`/`Reason`
+    only). No Benefits, Checkout, Order, Cart, Pricing, Inventory, Serviceability or Commerce change;
+    no HTTP; no Payment; no grant/renewal/cancel/revoke/worker change.
+  - **Deployment gates unchanged and PENDING:** the Order `orders`-count == 0 gate and the five Membership
+    gates recorded under PR-16A-1 (no conflicting `memberships` collection, SchemaBootstrap privileges,
+    identical plan configuration, no Mongo `readPreference` override, cluster default read/write concern).
+    Not verified; do not claim production readiness.
 
 ## Follow-up debt (recorded)
 
@@ -721,12 +763,12 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   `PublicServiceability`, pincode-keyed routing) is **COMPLETE** and unchanged; the
   customer-address BINDING to it (PR-12B) is **COMPLETE**.
   (Address ↔ Serviceability binding: COMPLETE.)
-- Cart (PR-12C): **COMPLETE** (PR #21). Auth transaction retry hardening (PR-11D): **COMPLETE** (PR #22). Checkout (PR-13A): **COMPLETE** (PR #23). Checkout provenance (PR-13B): **COMPLETE** (PR #24, squash `8b4fabb9b82e4e3502202ffaff1aadd35f9ba311`). Inventory Reservation lifecycle (PR-14A): **COMPLETE** (PR #25, squash `44438031022238334ecdf3995ba1096101e2e47f`). Order Foundation (PR-14B): **COMPLETE** (PR #26, squash `b620538e34afc35f7f080461750681b467ed4096`). Cart purchase-finalization seam (PR-15A-0): **COMPLETE** (PR #28, squash `611829c3649de3f5c37dec4ac5b375a1d8ef454e`). COD Order domain (PR-15A-1): **COMPLETE** (PR #29, squash `e8d4d45e88ad4935f7ad84a46ae65a671e50ba63`). Customer Order HTTP (PR-15A-2): **COMPLETE** (PR #30, squash `0cdcc97b8fcf5f7c079815b8cb276874635d15d6`; operational `orders`-count==0 deployment gate **PENDING**, not verified). Membership write foundation (PR-16A-1): **IN REVIEW** (foundation only: no entitlement seam, no HTTP, no purchase; entitlement read seam PR-16A-2 and termination PR-16A-3 **NOT STARTED**). Benefits/Promotion: **NOT STARTED**. Payment: **NOT STARTED**. Real payment gateway: **NOT STARTED**.
+- Cart (PR-12C): **COMPLETE** (PR #21). Auth transaction retry hardening (PR-11D): **COMPLETE** (PR #22). Checkout (PR-13A): **COMPLETE** (PR #23). Checkout provenance (PR-13B): **COMPLETE** (PR #24, squash `8b4fabb9b82e4e3502202ffaff1aadd35f9ba311`). Inventory Reservation lifecycle (PR-14A): **COMPLETE** (PR #25, squash `44438031022238334ecdf3995ba1096101e2e47f`). Order Foundation (PR-14B): **COMPLETE** (PR #26, squash `b620538e34afc35f7f080461750681b467ed4096`). Cart purchase-finalization seam (PR-15A-0): **COMPLETE** (PR #28, squash `611829c3649de3f5c37dec4ac5b375a1d8ef454e`). COD Order domain (PR-15A-1): **COMPLETE** (PR #29, squash `e8d4d45e88ad4935f7ad84a46ae65a671e50ba63`). Customer Order HTTP (PR-15A-2): **COMPLETE** (PR #30, squash `0cdcc97b8fcf5f7c079815b8cb276874635d15d6`; operational `orders`-count==0 deployment gate **PENDING**, not verified). Membership write foundation (PR-16A-1): **COMPLETE** (PR #31, squash `d32a23fb2e4b52fa8076de45a07bf3b60912b1e2`; Membership deployment gates **PENDING**, not verified). Membership entitlement read seam (PR-16A-2): **IN REVIEW** (read only; no HTTP, no Benefits). Membership termination (PR-16A-3): **NOT STARTED**. Benefits/Promotion: **NOT STARTED**. Payment: **NOT STARTED**. Real payment gateway: **NOT STARTED**.
 
 ## Next (ratified sequence)
 
-1. **Membership Foundation** — PR-16A-1 write foundation (in review), PR-16A-2 entitlement read seam,
-   PR-16A-3 termination (cancel-at-period-end, immediate revoke).
+1. **Membership Foundation** — PR-16A-1 write foundation (complete), PR-16A-2 entitlement read seam
+   (in review), PR-16A-3 termination (cancel-at-period-end, immediate revoke).
 2. Benefits / Promotion engine (the only place discount percentages and thresholds will live).
 3. Checkout + Order money-model upgrade.
 4. Payment domain, then the prepaid Order flow, then a real gateway.
@@ -765,6 +807,10 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-10-01** — `./mvnw clean test` on Java 21 + Docker on `feature/pr16a2-membership-entitlement-read`
+  (based on `main` `d32a23f`): **BUILD SUCCESS**, 1989 tests, 0 failures / 0 errors / 0 skipped
+  (1951 baseline + 28 `MembershipEntitlementIT` + 3 `MembershipRepositoryIT` + 7 ArchUnit rules, after the
+  ACTIVE-row and open-slot integrity hardening); `ModuleBoundaryTest` 43/43.
 - **2026-10-01** — `./mvnw clean test` on Java 21 + Docker on `feature/pr16a1-membership-write-foundation`
   (based on `main` `0cdcc97`): **BUILD SUCCESS**, 1951 tests, 0 failures / 0 errors / 0 skipped
   (1854 baseline + 84 Membership + 13 ArchUnit rules); `ModuleBoundaryTest` 36/36.
