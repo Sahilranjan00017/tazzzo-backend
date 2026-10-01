@@ -1,6 +1,11 @@
 package com.tazzzo.arch;
 
 import com.tazzzo.auth.CustomerId;
+import com.tazzzo.benefits.BenefitsEvaluationPort;
+import com.tazzzo.benefits.BenefitsEvaluationService;
+import com.tazzzo.benefits.BenefitsObservability;
+import com.tazzzo.benefits.BenefitsTransactionalEvaluator;
+import com.tazzzo.benefits.TransactionalBenefitsEvaluationPort;
 import com.tazzzo.catalog.tx.Tx;
 import com.tazzzo.customer.order.OrderRepository;
 import com.tazzzo.customer.order.OrderService;
@@ -674,6 +679,120 @@ class ModuleBoundaryTest {
     static final ArchRule membership_members_carry_no_payment_vocabulary =
             noFields().that().areDeclaredInClassesThat().resideInAPackage(MEMBERSHIP)
                     .should().haveNameMatching(PAYMENT_VOCABULARY).allowEmptyShould(true);
+
+    // ---------------------------------------------------------------------------------------------
+    // Benefits foundation -- the first (and only authorized) Membership consumer.
+    // ---------------------------------------------------------------------------------------------
+
+    private static final String BENEFITS = "com.tazzzo.benefits..";
+
+    /** Benefits -- explicit freeze (the allowlist rule above already forbids it, this names the classes): Benefits
+     *  never depends on a Membership IMPLEMENTATION: not the grant/termination services, the repository, the term, the
+     *  plan or its source, the entitlement implementations or Membership's observability. */
+    @ArchTest
+    static final ArchRule benefits_does_not_depend_on_membership_implementation_classes =
+            noClasses().that().resideInAPackage(BENEFITS)
+                    .should().dependOnClassesThat().belongToAnyOf(MembershipService.class,
+                            MembershipTerminationService.class, MembershipRepository.class, Membership.class,
+                            MembershipPlan.class, MembershipPlanSource.class, ConfigBackedMembershipPlanSource.class,
+                            MembershipEntitlementService.class, MembershipEntitlementReader.class,
+                            MembershipObservability.class, MembershipGrantReference.class)
+                    .allowEmptyShould(true);
+
+    /** Benefits -- the foundation is independently evaluable: it depends on no commerce, customer-facing, Payment or
+     *  Admin domain, no catalog infrastructure (no {@code Tx}), no HTTP and, of auth, only {@code CustomerId}. */
+    @ArchTest
+    static final ArchRule benefits_depends_on_no_commerce_payment_admin_or_http =
+            noClasses().that().resideInAPackage(BENEFITS)
+                    .should().dependOnClassesThat(
+                            resideInAnyPackage("com.tazzzo.customer..", "com.tazzzo.commerce..",
+                                    "com.tazzzo.pricing..", "com.tazzzo.inventory..", "com.tazzzo.serviceability..",
+                                    "com.tazzzo.media..", "com.tazzzo.order..", "com.tazzzo.payment..",
+                                    "com.tazzzo.catalog..", "com.tazzzo.admin..", "com.tazzzo.promotion..",
+                                    "org.springframework.web..", "org.springframework.http..", "jakarta.servlet..")
+                                    .or(resideInAnyPackage("com.tazzzo.auth..")
+                                            .and(DescribedPredicate.not(belongToAnyOf(CustomerId.class)))))
+                    .allowEmptyShould(true);
+
+    /** Benefits -- no controller, no REST endpoint: the seam is internal. */
+    @ArchTest
+    static final ArchRule benefits_has_no_http_surface =
+            noClasses().that().resideInAPackage(BENEFITS)
+                    .should().haveSimpleNameEndingWith("Controller")
+                    .orShould().beAnnotatedWith(org.springframework.web.bind.annotation.RestController.class)
+                    .orShould().beAnnotatedWith(org.springframework.stereotype.Controller.class)
+                    .orShould().beAnnotatedWith(org.springframework.web.bind.annotation.ControllerAdvice.class)
+                    .allowEmptyShould(true);
+
+    /** Benefits -- metrics live ONLY in {@code BenefitsObservability} and its one caller, the standalone service: no
+     *  other Benefits class (value types, rules, sources, evaluator, the transactional evaluator) can reach Micrometer
+     *  or the observability class. */
+    @ArchTest
+    static final ArchRule benefits_metrics_live_only_in_the_standalone_service =
+            noClasses().that().resideInAPackage(BENEFITS)
+                    .and().doNotBelongToAnyOf(BenefitsObservability.class, BenefitsEvaluationService.class)
+                    .should().dependOnClassesThat().resideInAPackage("io.micrometer..")
+                    .orShould().dependOnClassesThat().belongToAnyOf(BenefitsObservability.class)
+                    .allowEmptyShould(true);
+
+    /** Benefits -- the transactional evaluation can emit NO metric, open NO transaction, touch NO datastore handle and
+     *  never fall back to the standalone Membership read or the standalone Benefits evaluation. */
+    @ArchTest
+    static final ArchRule transactional_benefits_implementation_has_no_metrics_transaction_or_standalone_fallback =
+            noClasses().that().implement(TransactionalBenefitsEvaluationPort.class)
+                    .should().dependOnClassesThat().belongToAnyOf(BenefitsObservability.class, Tx.class,
+                            com.mongodb.client.MongoClient.class, com.mongodb.client.MongoDatabase.class,
+                            com.mongodb.client.MongoCollection.class, MembershipEntitlementPort.class,
+                            BenefitsEvaluationPort.class, BenefitsEvaluationService.class)
+                    .orShould().dependOnClassesThat().resideInAPackage("io.micrometer..")
+                    .allowEmptyShould(true);
+
+    /** Benefits -- Benefits never WRITES Membership: of the Membership package it may call only the entitlement read,
+     *  the entitlement/failure accessors and the enum plumbing of {@code MembershipFailure.Reason}. */
+    @ArchTest
+    static final ArchRule benefits_only_reads_membership =
+            noClasses().that().resideInAPackage(BENEFITS)
+                    .should().callMethodWhere(new DescribedPredicate<JavaMethodCall>("call anything in Membership but the entitlement read and accessors") {
+                        private final java.util.Set<String> allowed = java.util.Set.of("currentEntitlement",
+                                "membershipId", "planId", "planVersion", "validUntil", "reason", "values", "valueOf",
+                                "ordinal", "name");
+
+                        @Override
+                        public boolean test(JavaMethodCall call) {
+                            return call.getTargetOwner().getPackageName().startsWith("com.tazzzo.membership")
+                                    && !allowed.contains(call.getName());
+                        }
+                    })
+                    .allowEmptyShould(true);
+
+    /** Benefits -- Membership entitlement has ONE authorized consumer: no class outside the Membership and Benefits
+     *  packages may depend on the entitlement ports or the entitlement value, so Checkout/Order/Payment/everything else
+     *  must go through Benefits. */
+    @ArchTest
+    static final ArchRule only_benefits_consumes_membership_entitlement =
+            noClasses().that().resideOutsideOfPackages(MEMBERSHIP, BENEFITS)
+                    .should().dependOnClassesThat().belongToAnyOf(MembershipEntitlementPort.class,
+                            TransactionalMembershipEntitlementPort.class, MembershipEntitlement.class)
+                    .allowEmptyShould(true);
+
+    /** Benefits -- Checkout, Order and Cart can never bypass Benefits to reach Membership (explicit freeze of what
+     *  {@code upstream_modules_do_not_depend_on_membership} already implies for {@code customer..}). */
+    @ArchTest
+    static final ArchRule checkout_order_and_cart_cannot_bypass_benefits_to_reach_membership =
+            noClasses().that().resideInAnyPackage("com.tazzzo.customer.checkout..", "com.tazzzo.customer.order..",
+                            "com.tazzzo.customer.cart..")
+                    .should().dependOnClassesThat().resideInAPackage(MEMBERSHIP)
+                    .allowEmptyShould(true);
+
+    /** Benefits -- nothing upstream of Benefits depends on it (the dependency direction is Checkout/Order -> Benefits ->
+     *  Membership, never the reverse), and Membership never depends on Benefits. */
+    @ArchTest
+    static final ArchRule foundation_modules_do_not_depend_on_benefits =
+            noClasses().that().resideInAnyPackage("com.tazzzo.auth..", "com.tazzzo.catalog..",
+                            "com.tazzzo.commerce..", "com.tazzzo.pricing..", "com.tazzzo.inventory..",
+                            "com.tazzzo.serviceability..", "com.tazzzo.media..", MEMBERSHIP)
+                    .should().dependOnClassesThat().resideInAPackage(BENEFITS)
+                    .allowEmptyShould(true);
 
     /**
      * No dependency cycles between top-level Tazzzo modules.

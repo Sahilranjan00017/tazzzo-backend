@@ -105,6 +105,12 @@ tazzzo:
         currency: INR
         period-months: 1
         effective-from: "2026-01-01T00:00:00Z"
+  # Benefits foundation: the immutable, version-explicit benefit rule source, keyed by the EXACT Membership
+  # (plan-id, plan-version). NO launch percentage or threshold is ratified, so NO rule is configured: an entitled
+  # customer resolves to "no rule" and receives no discount. A rule is: plan-id, plan-version,
+  # minimum-subtotal-paise (> 0, inclusive), currency (INR), discount-bps (1..10000; 500 = 5%).
+  # benefits:
+  #   rules: []
   consumer-rate-limit:
     # NO PRODUCTION DEFAULT BY DESIGN (Q5-c). Unset or unrecognised is a STARTUP FAILURE, because a
     # permissive default is worse than none: it looks like a decision. DISABLED is an intentional

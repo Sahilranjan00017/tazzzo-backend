@@ -705,9 +705,8 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
     identical plan configuration, no Mongo `readPreference` override, cluster default read/write concern).
     Not verified; do not claim production readiness.
 
-## In review (NOT merged)
-
-- **PR-16A-3 — Membership termination** (`com.tazzzo.membership`): **IN REVIEW**. The last Membership
+- **PR-16A-3 — Membership termination** (`com.tazzzo.membership`): **COMPLETE** (PR #33, squash
+  `99e2d1b7cc26982e0825bc4a9766b815aa6ae8e0`). The last Membership
   Foundation slice: exactly two INTERNAL, standalone lifecycle commands in `MembershipTerminationService` —
   **no HTTP, no Benefits, no Payment/refund, no renewal, no upgrade, no audit subsystem (no actor/reason),
   no worker, no new index, no session-aware termination seam** (no caller needs one).
@@ -757,6 +756,57 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
     Membership gates (no conflicting `memberships` collection, SchemaBootstrap privileges, identical plan
     configuration, no Mongo `readPreference` override, cluster default read/write concern). Do not claim
     production readiness.
+
+## In review (NOT merged)
+
+- **Benefits Foundation — membership-backed benefit evaluation seam** (`com.tazzzo.benefits`, a NEW top-level
+  domain, the first and only authorized Membership consumer): **IN REVIEW**. **First Benefits foundation only:
+  internal, read-only, no persistence, no HTTP, no Checkout/Order change, no coupons, Payment untouched.**
+  - **Benefit shape (exactly one):** an ORDER-LEVEL percentage discount with an INCLUSIVE minimum eligible
+    subtotal. Not implemented: flat discount, free delivery, buy-X-get-Y, SKU/category discount, cashback, coins,
+    member-only price, coupon stacking, usage limits, priority. Coupon precedence stays unresolved.
+  - **Value types:** `DiscountBps` (`0..10000` basis points, `10000 = 100%`, integer only; no floating point, no
+    `BigDecimal`) and the existing `Money` (INR paise, non-negative) — no second money type. **Rounding:**
+    `discountPaise = floor(subtotalPaise * bps / 10000)`, computed overflow-free as `q*bps + (r*bps)/10000`
+    (`q = paise/10000`, `r = paise%10000`), tested against exact `BigInteger` division and at `Long.MAX_VALUE`.
+    A floor discount of 0 paise is NOT an applied benefit.
+  - **Rule model/source:** `BenefitRule(planId, planVersion, minimumSubtotal, discountBps)` keyed by the EXACT
+    `(planId, planVersion)` the `MembershipEntitlement` reports (the persisted term snapshot, never the live plan
+    config). Zero bps, a zero minimum, a bad plan id/version and non-INR are rejected. `ConfigBackedBenefitRuleSource`
+    is immutable, validates at construction (duplicate keys fail startup) and may be empty. **No launch percentage
+    or threshold is ratified: the production default configures NO rule** (`tazzzo.benefits.rules` is empty), so
+    an entitled customer resolves to `NO_RULE`. The client prototype's 5% / 500 / 10% / spend-milestone are NOT
+    backend policy and appear only as test fixtures. There is NO latest-version, plan-id-only or default fallback.
+  - **Ports:** `BenefitsEvaluationPort.evaluate(CustomerId, Money eligibleSubtotal)` (standalone; owns no
+    transaction, writes nothing) and `TransactionalBenefitsEvaluationPort.evaluate(ClientSession, CustomerId, Money)`
+    (joins the caller's session via `TransactionalMembershipEntitlementPort`; opens no transaction, writes
+    nothing, emits ZERO metrics, never falls back to the standalone path, and a transient driver error propagates
+    untouched for the caller's own retry). Both share one pure decision (`BenefitEvaluator`).
+  - **Result:** `BenefitEvaluation` = `NoBenefit(NO_MEMBERSHIP | NO_RULE | NOT_ELIGIBLE)` (normal, never an error) or
+    `Applied(membershipId, planId, planVersion, eligibleSubtotal, discountAmount, discountBps)` — enough for a
+    later Checkout snapshot to persist its authority without re-running rules.
+  - **Failures (closed, Benefits-owned):** `INVALID_REQUEST`, `UNAVAILABLE`, `INTEGRITY_FAILURE`,
+    `RULE_CONFIGURATION_FAILURE`. `MembershipFailure` never leaks: `INVALID_REQUEST`/`UNAVAILABLE`/`INTEGRITY_FAILURE`
+    map one-to-one and any other Membership reason is `INTEGRITY_FAILURE`; an outage or corruption is never
+    reported as `NoBenefit`. A failing rule source is `RULE_CONFIGURATION_FAILURE`.
+  - **Membership boundary:** Benefits never inspects status, `openTerm`, `cancelRequestedAt`, `revokedAt` or
+    `validFrom`; Membership owns lifecycle (cancel-at-period-end keeps the benefit until `validUntil`; revoke
+    removes it at once). Benefits depends on Membership ONLY through `MembershipEntitlementPort`,
+    `TransactionalMembershipEntitlementPort`, `MembershipEntitlement`, `MembershipId`, `MembershipFailure`/`Reason`
+    (ArchUnit-enforced).
+  - **Observability:** standalone only, `benefits_failure{operation=evaluate,reason}` (closed enums; no customer,
+    membership, plan, version, subtotal, discount or exception text). A normal `NoBenefit` records nothing.
+  - **Architecture:** nine new ArchUnit rules (`ModuleBoundaryTest` 47 -> 56): no Membership implementation
+    dependency, no commerce/Payment/Admin/HTTP/`Tx` dependency, no HTTP surface, metrics only in the standalone
+    service, the transactional evaluator has no metrics/transaction/standalone fallback, Benefits only READS
+    Membership, only Benefits consumes the entitlement seam (Checkout/Order/Cart cannot bypass it), and nothing
+    upstream depends on Benefits.
+  - **Not in this PR:** persistence (no Benefits collection, no index, no schema change), HTTP, Checkout/Order/Cart/
+    Pricing change (discounted money still needs the separate snapshot fields of the later money-model upgrade),
+    coupons, Payment, renewal.
+  - **Deployment gates unchanged and PENDING (none verified):** the Order `orders`-count == 0 gate and the five
+    Membership gates. Do not claim production readiness. Roll-forward constraint (PR-16A-3) still applies:
+    once persisted `REVOKED` rows exist, code that cannot reconstruct them must not be redeployed.
 
 ## Follow-up debt (recorded)
 
@@ -815,13 +865,14 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   `PublicServiceability`, pincode-keyed routing) is **COMPLETE** and unchanged; the
   customer-address BINDING to it (PR-12B) is **COMPLETE**.
   (Address ↔ Serviceability binding: COMPLETE.)
-- Cart (PR-12C): **COMPLETE** (PR #21). Auth transaction retry hardening (PR-11D): **COMPLETE** (PR #22). Checkout (PR-13A): **COMPLETE** (PR #23). Checkout provenance (PR-13B): **COMPLETE** (PR #24, squash `8b4fabb9b82e4e3502202ffaff1aadd35f9ba311`). Inventory Reservation lifecycle (PR-14A): **COMPLETE** (PR #25, squash `44438031022238334ecdf3995ba1096101e2e47f`). Order Foundation (PR-14B): **COMPLETE** (PR #26, squash `b620538e34afc35f7f080461750681b467ed4096`). Cart purchase-finalization seam (PR-15A-0): **COMPLETE** (PR #28, squash `611829c3649de3f5c37dec4ac5b375a1d8ef454e`). COD Order domain (PR-15A-1): **COMPLETE** (PR #29, squash `e8d4d45e88ad4935f7ad84a46ae65a671e50ba63`). Customer Order HTTP (PR-15A-2): **COMPLETE** (PR #30, squash `0cdcc97b8fcf5f7c079815b8cb276874635d15d6`; operational `orders`-count==0 deployment gate **PENDING**, not verified). Membership write foundation (PR-16A-1): **COMPLETE** (PR #31, squash `d32a23fb2e4b52fa8076de45a07bf3b60912b1e2`; Membership deployment gates **PENDING**, not verified). Membership entitlement read seam (PR-16A-2): **COMPLETE** (PR #32, squash `580633abbc8d162f45110443f503d4998f4caa48`). Membership termination (PR-16A-3): **IN REVIEW** (cancel-at-period-end and immediate revoke; internal only, no HTTP, no Benefits, no Payment). Benefits/Promotion: **NOT STARTED**. Payment: **NOT STARTED**. Real payment gateway: **NOT STARTED**.
+- Cart (PR-12C): **COMPLETE** (PR #21). Auth transaction retry hardening (PR-11D): **COMPLETE** (PR #22). Checkout (PR-13A): **COMPLETE** (PR #23). Checkout provenance (PR-13B): **COMPLETE** (PR #24, squash `8b4fabb9b82e4e3502202ffaff1aadd35f9ba311`). Inventory Reservation lifecycle (PR-14A): **COMPLETE** (PR #25, squash `44438031022238334ecdf3995ba1096101e2e47f`). Order Foundation (PR-14B): **COMPLETE** (PR #26, squash `b620538e34afc35f7f080461750681b467ed4096`). Cart purchase-finalization seam (PR-15A-0): **COMPLETE** (PR #28, squash `611829c3649de3f5c37dec4ac5b375a1d8ef454e`). COD Order domain (PR-15A-1): **COMPLETE** (PR #29, squash `e8d4d45e88ad4935f7ad84a46ae65a671e50ba63`). Customer Order HTTP (PR-15A-2): **COMPLETE** (PR #30, squash `0cdcc97b8fcf5f7c079815b8cb276874635d15d6`; operational `orders`-count==0 deployment gate **PENDING**, not verified). Membership write foundation (PR-16A-1): **COMPLETE** (PR #31, squash `d32a23fb2e4b52fa8076de45a07bf3b60912b1e2`; Membership deployment gates **PENDING**, not verified). Membership entitlement read seam (PR-16A-2): **COMPLETE** (PR #32, squash `580633abbc8d162f45110443f503d4998f4caa48`). Membership termination (PR-16A-3): **COMPLETE** (PR #33, squash `99e2d1b7cc26982e0825bc4a9766b815aa6ae8e0`; cancel-at-period-end and immediate revoke; internal only). Benefits Foundation (order-level percentage + threshold evaluation seam; internal, no persistence, no Checkout/Order integration): **IN REVIEW**. Payment: **NOT STARTED**. Real payment gateway: **NOT STARTED**.
 
 ## Next (ratified sequence)
 
 1. **Membership Foundation** — PR-16A-1 write foundation (complete), PR-16A-2 entitlement read seam
-   (complete), PR-16A-3 termination (cancel-at-period-end, immediate revoke; in review).
-2. Benefits / Promotion engine (the only place discount percentages and thresholds will live).
+   (complete), PR-16A-3 termination (cancel-at-period-end, immediate revoke; complete, PR #33).
+2. Benefits / Promotion engine (the only place discount percentages and thresholds will live) — first foundation
+   slice in review; flat/free-delivery/coupon/other benefit types and ratified launch rules remain undefined.
 3. Checkout + Order money-model upgrade.
 4. Payment domain, then the prepaid Order flow, then a real gateway.
 5. Admin/CMS expansion.
@@ -859,6 +910,12 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-10-02** — `./mvnw clean test` on Java 21 + Docker on `feature/pr17a1-benefits-foundation`
+  (based on `main` `99e2d1b`): **BUILD SUCCESS**, 2082 tests, 0 failures / 0 errors / 0 skipped
+  (2028 baseline + 36 Benefits unit tests + 9 `BenefitsEvaluationIT` + 9 ArchUnit rules); `ModuleBoundaryTest` 56/56.
+  Eleven production mutations (latest-version fallback, ceiling rounding, exclusive threshold, bps > 100%, outage
+  mapped to no-benefit, version ignored, transactional metric/standalone-fallback dependency, Benefits -> Membership
+  service/termination dependency, zero-paise discount applied) were each killed by the tests/rules above.
 - **2026-10-01** — `./mvnw clean test` on Java 21 + Docker on `feature/pr16a3-membership-termination`
   (based on `main` `580633a`): **BUILD SUCCESS**, 2028 tests, 0 failures / 0 errors / 0 skipped
   (1989 baseline + 24 `MembershipTerminationIT` + 4 `MembershipTerminationConcurrencyIT` + 7 reconstruction
