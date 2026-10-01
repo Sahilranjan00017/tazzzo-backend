@@ -13,6 +13,10 @@ import java.util.Locale;
  * {@code customerId}, {@code grantRef} or {@code planId}. A registry fault is swallowed —
  * instrumentation never changes a business outcome.
  *
+ * <p>The standalone entitlement read records ONLY {@code membership_failure{operation=entitlement_read,reason}}
+ * (a normal empty result is not a failure, and no entitlement-result metric exists); the session-aware
+ * entitlement read has no access to this class at all (ArchUnit-enforced).
+ *
  * <p>Recorded by the standalone {@code MembershipService} methods only, and only AFTER their own
  * {@code Tx.call} (and any recovery) has returned: a retried transaction callback never records
  * anything, and a session-aware Membership seam (a later PR) will emit nothing at all.
@@ -22,7 +26,7 @@ public class MembershipObservability {
 
     private static final Logger log = LoggerFactory.getLogger(MembershipObservability.class);
 
-    public enum Operation { GRANT }
+    public enum Operation { GRANT, ENTITLEMENT_READ }
 
     private final MeterRegistry registry;
 

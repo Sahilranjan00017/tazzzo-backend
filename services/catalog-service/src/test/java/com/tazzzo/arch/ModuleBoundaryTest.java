@@ -7,7 +7,19 @@ import com.tazzzo.customer.order.OrderService;
 import com.tazzzo.customer.order.PaymentMethod;
 import com.tazzzo.membership.ConfigBackedMembershipPlanSource;
 import com.tazzzo.membership.MembershipBillingCalendar;
+import com.tazzzo.membership.Membership;
 import com.tazzzo.membership.MembershipConfig;
+import com.tazzzo.membership.MembershipEntitlement;
+import com.tazzzo.membership.MembershipEntitlementPort;
+import com.tazzzo.membership.MembershipEntitlementReader;
+import com.tazzzo.membership.MembershipEntitlementService;
+import com.tazzzo.membership.MembershipFailure;
+import com.tazzzo.membership.MembershipId;
+import com.tazzzo.membership.MembershipObservability;
+import com.tazzzo.membership.MembershipPlan;
+import com.tazzzo.membership.MembershipPlanSource;
+import com.tazzzo.membership.MembershipRepository;
+import com.tazzzo.membership.TransactionalMembershipEntitlementPort;
 import com.tazzzo.membership.MembershipPlanProperties;
 import com.tazzzo.membership.MembershipService;
 import com.tngtech.archunit.base.DescribedPredicate;
@@ -498,6 +510,73 @@ class ModuleBoundaryTest {
                             java.time.LocalDateTime.class, java.time.LocalDate.class,
                             java.time.OffsetDateTime.class, java.time.YearMonth.class, java.time.ZoneId.class,
                             java.time.ZoneOffset.class)
+                    .allowEmptyShould(true);
+
+    // ---------------------------------------------------------------------------------------------
+    // PR-16A-2 -- the Membership entitlement READ seam.
+    // ---------------------------------------------------------------------------------------------
+
+    /** PR-16A-2 -- the entitlement read implementations depend on none of the future/consumer domains, the
+     *  commerce domains, Admin or Spring Web. */
+    @ArchTest
+    static final ArchRule entitlement_read_implementations_depend_on_no_consumer_or_commerce_domain =
+            noClasses().that().belongToAnyOf(MembershipEntitlementReader.class, MembershipEntitlementService.class)
+                    .should().dependOnClassesThat().resideInAnyPackage(
+                            "com.tazzzo.benefits..", "com.tazzzo.payment..", "com.tazzzo.order..",
+                            "com.tazzzo.customer..", "com.tazzzo.commerce..", "com.tazzzo.pricing..",
+                            "com.tazzzo.inventory..", "com.tazzzo.serviceability..", "com.tazzzo.admin..",
+                            "org.springframework.web..")
+                    .allowEmptyShould(true);
+
+    /** PR-16A-2 -- the session-aware implementation can emit NO metric (no observability class, no Micrometer) and
+     *  can open NO transaction (no {@code Tx}, no {@code MongoClient}), because the caller's callback may retry. */
+    @ArchTest
+    static final ArchRule transactional_entitlement_implementation_has_no_metrics_and_no_transaction =
+            noClasses().that().implement(TransactionalMembershipEntitlementPort.class)
+                    .should().dependOnClassesThat().belongToAnyOf(MembershipObservability.class, Tx.class,
+                            com.mongodb.client.MongoClient.class)
+                    .orShould().dependOnClassesThat().resideInAPackage("io.micrometer..")
+                    .allowEmptyShould(true);
+
+    /** PR-16A-2 -- an entitlement is the stored TERM snapshot: the read implementations never touch the plan source,
+     *  the plan, the write service or the Spring configuration. */
+    @ArchTest
+    static final ArchRule entitlement_read_never_reinterprets_the_term_against_the_current_plan =
+            noClasses().that().belongToAnyOf(MembershipEntitlementReader.class, MembershipEntitlementService.class)
+                    .should().dependOnClassesThat().belongToAnyOf(MembershipPlanSource.class, MembershipPlan.class,
+                            ConfigBackedMembershipPlanSource.class, MembershipService.class, MembershipConfig.class,
+                            MembershipPlanProperties.class)
+                    .allowEmptyShould(true);
+
+    /** PR-16A-2 -- READ ONLY: the entitlement read implementations never call a repository write. */
+    @ArchTest
+    static final ArchRule entitlement_read_implementations_never_write =
+            noClasses().that().belongToAnyOf(MembershipEntitlementReader.class, MembershipEntitlementService.class)
+                    .should().callMethod(MembershipRepository.class, "insert",
+                            com.mongodb.client.ClientSession.class, Membership.class)
+                    .orShould().callMethod(MembershipRepository.class, "expireIfDue",
+                            com.mongodb.client.ClientSession.class, MembershipId.class, long.class,
+                            java.time.Instant.class)
+                    .allowEmptyShould(true);
+
+    /** PR-16A-2 -- the future dependency direction Benefits -> Membership, narrowly: a Benefits class may depend on
+     *  Membership ONLY through the two entitlement ports and the value types below -- never the service, the
+     *  repository, the Membership term, the plan, the plan source or a grant reference. Membership never depends on
+     *  Benefits (see {@code membership_does_not_depend_on_other_modules}). */
+    @ArchTest
+    static final ArchRule benefits_reaches_membership_only_through_the_entitlement_allowlist =
+            noClasses().that().resideInAPackage("com.tazzzo.benefits..")
+                    .should().dependOnClassesThat(resideInAnyPackage(MEMBERSHIP)
+                            .and(DescribedPredicate.not(belongToAnyOf(MembershipEntitlementPort.class,
+                                    TransactionalMembershipEntitlementPort.class, MembershipEntitlement.class,
+                                    MembershipId.class, MembershipFailure.class, MembershipFailure.Reason.class))))
+                    .allowEmptyShould(true);
+
+    /** PR-16A-2 -- a customer-facing controller can never reach Membership (there is still no customer capability). */
+    @ArchTest
+    static final ArchRule customer_controllers_cannot_access_membership =
+            noClasses().that().resideInAPackage("com.tazzzo.customer..").and().haveSimpleNameEndingWith("Controller")
+                    .should().dependOnClassesThat().resideInAPackage(MEMBERSHIP)
                     .allowEmptyShould(true);
 
     private static final String BENEFIT_VOCABULARY =

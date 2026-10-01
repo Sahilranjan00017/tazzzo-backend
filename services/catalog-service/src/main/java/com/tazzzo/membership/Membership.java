@@ -97,6 +97,15 @@ public record Membership(MembershipId membershipId, CustomerId customerId, Membe
                 validFrom, validUntil, validFrom, validFrom);
     }
 
+    /**
+     * Runtime entitlement truth: {@code status == ACTIVE AND validFrom <= now < validUntil}, half-open. The
+     * persisted status alone is NOT enough — a stale ACTIVE row (window ended) and a not-yet-started one (clock
+     * skew) are both non-entitling.
+     */
+    public boolean isEntitlingAt(Instant now) {
+        return status == MembershipStatus.ACTIVE && !now.isBefore(validFrom) && now.isBefore(validUntil);
+    }
+
     /** {@code now >= validUntil}: the window has ended, whatever the persisted status says. */
     public boolean windowEndedAt(Instant now) {
         return !now.isBefore(validUntil);
