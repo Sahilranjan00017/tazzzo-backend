@@ -50,5 +50,17 @@ public sealed interface BenefitEvaluation {
                 throw new IllegalArgumentException("discount does not equal floor(subtotal * bps / 10000)");
             }
         }
+
+        /** The Membership term id as its plain value, so a consumer (an Order snapshot) records the authority
+         *  without ever touching the Membership id type (consumers may not depend on Membership). */
+        public String membershipIdValue() {
+            return membershipId.value();
+        }
+
+        /** The applied rate in basis points as a plain int, so a consumer records it without touching
+         *  {@code DiscountBps} (which carries Benefits arithmetic a consumer must not perform). */
+        public int discountBpsValue() {
+            return discountBps.bps();
+        }
     }
 }

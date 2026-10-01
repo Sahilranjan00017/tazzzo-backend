@@ -3,6 +3,7 @@ package com.tazzzo.customer.order;
 import com.mongodb.MongoException;
 import com.mongodb.MongoWriteException;
 import com.mongodb.client.ClientSession;
+import com.tazzzo.benefits.TransactionalBenefitsEvaluationPort;
 import com.tazzzo.auth.CustomerId;
 import com.tazzzo.auth.CustomerIdentityAuthority;
 import com.tazzzo.catalog.tx.Tx;
@@ -89,6 +90,16 @@ import java.time.temporal.ChronoUnit;
  * <p><b>Metrics</b> are recorded only here, after the outer operation returns; never by the assembler,
  * Inventory, or CartPurchase (they cannot know whether this transaction commits).
  *
+ * <p><b>Benefits snapshot (PR-18A-1):</b> inside the SAME outer {@code Tx.call}, after the durable-replay check and
+ * the canonical price revalidation and before the reserve, {@link OrderDraftAssembler} evaluates Benefits through
+ * {@code TransactionalBenefitsEvaluationPort} in the caller's session over the Order's canonical merchandise
+ * subtotal, and the immutable {@link OrderBenefitSnapshot} is persisted with the Order (every new Order carries
+ * one, including normal no-benefit outcomes; absence means a legacy Order). A durable replay returns the stored Order
+ * untouched and NEVER re-evaluates Benefits. The authoritative result is the Mongo transaction snapshot this attempt
+ * observed: a Membership revoke committed before that read is seen; one committed after may still commit with the
+ * entitlement this attempt observed (the same accepted snapshot semantics as the Pricing check — a stronger
+ * serializability model is a separate cross-domain design change). Canonical Pricing money is never rewritten.
+ *
  * <p><b>Money model — PRE-Membership (documented):</b> {@code CheckoutQuote.Line.unitPricePaise} IS the
  * canonical {@code Pricing} selling price today, so a direct equality revalidation against
  * {@link TransactionalPriceReadPort} is correct. A future Membership/Benefits PR MUST NOT collapse
@@ -120,8 +131,8 @@ public class OrderService {
 
     public OrderService(OrderRepository orders, CheckoutQuoteRepository checkoutQuotes, AddressRepository addresses,
                         TransactionalServiceabilityReadPort serviceability, TransactionalPriceReadPort pricing,
-                        TransactionalCatalogCardReadPort catalog, InventoryReservationPort reservationPort,
-                        CartPurchasePort cartPurchase, Clock clock,
+                        TransactionalCatalogCardReadPort catalog, TransactionalBenefitsEvaluationPort benefits,
+                        InventoryReservationPort reservationPort, CartPurchasePort cartPurchase, Clock clock,
                         ObjectProvider<CustomerIdentityAuthority> identityAuthority, Tx tx,
                         OrderObservability observability) {
         this.orders = orders;
@@ -131,8 +142,8 @@ public class OrderService {
         this.clock = clock;
         this.tx = tx;
         this.observability = observability;
-        this.assembler = new OrderDraftAssembler(addresses, serviceability, pricing, catalog, reservationPort,
-                clock, identityAuthority);
+        this.assembler = new OrderDraftAssembler(addresses, serviceability, pricing, catalog, benefits,
+                reservationPort, clock, identityAuthority);
     }
 
     /**
@@ -310,7 +321,7 @@ public class OrderService {
         Order order = new Order(orderId, customerId.value(), quoteIdRaw, OrderStatus.CREATED, paymentMethod, 1L,
                 quote.addressId(), quote.addressVersion(), draft.addressSnapshot(), draft.lines(),
                 quote.itemCount(), quote.subtotalPaise(), quote.currency(), draft.reservation().reservationId(),
-                null, createdAt, null, clock.instant());
+                null, createdAt, null, clock.instant(), draft.benefitSnapshot());
         orders.insert(session, order);
         return order;
     }
@@ -349,7 +360,7 @@ public class OrderService {
         Order order = new Order(orderId, customerId.value(), quoteIdRaw, OrderStatus.CONFIRMED, PaymentMethod.COD,
                 2L, quote.addressId(), quote.addressVersion(), draft.addressSnapshot(), draft.lines(),
                 quote.itemCount(), quote.subtotalPaise(), quote.currency(), reservationId,
-                ConfirmedPaymentCondition.COD_DUE, createdAt, confirmedAt, confirmedAt);
+                ConfirmedPaymentCondition.COD_DUE, createdAt, confirmedAt, confirmedAt, draft.benefitSnapshot());
         orders.insert(session, order);
         return order;
     }

@@ -260,6 +260,15 @@ class BenefitsEvaluationServiceTest {
     }
 
     @Test
+    void the_applied_result_exposes_the_flat_values_a_consumer_records_without_touching_membership_or_bps_types() {
+        BenefitEvaluation.Applied applied = (BenefitEvaluation.Applied)
+                standalone(entitled(1), rule(1, MIN, 500)).evaluate(CUSTOMER, inr(MIN));
+
+        assertThat(applied.membershipIdValue()).isEqualTo(MBR.value());
+        assertThat(applied.discountBpsValue()).isEqualTo(500);
+    }
+
+    @Test
     void the_applied_result_enforces_its_own_invariants() {
         Money subtotal = inr(100_000);
         DiscountBps bps = new DiscountBps(500);

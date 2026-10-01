@@ -3,10 +3,14 @@ package com.tazzzo.customer.order;
 import com.mongodb.client.ClientSession;
 import com.tazzzo.auth.CustomerId;
 import com.tazzzo.auth.CustomerIdentityAuthority;
+import com.tazzzo.benefits.BenefitEvaluation;
+import com.tazzzo.benefits.BenefitsFailure;
+import com.tazzzo.benefits.TransactionalBenefitsEvaluationPort;
 import com.tazzzo.commerce.contract.Pincode;
 import com.tazzzo.commerce.read.CatalogCardFacts;
 import com.tazzzo.commerce.read.TransactionalCatalogCardReadPort;
 import com.tazzzo.common.money.Currency;
+import com.tazzzo.common.money.Money;
 import com.tazzzo.customer.address.AddressRepository;
 import com.tazzzo.customer.checkout.CheckoutQuote;
 import com.tazzzo.inventory.InventoryReservation;
@@ -54,25 +58,29 @@ final class OrderDraftAssembler {
 
     /** What the shared checks validated, ready for the caller to finish: the frozen snapshots and the
      *  Inventory-owned reservation reserved in the caller's session. */
-    record Draft(OrderAddressSnapshot addressSnapshot, List<OrderLine> lines, InventoryReservation reservation) {
+    record Draft(OrderAddressSnapshot addressSnapshot, List<OrderLine> lines, InventoryReservation reservation,
+                 OrderBenefitSnapshot benefitSnapshot) {
     }
 
     private final AddressRepository addresses;
     private final TransactionalServiceabilityReadPort serviceability;
     private final TransactionalPriceReadPort pricing;
     private final TransactionalCatalogCardReadPort catalog;
+    private final TransactionalBenefitsEvaluationPort benefits;
     private final InventoryReservationPort reservationPort;
     private final Clock clock;
     private final ObjectProvider<CustomerIdentityAuthority> identityAuthority;
 
     OrderDraftAssembler(AddressRepository addresses, TransactionalServiceabilityReadPort serviceability,
                         TransactionalPriceReadPort pricing, TransactionalCatalogCardReadPort catalog,
-                        InventoryReservationPort reservationPort, Clock clock,
+                        TransactionalBenefitsEvaluationPort benefits, InventoryReservationPort reservationPort,
+                        Clock clock,
                         ObjectProvider<CustomerIdentityAuthority> identityAuthority) {
         this.addresses = addresses;
         this.serviceability = serviceability;
         this.pricing = pricing;
         this.catalog = catalog;
+        this.benefits = benefits;
         this.reservationPort = reservationPort;
         this.clock = clock;
         this.identityAuthority = identityAuthority;
@@ -128,6 +136,11 @@ final class OrderDraftAssembler {
                     line.unitPricePaise(), line.lineTotalPaise()));
         }
 
+        // Benefits: the AUTHORITATIVE evaluation, in THIS transaction's session, over the canonical merchandise
+        // subtotal just validated (every line's unit price equals current Pricing). Before the reserve, so a
+        // Benefits failure aborts before any Inventory write; it persists nothing and emits no metric.
+        OrderBenefitSnapshot benefitSnapshot = evaluateBenefits(session, customerId, orderLines);
+
         // allocation constructed fresh, inside the callback, from THIS route + the immutable quote's items.
         List<InventoryReservationItem> items = quote.lines().stream()
                 .map(l -> new InventoryReservationItem(l.skuId(), l.quantity())).toList();
@@ -140,7 +153,42 @@ final class OrderDraftAssembler {
         } catch (InventoryReservationFailure e) {
             throw mapReserveFailure(e);
         }
-        return new Draft(addressSnapshot, List.copyOf(orderLines), reservation);
+        return new Draft(addressSnapshot, List.copyOf(orderLines), reservation, benefitSnapshot);
+    }
+
+    /**
+     * eligibleSubtotal is EXACTLY the Order's canonical merchandise subtotal (the sum of its line totals): no tax, fee,
+     * coupon, coin or wallet exists in the backend, so none participates. A normal no-benefit outcome is NOT a failure
+     * and produces a snapshot like any other. A Benefits failure maps onto Order's existing vocabulary (Order built the
+     * call, so INVALID_REQUEST is an internal defect); a transient driver error is not a BenefitsFailure and propagates
+     * untouched so the OUTER transaction's own retry keeps working.
+     */
+    private OrderBenefitSnapshot evaluateBenefits(ClientSession session, CustomerId customerId,
+                                                  List<OrderLine> orderLines) {
+        long subtotalPaise = 0;
+        for (OrderLine line : orderLines) {
+            subtotalPaise = Math.addExact(subtotalPaise, line.lineTotalPaise());
+        }
+        BenefitEvaluation evaluation;
+        try {
+            evaluation = benefits.evaluate(session, customerId, Money.ofInrPaise(subtotalPaise));
+        } catch (BenefitsFailure e) {
+            throw mapBenefitsFailure(e);
+        }
+        try {
+            return OrderBenefitSnapshot.from(evaluation, subtotalPaise);
+        } catch (IllegalArgumentException e) {
+            throw new OrderFailure(OrderFailure.Reason.INTEGRITY_FAILURE, "benefit evaluation is inconsistent");
+        }
+    }
+
+    static OrderFailure mapBenefitsFailure(BenefitsFailure e) {
+        return switch (e.reason()) {
+            case UNAVAILABLE -> new OrderFailure(OrderFailure.Reason.UNAVAILABLE, "benefits unavailable");
+            // INVALID_REQUEST: Order itself built the call, so it is an internal defect, not a customer error
+            case INVALID_REQUEST, INTEGRITY_FAILURE ->
+                    new OrderFailure(OrderFailure.Reason.INTEGRITY_FAILURE, "benefits evaluation failed");
+        };
     }
 
     /** Maps Inventory's failure vocabulary onto Order's own -- Inventory's exception type/message

@@ -1,7 +1,9 @@
 package com.tazzzo.arch;
 
 import com.tazzzo.auth.CustomerId;
+import com.tazzzo.benefits.BenefitEvaluation;
 import com.tazzzo.benefits.BenefitsEvaluationPort;
+import com.tazzzo.benefits.BenefitsFailure;
 import com.tazzzo.benefits.BenefitsEvaluationService;
 import com.tazzzo.benefits.BenefitsObservability;
 import com.tazzzo.benefits.BenefitsTransactionalEvaluator;
@@ -748,14 +750,17 @@ class ModuleBoundaryTest {
                     .allowEmptyShould(true);
 
     /** Benefits -- Benefits never WRITES Membership: of the Membership package it may call only the entitlement read,
-     *  the entitlement/failure accessors and the enum plumbing of {@code MembershipFailure.Reason}. */
+     *  the entitlement/id/failure accessors and the enum plumbing of {@code MembershipFailure.Reason}. */
     @ArchTest
     static final ArchRule benefits_only_reads_membership =
             noClasses().that().resideInAPackage(BENEFITS)
                     .should().callMethodWhere(new DescribedPredicate<JavaMethodCall>("call anything in Membership but the entitlement read and accessors") {
                         private final java.util.Set<String> allowed = java.util.Set.of("currentEntitlement",
                                 "membershipId", "planId", "planVersion", "validUntil", "reason", "values", "valueOf",
-                                "ordinal", "name");
+                                "ordinal", "name",
+                                // MembershipId.value(): the read-only accessor of an allowlisted value type, used to
+                                // hand a consumer (the Order benefit snapshot) the id WITHOUT it touching Membership
+                                "value");
 
                         @Override
                         public boolean test(JavaMethodCall call) {
@@ -792,6 +797,45 @@ class ModuleBoundaryTest {
                             "com.tazzzo.commerce..", "com.tazzzo.pricing..", "com.tazzzo.inventory..",
                             "com.tazzzo.serviceability..", "com.tazzzo.media..", MEMBERSHIP)
                     .should().dependOnClassesThat().resideInAPackage(BENEFITS)
+                    .allowEmptyShould(true);
+
+    // ---------------------------------------------------------------------------------------------
+    // Order Benefits snapshot -- the first Benefits consumer (authoritative, inside the placement transaction).
+    // ---------------------------------------------------------------------------------------------
+
+    /** Order -- reaches Benefits ONLY through the session-aware port and the result/failure types it must read:
+     *  never the standalone port, the services/evaluators, the rule source or rule, or any Benefits configuration.
+     *  (Order -> Membership stays forbidden by {@code upstream_modules_do_not_depend_on_membership}.) */
+    @ArchTest
+    static final ArchRule order_reaches_benefits_only_through_the_transactional_port_and_result_types =
+            noClasses().that().resideInAPackage("com.tazzzo.customer.order..")
+                    .should().dependOnClassesThat(resideInAnyPackage("com.tazzzo.benefits..")
+                            .and(DescribedPredicate.not(belongToAnyOf(TransactionalBenefitsEvaluationPort.class,
+                                    BenefitEvaluation.class, BenefitEvaluation.Applied.class,
+                                    BenefitEvaluation.NoBenefit.class, BenefitEvaluation.NoBenefitReason.class,
+                                    BenefitsFailure.class, BenefitsFailure.Reason.class))))
+                    .allowEmptyShould(true);
+
+    /** Order -- the public HTTP surface and the Order metrics know nothing about Benefits or the snapshot: this slice
+     *  is persistence/domain authority only (no DTO/OpenAPI change, no Benefits value in any metric). */
+    @ArchTest
+    static final ArchRule order_http_layer_and_metrics_do_not_depend_on_benefits_or_the_snapshot =
+            noClasses().that(com.tngtech.archunit.core.domain.JavaClass.Predicates
+                            .resideInAPackage("com.tazzzo.customer.order..")
+                            .and(com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameEndingWith("Controller")
+                                    .or(com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameEndingWith("ExceptionHandler"))
+                                    .or(com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameEndingWith("Dto"))
+                                    .or(com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameEndingWith("Observability"))))
+                    .should().dependOnClassesThat(resideInAnyPackage("com.tazzzo.benefits..")
+                            .or(com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameStartingWith("OrderBenefitSnapshot")))
+                    .allowEmptyShould(true);
+
+    /** Order -- Checkout stays out of Benefits in this slice (no preview): nothing in {@code customer.checkout} or
+     *  {@code customer.cart} depends on Benefits. */
+    @ArchTest
+    static final ArchRule checkout_and_cart_do_not_depend_on_benefits_in_this_slice =
+            noClasses().that().resideInAnyPackage("com.tazzzo.customer.checkout..", "com.tazzzo.customer.cart..")
+                    .should().dependOnClassesThat().resideInAPackage("com.tazzzo.benefits..")
                     .allowEmptyShould(true);
 
     /**
