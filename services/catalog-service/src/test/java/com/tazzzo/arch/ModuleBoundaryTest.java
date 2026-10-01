@@ -1,10 +1,18 @@
 package com.tazzzo.arch;
 
 import com.tazzzo.auth.CustomerId;
+import com.tazzzo.catalog.tx.Tx;
 import com.tazzzo.customer.order.OrderRepository;
 import com.tazzzo.customer.order.OrderService;
 import com.tazzzo.customer.order.PaymentMethod;
+import com.tazzzo.membership.ConfigBackedMembershipPlanSource;
+import com.tazzzo.membership.MembershipBillingCalendar;
+import com.tazzzo.membership.MembershipConfig;
+import com.tazzzo.membership.MembershipPlanProperties;
+import com.tazzzo.membership.MembershipService;
 import com.tngtech.archunit.base.DescribedPredicate;
+import com.tngtech.archunit.core.domain.JavaClass;
+import com.tngtech.archunit.core.domain.JavaMethodCall;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
@@ -13,6 +21,8 @@ import com.tngtech.archunit.lang.ArchRule;
 import static com.tngtech.archunit.core.domain.JavaClass.Predicates.belongToAnyOf;
 import static com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAnyPackage;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noFields;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods;
 import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices;
 
 /**
@@ -371,6 +381,156 @@ class ModuleBoundaryTest {
                     .should().callMethod(OrderService.class, "createOrder", CustomerId.class, String.class,
                             PaymentMethod.class)
                     .allowEmptyShould(true);
+
+    // ---------------------------------------------------------------------------------------------
+    // PR-16A-1 -- com.tazzzo.membership: an independent entitlement/commercial domain, a top-level peer of
+    // inventory/pricing/serviceability (its own slice), NOT under customer.*.
+    // ---------------------------------------------------------------------------------------------
+
+    private static final String MEMBERSHIP = "com.tazzzo.membership..";
+
+    /**
+     * PR-16A-1 -- Membership depends on NOTHING above it: of the auth module only the {@code CustomerId} value
+     * type, of the catalog module only the shared {@code Tx} transaction primitive (the same primitive
+     * {@code inventory} uses), plus {@code common.money} and plain infrastructure. Never a customer-facing
+     * domain, the commerce layers, any other commerce domain, or future Benefits/Payment/Admin.
+     */
+    @ArchTest
+    static final ArchRule membership_does_not_depend_on_other_modules =
+            noClasses().that().resideInAPackage(MEMBERSHIP)
+                    .should().dependOnClassesThat(
+                            resideInAnyPackage("com.tazzzo.customer..", "com.tazzzo.commerce..",
+                                    "com.tazzzo.pricing..", "com.tazzzo.inventory..",
+                                    "com.tazzzo.serviceability..", "com.tazzzo.media..", "com.tazzzo.order..",
+                                    "com.tazzzo.payment..", "com.tazzzo.benefits..", "com.tazzzo.promotion..",
+                                    "com.tazzzo.admin..")
+                                    .or(resideInAnyPackage("com.tazzzo.catalog..")
+                                            .and(DescribedPredicate.not(belongToAnyOf(Tx.class))))
+                                    .or(resideInAnyPackage("com.tazzzo.auth..")
+                                            .and(DescribedPredicate.not(belongToAnyOf(CustomerId.class)))))
+                    .allowEmptyShould(true);
+
+    /** PR-16A-1 -- nothing upstream of Membership (foundation, catalog, commerce, commerce domains, every
+     *  customer-facing domain incl. Order) may depend on it; consumers reach it only through a later Benefits
+     *  authority. */
+    @ArchTest
+    static final ArchRule upstream_modules_do_not_depend_on_membership =
+            noClasses().that().resideInAnyPackage(
+                            "com.tazzzo.auth..", "com.tazzzo.catalog..", "com.tazzzo.commerce..",
+                            "com.tazzzo.pricing..", "com.tazzzo.inventory..", "com.tazzzo.serviceability..",
+                            "com.tazzzo.media..", "com.tazzzo.customer..")
+                    .should().dependOnClassesThat().resideInAPackage(MEMBERSHIP)
+                    .allowEmptyShould(true);
+
+    /** PR-16A-1 -- the grant is an INTERNAL domain API for a trusted orchestrator: NO class outside the
+     *  membership package may depend on {@code MembershipService}. A future allowlist is added only when a real
+     *  orchestrator (Payment/Admin) exists -- this rule is the one to relax deliberately, not remove. */
+    @ArchTest
+    static final ArchRule nothing_outside_membership_depends_on_membership_service =
+            noClasses().that().resideOutsideOfPackage(MEMBERSHIP)
+                    .should().dependOnClassesThat().belongToAnyOf(MembershipService.class)
+                    .allowEmptyShould(true);
+
+    /** PR-16A-1 -- an HTTP layer class (controller, advice, exception handler, DTO), anywhere, never depends on
+     *  Membership: the future public HTTP surface must never reach the internal grant. */
+    @ArchTest
+    static final ArchRule http_layer_never_depends_on_membership =
+            noClasses().that().haveSimpleNameEndingWith("Controller")
+                    .or().haveSimpleNameEndingWith("ExceptionHandler")
+                    .or().haveSimpleNameEndingWith("Dto")
+                    .or().areAnnotatedWith(org.springframework.web.bind.annotation.RestController.class)
+                    .or().areAnnotatedWith(org.springframework.stereotype.Controller.class)
+                    .or().areAnnotatedWith(org.springframework.web.bind.annotation.ControllerAdvice.class)
+                    .should().dependOnClassesThat().resideInAPackage(MEMBERSHIP)
+                    .allowEmptyShould(true);
+
+    /** PR-16A-1 -- Membership has no HTTP surface of its own. */
+    @ArchTest
+    static final ArchRule membership_has_no_http_surface =
+            noClasses().that().resideInAPackage(MEMBERSHIP)
+                    .should().dependOnClassesThat().resideInAnyPackage(
+                            "org.springframework.web..", "org.springframework.http..", "jakarta.servlet..")
+                    .orShould().haveSimpleNameEndingWith("Controller")
+                    .allowEmptyShould(true);
+
+    /** PR-16A-1 -- {@code MembershipService} depends on the {@code MembershipPlanSource} PORT only, never on the
+     *  Spring configuration/properties classes or the config-backed implementation, so a database-backed source
+     *  replaces it without touching the service. */
+    @ArchTest
+    static final ArchRule membership_service_does_not_depend_on_spring_configuration =
+            noClasses().that().belongToAnyOf(MembershipService.class)
+                    .should().dependOnClassesThat().belongToAnyOf(MembershipConfig.class,
+                            MembershipPlanProperties.class, ConfigBackedMembershipPlanSource.class)
+                    .orShould().dependOnClassesThat().resideInAPackage("org.springframework.boot.context.properties..")
+                    .allowEmptyShould(true);
+
+    /** PR-16A-1 -- time authority is the injected {@code Clock}: no ambient or system time anywhere in Membership. */
+    @ArchTest
+    static final ArchRule membership_never_reads_ambient_time =
+            noClasses().that().resideInAPackage(MEMBERSHIP)
+                    .should().callMethodWhere(new DescribedPredicate<JavaMethodCall>("read ambient/system time or the default zone") {
+                        @Override
+                        public boolean test(JavaMethodCall call) {
+                            JavaClass owner = call.getTargetOwner();
+                            String name = call.getName();
+                            boolean now = name.equals("now") && (owner.isEquivalentTo(java.time.Instant.class)
+                                    || owner.isEquivalentTo(java.time.LocalDate.class)
+                                    || owner.isEquivalentTo(java.time.LocalDateTime.class)
+                                    || owner.isEquivalentTo(java.time.ZonedDateTime.class)
+                                    || owner.isEquivalentTo(java.time.OffsetDateTime.class)
+                                    || owner.isEquivalentTo(java.time.LocalTime.class));
+                            return now
+                                    || (owner.isEquivalentTo(System.class) && name.equals("currentTimeMillis"))
+                                    || (owner.isEquivalentTo(java.time.ZoneId.class) && name.equals("systemDefault"))
+                                    || (owner.isEquivalentTo(java.util.TimeZone.class) && name.equals("getDefault"))
+                                    || (owner.isEquivalentTo(java.time.Clock.class) && name.startsWith("system"));
+                        }
+                    })
+                    .allowEmptyShould(true);
+
+    /** PR-16A-1 -- only {@code MembershipBillingCalendar} performs Membership calendar arithmetic: no other
+     *  Membership class touches a zone or a calendar date/time type. */
+    @ArchTest
+    static final ArchRule only_the_billing_calendar_does_calendar_arithmetic =
+            noClasses().that().resideInAPackage(MEMBERSHIP)
+                    .and().doNotBelongToAnyOf(MembershipBillingCalendar.class)
+                    .should().dependOnClassesThat().belongToAnyOf(java.time.ZonedDateTime.class,
+                            java.time.LocalDateTime.class, java.time.LocalDate.class,
+                            java.time.OffsetDateTime.class, java.time.YearMonth.class, java.time.ZoneId.class,
+                            java.time.ZoneOffset.class)
+                    .allowEmptyShould(true);
+
+    private static final String BENEFIT_VOCABULARY =
+            "(?i).*(discount|bps|percent|subtotal|threshold|coupon|promo|stack).*";
+    private static final String PAYMENT_VOCABULARY = "(?i).*(payment|gateway|razorpay|stripe).*";
+
+    /** PR-16A-1 -- Membership answers entitlement, never "what it means for a cart": no discount, percentage,
+     *  threshold, coupon, promotion or stacking vocabulary in any class, field or method name. */
+    @ArchTest
+    static final ArchRule membership_contains_no_benefit_logic_or_fields =
+            noClasses().that().resideInAPackage(MEMBERSHIP).should().haveNameMatching(BENEFIT_VOCABULARY)
+                    .allowEmptyShould(true);
+
+    @ArchTest
+    static final ArchRule membership_fields_carry_no_benefit_vocabulary =
+            noFields().that().areDeclaredInClassesThat().resideInAPackage(MEMBERSHIP)
+                    .should().haveNameMatching(BENEFIT_VOCABULARY).allowEmptyShould(true);
+
+    @ArchTest
+    static final ArchRule membership_methods_carry_no_benefit_vocabulary =
+            noMethods().that().areDeclaredInClassesThat().resideInAPackage(MEMBERSHIP)
+                    .should().haveNameMatching(BENEFIT_VOCABULARY).allowEmptyShould(true);
+
+    /** PR-16A-1 -- no Payment/gateway concept inside Membership (no fake payment success, no provider). */
+    @ArchTest
+    static final ArchRule membership_contains_no_payment_vocabulary =
+            noClasses().that().resideInAPackage(MEMBERSHIP).should().haveNameMatching(PAYMENT_VOCABULARY)
+                    .allowEmptyShould(true);
+
+    @ArchTest
+    static final ArchRule membership_members_carry_no_payment_vocabulary =
+            noFields().that().areDeclaredInClassesThat().resideInAPackage(MEMBERSHIP)
+                    .should().haveNameMatching(PAYMENT_VOCABULARY).allowEmptyShould(true);
 
     /**
      * No dependency cycles between top-level Tazzzo modules.

@@ -93,6 +93,18 @@ tazzzo:
       verify-challenge:
         capacity: ${TAZZZO_OTP_VERIFY_CHALLENGE_CAPACITY:0}
         refill-per-second: ${TAZZZO_OTP_VERIFY_CHALLENGE_REFILL:0}
+  membership:
+    # PR-16A-1: the immutable, version-explicit launch plan source. Loaded ONCE and validated at
+    # startup (a bad entry fails the application start). A plan version's commercial terms never
+    # change -- a new price is a NEW version, never an edit (a golden test pins v1). effective-from /
+    # effective-until gate NEW grants only. Price is int64 paise, INR.
+    plans:
+      - plan-id: TAZZZO_PLUS_MONTHLY
+        version: 1
+        price-paise: 9900
+        currency: INR
+        period-months: 1
+        effective-from: "2026-01-01T00:00:00Z"
   consumer-rate-limit:
     # NO PRODUCTION DEFAULT BY DESIGN (Q5-c). Unset or unrecognised is a STARTUP FAILURE, because a
     # permissive default is worse than none: it looks like a decision. DISABLED is an intentional
