@@ -18,10 +18,12 @@ import java.util.Optional;
  * <p>Structurally incapable of the things the port forbids: it has no {@code Tx} (cannot open a transaction), no
  * observability or registry (cannot emit a metric), no plan source (an entitlement is the stored TERM snapshot,
  * never reinterpreted against the current plan configuration) and no write method on the repository in sight
- * (ArchUnit-enforced). It reads through the lifecycle query {@code customerId + status = ACTIVE} (served by
- * {@code membership_active_by_customer}) and the repository's strict reconstruction, so a corrupt ACTIVE row —
- * including one with a missing or malformed {@code openTerm} marker — stays fail-loud and {@code empty} keeps
- * meaning "authoritatively no entitlement".
+ * (ArchUnit-enforced). It reads the customer's current/open CANDIDATES
+ * ({@code status = ACTIVE} OR an {@code openTerm} field present, see
+ * {@code MembershipRepository#findCurrentCandidateByCustomer}) through the repository's strict reconstruction, so a
+ * corrupt row that is or claims to be the current membership — a missing/malformed marker on an ACTIVE row, or an
+ * unknown/terminal status carrying {@code openTerm} — stays fail-loud and {@code empty} keeps meaning
+ * "authoritatively no entitlement".
  */
 @Component
 public class MembershipEntitlementReader implements TransactionalMembershipEntitlementPort {
@@ -46,7 +48,7 @@ public class MembershipEntitlementReader implements TransactionalMembershipEntit
         }
         Optional<Membership> active;
         try {
-            active = repository.findActiveByCustomer(session, customerId);
+            active = repository.findCurrentCandidateByCustomer(session, customerId);
         } catch (MongoException e) {
             if (e.hasErrorLabel(MongoException.TRANSIENT_TRANSACTION_ERROR_LABEL)) {
                 throw e; // the caller's Tx.call inspects exactly this label to retry; never convert it

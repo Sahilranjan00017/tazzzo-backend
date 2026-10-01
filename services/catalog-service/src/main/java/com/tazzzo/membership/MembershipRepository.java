@@ -24,7 +24,7 @@ import java.util.Optional;
  * {@code MBR_...} id. Two unique indexes (see {@code SchemaBootstrap}) make the invariants structural:
  * {@code membership_one_open_per_customer} (partial on {@code openTerm: true}) and
  * {@code membership_one_per_grant_reference}. A third, NON-unique index {@code membership_active_by_customer}
- * ({@code customerId, status}) serves the entitlement read ({@link #findActiveByCustomer}); it is not a second
+ * ({@code customerId, status}) serves the entitlement read ({@link #findCurrentCandidateByCustomer}); it is not a second
  * uniqueness mechanism — the partial {@code openTerm} index stays the sole write/concurrency slot authority.
  *
  * <p><b>{@code openTerm} encoding.</b> {@code ACTIVE} rows carry the BSON boolean {@code true};
@@ -81,31 +81,36 @@ public class MembershipRepository {
     }
 
     /**
-     * The entitlement-read lifecycle query: {@code customerId + status = ACTIVE}, served by
-     * {@code membership_active_by_customer}. Deliberately NOT the {@code openTerm} slot query: a corrupt ACTIVE row
-     * whose marker is missing/false/null/non-boolean would be invisible to that filter and an empty result would
-     * silently stop meaning "authoritatively no entitlement". Every returned row goes through strict reconstruction,
-     * which rejects an ACTIVE row that does not carry exactly {@code openTerm = true}. At most TWO rows are
-     * fetched: more than one ACTIVE row for a customer violates the one-open-term invariant and is itself an
-     * {@code INTEGRITY_FAILURE} (never "pick one", which could hide the corrupt twin).
+     * The entitlement-read CANDIDATE query: rows of the customer that are {@code status = ACTIVE} OR that carry an
+     * {@code openTerm} field at all. The first branch is the lifecycle authority (served by
+     * {@code membership_active_by_customer}); the second catches any row that CLAIMS the current/open slot — whatever
+     * its status or marker encoding — so a corrupt row (an unknown or terminal status with {@code openTerm=true}, or an
+     * ACTIVE row with a missing/false/null/non-boolean marker) can never hide and turn an empty result into "unknown".
+     * Valid terminal history (EXPIRED, marker absent) matches neither branch and is not audited here.
+     *
+     * <p>Every candidate goes through strict reconstruction. At most TWO candidates are fetched; more than one
+     * (e.g. a valid ACTIVE row plus a corrupt open-slot twin) violates the one-open-term invariant and is itself an
+     * {@code INTEGRITY_FAILURE} — never "pick one", which could hide the corrupt twin.
      */
-    public Optional<Membership> findActiveByCustomer(CustomerId customerId) {
-        return singleActive(primaryReads().find(activeOf(customerId)).limit(2).into(new java.util.ArrayList<>()));
+    public Optional<Membership> findCurrentCandidateByCustomer(CustomerId customerId) {
+        return singleCandidate(primaryReads().find(currentCandidatesOf(customerId)).limit(2)
+                .into(new java.util.ArrayList<>()));
     }
 
-    public Optional<Membership> findActiveByCustomer(ClientSession session, CustomerId customerId) {
-        return singleActive(collection().find(session, activeOf(customerId)).limit(2).into(new java.util.ArrayList<>()));
+    public Optional<Membership> findCurrentCandidateByCustomer(ClientSession session, CustomerId customerId) {
+        return singleCandidate(collection().find(session, currentCandidatesOf(customerId)).limit(2)
+                .into(new java.util.ArrayList<>()));
     }
 
-    private static Optional<Membership> singleActive(java.util.List<Document> rows) {
+    private static Optional<Membership> singleCandidate(java.util.List<Document> rows) {
         java.util.List<Membership> terms = new java.util.ArrayList<>(rows.size());
         for (Document d : rows) {
-            terms.add(toMembership(d)); // strict: a corrupt ACTIVE row fails loud here
+            terms.add(toMembership(d)); // strict: a corrupt candidate fails loud here
         }
         if (terms.size() > 1) {
-            log.error("membership_multiple_active_rows");
+            log.error("membership_multiple_current_candidates");
             throw new MembershipFailure(MembershipFailure.Reason.INTEGRITY_FAILURE,
-                    "more than one ACTIVE membership for one customer");
+                    "more than one current/open membership candidate for one customer");
         }
         return terms.isEmpty() ? Optional.empty() : Optional.of(terms.get(0));
     }
@@ -136,9 +141,9 @@ public class MembershipRepository {
                 Filters.eq("grantRef", reference.reference()));
     }
 
-    private static org.bson.conversions.Bson activeOf(CustomerId customerId) {
+    private static org.bson.conversions.Bson currentCandidatesOf(CustomerId customerId) {
         return Filters.and(Filters.eq("customerId", customerId.value()),
-                Filters.eq("status", MembershipStatus.ACTIVE.name()));
+                Filters.or(Filters.eq("status", MembershipStatus.ACTIVE.name()), Filters.exists("openTerm")));
     }
 
     private static org.bson.conversions.Bson openTermOf(CustomerId customerId) {

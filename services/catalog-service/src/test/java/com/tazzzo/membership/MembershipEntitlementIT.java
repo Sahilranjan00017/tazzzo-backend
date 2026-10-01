@@ -69,7 +69,7 @@ class MembershipEntitlementIT extends AbstractMembershipIT {
         }
 
         @Override
-        public Optional<Membership> findActiveByCustomer(ClientSession session, CustomerId customerId) {
+        public Optional<Membership> findCurrentCandidateByCustomer(ClientSession session, CustomerId customerId) {
             sessionReads.incrementAndGet();
             sessionSeen = session;
             MongoException failure = sessionFailure;
@@ -79,7 +79,7 @@ class MembershipEntitlementIT extends AbstractMembershipIT {
                 }
                 throw failure;
             }
-            return super.findActiveByCustomer(session, customerId);
+            return super.findCurrentCandidateByCustomer(session, customerId);
         }
     }
 
@@ -238,15 +238,16 @@ class MembershipEntitlementIT extends AbstractMembershipIT {
     }
 
     @Test
-    void an_impossible_EXPIRED_row_still_carrying_an_open_marker_is_no_entitlement_but_fails_the_write_path_loud() {
+    void an_EXPIRED_row_still_carrying_an_open_marker_claims_the_open_slot_and_fails_loud_on_both_ports() {
         CustomerId customer = newCustomer();
         Document impossible = openTermDoc(customer);
-        impossible.put("status", "EXPIRED"); // ... but still carrying openTerm=true
+        impossible.put("status", "EXPIRED"); // terminal ... but still claiming the open slot with openTerm=true
         insertRaw(impossible);
         clock.set(T0.plusSeconds(60));
 
-        assertThat(standalone(new MembershipRepository(db)).currentEntitlement(customer))
-                .as("a terminal row can never be an entitlement").isEmpty();
+        MembershipRepository repo = new MembershipRepository(db);
+        assertFailure(() -> standalone(repo).currentEntitlement(customer), MembershipFailure.Reason.INTEGRITY_FAILURE);
+        assertFailure(() -> transactional(reader(repo), customer), MembershipFailure.Reason.INTEGRITY_FAILURE);
         assertFailure(() -> service().grant(customer, PLAN_ID, 1, newRef()), MembershipFailure.Reason.INTEGRITY_FAILURE);
     }
 
@@ -315,24 +316,37 @@ class MembershipEntitlementIT extends AbstractMembershipIT {
     }
 
     @Test
-    void a_row_whose_status_is_not_exactly_ACTIVE_is_not_an_active_row_but_strict_reconstruction_and_the_write_path_reject_it() {
-        // Documented boundary of the lifecycle query: it selects status == "ACTIVE", so an unknown/garbled status
-        // value is by definition not an ACTIVE row and cannot be an entitlement. It is still rejected by strict
-        // reconstruction on every path that reaches it, and the grant path (open-slot query) fails loud on it.
+    void an_unknown_status_claiming_the_open_slot_is_INTEGRITY_FAILURE_on_both_ports() {
         clock.set(T0.plusSeconds(60));
-        for (String badStatus : List.of("REVOKED", "active", "Active", "PENDING_ACTIVATION", "")) {
+        // openTerm=true means "this row claims to be the customer's current/open membership": a corrupt status on
+        // that slot must fail loud, whatever the status string is (and the write path agrees)
+        for (String badStatus : List.of("REVOKED", "BROKEN", "active", "Active", "PENDING_ACTIVATION", "")) {
             CustomerId customer = newCustomer();
             Document d = openTermDoc(customer); // keeps openTerm=true
             d.put("status", badStatus);
             insertRaw(d);
 
-            assertThat(standalone(new MembershipRepository(db)).currentEntitlement(customer))
-                    .as("status '" + badStatus + "' is not ACTIVE").isEmpty();
-            assertThatThrownBy(() -> MembershipRepository.toMembership(d)).as(badStatus)
-                    .isInstanceOfSatisfying(MembershipFailure.class,
-                            e -> assertThat(e.reason()).isEqualTo(MembershipFailure.Reason.INTEGRITY_FAILURE));
+            MembershipRepository repo = new MembershipRepository(db);
+            assertFailure(() -> standalone(repo).currentEntitlement(customer), MembershipFailure.Reason.INTEGRITY_FAILURE);
+            assertFailure(() -> transactional(reader(repo), customer), MembershipFailure.Reason.INTEGRITY_FAILURE);
             assertFailure(() -> service().grant(customer, PLAN_ID, 1, newRef()), MembershipFailure.Reason.INTEGRITY_FAILURE);
         }
+    }
+
+    @Test
+    void historical_terminal_garbage_that_does_not_claim_the_open_slot_is_not_audited_by_the_read() {
+        // The read audits only rows that ARE or CLAIM the current membership. A row with no openTerm field and a
+        // status that is not ACTIVE is history, whatever it contains; it must not turn into a failure or an entitlement.
+        CustomerId customer = newCustomer();
+        for (String garbage : List.of("BROKEN", "REVOKED", "")) {
+            Document d = expiredDoc(customer);
+            d.put("status", garbage);
+            insertRaw(d);
+        }
+        clock.set(T0.plusSeconds(60));
+        MembershipRepository repo = new MembershipRepository(db);
+        assertThat(standalone(repo).currentEntitlement(customer)).isEmpty();
+        assertThat(transactional(reader(repo), customer)).isEmpty();
     }
 
     @Test
@@ -349,17 +363,64 @@ class MembershipEntitlementIT extends AbstractMembershipIT {
     }
 
     @Test
-    void more_than_one_ACTIVE_row_for_a_customer_is_INTEGRITY_FAILURE_not_pick_one() {
-        CustomerId customer = newCustomer();
-        insertRaw(openTermDoc(customer));            // a valid open ACTIVE term ...
-        Document twin = openTermDoc(customer);        // ... and a corrupt ACTIVE twin that lost its marker
-        twin.remove("openTerm");
-        insertRaw(twin);
+    void more_than_one_current_candidate_is_INTEGRITY_FAILURE_never_pick_one() {
         clock.set(T0.plusSeconds(60));
+        MembershipRepository repo = new MembershipRepository(db);
+        List<Consumer<Document>> corruptTwins = List.of(
+                d -> d.remove("openTerm"),                                   // ACTIVE twin that lost its marker
+                d -> d.put("openTerm", false),                               // ACTIVE twin, marker false
+                d -> { d.put("status", "REVOKED"); d.put("openTerm", false); }, // unknown status claiming the slot (false)
+                d -> { d.put("status", "BROKEN"); d.put("openTerm", "true"); }, // unknown status, non-boolean claim
+                d -> { d.put("status", "EXPIRED"); d.put("openTerm", null); }); // terminal twin with a null claim
+        for (Consumer<Document> corrupt : corruptTwins) {
+            CustomerId customer = newCustomer();
+            insertRaw(openTermDoc(customer)); // a VALID ACTIVE open term ...
+            Document twin = openTermDoc(customer);
+            corrupt.accept(twin);             // ... plus a corrupt twin the partial unique index cannot see
+            insertRaw(twin);
+            assertFailure(() -> standalone(repo).currentEntitlement(customer), MembershipFailure.Reason.INTEGRITY_FAILURE);
+            assertFailure(() -> transactional(reader(repo), customer), MembershipFailure.Reason.INTEGRITY_FAILURE);
+        }
+    }
+
+    @Test
+    void two_rows_both_claiming_open_or_active_state_are_INTEGRITY_FAILURE() {
+        clock.set(T0.plusSeconds(60));
+        CustomerId customer = newCustomer();
+        Document claimsOpenSlot = openTermDoc(customer);
+        claimsOpenSlot.put("status", "BROKEN");       // holds the unique open slot (openTerm=true) with a corrupt status
+        insertRaw(claimsOpenSlot);
+        Document laterActive = openTermDoc(customer); // an ACTIVE row that lost its marker, so the index allows it
+        laterActive.remove("openTerm");
+        insertRaw(laterActive);
 
         MembershipRepository repo = new MembershipRepository(db);
         assertFailure(() -> standalone(repo).currentEntitlement(customer), MembershipFailure.Reason.INTEGRITY_FAILURE);
         assertFailure(() -> transactional(reader(repo), customer), MembershipFailure.Reason.INTEGRITY_FAILURE);
+    }
+
+    @Test
+    void two_individually_valid_current_candidates_are_INTEGRITY_FAILURE_even_if_the_unique_index_is_missing() {
+        // Defence in depth: with membership_one_open_per_customer absent (a deployment/index fault), two rows that are
+        // each perfectly valid ACTIVE open terms could coexist. Neither is corrupt on its own, so only the
+        // "more than one candidate" rule can catch it -- the read must never pick one arbitrarily.
+        CustomerId customer = newCustomer();
+        var memberships = db.getCollection(MembershipRepository.COLLECTION);
+        memberships.dropIndex("membership_one_open_per_customer");
+        try {
+            insertRaw(openTermDoc(customer));
+            insertRaw(openTermDoc(customer));
+            clock.set(T0.plusSeconds(60));
+
+            MembershipRepository repo = new MembershipRepository(db);
+            assertFailure(() -> standalone(repo).currentEntitlement(customer), MembershipFailure.Reason.INTEGRITY_FAILURE);
+            assertFailure(() -> transactional(reader(repo), customer), MembershipFailure.Reason.INTEGRITY_FAILURE);
+        } finally {
+            memberships.deleteMany(new Document("customerId", customer.value()));
+            schemaBootstrap.bootstrap(db); // idempotently recreates the dropped index
+        }
+        assertThat(db.getCollection(MembershipRepository.COLLECTION).listIndexes().into(new java.util.ArrayList<>())
+                .stream().map(d -> d.getString("name"))).contains("membership_one_open_per_customer");
     }
 
     @Test

@@ -559,11 +559,12 @@ class ModuleBoundaryTest {
                             java.time.Instant.class)
                     .allowEmptyShould(true);
 
-    /** PR-16A-2 -- the entitlement reads use the LIFECYCLE query ({@code findActiveByCustomer}), never the
-     *  {@code openTerm} write-slot query: a corrupt ACTIVE row with a bad marker must reach strict reconstruction,
-     *  not hide behind the partial filter and turn "empty" into "unknown". */
+    /** PR-16A-2 -- the entitlement reads use the CANDIDATE query ({@code findCurrentCandidateByCustomer}: ACTIVE or
+     *  claiming an {@code openTerm}), never the grant path's {@code openTerm=true} write-slot query
+     *  ({@code findOpenByCustomer}): a corrupt row that is or claims to be the current membership must reach strict
+     *  reconstruction, not hide behind the partial filter and turn "empty" into "unknown". */
     @ArchTest
-    static final ArchRule entitlement_read_uses_the_lifecycle_query_not_the_open_slot_query =
+    static final ArchRule entitlement_read_uses_the_candidate_query_not_the_write_slot_query =
             noClasses().that().belongToAnyOf(MembershipEntitlementReader.class, MembershipEntitlementService.class)
                     .should().callMethod(MembershipRepository.class, "findOpenByCustomer", CustomerId.class)
                     .orShould().callMethod(MembershipRepository.class, "findOpenByCustomer",

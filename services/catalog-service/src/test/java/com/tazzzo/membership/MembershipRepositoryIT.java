@@ -141,22 +141,45 @@ class MembershipRepositoryIT extends AbstractMembershipIT {
     }
 
     @Test
-    void the_entitlement_lifecycle_query_is_served_by_the_active_by_customer_index_without_a_collection_scan() {
+    void the_entitlement_candidate_query_is_a_bounded_per_customer_index_scan_never_a_collection_scan() {
         Document explain = db.runCommand(new Document("explain", new Document("find", MembershipRepository.COLLECTION)
-                .append("filter", new Document("customerId", newCustomer().value()).append("status", "ACTIVE")))
-                .append("verbosity", "queryPlanner"));
-        assertThat(explain.toJson()).contains("IXSCAN").contains("membership_active_by_customer")
-                .doesNotContain("COLLSCAN");
+                .append("filter", new Document("customerId", newCustomer().value()).append("$or", List.of(
+                        new Document("status", "ACTIVE"), new Document("openTerm", new Document("$exists", true)))))
+                .append("limit", 2)).append("verbosity", "queryPlanner"));
+        String plan = explain.toJson();
+        assertThat(plan).contains("IXSCAN").contains("membership_active_by_customer").doesNotContain("COLLSCAN");
+        // the customer's equality bound is part of the scan: one customer's keys, not the whole index
+        assertThat(explain.get("queryPlanner", Document.class).get("winningPlan", Document.class).toJson())
+                .contains("\"customerId\": [\"[\\\"CUS_");
     }
 
     @Test
-    void the_lifecycle_read_returns_a_valid_open_term_and_ignores_terminal_rows() {
+    void the_candidate_read_returns_the_valid_current_term_and_ignores_valid_terminal_history() {
         CustomerId customer = newCustomer();
         Membership open = term(customer, newRef());
         insertRaw(expiredShape(term(customer, newRef())));
+        insertRaw(expiredShape(term(customer, newRef())));
         insertRaw(MembershipRepository.toDocument(open));
-        assertThat(repository.findActiveByCustomer(customer)).hasValue(open);
-        assertThat(repository.findActiveByCustomer(newCustomer())).isEmpty();
+        assertThat(repository.findCurrentCandidateByCustomer(customer)).hasValue(open);
+        assertThat(repository.findCurrentCandidateByCustomer(newCustomer())).isEmpty();
+
+        CustomerId onlyHistory = newCustomer();
+        insertRaw(expiredShape(term(onlyHistory, newRef())));
+        assertThat(repository.findCurrentCandidateByCustomer(onlyHistory)).isEmpty();
+    }
+
+    @Test
+    void the_candidate_read_fails_loud_on_any_row_that_claims_the_open_slot_or_is_ACTIVE() {
+        for (java.util.function.Consumer<Document> corrupt : List.<java.util.function.Consumer<Document>>of(
+                d -> d.remove("openTerm"), d -> d.put("openTerm", false), d -> d.put("status", "BROKEN"),
+                d -> d.put("status", "EXPIRED"))) {
+            CustomerId customer = newCustomer();
+            Document d = MembershipRepository.toDocument(term(customer, newRef()));
+            corrupt.accept(d);
+            insertRaw(d);
+            assertThatThrownBy(() -> repository.findCurrentCandidateByCustomer(customer))
+                    .isInstanceOf(MembershipFailure.class);
+        }
     }
 
     @Test
