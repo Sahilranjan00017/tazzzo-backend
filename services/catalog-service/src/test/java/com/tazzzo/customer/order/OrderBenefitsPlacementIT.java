@@ -1,7 +1,11 @@
 package com.tazzzo.customer.order;
 
 import com.mongodb.MongoException;
+import com.mongodb.MongoWriteException;
+import com.mongodb.ServerAddress;
+import com.mongodb.WriteError;
 import com.mongodb.client.ClientSession;
+import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.Updates;
 import com.tazzzo.auth.CustomerId;
@@ -22,12 +26,14 @@ import com.tazzzo.common.audit.DomainAudit;
 import com.tazzzo.common.money.Money;
 import com.tazzzo.customer.address.AddressId;
 import com.tazzzo.customer.address.AddressRepository;
+import com.tazzzo.customer.cart.CartPurchasePort;
 import com.tazzzo.customer.cart.CartPurchaseService;
 import com.tazzzo.customer.cart.CartRepository;
 import com.tazzzo.customer.checkout.CheckoutQuote;
 import com.tazzzo.customer.checkout.CheckoutQuoteId;
 import com.tazzzo.customer.checkout.CheckoutQuoteRepository;
 import com.tazzzo.inventory.InventoryReservationObservability;
+import com.tazzzo.inventory.InventoryReservationPort;
 import com.tazzzo.inventory.InventoryReservationProperties;
 import com.tazzzo.inventory.InventoryReservationRepository;
 import com.tazzzo.inventory.InventoryReservationService;
@@ -37,9 +43,11 @@ import com.tazzzo.membership.MembershipService;
 import com.tazzzo.membership.MembershipTerminationService;
 import com.tazzzo.membership.TransactionalMembershipEntitlementPort;
 import com.tazzzo.pricing.PricingService;
+import com.tazzzo.pricing.TransactionalPriceReadPort;
 import com.tazzzo.serviceability.ServiceabilityService;
 import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import org.bson.BsonDocument;
 import org.bson.Document;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -47,13 +55,17 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -105,20 +117,30 @@ class OrderBenefitsPlacementIT extends AbstractMongoIT {
         @Override public CustomerIdentityAuthority getIfUnique() { return getObject(); }
     };
 
-    private OrderService service(Tx tx, TransactionalBenefitsEvaluationPort benefits) {
-        Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
-        WritePath writePath = new WritePath(db);
+    private InventoryReservationService reservationService(Tx tx, Clock clock) {
         InventoryReservationProperties p = new InventoryReservationProperties();
         p.setTtlSeconds(600);
         p.setExpiryBatchSize(100);
-        InventoryReservationService reservations = new InventoryReservationService(
-                new InventoryService(tx, writePath, clock), new InventoryReservationRepository(db), p,
+        return new InventoryReservationService(new InventoryService(tx, new WritePath(db), clock),
+                new InventoryReservationRepository(db), p,
                 new InventoryReservationObservability(new SimpleMeterRegistry()), clock, tx);
-        return new OrderService(new OrderRepository(db), new CheckoutQuoteRepository(db), new AddressRepository(db),
-                new ServiceabilityService(tx, db, new DomainAudit(db, clock), clock),
-                new PricingService(tx, writePath, clock), new com.tazzzo.commerce.read.CatalogCardReader(db), benefits,
-                reservations, new CartPurchaseService(new CartRepository(db), clock), clock, ALWAYS_EXISTS, tx,
-                new OrderObservability(registry));
+    }
+
+    private OrderService service(Tx tx, TransactionalBenefitsEvaluationPort benefits) {
+        Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
+        return service(tx, new OrderRepository(db), new PricingService(tx, new WritePath(db), clock),
+                reservationService(tx, clock), new CartPurchaseService(new CartRepository(db), clock), benefits);
+    }
+
+    /** The full builder: every collaborator the Order composes is injectable so a test can OBSERVE it. */
+    private OrderService service(Tx tx, OrderRepository orders, TransactionalPriceReadPort pricing,
+                                 InventoryReservationPort reservations, CartPurchasePort cart,
+                                 TransactionalBenefitsEvaluationPort benefits) {
+        Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
+        return new OrderService(orders, new CheckoutQuoteRepository(db), new AddressRepository(db),
+                new ServiceabilityService(tx, db, new DomainAudit(db, clock), clock), pricing,
+                new com.tazzzo.commerce.read.CatalogCardReader(db), benefits, reservations, cart, clock,
+                ALWAYS_EXISTS, tx, new OrderObservability(registry));
     }
 
     private OrderService service(TransactionalBenefitsEvaluationPort benefits) {
@@ -559,5 +581,176 @@ class OrderBenefitsPlacementIT extends AbstractMongoIT {
             assertThat(orderDoc(o).containsKey("benefits")).isTrue();
             assertThat(o.benefitSnapshot()).isNotNull();
         }
+    }
+
+    // ============================================================
+    // PR-18A-1 hardening: the IN-TRANSACTION replay and duplicate-key recovery never (re)evaluate Benefits
+    // ============================================================
+
+    /** Counts every call on the collaborator by method name, delegating to the real one. */
+    @SuppressWarnings("unchecked")
+    private static <T> T counting(Class<T> type, T delegate, Map<String, AtomicInteger> calls) {
+        return (T) Proxy.newProxyInstance(type.getClassLoader(), new Class<?>[]{type}, (proxy, method, args) -> {
+            calls.computeIfAbsent(method.getName(), k -> new AtomicInteger()).incrementAndGet();
+            try {
+                return method.invoke(delegate, args);
+            } catch (InvocationTargetException e) {
+                throw e.getCause();
+            }
+        });
+    }
+
+    private static int calls(Map<String, AtomicInteger> calls, String method) {
+        AtomicInteger c = calls.get(method);
+        return c == null ? 0 : c.get();
+    }
+
+    /** TEST-ONLY seam: hides the Order from the PRE-transaction fast-path read ONLY, so the placement proceeds
+     *  to its IN-TRANSACTION durable replay check, and records that check finding the stored Order. */
+    private static final class FastPathBlindOrders extends OrderRepository {
+        final AtomicInteger fastPathReads = new AtomicInteger();
+        final AtomicInteger inTransactionHits = new AtomicInteger();
+
+        FastPathBlindOrders(MongoDatabase db) {
+            super(db);
+        }
+
+        @Override public Document findByCustomerAndQuote(String customerId, String quoteId) {
+            fastPathReads.incrementAndGet();
+            return null; // the "race": the fast path did not see the Order yet
+        }
+
+        @Override public Document findByCustomerAndQuote(ClientSession session, String customerId, String quoteId) {
+            Document found = super.findByCustomerAndQuote(session, customerId, quoteId);
+            if (found != null) {
+                inTransactionHits.incrementAndGet();
+            }
+            return found;
+        }
+    }
+
+    @Test
+    void the_in_transaction_replay_returns_the_stored_order_without_benefits_pricing_inventory_or_cart_work() {
+        Fixture f = fixture();
+        Membership term = grant(f.customerId());
+        Order first = service(realBenefits(rule(SUBTOTAL, 500))).placeCodOrder(f.customerId(), f.quoteId());
+        termination.revoke(term.membershipId()); // a re-evaluation WOULD now produce a different outcome
+        Document orderBefore = orderDoc(first);
+        Document cartBefore = db.getCollection("customer_carts").find(new Document("_id", f.customerId().value()))
+                .first();
+        Document stockBefore = db.getCollection("inventory").find(new Document("sku_id", SKU)).first();
+        long reservationsBefore = count("inventory_reservations");
+        Document reservationBefore = db.getCollection("inventory_reservations")
+                .find(new Document("_id", first.reservationId())).first();
+
+        Tx tx = new Tx(client);
+        Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
+        Map<String, AtomicInteger> pricingCalls = new ConcurrentHashMap<>();
+        Map<String, AtomicInteger> inventoryCalls = new ConcurrentHashMap<>();
+        Map<String, AtomicInteger> cartCalls = new ConcurrentHashMap<>();
+        AtomicInteger benefitsCalls = new AtomicInteger();
+        TransactionalBenefitsEvaluationPort mustNotRun = (s, c, subtotal) -> {
+            benefitsCalls.incrementAndGet();
+            throw new AssertionError("Benefits must NOT be evaluated once the in-transaction replay found the Order");
+        };
+        FastPathBlindOrders orders = new FastPathBlindOrders(db);
+        OrderService svc = service(tx, orders,
+                counting(TransactionalPriceReadPort.class, new PricingService(tx, new WritePath(db), clock),
+                        pricingCalls),
+                counting(InventoryReservationPort.class, reservationService(tx, clock), inventoryCalls),
+                counting(CartPurchasePort.class, new CartPurchaseService(new CartRepository(db), clock), cartCalls),
+                mustNotRun);
+
+        Order replay = svc.placeCodOrder(f.customerId(), f.quoteId());
+
+        assertThat(orders.fastPathReads.get()).as("the pre-transaction fast path ran and missed").isEqualTo(1);
+        assertThat(orders.inTransactionHits.get()).as("the IN-TRANSACTION check found the Order").isEqualTo(1);
+        assertThat(replay).isEqualTo(first);
+        assertThat(replay.benefitSnapshot()).isInstanceOf(OrderBenefitSnapshot.Applied.class);
+        assertThat(benefitsCalls.get()).as("Benefits NOT evaluated").isZero();
+        assertThat(calls(pricingCalls, "findCurrentPrices") + calls(pricingCalls, "findCurrentPrice"))
+                .as("no Pricing revalidation").isZero();
+        assertThat(calls(inventoryCalls, "reserve") + calls(inventoryCalls, "consume") + calls(inventoryCalls, "release"))
+                .as("no Inventory reserve/consume/release").isZero();
+        assertThat(calls(cartCalls, "isSourceVersionPurchased") + calls(cartCalls, "finalizePurchase"))
+                .as("no cart guard or mutation").isZero();
+        assertThat(orderDoc(first)).as("the stored Order is untouched").isEqualTo(orderBefore);
+        assertThat(db.getCollection("customer_carts").find(new Document("_id", f.customerId().value())).first())
+                .isEqualTo(cartBefore);
+        assertThat(db.getCollection("inventory").find(new Document("sku_id", SKU)).first()).isEqualTo(stockBefore);
+        assertThat(count("inventory_reservations")).isEqualTo(reservationsBefore);
+        assertThat(db.getCollection("inventory_reservations").find(new Document("_id", first.reservationId())).first())
+                .isEqualTo(reservationBefore);
+        assertThat(count("orders")).isEqualTo(1);
+    }
+
+    /** TEST-ONLY. Reproduces a lost race (same shape as OrderPlaceCodIT's): both replay reads saw "no Order yet", the
+     *  insert fails with a synthetic 11000, and afterwards the reads see the real collection (what recovery re-reads). */
+    private static final class DuplicateKeyOnInsertOrders extends OrderRepository {
+        private volatile boolean hideExisting = true;
+        final AtomicInteger recoveryReads = new AtomicInteger();
+
+        DuplicateKeyOnInsertOrders(MongoDatabase db) {
+            super(db);
+        }
+
+        @Override public Document findByCustomerAndQuote(String customerId, String quoteId) {
+            if (hideExisting) {
+                return null;
+            }
+            recoveryReads.incrementAndGet();
+            return super.findByCustomerAndQuote(customerId, quoteId);
+        }
+
+        @Override public Document findByCustomerAndQuote(ClientSession session, String customerId, String quoteId) {
+            return hideExisting ? null : super.findByCustomerAndQuote(session, customerId, quoteId);
+        }
+
+        @Override public void insert(ClientSession session, Order order) {
+            hideExisting = false;
+            throw new MongoWriteException(new WriteError(11000, "E11000", new BsonDocument()), new ServerAddress());
+        }
+    }
+
+    @Test
+    void duplicate_key_recovery_returns_the_winners_snapshot_unchanged_and_never_evaluates_benefits_again() {
+        Fixture f = fixture();
+        Membership term = grant(f.customerId());
+        Order winner = service(realBenefits(rule(SUBTOTAL, 500))).placeCodOrder(f.customerId(), f.quoteId());
+        assertThat(winner.benefitSnapshot()).isInstanceOf(OrderBenefitSnapshot.Applied.class);
+        Document winnerDoc = orderDoc(winner);
+        // the loser passes every guard and reaches its insert: put cart and stock back to their pre-placement state
+        db.getCollection("customer_carts").deleteMany(new Document());
+        db.getCollection("customer_carts").insertOne(new Document("_id", f.customerId().value())
+                .append("items", List.of(new Document("skuId", SKU).append("quantity", 2)
+                        .append("addedAt", Date.from(NOW)).append("updatedAt", Date.from(NOW))))
+                .append("version", f.cartVersion()).append("createdAt", Date.from(NOW))
+                .append("updatedAt", Date.from(NOW)).append("expiresAt", Date.from(NOW.plusSeconds(7 * 86400))));
+        db.getCollection("inventory").updateOne(new Document("sku_id", SKU),
+                new Document("$set", new Document("on_hand", 10L).append("reserved", 0L)));
+        termination.revoke(term.membershipId()); // the loser's own evaluation now differs from the winner's
+
+        Tx tx = new Tx(client);
+        Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
+        AtomicInteger loserEvaluations = new AtomicInteger();
+        TransactionalBenefitsEvaluationPort loserBenefits = (session, cust, subtotal) -> {
+            loserEvaluations.incrementAndGet();
+            return realBenefits(rule(SUBTOTAL, 500)).evaluate(session, cust, subtotal);
+        };
+        DuplicateKeyOnInsertOrders orders = new DuplicateKeyOnInsertOrders(db);
+        OrderService loser = service(tx, orders, new PricingService(tx, new WritePath(db), clock),
+                reservationService(tx, clock), new CartPurchaseService(new CartRepository(db), clock), loserBenefits);
+
+        Order result = loser.placeCodOrder(f.customerId(), f.quoteId());
+
+        assertThat(result).as("the WINNER's stored Order is returned").isEqualTo(winner);
+        assertThat(result.benefitSnapshot()).as("its snapshot is the winner's, not the loser's recalculation")
+                .isEqualTo(winner.benefitSnapshot());
+        assertThat(loserEvaluations.get()).as("exactly the loser's one pre-insert evaluation; recovery adds none")
+                .isEqualTo(1);
+        assertThat(orders.recoveryReads.get()).as("recovery re-read the durable winner").isEqualTo(1);
+        assertThat(orderDoc(winner)).as("the winner's persisted snapshot is not recalculated or replaced")
+                .isEqualTo(winnerDoc);
+        assertThat(count("orders")).isEqualTo(1);
     }
 }

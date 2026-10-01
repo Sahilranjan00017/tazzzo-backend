@@ -750,22 +750,28 @@ class ModuleBoundaryTest {
                     .allowEmptyShould(true);
 
     /** Benefits -- Benefits never WRITES Membership: of the Membership package it may call only the entitlement read,
-     *  the entitlement/id/failure accessors and the enum plumbing of {@code MembershipFailure.Reason}. */
+     *  the entitlement/failure accessors, the enum plumbing of {@code MembershipFailure.Reason} and (owner-qualified, and
+     *  nothing else named {@code value}) {@code MembershipId.value()}. */
     @ArchTest
     static final ArchRule benefits_only_reads_membership =
             noClasses().that().resideInAPackage(BENEFITS)
                     .should().callMethodWhere(new DescribedPredicate<JavaMethodCall>("call anything in Membership but the entitlement read and accessors") {
                         private final java.util.Set<String> allowed = java.util.Set.of("currentEntitlement",
                                 "membershipId", "planId", "planVersion", "validUntil", "reason", "values", "valueOf",
-                                "ordinal", "name",
-                                // MembershipId.value(): the read-only accessor of an allowlisted value type, used to
-                                // hand a consumer (the Order benefit snapshot) the id WITHOUT it touching Membership
-                                "value");
+                                "ordinal", "name");
 
                         @Override
                         public boolean test(JavaMethodCall call) {
-                            return call.getTargetOwner().getPackageName().startsWith("com.tazzzo.membership")
-                                    && !allowed.contains(call.getName());
+                            if (!call.getTargetOwner().getPackageName().startsWith("com.tazzzo.membership")) {
+                                return false;
+                            }
+                            // the ONE owner-qualified exception: MembershipId.value(), the read-only accessor of an
+                            // allowlisted value type, used to hand a consumer (the Order benefit snapshot) the id WITHOUT
+                            // it touching Membership. A value() on ANY other Membership type is NOT authorized.
+                            if (call.getName().equals("value") && call.getTargetOwner().isEquivalentTo(MembershipId.class)) {
+                                return false;
+                            }
+                            return !allowed.contains(call.getName());
                         }
                     })
                     .allowEmptyShould(true);

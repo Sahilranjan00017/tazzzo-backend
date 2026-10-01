@@ -858,7 +858,15 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
     depend on Benefits or the snapshot; Checkout and Cart do not depend on Benefits; Order -> Membership stays
     forbidden. Three new ArchUnit rules (`ModuleBoundaryTest` 56 -> 59); the Benefits read-only-Membership rule gains
     the read-only `MembershipId.value()` accessor.
-  - **Deployment gates unchanged and PENDING (none verified):** the Order `orders`-count == 0 gate and the five
+  - **Operational dependency (not a new gate):** Benefits-aware Order placement now depends on the Membership runtime
+    path (Benefits reads Membership entitlement inside the placement transaction). The five existing Membership
+    deployment gates therefore ALSO gate this path: no conflicting `memberships` collection, SchemaBootstrap
+    privileges, identical plan configuration, no Mongo `readPreference` override, cluster default read/write concern.
+    Ratified runtime consequence (mapping unchanged): Membership/Benefits `UNAVAILABLE` -> Order placement
+    `UNAVAILABLE`; Membership integrity corruption reached through Benefits -> Order placement `INTEGRITY_FAILURE`
+    (it fails closed and is never treated as "no benefit"). **Order placement is not deployment-ready until the
+    Membership operational gates are verified.**
+  - **Deployment gates unchanged and PENDING / UNVERIFIED:** the Order `orders`-count == 0 gate and the five
     Membership gates. Legacy Orders reconstruct without a snapshot, so this slice needs no backfill, but the existing
     Order gate stays until separately verified. Do not claim production readiness.
 
@@ -967,12 +975,14 @@ is FUTURE work and not required for the production modular monolith.
 ## Last verification
 
 - **2026-10-02** — `./mvnw clean test` on Java 21 + Docker on `feature/pr18a1-order-benefits-snapshot`
-  (based on `main` `cb2097f`): **BUILD SUCCESS**, 2124 tests, 0 failures / 0 errors / 0 skipped
-  (2090 baseline + 12 `OrderBenefitSnapshotTest` + 18 `OrderBenefitsPlacementIT` + 1 Benefits accessor test + 3 ArchUnit
-  rules); `ModuleBoundaryTest` 59/59; the public Order/Checkout/Cart DTOs and OpenAPI are unchanged. Six mutation
-  checks (standalone-port dependency, NO_BENEFIT snapshot not persisted, APPLIED discount zeroed, replay
-  re-evaluating Benefits, discount overwriting the canonical subtotal, reconstruction accepting a missing
-  membership id / wrong subtotal) were each killed by the tests/rules above.
+  (based on `main` `cb2097f`, after the independent-review hardening): **BUILD SUCCESS**, 2126 tests, 0 failures /
+  0 errors / 0 skipped (2090 baseline + 12 `OrderBenefitSnapshotTest` + 20 `OrderBenefitsPlacementIT` + 1 Benefits
+  accessor test + 3 ArchUnit rules); `ModuleBoundaryTest` 59/59; the public Order/Checkout/Cart DTOs and OpenAPI are
+  unchanged. Mutation checks killed: standalone-port dependency, NO_BENEFIT snapshot not persisted, APPLIED discount
+  zeroed, replay re-evaluating Benefits, discount overwriting the canonical subtotal, reconstruction accepting a
+  missing membership id / wrong subtotal, Benefits evaluated on the in-transaction replay branch, duplicate-key
+  recovery re-evaluating Benefits, and a planted `value()` on another allowed Membership type (the narrowed rule
+  catches it; the previous name-only rule did not).
 - **2026-10-02** — `./mvnw clean test` on Java 21 + Docker on `feature/pr17a1-benefits-foundation`
   (based on `main` `99e2d1b`, after the independent-review hardening): **BUILD SUCCESS**, 2090 tests, 0 failures /
   0 errors / 0 skipped (2028 baseline + 44 Benefits unit/binding tests + 9 `BenefitsEvaluationIT` + 9 ArchUnit
