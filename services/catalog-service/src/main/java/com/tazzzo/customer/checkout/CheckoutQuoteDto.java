@@ -6,8 +6,9 @@ import java.util.List;
 
 /**
  * PR-13A — the public quote. A validated snapshot at {@code createdAt}: NOT a stock reservation and
- * NOT a final payable total (no delivery/platform fee, tax, tip or discount). Never exposes a
- * fulfillment/routing identity.
+ * NOT a binding or final payable amount: the optional {@code moneyPreview} is ADVISORY only (Order placement
+ * computes the AUTHORITATIVE money and may differ), and no delivery/platform fee, tax or tip is included. Never
+ * exposes a fulfillment/routing identity.
  *
  * <p>{@code benefitPreview} is the ADVISORY Benefits result stored with this quote (present on every quote created
  * since Benefits preview exists; ABSENT on an older quote, which is NOT the same as {@code applied=false}). It is
