@@ -6,14 +6,16 @@ import com.tazzzo.common.audit.ActorType;
 import java.util.Set;
 
 /**
- * The authenticated caller of the INTERNAL admin surface ({@code /api/**}), produced only by {@code ApiAuthFilter} and read
- * by controllers through {@link AdminPrincipalResolver}. It converts INTO a neutral audit {@link Actor} (never the reverse:
- * {@code common.audit} knows nothing about admin authentication).
+ * The authenticated caller of the INTERNAL admin surface ({@code /api/**}), produced only by the admin authenticators
+ * (attached by {@code ApiAuthFilter}) and read by controllers through {@link AdminPrincipalResolver}. It converts INTO a
+ * neutral audit {@link Actor} (never the reverse: {@code common.audit} knows nothing about admin authentication). It is
+ * provider-neutral: downstream code never learns how the caller authenticated.
  *
- * <p>The current shared admin tokens are mapped to explicit {@link ActorType#SERVICE_ACCOUNT} principals
+ * <p>The shared admin tokens are mapped to explicit {@link ActorType#SERVICE_ACCOUNT} principals
  * ({@code service:cms-writer}, {@code service:reader}): a shared token says WHICH CREDENTIAL acted, never WHICH PERSON,
- * even when a person uses it. {@link ActorType#HUMAN_ADMIN} is reserved for per-person authentication, which does not exist
- * yet. {@code credentialId} is a stable, non-secret label of the credential; token material is never stored here.
+ * even when a person uses it. {@link ActorType#HUMAN_ADMIN} principals come from per-person authentication (Google OIDC:
+ * {@code google:<sub>}, roles from the backend allowlist). {@code credentialId} is a stable, non-secret label of the
+ * credential; token material and email are never stored here.
  *
  * <p>Roles keep the existing coarse semantics: {@value #READER} may read (GET only), {@value #CMS_WRITER} may read and write.
  */

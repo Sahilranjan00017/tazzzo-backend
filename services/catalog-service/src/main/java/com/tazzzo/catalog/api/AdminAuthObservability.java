@@ -18,8 +18,15 @@ import java.util.Locale;
 @Component
 public class AdminAuthObservability {
 
-    /** {@code UNAUTHENTICATED}: missing or unknown credential (401). {@code FORBIDDEN}: a role may not write (403). */
-    public enum Reason { UNAUTHENTICATED, FORBIDDEN }
+    /**
+     * {@code UNAUTHENTICATED}: missing credential, or one no configured authenticator recognises (401).
+     * {@code FORBIDDEN}: an authenticated role may not write (403). Human OIDC: {@code INVALID_TOKEN}, {@code EXPIRED_TOKEN},
+     * {@code DOMAIN_MISMATCH}, {@code EMAIL_UNVERIFIED} (401); {@code NOT_ALLOWLISTED}, {@code DISABLED} (403).
+     */
+    public enum Reason {
+        UNAUTHENTICATED, FORBIDDEN,
+        INVALID_TOKEN, EXPIRED_TOKEN, DOMAIN_MISMATCH, EMAIL_UNVERIFIED, NOT_ALLOWLISTED, DISABLED
+    }
 
     private static final Logger log = LoggerFactory.getLogger(AdminAuthObservability.class);
 
