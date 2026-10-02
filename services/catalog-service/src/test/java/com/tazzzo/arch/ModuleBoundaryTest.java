@@ -379,9 +379,7 @@ class ModuleBoundaryTest {
     static final ArchRule customer_order_http_layer_only_delegates_to_the_order_service =
             noClasses().that(com.tngtech.archunit.core.domain.JavaClass.Predicates
                             .resideInAPackage("com.tazzzo.customer.order..")
-                            .and(com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameEndingWith("Controller")
-                                    .or(com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameEndingWith("ExceptionHandler"))
-                                    .or(com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameEndingWith("Dto"))))
+                            .and(selfOrEnclosingSimpleNameEndingWithAny("Controller", "ExceptionHandler", "Dto")))
                     .should().dependOnClassesThat(
                             resideInAnyPackage("com.mongodb..", "com.tazzzo.inventory..",
                                     "com.tazzzo.customer.cart..", "com.tazzzo.pricing..",
@@ -398,7 +396,7 @@ class ModuleBoundaryTest {
      */
     @ArchTest
     static final ArchRule customer_order_controller_never_calls_the_create_only_path =
-            noClasses().that().haveSimpleNameEndingWith("Controller")
+            noClasses().that(selfOrEnclosingSimpleNameEndingWithAny("Controller"))
                     .should().callMethod(OrderService.class, "createOrder", CustomerId.class, String.class,
                             PaymentMethod.class)
                     .allowEmptyShould(true);
@@ -456,9 +454,7 @@ class ModuleBoundaryTest {
      *  Membership: the future public HTTP surface must never reach the internal grant. */
     @ArchTest
     static final ArchRule http_layer_never_depends_on_membership =
-            noClasses().that().haveSimpleNameEndingWith("Controller")
-                    .or().haveSimpleNameEndingWith("ExceptionHandler")
-                    .or().haveSimpleNameEndingWith("Dto")
+            noClasses().that(selfOrEnclosingSimpleNameEndingWithAny("Controller", "ExceptionHandler", "Dto"))
                     .or().areAnnotatedWith(org.springframework.web.bind.annotation.RestController.class)
                     .or().areAnnotatedWith(org.springframework.stereotype.Controller.class)
                     .or().areAnnotatedWith(org.springframework.web.bind.annotation.ControllerAdvice.class)
@@ -596,7 +592,8 @@ class ModuleBoundaryTest {
     /** PR-16A-2 -- a customer-facing controller can never reach Membership (there is still no customer capability). */
     @ArchTest
     static final ArchRule customer_controllers_cannot_access_membership =
-            noClasses().that().resideInAPackage("com.tazzzo.customer..").and().haveSimpleNameEndingWith("Controller")
+            noClasses().that().resideInAPackage("com.tazzzo.customer..")
+                    .and(selfOrEnclosingSimpleNameEndingWithAny("Controller"))
                     .should().dependOnClassesThat().resideInAPackage(MEMBERSHIP)
                     .allowEmptyShould(true);
 
@@ -828,12 +825,9 @@ class ModuleBoundaryTest {
     static final ArchRule order_http_layer_and_metrics_do_not_depend_on_benefits_or_the_snapshot =
             noClasses().that(com.tngtech.archunit.core.domain.JavaClass.Predicates
                             .resideInAPackage("com.tazzzo.customer.order..")
-                            .and(com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameEndingWith("Controller")
-                                    .or(com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameEndingWith("ExceptionHandler"))
-                                    .or(com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameEndingWith("Dto"))
-                                    .or(com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameEndingWith("Observability"))))
+                            .and(selfOrEnclosingSimpleNameEndingWithAny("Controller", "ExceptionHandler", "Dto", "Observability")))
                     .should().dependOnClassesThat(resideInAnyPackage("com.tazzzo.benefits..")
-                            .or(com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameStartingWith("OrderBenefitSnapshot")))
+                            .or(selfOrEnclosingSimpleNameStartingWithAny("OrderBenefitSnapshot")))
                     .allowEmptyShould(true);
 
     /** Order -- the V1 money snapshot ({@code OrderMoneySnapshot}: merchandise subtotal, benefit discount, payable) is
@@ -847,8 +841,7 @@ class ModuleBoundaryTest {
                             .resideInAPackage("com.tazzzo.customer.order..")
                             .and(selfOrEnclosingSimpleNameEndingWithAny("Controller", "ExceptionHandler", "Dto",
                                     "Observability")))
-                    .should().dependOnClassesThat(com.tngtech.archunit.core.domain.JavaClass.Predicates
-                            .simpleNameStartingWith("OrderMoneySnapshot"))
+                    .should().dependOnClassesThat(selfOrEnclosingSimpleNameStartingWithAny("OrderMoneySnapshot"))
                     .allowEmptyShould(true);
 
     /**
@@ -875,13 +868,39 @@ class ModuleBoundaryTest {
         };
     }
 
-    /** Order -- Order placement never consumes Checkout's ADVISORY money (snapshot, codec or preview): the Order computes
-     *  its own AUTHORITATIVE money and never compares it with, or derives it from, the quote's money. */
+    /**
+     * A class whose own simple name, OR the simple name of any class enclosing it, starts with one of {@code prefixes}. Used
+     * for dependency TARGETS: a sealed snapshot's nested records (for example {@code CheckoutBenefitSnapshot.Applied}, simple
+     * name {@code Applied}) are part of that snapshot and must not slip past a simple-name prefix match.
+     */
+    private static DescribedPredicate<com.tngtech.archunit.core.domain.JavaClass> selfOrEnclosingSimpleNameStartingWithAny(
+            String... prefixes) {
+        return new DescribedPredicate<>("self or an enclosing class has a simple name starting with "
+                + java.util.Arrays.toString(prefixes)) {
+            @Override
+            public boolean test(com.tngtech.archunit.core.domain.JavaClass c) {
+                for (java.util.Optional<com.tngtech.archunit.core.domain.JavaClass> k = java.util.Optional.of(c);
+                     k.isPresent(); k = k.get().getEnclosingClass()) {
+                    for (String prefix : prefixes) {
+                        if (k.get().getSimpleName().startsWith(prefix)) {
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            }
+        };
+    }
+
+    /** Order -- Order placement never consumes Checkout's ADVISORY outputs: not the Benefits snapshot/codec/preview
+     *  ({@code CheckoutBenefit*}) and not the money snapshot/codec/preview ({@code CheckoutMoney*}). The Order evaluates its
+     *  own AUTHORITATIVE Benefits and money and never compares them with, or derives them from, the quote's. Legitimate
+     *  quote dependencies ({@code CheckoutQuote}, its lines, {@code CheckoutQuoteId}, the quote repository) stay allowed. */
     @ArchTest
-    static final ArchRule order_does_not_depend_on_checkout_advisory_money =
+    static final ArchRule order_does_not_depend_on_checkout_advisory_benefits_or_money =
             noClasses().that().resideInAPackage("com.tazzzo.customer.order..")
-                    .should().dependOnClassesThat(com.tngtech.archunit.core.domain.JavaClass.Predicates
-                            .simpleNameStartingWith("CheckoutMoney"))
+                    .should().dependOnClassesThat(com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAPackage("com.tazzzo.customer.checkout..")
+                            .and(selfOrEnclosingSimpleNameStartingWithAny("CheckoutMoney", "CheckoutBenefit")))
                     .allowEmptyShould(true);
 
     /** Checkout -- reaches Benefits ONLY through the STANDALONE port and the result/failure types it must read (the
@@ -912,12 +931,9 @@ class ModuleBoundaryTest {
     static final ArchRule checkout_http_layer_and_metrics_do_not_depend_on_benefits_or_the_snapshot =
             noClasses().that(com.tngtech.archunit.core.domain.JavaClass.Predicates
                             .resideInAPackage("com.tazzzo.customer.checkout..")
-                            .and(com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameEndingWith("Controller")
-                                    .or(com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameEndingWith("ExceptionHandler"))
-                                    .or(com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameEndingWith("Dto"))
-                                    .or(com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameEndingWith("Observability"))))
+                            .and(selfOrEnclosingSimpleNameEndingWithAny("Controller", "ExceptionHandler", "Dto", "Observability")))
                     .should().dependOnClassesThat(resideInAnyPackage("com.tazzzo.benefits..")
-                            .or(com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameStartingWith("CheckoutBenefitSnapshot")))
+                            .or(selfOrEnclosingSimpleNameStartingWithAny("CheckoutBenefitSnapshot")))
                     .allowEmptyShould(true);
 
     /** Checkout -- the public-safe preview projection is purely structural: it depends on no Benefits, Membership or
@@ -926,8 +942,7 @@ class ModuleBoundaryTest {
     static final ArchRule checkout_benefit_preview_projection_depends_on_no_benefits_membership_or_order =
             noClasses().that(com.tngtech.archunit.core.domain.JavaClass.Predicates
                             .resideInAPackage("com.tazzzo.customer.checkout..")
-                            .and(com.tngtech.archunit.core.domain.JavaClass.Predicates
-                                    .simpleNameStartingWith("CheckoutBenefitPreview")))
+                            .and(selfOrEnclosingSimpleNameStartingWithAny("CheckoutBenefitPreview")))
                     .should().dependOnClassesThat().resideInAnyPackage("com.tazzzo.benefits..",
                             "com.tazzzo.membership..", "com.tazzzo.customer.order..")
                     .allowEmptyShould(false);
@@ -957,12 +972,8 @@ class ModuleBoundaryTest {
     static final ArchRule checkout_http_layer_and_metrics_do_not_depend_on_the_money_snapshot =
             noClasses().that(com.tngtech.archunit.core.domain.JavaClass.Predicates
                             .resideInAPackage("com.tazzzo.customer.checkout..")
-                            .and(com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameEndingWith("Controller")
-                                    .or(com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameEndingWith("ExceptionHandler"))
-                                    .or(com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameEndingWith("Dto"))
-                                    .or(com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameEndingWith("Observability"))))
-                    .should().dependOnClassesThat(com.tngtech.archunit.core.domain.JavaClass.Predicates
-                            .simpleNameStartingWith("CheckoutMoneySnapshot"))
+                            .and(selfOrEnclosingSimpleNameEndingWithAny("Controller", "ExceptionHandler", "Dto", "Observability")))
+                    .should().dependOnClassesThat(selfOrEnclosingSimpleNameStartingWithAny("CheckoutMoneySnapshot"))
                     .allowEmptyShould(true);
 
     /**

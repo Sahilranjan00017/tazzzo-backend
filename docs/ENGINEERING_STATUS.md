@@ -1082,10 +1082,9 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   is: Checkout money ADVISORY, Order money AUTHORITATIVE, they may differ, no `PAYABLE_CHANGED`). The forward fix keeps the
   public Order money (hardened) and the 410 documentation and removes everything binding.
 
-## In review (NOT merged)
-
 - **Forward fix — restore advisory Checkout money, keep public Order money** (`com.tazzzo.customer.order` +
-  `customer.checkout` documentation): **IN REVIEW**. **No Payment, no gateway, no new money component, no Benefits change, no
+  `customer.checkout` documentation): **COMPLETE** (PR #42, squash `89fcf349c24d67dd610c28eafa34d2e70669195a`; merged-`main`
+  push CI `37039217513`: 2250 tests, 0 failures / 0 errors / 0 skipped, `ModuleBoundaryTest` 67/67). **No Payment, no gateway, no new money component, no Benefits change, no
   change to persisted Checkout or Order money, no production Benefits rule (0 configured).**
   - **Removed (PR #40's unratified binding contract):** `OrderFailure.PAYABLE_CHANGED`, its 409 mapping and public error code,
     the Checkout/Order money-equality check in `OrderDraftAssembler` (Order placement no longer reads the quote's money at all),
@@ -1104,9 +1103,38 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
     `CheckoutMoneyPreview`, and no longer takes `OrderMoneySnapshot` directly.
   - **Architecture:** the Order HTTP/metrics money rule now also selects types NESTED in a controller/handler/DTO/observability
     class (the nested `CustomerOrderDto.OrderMoney` record had bypassed the suffix-only selector), and a new rule forbids
-    `customer.order` from depending on Checkout's advisory money types (`CheckoutMoney*`). `ModuleBoundaryTest` 66 -> 67.
+    `customer.order` from depending on Checkout's advisory money types (`CheckoutMoney*`; widened to `CheckoutBenefit*` by the
+    boundary hardening below). `ModuleBoundaryTest` 66 -> 67.
   - **Deployment gates unchanged:** the Order `orders`-count == 0 gate and the five Membership gates (the plan/rule identical-config
     gate covers `tazzzo.membership.plans` and `tazzzo.benefits.rules`) remain PENDING / UNVERIFIED; no new gate.
+
+## In review (NOT merged)
+
+- **Checkout/Order architecture boundary hardening** (`ModuleBoundaryTest` only): **IN REVIEW**. **Architecture tests and
+  documentation only: zero production files changed, no runtime, API, persistence or transaction change, no Payment, no Admin.**
+  - **Order never consumes Checkout's advisory outputs:** the rule `order_does_not_depend_on_checkout_advisory_money` is widened
+    and renamed `order_does_not_depend_on_checkout_advisory_benefits_or_money`: `customer.order` may not depend on any
+    `customer.checkout` type named `CheckoutMoney*` (snapshot, codec, preview) OR `CheckoutBenefit*` (snapshot, codec,
+    preview). Legitimate quote dependencies (`CheckoutQuote`, its lines, `CheckoutQuoteId`, the quote repository) stay allowed;
+    no package-wide ban.
+  - **Nested types can no longer bypass HTTP-surface rules:** every rule that SELECTS public HTTP/metrics classes by simple-name
+    suffix now uses the nested-aware selector introduced for the Order money rule (`selfOrEnclosingSimpleNameEndingWithAny`):
+    the two Checkout rules (Benefits snapshot, money snapshot), the Order Benefits-snapshot rule, the Order HTTP-delegation rule,
+    the create-only-path controller rule, `http_layer_never_depends_on_membership` and
+    `customer_controllers_cannot_access_membership`. (`membership_has_no_http_surface` and `benefits_has_no_http_surface` use the
+    suffix as a CONDITION, not a selector, so a nested type cannot bypass them; they are unchanged.)
+  - **Nested types can no longer bypass snapshot TARGETS either:** `CheckoutBenefitSnapshot` and `OrderBenefitSnapshot` are sealed
+    interfaces whose records are nested (`Applied`, `NoBenefit`), so a prefix match on the simple name missed a dependency on, e.g.,
+    `CheckoutBenefitSnapshot.Applied`. Every snapshot target (Checkout/Order Benefits and money snapshots, and the Order rule's
+    `CheckoutMoney*`/`CheckoutBenefit*` targets) and the `CheckoutBenefitPreview*` projection selector now use the matching
+    nested-aware helper (`selfOrEnclosingSimpleNameStartingWithAny`). `ModuleBoundaryTest` stays 67 (one rule widened and
+    renamed, none added or removed).
+  - **Proof (scratch mutations, all restored):** Order depending on `CheckoutMoneySnapshot` or on `CheckoutBenefitSnapshot.Applied`,
+    a nested `CustomerOrderDto` type consuming `OrderMoneySnapshot`, and nested `CheckoutQuoteDto` types consuming
+    `CheckoutMoneySnapshot` / `CheckoutBenefitSnapshot` each FAIL `ModuleBoundaryTest` on the intended rule. With `main`'s previous
+    rules the nested Checkout DTO mutations and the `CheckoutBenefitSnapshot.Applied` mutation PASS (the closed blind spots), and with
+    the widened Order rule removed the two Order mutations PASS (the rule is non-vacuous).
+  - Production Benefits rules remain 0; the six deployment gates remain PENDING / UNVERIFIED; Payment remains deferred.
 ## Follow-up debt (recorded)
 
 - **Non-Auth `tx.run` result-holder audit (PR-11D, no action taken):** `AttributeAuthoringService`
@@ -1164,7 +1192,7 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   `PublicServiceability`, pincode-keyed routing) is **COMPLETE** and unchanged; the
   customer-address BINDING to it (PR-12B) is **COMPLETE**.
   (Address ↔ Serviceability binding: COMPLETE.)
-- Cart (PR-12C): **COMPLETE** (PR #21). Auth transaction retry hardening (PR-11D): **COMPLETE** (PR #22). Checkout (PR-13A): **COMPLETE** (PR #23). Checkout provenance (PR-13B): **COMPLETE** (PR #24, squash `8b4fabb9b82e4e3502202ffaff1aadd35f9ba311`). Inventory Reservation lifecycle (PR-14A): **COMPLETE** (PR #25, squash `44438031022238334ecdf3995ba1096101e2e47f`). Order Foundation (PR-14B): **COMPLETE** (PR #26, squash `b620538e34afc35f7f080461750681b467ed4096`). Cart purchase-finalization seam (PR-15A-0): **COMPLETE** (PR #28, squash `611829c3649de3f5c37dec4ac5b375a1d8ef454e`). COD Order domain (PR-15A-1): **COMPLETE** (PR #29, squash `e8d4d45e88ad4935f7ad84a46ae65a671e50ba63`). Customer Order HTTP (PR-15A-2): **COMPLETE** (PR #30, squash `0cdcc97b8fcf5f7c079815b8cb276874635d15d6`; operational `orders`-count==0 deployment gate **PENDING**, not verified). Membership write foundation (PR-16A-1): **COMPLETE** (PR #31, squash `d32a23fb2e4b52fa8076de45a07bf3b60912b1e2`; Membership deployment gates **PENDING**, not verified). Membership entitlement read seam (PR-16A-2): **COMPLETE** (PR #32, squash `580633abbc8d162f45110443f503d4998f4caa48`). Membership termination (PR-16A-3): **COMPLETE** (PR #33, squash `99e2d1b7cc26982e0825bc4a9766b815aa6ae8e0`; cancel-at-period-end and immediate revoke; internal only). Benefits Foundation (order-level percentage + threshold evaluation seam; internal, no persistence): **COMPLETE** (PR #34, squash `cb2097f5979fe666d0d52de958b40db7058e3d16`; 0 production rules configured). Order Benefits snapshot (authoritative Benefits evaluation at COD placement; persisted snapshot, no public API change): **COMPLETE** (PR #35, squash `4486044e1c2f200ed05fe44abbb6525bf24a98f7`). Checkout Benefits evaluation snapshot (internal advisory preview persisted with the quote; no public API change): **COMPLETE** (PR #36, squash `30dea72482f71418048783b348647fdc0165a133`). Checkout Benefits preview public projection (additive nested `benefitPreview`, projection/API only): **COMPLETE** (PR #37, squash `48380964edb18f35eef501eb5aaf495da95d5c32`). Order money snapshot (authoritative V1 payable): **COMPLETE** (PR #38, squash `8051c45b7cf96dbc8d1374892d3b18281ff4a7b4`). Checkout advisory money snapshot + `moneyPreview`: **COMPLETE** (PR #39, squash `f98aafb67d946c04a7a7141f164e1d0998ab759b`). Benefits static config hardening: **COMPLETE** (PR #41, squash `22416e7a90aa36bc557d0926cc4b44dd7007a6b4`). PR-21 binding payable contract (PR #40, squash `3839f3d26e94f7d6cfed6e0da098ed900fd95a04`): merged without ratification; binding removed by the forward fix (in review), public Order money kept. Order money snapshot (authoritative V1 payable: merchandise subtotal minus Benefits discount; internal, no public API change): **IN REVIEW**. Payment: **NOT STARTED**. Real payment gateway: **NOT STARTED**.
+- Cart (PR-12C): **COMPLETE** (PR #21). Auth transaction retry hardening (PR-11D): **COMPLETE** (PR #22). Checkout (PR-13A): **COMPLETE** (PR #23). Checkout provenance (PR-13B): **COMPLETE** (PR #24, squash `8b4fabb9b82e4e3502202ffaff1aadd35f9ba311`). Inventory Reservation lifecycle (PR-14A): **COMPLETE** (PR #25, squash `44438031022238334ecdf3995ba1096101e2e47f`). Order Foundation (PR-14B): **COMPLETE** (PR #26, squash `b620538e34afc35f7f080461750681b467ed4096`). Cart purchase-finalization seam (PR-15A-0): **COMPLETE** (PR #28, squash `611829c3649de3f5c37dec4ac5b375a1d8ef454e`). COD Order domain (PR-15A-1): **COMPLETE** (PR #29, squash `e8d4d45e88ad4935f7ad84a46ae65a671e50ba63`). Customer Order HTTP (PR-15A-2): **COMPLETE** (PR #30, squash `0cdcc97b8fcf5f7c079815b8cb276874635d15d6`; operational `orders`-count==0 deployment gate **PENDING**, not verified). Membership write foundation (PR-16A-1): **COMPLETE** (PR #31, squash `d32a23fb2e4b52fa8076de45a07bf3b60912b1e2`; Membership deployment gates **PENDING**, not verified). Membership entitlement read seam (PR-16A-2): **COMPLETE** (PR #32, squash `580633abbc8d162f45110443f503d4998f4caa48`). Membership termination (PR-16A-3): **COMPLETE** (PR #33, squash `99e2d1b7cc26982e0825bc4a9766b815aa6ae8e0`; cancel-at-period-end and immediate revoke; internal only). Benefits Foundation (order-level percentage + threshold evaluation seam; internal, no persistence): **COMPLETE** (PR #34, squash `cb2097f5979fe666d0d52de958b40db7058e3d16`; 0 production rules configured). Order Benefits snapshot (authoritative Benefits evaluation at COD placement; persisted snapshot, no public API change): **COMPLETE** (PR #35, squash `4486044e1c2f200ed05fe44abbb6525bf24a98f7`). Checkout Benefits evaluation snapshot (internal advisory preview persisted with the quote; no public API change): **COMPLETE** (PR #36, squash `30dea72482f71418048783b348647fdc0165a133`). Checkout Benefits preview public projection (additive nested `benefitPreview`, projection/API only): **COMPLETE** (PR #37, squash `48380964edb18f35eef501eb5aaf495da95d5c32`). Order money snapshot (authoritative V1 payable): **COMPLETE** (PR #38, squash `8051c45b7cf96dbc8d1374892d3b18281ff4a7b4`). Checkout advisory money snapshot + `moneyPreview`: **COMPLETE** (PR #39, squash `f98aafb67d946c04a7a7141f164e1d0998ab759b`). Benefits static config hardening: **COMPLETE** (PR #41, squash `22416e7a90aa36bc557d0926cc4b44dd7007a6b4`). PR-21 binding payable contract (PR #40, squash `3839f3d26e94f7d6cfed6e0da098ed900fd95a04`): merged without ratification; binding removed by the forward fix, public Order money kept. Advisory payable forward fix: **COMPLETE** (PR #42, squash `89fcf349c24d67dd610c28eafa34d2e70669195a`). Order money snapshot (authoritative V1 payable: merchandise subtotal minus Benefits discount; internal, no public API change): **IN REVIEW**. Payment: **NOT STARTED**. Real payment gateway: **NOT STARTED**.
 
 ## Next (ratified sequence)
 
@@ -1178,7 +1206,8 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
    projection) complete (PR #37); fourth slice (Order money snapshot: authoritative V1 payable, internal) complete (PR #38); fifth slice
    (Checkout advisory money snapshot + public `moneyPreview`) complete (PR #39); sixth slice (Benefits static config
    hardening: plan cross-validation) complete (PR #41); PR #40 (binding payable, unratified) was merged and its binding is
-   removed by the forward fix (in review), which keeps the public authoritative Order money; Payment comes last.
+   removed by the forward fix (complete, PR #42), which keeps the public authoritative Order money; the Checkout/Order
+   architecture boundary hardening is in review; Payment comes last.
 4. Payment domain, then the prepaid Order flow, then a real gateway.
 5. Admin/CMS expansion.
 
@@ -1215,6 +1244,11 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-10-02** — `./mvnw clean test` on Java 21 + Docker on `feature/pr23-checkout-order-arch-hardening` (based on `main`
+  `89fcf349c24d67dd610c28eafa34d2e70669195a`): **BUILD SUCCESS**, 2250 tests, 0 failures / 0 errors / 0 skipped;
+  `ModuleBoundaryTest` 67/67 (rules hardened, none added or removed; no production file changed).
+- **2026-10-02** — merged-`main` verification of PR #42 (squash `89fcf349c24d67dd610c28eafa34d2e70669195a`, push CI run
+  `37039217513` on Java 21): **BUILD SUCCESS**, 2250 tests, 0 failures / 0 errors / 0 skipped; `ModuleBoundaryTest` 67/67.
 - **2026-10-02** — `./mvnw clean test` on Java 21 + Docker on `feature/pr22a-restore-advisory-payable` (based on `main`
   `3839f3d26e94f7d6cfed6e0da098ed900fd95a04`, i.e. after PR #40): **BUILD SUCCESS**, 2250 tests, 0 failures / 0 errors / 0
   skipped; `ModuleBoundaryTest` 67/67. The count is 9 below `main`'s 2259 because PR #40's binding-only tests were removed
