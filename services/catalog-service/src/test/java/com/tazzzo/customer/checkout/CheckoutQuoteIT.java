@@ -3,6 +3,7 @@ package com.tazzzo.customer.checkout;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.tazzzo.benefits.BenefitsEvaluationPort;
 import com.tazzzo.auth.CustomerAccessTokenCodec;
 import com.tazzzo.auth.CustomerId;
 import com.tazzzo.auth.CustomerIdentityAuthority;
@@ -121,6 +122,12 @@ class CheckoutQuoteIT extends AbstractApiIT {
     @Autowired CheckoutQuoteRepository quoteRepository;
     @Autowired CheckoutProperties checkoutProperties;
     @Autowired Clock clock;
+    @Autowired com.tazzzo.benefits.BenefitsEvaluationPort wiredBenefits;
+    @Autowired com.tazzzo.benefits.BenefitsObservability benefitsObservability;
+    @Autowired com.tazzzo.membership.MembershipService memberships;
+    @Autowired com.tazzzo.membership.MembershipTerminationService membershipTermination;
+    @Autowired com.tazzzo.membership.MembershipEntitlementPort membershipPort;
+    @Autowired com.tazzzo.customer.order.OrderService orderService;
     @Autowired org.springframework.beans.factory.ObjectProvider<CustomerIdentityAuthority> identityAuthority;
 
     @BeforeAll
@@ -602,8 +609,12 @@ class CheckoutQuoteIT extends AbstractApiIT {
     // ---------- transaction races (service level, real Mongo txn + forced retries) ----------
 
     private CheckoutService serviceWith(RetryInjectingTx tx) {
+        return serviceWith(tx, wiredBenefits);
+    }
+
+    private CheckoutService serviceWith(RetryInjectingTx tx, BenefitsEvaluationPort benefits) {
         return new CheckoutService(cartService, cartEnricher, addressRepository, quoteRepository, checkoutProperties,
-                clock, identityAuthority, tx);
+                clock, identityAuthority, benefits, tx);
     }
 
     @Test void a_forced_transaction_retry_persists_exactly_one_quote_and_returns_the_committed_one() {
@@ -975,5 +986,286 @@ class CheckoutQuoteIT extends AbstractApiIT {
         ResponseEntity<JsonNode> conflict = quote(r.token(), 0, newKey(), r.address());
         assertThat(conflict.getStatusCode().value()).isEqualTo(412);
         assertThat(conflict.getBody().toString()).doesNotContain("addressVersion");
+    }
+
+    // ============================================================
+    // PR-19A-1 -- the ADVISORY Checkout Benefits snapshot (internal only, persisted with the quote)
+    // ============================================================
+
+    private static final String BENEFIT_PLAN = "TAZZZO_PLUS_MONTHLY";
+
+    private BenefitsEvaluationPort realBenefits(com.tazzzo.benefits.BenefitRule... rules) {
+        return new com.tazzzo.benefits.BenefitsEvaluationService(membershipPort,
+                new com.tazzzo.benefits.ConfigBackedBenefitRuleSource(List.of(rules)), benefitsObservability);
+    }
+
+    // TEST FIXTURES only (never launch policy)
+    private static com.tazzzo.benefits.BenefitRule benefitRule(long minimumPaise, int bps) {
+        return new com.tazzzo.benefits.BenefitRule(BENEFIT_PLAN, 1,
+                com.tazzzo.common.money.Money.ofInrPaise(minimumPaise), new com.tazzzo.benefits.DiscountBps(bps));
+    }
+
+    private com.tazzzo.membership.Membership grantMembership(CustomerId customer) {
+        return memberships.grant(customer, BENEFIT_PLAN, 1, "REF-" + java.util.UUID.randomUUID());
+    }
+
+    private Document storedQuote(String quoteId) {
+        return db.getCollection("checkout_quotes").find(new Document("_id", quoteId)).first();
+    }
+
+    /** A customer whose cart is 2 x 5000 = 10,000 paise at the serviceable PIN, cart version 1. */
+    private Ready tenThousand() {
+        return ready(5000, 10, 2);
+    }
+
+    private static final BenefitsEvaluationPort MUST_NOT_BE_CALLED = (c, subtotal) -> {
+        throw new AssertionError("Benefits must NOT be evaluated here");
+    };
+
+    private CheckoutQuote create(Ready r, BenefitsEvaluationPort benefits) {
+        return serviceWith(new RetryInjectingTx(client), benefits).createQuote(
+                new CustomerId(customerId(r.token())), 1, newKey(), r.address(), "req");
+    }
+
+    @Test void a_quote_for_a_customer_without_membership_persists_a_NO_MEMBERSHIP_snapshot() {
+        Ready r = tenThousand();
+
+        CheckoutQuote q = create(r, realBenefits(benefitRule(10_000, 500)));
+
+        assertThat(q.benefitSnapshot()).isEqualTo(new CheckoutBenefitSnapshot.NoBenefit(10_000,
+                com.tazzzo.benefits.BenefitEvaluation.NoBenefitReason.NO_MEMBERSHIP));
+        Document stored = (Document) storedQuote(q.quoteId()).get("benefits");
+        assertThat(stored.keySet()).containsExactlyInAnyOrder("outcome", "eligibleSubtotalPaise", "noBenefitReason");
+        assertThat(stored.getString("noBenefitReason")).isEqualTo("NO_MEMBERSHIP");
+    }
+
+    @Test void a_member_with_no_configured_rule_persists_a_NO_RULE_snapshot_the_production_default() {
+        Ready r = tenThousand();
+        grantMembership(new CustomerId(customerId(r.token())));
+
+        CheckoutQuote q = create(r, realBenefits());
+
+        assertThat(q.benefitSnapshot()).isEqualTo(new CheckoutBenefitSnapshot.NoBenefit(10_000,
+                com.tazzzo.benefits.BenefitEvaluation.NoBenefitReason.NO_RULE));
+    }
+
+    @Test void a_member_below_the_threshold_persists_a_NOT_ELIGIBLE_snapshot() {
+        Ready r = tenThousand();
+        grantMembership(new CustomerId(customerId(r.token())));
+
+        CheckoutQuote q = create(r, realBenefits(benefitRule(10_001, 500)));
+
+        assertThat(q.benefitSnapshot()).isEqualTo(new CheckoutBenefitSnapshot.NoBenefit(10_000,
+                com.tazzzo.benefits.BenefitEvaluation.NoBenefitReason.NOT_ELIGIBLE));
+    }
+
+    @Test void a_member_at_the_threshold_persists_an_APPLIED_snapshot_without_membership_or_plan_identity() {
+        Ready r = tenThousand();
+        grantMembership(new CustomerId(customerId(r.token())));
+
+        CheckoutQuote q = create(r, realBenefits(benefitRule(10_000, 500)));
+
+        assertThat(q.benefitSnapshot()).isEqualTo(new CheckoutBenefitSnapshot.Applied(10_000, 500, 500));
+        Document stored = (Document) storedQuote(q.quoteId()).get("benefits");
+        assertThat(stored.keySet()).containsExactlyInAnyOrder("outcome", "eligibleSubtotalPaise", "discountPaise",
+                "discountBps");
+        assertThat(stored.get("discountPaise")).isEqualTo(500L);
+    }
+
+    @Test void canonical_quote_money_is_unchanged_and_no_discount_or_payable_field_is_persisted() {
+        Ready r = tenThousand();
+        grantMembership(new CustomerId(customerId(r.token())));
+
+        CheckoutQuote q = create(r, realBenefits(benefitRule(10_000, 500)));
+
+        assertThat(q.subtotalPaise()).isEqualTo(10_000);
+        assertThat(q.lines()).hasSize(1);
+        assertThat(q.lines().get(0).unitPricePaise()).isEqualTo(5_000);
+        assertThat(q.lines().get(0).lineTotalPaise()).isEqualTo(10_000);
+        Document doc = storedQuote(q.quoteId());
+        assertThat(doc.get("subtotalPaise")).isEqualTo(10_000L);
+        assertThat(doc.keySet()).doesNotContain("discountPaise", "payablePaise", "amountDue", "grandTotal",
+                "finalTotal", "netSubtotalPaise", "discountedSubtotalPaise");
+        assertThat(doc.getList("items", Document.class).get(0).keySet())
+                .containsExactlyInAnyOrder("skuId", "quantity", "unitPricePaise", "lineTotalPaise");
+    }
+
+    @Test void the_http_quote_persists_a_snapshot_with_the_wired_production_configuration_and_exposes_nothing() {
+        Ready r = tenThousand();
+
+        ResponseEntity<JsonNode> res = quote(r.token(), 1, newKey(), r.address());
+
+        assertThat(res.getStatusCode().value()).isEqualTo(200);
+        assertThat(res.getBody().toString().toLowerCase()).doesNotContain("benefit").doesNotContain("no_rule")
+                .doesNotContain("no_membership").doesNotContain("discount");
+        Document stored = (Document) storedQuote(res.getBody().get("quoteId").asText()).get("benefits");
+        assertThat(stored.getString("outcome")).isEqualTo("NO_BENEFIT");
+        assertThat(stored.getString("noBenefitReason")).isEqualTo("NO_MEMBERSHIP");
+    }
+
+    @Test void benefits_is_evaluated_exactly_once_per_creation_even_across_a_forced_transaction_retry() {
+        Ready r = tenThousand();
+        java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+        BenefitsEvaluationPort counting = (c, subtotal) -> {
+            calls.incrementAndGet();
+            return realBenefits().evaluate(c, subtotal);
+        };
+        RetryInjectingTx retryTx = new RetryInjectingTx(client);
+        retryTx.arm(1);
+
+        serviceWith(retryTx, counting).createQuote(new CustomerId(customerId(r.token())), 1, newKey(), r.address(),
+                "req");
+
+        assertThat(retryTx.attempts()).isEqualTo(2);
+        assertThat(calls.get()).as("evaluated before the transaction, so a retry never re-evaluates").isEqualTo(1);
+        assertThat(quoteCount(r.token())).isEqualTo(1);
+    }
+
+    // ---------- fail closed ----------
+
+    @Test void a_benefits_outage_fails_the_quote_closed_and_persists_nothing() {
+        Ready r = tenThousand();
+        BenefitsEvaluationPort down = (c, subtotal) -> {
+            throw new com.tazzzo.benefits.BenefitsFailure(com.tazzzo.benefits.BenefitsFailure.Reason.UNAVAILABLE, "x");
+        };
+
+        assertThatThrownBy(() -> create(r, down)).isInstanceOf(CheckoutFailure.class)
+                .satisfies(e -> assertThat(((CheckoutFailure) e).reason()).isEqualTo(CheckoutFailure.Reason.UNAVAILABLE));
+        assertThat(quoteCount(r.token())).isZero();
+    }
+
+    @Test void benefits_integrity_and_invalid_request_failures_are_uncaught_integrity_defects_and_persist_nothing() {
+        for (com.tazzzo.benefits.BenefitsFailure.Reason reason : List.of(
+                com.tazzzo.benefits.BenefitsFailure.Reason.INTEGRITY_FAILURE,
+                com.tazzzo.benefits.BenefitsFailure.Reason.INVALID_REQUEST)) {
+            Ready r = tenThousand();
+            BenefitsEvaluationPort failing = (c, subtotal) -> {
+                throw new com.tazzzo.benefits.BenefitsFailure(reason, "internal detail");
+            };
+
+            assertThatThrownBy(() -> create(r, failing)).isInstanceOf(IllegalStateException.class)
+                    .isNotInstanceOf(CheckoutFailure.class).hasMessageNotContaining("internal detail");
+            assertThat(quoteCount(r.token())).as("%s", reason).isZero();
+        }
+    }
+
+    // ---------- replay and GET never re-evaluate ----------
+
+    @Test void a_replay_returns_the_stored_quote_and_snapshot_unchanged_after_a_membership_change() {
+        Ready r = tenThousand();
+        CustomerId cid = new CustomerId(customerId(r.token()));
+        com.tazzzo.membership.Membership term = grantMembership(cid);
+        String key = newKey();
+        CheckoutQuote first = serviceWith(new RetryInjectingTx(client), realBenefits(benefitRule(10_000, 500)))
+                .createQuote(cid, 1, key, r.address(), "req");
+        assertThat(first.benefitSnapshot()).isInstanceOf(CheckoutBenefitSnapshot.Applied.class);
+        membershipTermination.revoke(term.membershipId()); // Membership changed after the quote
+        Document before = storedQuote(first.quoteId());
+
+        CheckoutQuote replay = serviceWith(new RetryInjectingTx(client), MUST_NOT_BE_CALLED)
+                .createQuote(cid, 1, key, r.address(), "req");
+
+        assertThat(replay).isEqualTo(first);
+        assertThat(replay.benefitSnapshot()).isEqualTo(first.benefitSnapshot());
+        assertThat(storedQuote(first.quoteId())).as("the stored quote is untouched").isEqualTo(before);
+        assertThat(quoteCount(r.token())).isEqualTo(1);
+    }
+
+    @Test void a_replay_ignores_a_benefits_configuration_change_after_the_quote() {
+        Ready r = tenThousand();
+        CustomerId cid = new CustomerId(customerId(r.token()));
+        grantMembership(cid);
+        String key = newKey();
+        CheckoutQuote first = serviceWith(new RetryInjectingTx(client), realBenefits())
+                .createQuote(cid, 1, key, r.address(), "req");
+        assertThat(first.benefitSnapshot()).isEqualTo(new CheckoutBenefitSnapshot.NoBenefit(10_000,
+                com.tazzzo.benefits.BenefitEvaluation.NoBenefitReason.NO_RULE));
+
+        // a later deployment configures a rule: the replay must not follow it
+        CheckoutQuote replay = serviceWith(new RetryInjectingTx(client), realBenefits(benefitRule(1_000, 9_000)))
+                .createQuote(cid, 1, key, r.address(), "req");
+
+        assertThat(replay).isEqualTo(first);
+        assertThat(replay.benefitSnapshot()).isInstanceOf(CheckoutBenefitSnapshot.NoBenefit.class);
+    }
+
+    @Test void get_returns_the_stored_snapshot_and_never_evaluates_benefits() {
+        Ready r = tenThousand();
+        CustomerId cid = new CustomerId(customerId(r.token()));
+        grantMembership(cid);
+        CheckoutQuote created = serviceWith(new RetryInjectingTx(client), realBenefits(benefitRule(10_000, 500)))
+                .createQuote(cid, 1, newKey(), r.address(), "req");
+
+        CheckoutQuote read = serviceWith(new RetryInjectingTx(client), MUST_NOT_BE_CALLED)
+                .readQuote(cid, created.quoteId());
+
+        assertThat(read).isEqualTo(created);
+        assertThat(read.benefitSnapshot()).isEqualTo(new CheckoutBenefitSnapshot.Applied(10_000, 500, 500));
+        ResponseEntity<JsonNode> http = getQuote(r.token(), created.quoteId());
+        assertThat(http.getStatusCode().value()).isEqualTo(200);
+        assertThat(http.getBody().fieldNames()).toIterable().containsExactlyInAnyOrder("quoteId", "cartVersion",
+                "addressId", "items", "itemCount", "distinctItemCount", "subtotalPaise", "currency", "createdAt",
+                "expiresAt", "requestId");
+    }
+
+    // ---------- legacy absence and corruption ----------
+
+    @Test void a_legacy_quote_without_a_snapshot_reconstructs_and_follows_the_existing_expiry_semantics() {
+        Ready r = tenThousand();
+        String key = newKey();
+        String quoteId = quote(r.token(), 1, key, r.address()).getBody().get("quoteId").asText();
+        db.getCollection("checkout_quotes").updateOne(new Document("_id", quoteId),
+                new Document("$unset", new Document("benefits", "")));
+
+        assertThat(getQuote(r.token(), quoteId).getStatusCode().value()).isEqualTo(200);
+        assertThat(quote(r.token(), 1, key, r.address()).getStatusCode().value()).as("replay").isEqualTo(200);
+        CheckoutQuote read = serviceWith(new RetryInjectingTx(client), MUST_NOT_BE_CALLED)
+                .readQuote(new CustomerId(customerId(r.token())), quoteId);
+        assertThat(read.benefitSnapshot()).as("absent is NOT a fabricated NO_BENEFIT").isNull();
+
+        expire(quoteId);
+        assertThat(getQuote(r.token(), quoteId).getStatusCode().value()).as("an old expired legacy quote stays 410")
+                .isEqualTo(410);
+        assertThat(quote(r.token(), 1, key, r.address()).getStatusCode().value()).isEqualTo(410);
+    }
+
+    @Test void an_explicit_null_or_empty_or_malformed_stored_snapshot_is_a_safe_500() {
+        for (Object bad : new Object[]{null, new Document(), "NO_BENEFIT",
+                new Document("outcome", "NO_BENEFIT").append("eligibleSubtotalPaise", 10_000L),
+                new Document("outcome", "APPLIED").append("eligibleSubtotalPaise", 10_000L)
+                        .append("discountPaise", 0L).append("discountBps", 500)}) {
+            Ready r = tenThousand();
+            String key = newKey();
+            String quoteId = quote(r.token(), 1, key, r.address()).getBody().get("quoteId").asText();
+            corrupt(quoteId, new Document("benefits", bad));
+
+            ResponseEntity<JsonNode> read = getQuote(r.token(), quoteId);
+            assertThat(read.getStatusCode().value()).as("%s", bad).isEqualTo(500);
+            assertThat(read.getBody().get("code").asText()).isEqualTo("INTERNAL");
+            assertThat(read.getBody().toString()).doesNotContain("benefits").doesNotContain("outcome");
+            assertThat(quote(r.token(), 1, key, r.address()).getStatusCode().value()).as("replay").isEqualTo(500);
+        }
+    }
+
+    // ---------- the preview is advisory: Order is authoritative ----------
+
+    @Test void a_preview_can_disagree_with_the_authoritative_order_and_the_order_simply_wins() {
+        Ready r = tenThousand();
+        CustomerId cid = new CustomerId(customerId(r.token()));
+        com.tazzzo.membership.Membership term = grantMembership(cid);
+        CheckoutQuote quote = serviceWith(new RetryInjectingTx(client), realBenefits(benefitRule(10_000, 500)))
+                .createQuote(cid, 1, newKey(), r.address(), "req");
+        assertThat(quote.benefitSnapshot()).isInstanceOf(CheckoutBenefitSnapshot.Applied.class); // preview: APPLIED
+        membershipTermination.revoke(term.membershipId());                                       // then revoked
+
+        com.tazzzo.customer.order.Order order = orderService.placeCodOrder(cid, quote.quoteId());
+
+        // the Order placed normally (no rejection, no new failure reason) and stores ITS authoritative outcome
+        assertThat(order.status()).isEqualTo(com.tazzzo.customer.order.OrderStatus.CONFIRMED);
+        assertThat(order.benefitSnapshot()).isEqualTo(new com.tazzzo.customer.order.OrderBenefitSnapshot.NoBenefit(
+                10_000, com.tazzzo.benefits.BenefitEvaluation.NoBenefitReason.NO_MEMBERSHIP));
+        assertThat(CheckoutQuoteRepository.toQuote(storedQuote(quote.quoteId())).benefitSnapshot())
+                .as("the quote's advisory preview is untouched by the Order").isEqualTo(
+                        new CheckoutBenefitSnapshot.Applied(10_000, 500, 500));
     }
 }

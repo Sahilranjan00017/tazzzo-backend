@@ -29,7 +29,17 @@ import java.util.Set;
  */
 public record CheckoutQuote(String quoteId, long cartVersion, String addressId, long addressVersion,
                             List<Line> lines, int itemCount, long subtotalPaise, String currency,
-                            Instant createdAt, Instant expiresAt) {
+                            Instant createdAt, Instant expiresAt, CheckoutBenefitSnapshot benefitSnapshot) {
+
+    /**
+     * A quote WITHOUT a Benefits snapshot: a legacy (pre-Checkout-Benefits) quote, or a test fixture. Production code
+     * that CREATES a quote never calls this (ArchUnit-enforced): every new quote carries a snapshot.
+     */
+    public CheckoutQuote(String quoteId, long cartVersion, String addressId, long addressVersion, List<Line> lines,
+                         int itemCount, long subtotalPaise, String currency, Instant createdAt, Instant expiresAt) {
+        this(quoteId, cartVersion, addressId, addressVersion, lines, itemCount, subtotalPaise, currency, createdAt,
+                expiresAt, null);
+    }
 
     public record Line(String skuId, int quantity, long unitPricePaise, long lineTotalPaise) {
         public Line {
@@ -100,6 +110,10 @@ public record CheckoutQuote(String quoteId, long cartVersion, String addressId, 
         }
         if (!createdAt.isBefore(expiresAt)) {
             throw new IllegalArgumentException("createdAt must be before expiresAt");
+        }
+        // null ONLY for a legacy quote (never "no benefit"); when present it is about THIS quote's subtotal
+        if (benefitSnapshot != null && benefitSnapshot.eligibleSubtotalPaise() != subtotalPaise) {
+            throw new IllegalArgumentException("benefit snapshot eligibleSubtotalPaise does not equal the quote subtotal");
         }
     }
 

@@ -63,18 +63,26 @@ public class CheckoutQuoteRepository {
 
     public void insert(ClientSession session, CheckoutQuote quote, String customerId, String keyDigest,
                        String fingerprint) {
+        collection().insertOne(session, toDocument(quote, customerId, keyDigest, fingerprint));
+    }
+
+    static Document toDocument(CheckoutQuote quote, String customerId, String keyDigest, String fingerprint) {
         List<Document> items = new ArrayList<>(quote.lines().size());
         for (CheckoutQuote.Line l : quote.lines()) {
             items.add(new Document("skuId", l.skuId()).append("quantity", l.quantity())
                     .append("unitPricePaise", l.unitPricePaise()).append("lineTotalPaise", l.lineTotalPaise()));
         }
-        collection().insertOne(session, new Document("_id", quote.quoteId()).append("customerId", customerId)
+        Document d = new Document("_id", quote.quoteId()).append("customerId", customerId)
                 .append("idempotencyKeyDigest", keyDigest).append("fingerprint", fingerprint)
                 .append("cartVersion", quote.cartVersion()).append("addressId", quote.addressId())
                 .append("addressVersion", quote.addressVersion())
                 .append("items", items).append("itemCount", quote.itemCount())
                 .append("subtotalPaise", quote.subtotalPaise()).append("currency", quote.currency())
-                .append("createdAt", Date.from(quote.createdAt())).append("expiresAt", Date.from(quote.expiresAt())));
+                .append("createdAt", Date.from(quote.createdAt())).append("expiresAt", Date.from(quote.expiresAt()));
+        if (quote.benefitSnapshot() != null) { // absent ONLY on a legacy quote; never written as null/placeholder
+            d.append(CheckoutBenefitSnapshotCodec.FIELD, CheckoutBenefitSnapshotCodec.toDocument(quote.benefitSnapshot()));
+        }
+        return d;
     }
 
     /**
@@ -95,10 +103,16 @@ public class CheckoutQuoteRepository {
         if (addressVersion == null) {
             throw new IllegalArgumentException("checkout quote missing addressVersion (legacy or corrupt row)");
         }
+        // PRESENT => strictly reconstructed (an explicit null is corruption); ABSENT => a legacy quote, never "no
+        // benefit" and never an error (legacy quotes are never deleted, so a required field would turn an old
+        // expired quote's 410 into a 500 before expiry handling)
+        CheckoutBenefitSnapshot benefitSnapshot = d.containsKey(CheckoutBenefitSnapshotCodec.FIELD)
+                ? CheckoutBenefitSnapshotCodec.fromDocument(d.get(CheckoutBenefitSnapshotCodec.FIELD)) : null;
         return new CheckoutQuote(d.getString("_id"), d.get("cartVersion", Number.class).longValue(),
                 d.getString("addressId"), addressVersion.longValue(), List.copyOf(lines),
                 d.get("itemCount", Number.class).intValue(), d.get("subtotalPaise", Number.class).longValue(),
-                d.getString("currency"), d.getDate("createdAt").toInstant(), d.getDate("expiresAt").toInstant());
+                d.getString("currency"), d.getDate("createdAt").toInstant(), d.getDate("expiresAt").toInstant(),
+                benefitSnapshot);
     }
 
     private static org.bson.conversions.Bson idempotencyFilter(String customerId, String keyDigest) {

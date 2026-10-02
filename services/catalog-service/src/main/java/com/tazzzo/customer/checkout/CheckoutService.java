@@ -1,5 +1,9 @@
 package com.tazzzo.customer.checkout;
 
+import com.tazzzo.benefits.BenefitEvaluation;
+import com.tazzzo.benefits.BenefitsEvaluationPort;
+import com.tazzzo.benefits.BenefitsFailure;
+import com.tazzzo.common.money.Money;
 import com.mongodb.MongoWriteException;
 import com.tazzzo.auth.CustomerId;
 import com.tazzzo.auth.CustomerIdentityAuthority;
@@ -70,11 +74,13 @@ public class CheckoutService {
     private final CheckoutProperties properties;
     private final Clock clock;
     private final ObjectProvider<CustomerIdentityAuthority> identityAuthority;
+    private final BenefitsEvaluationPort benefits;
     private final Tx tx;
 
     public CheckoutService(CartService carts, CartEnricher enricher, AddressRepository addresses,
                            CheckoutQuoteRepository quotes, CheckoutProperties properties, Clock clock,
-                           ObjectProvider<CustomerIdentityAuthority> identityAuthority, Tx tx) {
+                           ObjectProvider<CustomerIdentityAuthority> identityAuthority,
+                           BenefitsEvaluationPort benefits, Tx tx) {
         this.carts = carts;
         this.enricher = enricher;
         this.addresses = addresses;
@@ -82,6 +88,7 @@ public class CheckoutService {
         this.properties = properties;
         this.clock = clock;
         this.identityAuthority = identityAuthority;
+        this.benefits = benefits;
         this.tx = tx;
     }
 
@@ -152,11 +159,41 @@ public class CheckoutService {
         // 5. Immutable candidate (all ids/instants fixed BEFORE the transaction).
         // millisecond precision == what Mongo stores, so the creating response and every replay are identical
         Instant createdAt = now.truncatedTo(java.time.temporal.ChronoUnit.MILLIS);
+        // The ADVISORY Benefits snapshot is evaluated over the FINAL canonical merchandise subtotal (standalone port,
+        // outside any transaction, like the commerce validation above) and the quote is built ONCE with it. Nothing
+        // after this alters the lines, quantities or subtotal: the quote is persisted exactly as built.
         CheckoutQuote candidate = candidate(CheckoutQuoteId.generate(), expectedCartVersion, addressId,
-                address.version(), validated, createdAt);
+                address.version(), validated, createdAt, subtotal -> evaluateBenefits(customerId, subtotal));
 
         // 6. Persist.
         return persist(customerId, expectedCartVersion, address, candidate, keyDigest, fingerprint);
+    }
+
+    /**
+     * Checkout only PROJECTS the Benefits result (no arithmetic, no rule access). A normal no-benefit outcome is a
+     * successful quote. FAIL CLOSED: a Benefits outage fails the quote with {@code UNAVAILABLE}; an integrity or
+     * programming defect (Benefits {@code INTEGRITY_FAILURE}/{@code INVALID_REQUEST}, or a result inconsistent with the
+     * quote subtotal) propagates UNCAUGHT as the existing integrity-defect convention -> a safe 500 {@code INTERNAL}.
+     * None of them is ever turned into "no benefit".
+     */
+    private CheckoutBenefitSnapshot evaluateBenefits(CustomerId customerId, long subtotalPaise) {
+        BenefitEvaluation evaluation;
+        try {
+            evaluation = benefits.evaluate(customerId, Money.ofInrPaise(subtotalPaise));
+        } catch (BenefitsFailure e) {
+            if (e.reason() == BenefitsFailure.Reason.UNAVAILABLE) {
+                log.error("customer_checkout_benefits_unavailable");
+                throw new CheckoutFailure(CheckoutFailure.Reason.UNAVAILABLE);
+            }
+            log.error("customer_checkout_benefits_failed reason={}", e.reason());
+            throw new IllegalStateException("benefits evaluation failed");
+        }
+        try {
+            return CheckoutBenefitSnapshot.from(evaluation, subtotalPaise);
+        } catch (IllegalArgumentException e) {
+            log.error("customer_checkout_benefits_inconsistent");
+            throw new IllegalStateException("benefits evaluation is inconsistent with the quote");
+        }
     }
 
     private CheckoutQuote persist(CustomerId customerId, long expectedCartVersion, ValidatedAddress address,
@@ -323,7 +360,8 @@ public class CheckoutService {
      * here, never derived from anything client-supplied.
      */
     private CheckoutQuote candidate(CheckoutQuoteId id, long cartVersion, AddressId addressId, long addressVersion,
-                                    CartResponseDto validated, Instant now) {
+                                    CartResponseDto validated, Instant now,
+                                    java.util.function.LongFunction<CheckoutBenefitSnapshot> benefitsForSubtotal) {
         List<CheckoutQuote.Line> lines = new ArrayList<>(validated.items().size());
         long subtotal = 0;
         int itemCount = 0;
@@ -344,8 +382,10 @@ public class CheckoutService {
             log.error("customer_checkout_total_overflow");
             throw new CheckoutFailure(CheckoutFailure.Reason.UNAVAILABLE);
         }
+        CheckoutBenefitSnapshot benefitSnapshot = benefitsForSubtotal.apply(subtotal);
         return new CheckoutQuote(id.value(), cartVersion, addressId.value(), addressVersion, List.copyOf(lines),
-                itemCount, subtotal, "INR", now, now.plus(Duration.ofSeconds(properties.getQuoteTtlSeconds())));
+                itemCount, subtotal, "INR", now, now.plus(Duration.ofSeconds(properties.getQuoteTtlSeconds())),
+                benefitSnapshot);
     }
 
     // ---------- identity / address ----------

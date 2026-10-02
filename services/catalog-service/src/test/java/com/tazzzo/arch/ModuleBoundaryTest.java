@@ -836,12 +836,48 @@ class ModuleBoundaryTest {
                             .or(com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameStartingWith("OrderBenefitSnapshot")))
                     .allowEmptyShould(true);
 
-    /** Order -- Checkout stays out of Benefits in this slice (no preview): nothing in {@code customer.checkout} or
-     *  {@code customer.cart} depends on Benefits. */
+    /** Checkout -- reaches Benefits ONLY through the STANDALONE port and the result/failure types it must read (the
+     *  advisory snapshot projection): never the transactional port (Checkout's persistence transaction is not where
+     *  Benefits is evaluated), the services/evaluators, the rule source or rule, or any Benefits configuration.
+     *  (Checkout -> Membership and Checkout -> Order stay forbidden by the existing rules.) */
     @ArchTest
-    static final ArchRule checkout_and_cart_do_not_depend_on_benefits_in_this_slice =
-            noClasses().that().resideInAnyPackage("com.tazzzo.customer.checkout..", "com.tazzzo.customer.cart..")
+    static final ArchRule checkout_reaches_benefits_only_through_the_standalone_port_and_result_types =
+            noClasses().that().resideInAPackage("com.tazzzo.customer.checkout..")
+                    .should().dependOnClassesThat(resideInAnyPackage("com.tazzzo.benefits..")
+                            .and(DescribedPredicate.not(belongToAnyOf(BenefitsEvaluationPort.class,
+                                    BenefitEvaluation.class, BenefitEvaluation.Applied.class,
+                                    BenefitEvaluation.NoBenefit.class, BenefitEvaluation.NoBenefitReason.class,
+                                    BenefitsFailure.class, BenefitsFailure.Reason.class))))
+                    .allowEmptyShould(true);
+
+    /** Cart -- stays out of Benefits permanently. */
+    @ArchTest
+    static final ArchRule cart_does_not_depend_on_benefits =
+            noClasses().that().resideInAPackage("com.tazzzo.customer.cart..")
                     .should().dependOnClassesThat().resideInAPackage("com.tazzzo.benefits..")
+                    .allowEmptyShould(true);
+
+    /** Checkout -- the public HTTP surface and the Checkout metrics know nothing about Benefits or the snapshot: the
+     *  preview is INTERNAL (no DTO/OpenAPI change, no Benefits value in any metric). */
+    @ArchTest
+    static final ArchRule checkout_http_layer_and_metrics_do_not_depend_on_benefits_or_the_snapshot =
+            noClasses().that(com.tngtech.archunit.core.domain.JavaClass.Predicates
+                            .resideInAPackage("com.tazzzo.customer.checkout..")
+                            .and(com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameEndingWith("Controller")
+                                    .or(com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameEndingWith("ExceptionHandler"))
+                                    .or(com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameEndingWith("Dto"))
+                                    .or(com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameEndingWith("Observability"))))
+                    .should().dependOnClassesThat(resideInAnyPackage("com.tazzzo.benefits..")
+                            .or(com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameStartingWith("CheckoutBenefitSnapshot")))
+                    .allowEmptyShould(true);
+
+    /** Checkout -- no production code CREATES a quote without a Benefits snapshot: the snapshot-less
+     *  {@code CheckoutQuote} constructor exists only for legacy reconstruction fixtures and tests. */
+    @ArchTest
+    static final ArchRule no_production_code_creates_a_checkout_quote_without_a_benefits_snapshot =
+            noClasses().should().callConstructor(com.tazzzo.customer.checkout.CheckoutQuote.class,
+                    String.class, long.class, String.class, long.class, java.util.List.class, int.class, long.class,
+                    String.class, java.time.Instant.class, java.time.Instant.class)
                     .allowEmptyShould(true);
 
     /**
