@@ -97,8 +97,7 @@ class CheckoutQuoteContractTest {
         assertThat(text).doesNotContain("no_rule").doesNotContain("no_membership").doesNotContain("not_eligible")
                 .doesNotContain("membershipid").doesNotContain("planid").doesNotContain("planversion")
                 .doesNotContain("eligiblesubtotal");
-        // PR-21: the preview is the FROZEN decision the order verifies -- no longer described as advisory
-        assertThat(text).contains("frozen").contains("absent").contains("payable_changed").doesNotContain("advisory");
+        assertThat(text).contains("advisory").contains("absent");
     }
 
     @Test
@@ -125,10 +124,8 @@ class CheckoutQuoteContractTest {
                 .isEqualTo(components(CheckoutQuoteDto.MoneyPreview.class));
 
         String text = money.toString().toLowerCase();
-        // PR-21: BINDING, not advisory -- the order reproduces it exactly or is refused with PAYABLE_CHANGED
-        assertThat(text).contains("binding").contains("absent").contains("payable_changed").contains("not a zero payable")
-                .contains("not a stock reservation");
-        assertThat(text).doesNotContain("advisory").doesNotContain("may differ").doesNotContain("not a guarantee");
+        assertThat(text).contains("advisory").contains("absent").contains("not payment authority")
+                .contains("not a price lock").contains("authoritative").contains("may differ");
         assertThat(text).doesNotContain("guaranteed final").doesNotContain("charged amount")
                 .doesNotContain("captured").doesNotContain("amounttocharge").doesNotContain("paymentstatus")
                 .doesNotContain("no_rule").doesNotContain("no_membership").doesNotContain("membershipid")

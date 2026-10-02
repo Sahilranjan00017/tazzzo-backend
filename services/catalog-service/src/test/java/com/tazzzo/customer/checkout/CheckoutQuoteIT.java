@@ -1256,26 +1256,33 @@ class CheckoutQuoteIT extends AbstractApiIT {
         }
     }
 
-    // ---------- the quote money is BINDING: the order reproduces it exactly or refuses ----------
+    // ---------- the preview is advisory: Order is authoritative ----------
 
-    @Test void a_benefit_lost_after_the_quote_makes_the_order_refuse_with_PAYABLE_CHANGED_and_the_quote_is_untouched() {
+    @Test void a_preview_can_disagree_with_the_authoritative_order_and_the_order_simply_wins() {
         Ready r = tenThousand();
         CustomerId cid = new CustomerId(customerId(r.token()));
         com.tazzzo.membership.Membership term = grantMembership(cid);
         CheckoutQuote quote = serviceWith(new RetryInjectingTx(client), realBenefits(benefitRule(10_000, 500)))
                 .createQuote(cid, 1, newKey(), r.address(), "req");
-        assertThat(quote.benefitSnapshot()).isInstanceOf(CheckoutBenefitSnapshot.Applied.class);
-        assertThat(quote.moneySnapshot()).isEqualTo(new CheckoutMoneySnapshot(10_000, 500));      // the customer reviewed 9,500
-        membershipTermination.revoke(term.membershipId());                                       // then the benefit is gone
+        assertThat(quote.benefitSnapshot()).isInstanceOf(CheckoutBenefitSnapshot.Applied.class); // preview: APPLIED
+        membershipTermination.revoke(term.membershipId());                                       // then revoked
 
-        assertThatThrownBy(() -> orderService.placeCodOrder(cid, quote.quoteId()))
-                .isInstanceOf(com.tazzzo.customer.order.OrderFailure.class)
-                .satisfies(e -> assertThat(((com.tazzzo.customer.order.OrderFailure) e).reason())
-                        .isEqualTo(com.tazzzo.customer.order.OrderFailure.Reason.PAYABLE_CHANGED));
+        com.tazzzo.customer.order.Order order = orderService.placeCodOrder(cid, quote.quoteId());
 
-        assertThat(db.getCollection("orders").countDocuments()).as("no order was written").isZero();
+        // the Order placed normally (no rejection, no new failure reason) and stores ITS authoritative outcome
+        assertThat(order.status()).isEqualTo(com.tazzzo.customer.order.OrderStatus.CONFIRMED);
+        assertThat(order.benefitSnapshot()).isEqualTo(new com.tazzzo.customer.order.OrderBenefitSnapshot.NoBenefit(
+                10_000, com.tazzzo.benefits.BenefitEvaluation.NoBenefitReason.NO_MEMBERSHIP));
+        assertThat(CheckoutQuoteRepository.toQuote(storedQuote(quote.quoteId())).benefitSnapshot())
+                .as("the quote's advisory preview is untouched by the Order").isEqualTo(
+                        new CheckoutBenefitSnapshot.Applied(10_000, 500, 500));
+        // the ADVISORY Checkout money (payable 9500) and the AUTHORITATIVE Order money (payable 10000) disagree: fine
+        assertThat(quote.moneySnapshot()).isEqualTo(new CheckoutMoneySnapshot(10_000, 500));
         assertThat(CheckoutQuoteRepository.toQuote(storedQuote(quote.quoteId())).moneySnapshot())
-                .as("the binding quote money is untouched").isEqualTo(new CheckoutMoneySnapshot(10_000, 500));
+                .as("the stored Checkout money is untouched by the Order").isEqualTo(new CheckoutMoneySnapshot(10_000, 500));
+        assertThat(order.moneySnapshot()).as("the Order computed ITS OWN authoritative money")
+                .isEqualTo(com.tazzzo.customer.order.OrderMoneySnapshot.from(10_000, 0));
+        assertThat(order.moneySnapshot().payablePaise()).isEqualTo(10_000);
     }
 
     // ============================================================

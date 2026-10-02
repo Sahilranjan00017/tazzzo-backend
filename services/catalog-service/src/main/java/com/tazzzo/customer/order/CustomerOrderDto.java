@@ -28,11 +28,13 @@ public record CustomerOrderDto(String orderId, String status, String paymentMeth
     }
 
     /**
-     * The AUTHORITATIVE commerce money of this Order, projected from the persisted {@link OrderMoneySnapshot} and never
-     * recomputed here: {@code payablePaise = merchandiseSubtotalPaise - benefitDiscountPaise}. It equals the money of the
-     * quote the Order was placed from. {@code payablePaise} is the amount DUE ON DELIVERY (the Order is {@code COD_DUE}); it
-     * is not a statement that anything was paid, and {@code 0} is valid (a full discount: nothing is due). ABSENT on an Order
-     * created before the money model, which is NEVER a zero payable.
+     * The AUTHORITATIVE commerce money of this Order, projected from the persisted Order money (through the public-safe
+     * {@link OrderMoneyView}) and never recomputed here: {@code payablePaise = merchandiseSubtotalPaise -
+     * benefitDiscountPaise}. The Order computes it independently at placement (revalidating Pricing, Membership and
+     * Benefits); it may differ from the quote's advisory {@code moneyPreview}, and the Order's value is the one that holds.
+     * {@code payablePaise} is the commerce amount owed (the Order is {@code COD_DUE}: due on delivery); it is not a statement
+     * that anything was paid, authorized or captured, and {@code 0} is valid (a full discount: nothing is due). ABSENT on an
+     * Order created before the money model, which is NEVER a zero payable.
      */
     public record OrderMoney(long merchandiseSubtotalPaise, long benefitDiscountPaise, long payablePaise) {
         public OrderMoney {
@@ -42,8 +44,8 @@ public record CustomerOrderDto(String orderId, String status, String paymentMeth
             }
         }
 
-        static OrderMoney of(OrderMoneySnapshot s) {
-            return new OrderMoney(s.merchandiseSubtotalPaise(), s.benefitDiscountPaise(), s.payablePaise());
+        static OrderMoney of(OrderMoneyView v) {
+            return new OrderMoney(v.merchandiseSubtotalPaise(), v.benefitDiscountPaise(), v.payablePaise());
         }
     }
 
@@ -63,6 +65,6 @@ public record CustomerOrderDto(String orderId, String status, String paymentMeth
                 new DeliveryAddress(a.label(), a.recipientName(), a.recipientPhone(), a.addressLine1(),
                         a.addressLine2(), a.landmark(), a.city(), a.state(), a.postalCode()),
                 o.createdAt().toString(), o.confirmedAt().toString(),
-                o.moneySnapshot() == null ? null : OrderMoney.of(o.moneySnapshot()), requestId);
+                o.moneyView().map(OrderMoney::of).orElse(null), requestId);
     }
 }

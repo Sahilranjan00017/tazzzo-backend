@@ -837,19 +837,51 @@ class ModuleBoundaryTest {
                     .allowEmptyShould(true);
 
     /** Order -- the V1 money snapshot ({@code OrderMoneySnapshot}: merchandise subtotal, benefit discount, payable) is
-     *  INTERNAL for now: the public HTTP surface (controller, handler, DTO) and the Order metrics do not depend on it.
+     *  INTERNAL: the public HTTP surface (controller, handler, DTO, INCLUDING types nested in them) and the Order metrics
+     *  do not depend on it; the DTO reaches the money only through the public-safe {@code OrderMoneyView}.
      *  (Benefits, Checkout, Cart and the other upstream modules are already barred from {@code customer.order} entirely by
      *  {@code upstream_modules_do_not_depend_on_customer_order} and the Benefits boundary rules.) */
     @ArchTest
     static final ArchRule order_http_layer_and_metrics_do_not_depend_on_the_money_snapshot =
             noClasses().that(com.tngtech.archunit.core.domain.JavaClass.Predicates
                             .resideInAPackage("com.tazzzo.customer.order..")
-                            .and(com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameEndingWith("Controller")
-                                    .or(com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameEndingWith("ExceptionHandler"))
-                                    .or(com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameEndingWith("Dto"))
-                                    .or(com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameEndingWith("Observability"))))
+                            .and(selfOrEnclosingSimpleNameEndingWithAny("Controller", "ExceptionHandler", "Dto",
+                                    "Observability")))
                     .should().dependOnClassesThat(com.tngtech.archunit.core.domain.JavaClass.Predicates
                             .simpleNameStartingWith("OrderMoneySnapshot"))
+                    .allowEmptyShould(true);
+
+    /**
+     * A class whose own simple name, OR the simple name of any class enclosing it, ends with one of {@code suffixes}. A
+     * nested type of an HTTP/metrics class (for example a record inside a {@code *Dto}) is part of that surface: selecting by
+     * the nested type's own simple name alone would let it bypass the rule.
+     */
+    private static DescribedPredicate<com.tngtech.archunit.core.domain.JavaClass> selfOrEnclosingSimpleNameEndingWithAny(
+            String... suffixes) {
+        return new DescribedPredicate<>("self or an enclosing class has a simple name ending with "
+                + java.util.Arrays.toString(suffixes)) {
+            @Override
+            public boolean test(com.tngtech.archunit.core.domain.JavaClass c) {
+                for (java.util.Optional<com.tngtech.archunit.core.domain.JavaClass> k = java.util.Optional.of(c);
+                     k.isPresent(); k = k.get().getEnclosingClass()) {
+                    for (String suffix : suffixes) {
+                        if (k.get().getSimpleName().endsWith(suffix)) {
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            }
+        };
+    }
+
+    /** Order -- Order placement never consumes Checkout's ADVISORY money (snapshot, codec or preview): the Order computes
+     *  its own AUTHORITATIVE money and never compares it with, or derives it from, the quote's money. */
+    @ArchTest
+    static final ArchRule order_does_not_depend_on_checkout_advisory_money =
+            noClasses().that().resideInAPackage("com.tazzzo.customer.order..")
+                    .should().dependOnClassesThat(com.tngtech.archunit.core.domain.JavaClass.Predicates
+                            .simpleNameStartingWith("CheckoutMoney"))
                     .allowEmptyShould(true);
 
     /** Checkout -- reaches Benefits ONLY through the STANDALONE port and the result/failure types it must read (the

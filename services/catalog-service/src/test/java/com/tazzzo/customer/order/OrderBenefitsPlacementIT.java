@@ -208,35 +208,14 @@ class OrderBenefitsPlacementIT extends AbstractMongoIT {
 
     private record Fixture(CustomerId customerId, String addressId, String quoteId, long cartVersion) { }
 
-    /** A quote whose binding money is "no benefit" (discount 0): what a customer without an applicable benefit reviewed. */
     private Fixture fixture() {
-        return fixture(0);
-    }
-
-    /**
-     * A quote whose binding money carries a discount of {@code quoteDiscountPaise}: the amount the customer reviewed. Placement
-     * succeeds only if the LIVE Benefits evaluation reproduces exactly that discount.
-     */
-    private Fixture fixture(long quoteDiscountPaise) {
-        return fixtureFor(5000, 2, q -> quoteDiscountPaise == 0 ? TestQuotes.bindNoBenefit(q)
-                : TestQuotes.bindApplied(q, quoteDiscountPaise, (int) (quoteDiscountPaise * 10_000 / q.subtotalPaise())));
-    }
-
-    /** A quote of {@code qty x unitPaise}, given its money (or lack of it) by {@code bind}. */
-    private Fixture fixtureFor(long unitPaise, int qty, java.util.function.UnaryOperator<CheckoutQuote> bind) {
         CustomerId customerId = CustomerId.generate();
         String addressId = AddressId.generate().value();
         seed(customerId.value(), addressId, 1);
-        if (unitPaise != 5000) {
-            db.getCollection("price_current").updateOne(new Document("sku_id", SKU),
-                    new Document("$set", new Document("selling_price_paise", unitPaise)));
-        }
         String quoteId = CheckoutQuoteId.generate().value();
-        long lineTotal = unitPaise * qty;
-        CheckoutQuote unbound = new CheckoutQuote(quoteId, 1, addressId, 1L,
-                List.of(new CheckoutQuote.Line(SKU, qty, unitPaise, lineTotal)), qty, lineTotal, "INR", NOW,
+        CheckoutQuote q = new CheckoutQuote(quoteId, 1, addressId, 1L,
+                List.of(new CheckoutQuote.Line(SKU, 2, 5000, SUBTOTAL)), 2, SUBTOTAL, "INR", NOW,
                 NOW.plusSeconds(600));
-        CheckoutQuote q = bind.apply(unbound);
         new Tx(client).run(session -> new CheckoutQuoteRepository(db).insert(session, q, customerId.value(),
                 "digest-" + quoteId, "fingerprint-" + quoteId));
         return new Fixture(customerId, addressId, quoteId, 1);
@@ -318,7 +297,7 @@ class OrderBenefitsPlacementIT extends AbstractMongoIT {
 
     @Test
     void a_member_at_the_threshold_creates_the_order_with_an_APPLIED_snapshot_equal_to_the_benefits_result() {
-        Fixture f = fixture(500);
+        Fixture f = fixture();
         Membership term = grant(f.customerId());
         TransactionalBenefitsEvaluationPort port = realBenefits(rule(SUBTOTAL, 500));
 
@@ -342,7 +321,7 @@ class OrderBenefitsPlacementIT extends AbstractMongoIT {
 
     @Test
     void canonical_money_is_unchanged_and_no_discount_is_allocated_or_net_total_persisted() {
-        Fixture f = fixture(500);
+        Fixture f = fixture();
         grant(f.customerId());
 
         Order o = service(realBenefits(rule(SUBTOTAL, 500))).placeCodOrder(f.customerId(), f.quoteId());
@@ -362,7 +341,7 @@ class OrderBenefitsPlacementIT extends AbstractMongoIT {
 
     @Test
     void the_create_only_path_persists_the_snapshot_too() {
-        Fixture f = fixture(500);
+        Fixture f = fixture();
         grant(f.customerId());
 
         Order o = service(realBenefits(rule(SUBTOTAL, 500))).createOrder(f.customerId(), f.quoteId(), PaymentMethod.COD);
@@ -421,7 +400,7 @@ class OrderBenefitsPlacementIT extends AbstractMongoIT {
 
     @Test
     void a_replay_returns_the_stored_order_untouched_and_never_re_evaluates_benefits_after_a_membership_change() {
-        Fixture f = fixture(500);
+        Fixture f = fixture();
         Membership term = grant(f.customerId());
         Order first = service(realBenefits(rule(SUBTOTAL, 500))).placeCodOrder(f.customerId(), f.quoteId());
         Document before = orderDoc(first);
@@ -438,7 +417,7 @@ class OrderBenefitsPlacementIT extends AbstractMongoIT {
 
     @Test
     void a_replay_ignores_a_benefits_configuration_change_between_placements() {
-        Fixture f = fixture(500);
+        Fixture f = fixture();
         grant(f.customerId());
         Order first = service(realBenefits(rule(SUBTOTAL, 500))).placeCodOrder(f.customerId(), f.quoteId());
 
@@ -511,7 +490,7 @@ class OrderBenefitsPlacementIT extends AbstractMongoIT {
 
     @Test
     void a_driver_retry_of_the_outer_transaction_re_evaluates_but_commits_exactly_one_order_and_one_metric() {
-        Fixture f = fixture(500);
+        Fixture f = fixture();
         grant(f.customerId());
         RecordingPort port = new RecordingPort(realBenefits(rule(SUBTOTAL, 500)));
         RetryInjectingTx retrying = new RetryInjectingTx(client).arm(1);
@@ -582,7 +561,7 @@ class OrderBenefitsPlacementIT extends AbstractMongoIT {
 
     @Test
     void benefits_adds_no_metric_and_the_order_metrics_carry_no_benefits_values() {
-        Fixture f = fixture(500);
+        Fixture f = fixture();
         grant(f.customerId());
 
         service(realBenefits(rule(SUBTOTAL, 500))).placeCodOrder(f.customerId(), f.quoteId());
@@ -652,7 +631,7 @@ class OrderBenefitsPlacementIT extends AbstractMongoIT {
 
     @Test
     void the_in_transaction_replay_returns_the_stored_order_without_benefits_pricing_inventory_or_cart_work() {
-        Fixture f = fixture(500);
+        Fixture f = fixture();
         Membership term = grant(f.customerId());
         Order first = service(realBenefits(rule(SUBTOTAL, 500))).placeCodOrder(f.customerId(), f.quoteId());
         termination.revoke(term.membershipId()); // a re-evaluation WOULD now produce a different outcome
@@ -738,8 +717,8 @@ class OrderBenefitsPlacementIT extends AbstractMongoIT {
 
     @Test
     void duplicate_key_recovery_returns_the_winners_snapshot_unchanged_and_never_evaluates_benefits_again() {
-        Fixture f = fixture(500);
-        grant(f.customerId());
+        Fixture f = fixture();
+        Membership term = grant(f.customerId());
         Order winner = service(realBenefits(rule(SUBTOTAL, 500))).placeCodOrder(f.customerId(), f.quoteId());
         assertThat(winner.benefitSnapshot()).isInstanceOf(OrderBenefitSnapshot.Applied.class);
         Document winnerDoc = orderDoc(winner);
@@ -752,19 +731,14 @@ class OrderBenefitsPlacementIT extends AbstractMongoIT {
                 .append("updatedAt", Date.from(NOW)).append("expiresAt", Date.from(NOW.plusSeconds(7 * 86400))));
         db.getCollection("inventory").updateOne(new Document("sku_id", SKU),
                 new Document("$set", new Document("on_hand", 10L).append("reserved", 0L)));
+        termination.revoke(term.membershipId()); // the loser's own evaluation now differs from the winner's
 
         Tx tx = new Tx(client);
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         AtomicInteger loserEvaluations = new AtomicInteger();
-        // The loser's own evaluation is MONETARILY equal to the quote's agreement (same subtotal, same 500 discount) but names a
-        // DIFFERENT membership and plan version: the monetary agreement is unchanged, so it proceeds to its insert, loses the race,
-        // and recovery must still return the WINNER's stored snapshot (the winner's membership), never the loser's recalculation.
-        // (Under snapshot isolation a loser cannot observe a benefit change committed after the winner, so a monetarily different
-        // result here cannot occur; a different result is PAYABLE_CHANGED, covered separately.)
         TransactionalBenefitsEvaluationPort loserBenefits = (session, cust, subtotal) -> {
             loserEvaluations.incrementAndGet();
-            return new BenefitEvaluation.Applied(com.tazzzo.membership.MembershipId.generate(), PLAN, 2,
-                    Money.ofInrPaise(SUBTOTAL), Money.ofInrPaise(500), new DiscountBps(500));
+            return realBenefits(rule(SUBTOTAL, 500)).evaluate(session, cust, subtotal);
         };
         DuplicateKeyOnInsertOrders orders = new DuplicateKeyOnInsertOrders(db);
         OrderService loser = service(tx, orders, new PricingService(tx, new WritePath(db), clock),
@@ -812,7 +786,7 @@ class OrderBenefitsPlacementIT extends AbstractMongoIT {
 
     @Test
     void an_applied_benefit_order_stores_subtotal_minus_the_authoritative_discount_as_payable() {
-        Fixture f = fixture(500);
+        Fixture f = fixture();
         grant(f.customerId());
 
         Order o = service(realBenefits(rule(SUBTOTAL, 500))).placeCodOrder(f.customerId(), f.quoteId());
@@ -833,7 +807,7 @@ class OrderBenefitsPlacementIT extends AbstractMongoIT {
 
     @Test
     void a_100_percent_benefit_is_a_valid_zero_payable_order_with_unchanged_payment_semantics() {
-        Fixture f = fixture(SUBTOTAL);
+        Fixture f = fixture();
         grant(f.customerId());
 
         Order o = service(realBenefits(new BenefitRule(PLAN, 1, Money.ofInrPaise(SUBTOTAL), new DiscountBps(10_000))))
@@ -852,7 +826,7 @@ class OrderBenefitsPlacementIT extends AbstractMongoIT {
     void every_new_order_path_persists_a_money_snapshot_consistent_with_its_benefit_snapshot() {
         for (int i = 0; i < 2; i++) {
             reset();
-            Fixture f = fixture(500);
+            Fixture f = fixture();
             grant(f.customerId());
             OrderService svc = service(realBenefits(rule(SUBTOTAL, 500)));
             Order o = i == 0 ? svc.placeCodOrder(f.customerId(), f.quoteId())
@@ -866,7 +840,7 @@ class OrderBenefitsPlacementIT extends AbstractMongoIT {
 
     @Test
     void a_fast_replay_returns_the_stored_money_unchanged_after_a_membership_and_configuration_change() {
-        Fixture f = fixture(500);
+        Fixture f = fixture();
         Membership term = grant(f.customerId());
         Order first = service(realBenefits(rule(SUBTOTAL, 500))).placeCodOrder(f.customerId(), f.quoteId());
         termination.revoke(term.membershipId());
@@ -881,203 +855,129 @@ class OrderBenefitsPlacementIT extends AbstractMongoIT {
     }
 
     // ============================================================
-    // PR-21: the quote's money is BINDING -- the order reproduces it exactly or refuses, before any Inventory write
+    // The quote's money is ADVISORY: the Order computes its own AUTHORITATIVE money and may differ (both directions)
     // ============================================================
 
-    private Document cartDoc(Fixture f) {
-        return db.getCollection("customer_carts").find(new Document("_id", f.customerId().value())).first();
+    /**
+     * A quote that carries an ADVISORY Benefits snapshot and money snapshot showing {@code quoteDiscountPaise} on the
+     * 2 x 5000 basket (0 = no benefit shown), exactly as a real Checkout persists them.
+     */
+    private Fixture fixtureQuoted(long quoteDiscountPaise) {
+        CustomerId customerId = CustomerId.generate();
+        String addressId = AddressId.generate().value();
+        seed(customerId.value(), addressId, 1);
+        String quoteId = CheckoutQuoteId.generate().value();
+        com.tazzzo.customer.checkout.CheckoutBenefitSnapshot benefit = quoteDiscountPaise == 0
+                ? new com.tazzzo.customer.checkout.CheckoutBenefitSnapshot.NoBenefit(SUBTOTAL,
+                        BenefitEvaluation.NoBenefitReason.NO_MEMBERSHIP)
+                : new com.tazzzo.customer.checkout.CheckoutBenefitSnapshot.Applied(SUBTOTAL, quoteDiscountPaise,
+                        (int) (quoteDiscountPaise * 10_000 / SUBTOTAL));
+        CheckoutQuote q = new CheckoutQuote(quoteId, 1, addressId, 1L,
+                List.of(new CheckoutQuote.Line(SKU, 2, 5000, SUBTOTAL)), 2, SUBTOTAL, "INR", NOW,
+                NOW.plusSeconds(600), benefit,
+                new com.tazzzo.customer.checkout.CheckoutMoneySnapshot(SUBTOTAL, quoteDiscountPaise));
+        new Tx(client).run(session -> new CheckoutQuoteRepository(db).insert(session, q, customerId.value(),
+                "digest-" + quoteId, "fingerprint-" + quoteId));
+        return new Fixture(customerId, addressId, quoteId, 1);
+    }
+
+    /** The quote's persisted advisory {@code money} document, or {@code null} when the quote has none. */
+    private Document storedQuoteMoney(Fixture f) {
+        return (Document) db.getCollection("checkout_quotes").find(new Document("_id", f.quoteId())).first().get("money");
     }
 
     @Test
-    void a_benefit_lost_after_the_quote_is_refused_with_PAYABLE_CHANGED_and_nothing_is_mutated() {
-        Fixture f = fixture(500);                                   // the customer reviewed: subtotal 10000, discount 500, payable 9500
-        Document cartBefore = cartDoc(f);                           // live: NO membership -> discount 0 -> the customer would owe 10000
+    void a_benefit_lost_after_the_quote_still_places_and_the_order_money_is_the_authoritative_10000() {
+        Fixture f = fixtureQuoted(500);                             // the quote showed 10000 / 500 / 9500
+        Membership term = grant(f.customerId());
+        termination.revoke(term.membershipId());                    // then the benefit is gone
 
-        assertFailure(() -> service(realBenefits(rule(SUBTOTAL, 500))).placeCodOrder(f.customerId(), f.quoteId()),
-                OrderFailure.Reason.PAYABLE_CHANGED);
+        Order o = service(realBenefits(rule(SUBTOTAL, 500))).placeCodOrder(f.customerId(), f.quoteId());
 
-        assertNothingCommitted(f, cartBefore);                      // no order, no reservation, stock and cart untouched
-        assertThat(counter("order_place_cod_success")).isZero();
+        assertThat(o.status()).isEqualTo(OrderStatus.CONFIRMED);
+        assertThat(o.moneySnapshot()).isEqualTo(OrderMoneySnapshot.from(SUBTOTAL, 0));
+        assertThat(o.moneySnapshot().payablePaise()).isEqualTo(10_000);
+        assertThat(storedQuoteMoney(f).get("payablePaise")).as("the advisory quote money is untouched").isEqualTo(9_500L);
+        assertThat(storedQuoteMoney(f).get("benefitDiscountPaise")).isEqualTo(500L);
+        assertThat(counter("order_place_cod_success")).isEqualTo(1.0);
     }
 
     @Test
-    void a_LARGER_live_discount_is_refused_too_the_customer_is_never_silently_charged_a_different_amount() {
-        Fixture f = fixture(500);                                   // reviewed 9500
-        grant(f.customerId());
-        Document cartBefore = cartDoc(f);
+    void a_benefit_gained_after_the_quote_still_places_and_the_customer_gets_the_lower_authoritative_payable() {
+        Fixture f = fixtureQuoted(0);                               // the quote showed 10000 / 0 / 10000
+        grant(f.customerId());                                      // a benefit now applies
 
-        // live rule now discounts 2000 (customer-favourable) -> still refused
-        assertFailure(() -> service(realBenefits(rule(SUBTOTAL, 2000))).placeCodOrder(f.customerId(), f.quoteId()),
-                OrderFailure.Reason.PAYABLE_CHANGED);
-
-        assertNothingCommitted(f, cartBefore);
-    }
-
-    @Test
-    void a_no_benefit_quote_is_refused_when_a_benefit_now_applies() {
-        Fixture f = fixture();                                      // reviewed 10000 (discount 0)
-        grant(f.customerId());
-        Document cartBefore = cartDoc(f);
-
-        assertFailure(() -> service(realBenefits(rule(SUBTOTAL, 500))).placeCodOrder(f.customerId(), f.quoteId()),
-                OrderFailure.Reason.PAYABLE_CHANGED);
-
-        assertNothingCommitted(f, cartBefore);
-    }
-
-    @Test
-    void a_discount_that_differs_by_a_single_paise_is_refused() {
-        Fixture f = fixture(500);
-        grant(f.customerId());
-        Document cartBefore = cartDoc(f);
-
-        // 10000 * 501 / 10000 = 501
-        assertFailure(() -> service(realBenefits(rule(SUBTOTAL, 501))).placeCodOrder(f.customerId(), f.quoteId()),
-                OrderFailure.Reason.PAYABLE_CHANGED);
-
-        assertNothingCommitted(f, cartBefore);
-    }
-
-    @Test
-    void a_changed_line_price_is_PRICE_CHANGED_never_PAYABLE_CHANGED_even_when_the_money_also_differs() {
-        Fixture f = fixture(500);                                   // live benefit would ALSO differ (no membership) ...
-        db.getCollection("price_current").updateOne(new Document("sku_id", SKU),
-                new Document("$set", new Document("selling_price_paise", 5100L)));   // ... but the line price changed first
-        Document cartBefore = cartDoc(f);
-
-        assertFailure(() -> service(realBenefits(rule(SUBTOTAL, 500))).placeCodOrder(f.customerId(), f.quoteId()),
-                OrderFailure.Reason.PRICE_CHANGED);
-
-        assertThat(count("orders")).isZero();
-        assertThat(cartDoc(f)).isEqualTo(cartBefore);
-    }
-
-    @Test
-    void a_quote_with_no_binding_money_is_refused_the_customer_was_never_shown_a_payable() {
-        // (a) created before the Benefits preview: no benefit snapshot, no money; (b) has a benefit snapshot but no money
-        for (java.util.function.UnaryOperator<CheckoutQuote> legacy : List.<java.util.function.UnaryOperator<CheckoutQuote>>of(
-                q -> q,
-                q -> new CheckoutQuote(q.quoteId(), q.cartVersion(), q.addressId(), q.addressVersion(), q.lines(),
-                        q.itemCount(), q.subtotalPaise(), q.currency(), q.createdAt(), q.expiresAt(),
-                        new com.tazzzo.customer.checkout.CheckoutBenefitSnapshot.NoBenefit(q.subtotalPaise(),
-                                BenefitEvaluation.NoBenefitReason.NO_MEMBERSHIP)))) {
-            reset();
-            Fixture f = fixtureFor(5000, 2, legacy);
-            Document cartBefore = cartDoc(f);
-
-            // the live money would be perfectly computable (10000) -- it must NOT be silently substituted
-            assertFailure(() -> service(TestBenefits.NO_MEMBERSHIP).placeCodOrder(f.customerId(), f.quoteId()),
-                    OrderFailure.Reason.PAYABLE_CHANGED);
-
-            assertNothingCommitted(f, cartBefore);
-        }
-    }
-
-    @Test
-    void the_money_comparison_runs_before_any_inventory_reserve_consume_or_cart_finalize() {
-        Fixture f = fixture(500);                                   // live discount 0 -> refused
-        Tx tx = new Tx(client);
-        Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
-        Map<String, AtomicInteger> inventoryCalls = new ConcurrentHashMap<>();
-        Map<String, AtomicInteger> cartCalls = new ConcurrentHashMap<>();
-        OrderService svc = service(tx, new OrderRepository(db), new PricingService(tx, new WritePath(db), clock),
-                counting(InventoryReservationPort.class, reservationService(tx, clock), inventoryCalls),
-                counting(CartPurchasePort.class, new CartPurchaseService(new CartRepository(db), clock), cartCalls),
-                realBenefits(rule(SUBTOTAL, 500)));
-
-        assertFailure(() -> svc.placeCodOrder(f.customerId(), f.quoteId()), OrderFailure.Reason.PAYABLE_CHANGED);
-
-        // A rollback would also leave the database untouched, so only CALL COUNTS prove the ordering.
-        assertThat(calls(inventoryCalls, "reserve")).as("Inventory.reserve was never reached").isZero();
-        assertThat(calls(inventoryCalls, "consume")).isZero();
-        assertThat(calls(cartCalls, "finalizePurchase")).as("the cart was never finalized").isZero();
-    }
-
-    @Test
-    void equal_money_with_a_different_benefit_identity_places_the_order_and_stores_the_agreed_money() {
-        Fixture f = fixture(500);
-        // a DIFFERENT membership and plan version, but the exact same monetary agreement (subtotal 10000, discount 500)
-        TransactionalBenefitsEvaluationPort other = (s, c, subtotal) -> new BenefitEvaluation.Applied(
-                com.tazzzo.membership.MembershipId.generate(), PLAN, 7, Money.ofInrPaise(SUBTOTAL),
-                Money.ofInrPaise(500), new DiscountBps(500));
-
-        Order o = service(other).placeCodOrder(f.customerId(), f.quoteId());
+        Order o = service(realBenefits(rule(SUBTOTAL, 500))).placeCodOrder(f.customerId(), f.quoteId());
 
         assertThat(o.status()).isEqualTo(OrderStatus.CONFIRMED);
         assertThat(o.moneySnapshot()).isEqualTo(OrderMoneySnapshot.from(SUBTOTAL, 500));
         assertThat(o.moneySnapshot().payablePaise()).isEqualTo(9_500);
-        assertThat(((OrderBenefitSnapshot.Applied) o.benefitSnapshot()).planVersion()).as("the live identity is recorded").isEqualTo(7);
+        assertThat(storedQuoteMoney(f).get("payablePaise")).isEqualTo(10_000L);
     }
 
     @Test
-    void the_order_money_equals_the_quote_binding_money_and_the_subtotal_agrees() {
-        Fixture f = fixture(500);
+    void a_benefits_configuration_change_after_the_quote_is_won_by_the_order() {
+        Fixture f = fixtureQuoted(500);                             // the quote showed a 5% discount
         grant(f.customerId());
-        // the BINDING money exactly as the quote persisted it (the document the customer's quote response was projected from)
-        Document quoteMoney = (Document) db.getCollection("checkout_quotes").find(new Document("_id", f.quoteId()))
-                .first().get("money");
+
+        Order o = service(realBenefits(rule(SUBTOTAL, 2_000))).placeCodOrder(f.customerId(), f.quoteId());
+
+        assertThat(o.moneySnapshot()).as("the rule in force at placement wins").isEqualTo(OrderMoneySnapshot.from(SUBTOTAL, 2_000));
+        assertThat(o.moneySnapshot().payablePaise()).isEqualTo(8_000);
+    }
+
+    @Test
+    void a_zero_payable_can_appear_between_quote_and_order_without_any_error() {
+        Fixture f = fixtureQuoted(0);                               // quote payable 10000 ...
+        grant(f.customerId());
+
+        Order o = service(realBenefits(rule(SUBTOTAL, 10_000))).placeCodOrder(f.customerId(), f.quoteId());
+
+        assertThat(o.moneySnapshot().payablePaise()).as("... order payable 0").isZero();
+        assertThat(o.confirmedPaymentCondition()).isEqualTo(ConfirmedPaymentCondition.COD_DUE);
+    }
+
+    @Test
+    void a_zero_payable_can_disappear_between_quote_and_order_without_any_error() {
+        Fixture f = fixtureQuoted(SUBTOTAL);                        // quote payable 0 ... (no membership at placement)
+
+        Order o = service(realBenefits(rule(SUBTOTAL, 10_000))).placeCodOrder(f.customerId(), f.quoteId());
+
+        assertThat(o.moneySnapshot().payablePaise()).as("... order payable 10000").isEqualTo(10_000);
+    }
+
+    @Test
+    void a_legacy_quote_without_advisory_money_places_normally() {
+        Fixture f = fixture();                                      // no benefit snapshot, no money snapshot
+
+        assertThat(storedQuoteMoney(f)).as("a legacy quote carries no advisory money").isNull();
         Order o = service(realBenefits(rule(SUBTOTAL, 500))).placeCodOrder(f.customerId(), f.quoteId());
 
-        assertThat(o.moneySnapshot().merchandiseSubtotalPaise()).isEqualTo(quoteMoney.get("merchandiseSubtotalPaise", Number.class).longValue());
-        assertThat(o.moneySnapshot().benefitDiscountPaise()).isEqualTo(quoteMoney.get("benefitDiscountPaise", Number.class).longValue());
-        assertThat(o.moneySnapshot().payablePaise()).isEqualTo(quoteMoney.get("payablePaise", Number.class).longValue());
-        assertThat(o.subtotalPaise()).as("subtotalPaise agrees with money.merchandiseSubtotalPaise")
-                .isEqualTo(o.moneySnapshot().merchandiseSubtotalPaise());
-        assertThat(com.tazzzo.customer.order.CustomerOrderDto.of(o, "req").money())
-                .isEqualTo(new com.tazzzo.customer.order.CustomerOrderDto.OrderMoney(SUBTOTAL, 500, 9_500));
+        assertThat(o.status()).isEqualTo(OrderStatus.CONFIRMED);
+        assertThat(o.moneySnapshot()).isEqualTo(OrderMoneySnapshot.from(SUBTOTAL, 0));
     }
 
     @Test
-    void a_zero_payable_order_succeeds_with_exact_money_4950_4950_0() {
-        // one line of 4950, a 100% benefit: subtotal 4950, discount 4950, payable 0 -- valid, no arithmetic failure
-        Fixture f = fixtureFor(4950, 1, q -> TestQuotes.bindApplied(q, 4950, 10_000));
-        grant(f.customerId());
-        TransactionalBenefitsEvaluationPort full = realBenefits(new BenefitRule(PLAN, 1, Money.ofInrPaise(4950), new DiscountBps(10_000)));
+    void a_changed_line_price_is_still_PRICE_CHANGED_whatever_the_quote_money_shows() {
+        Fixture f = fixtureQuoted(500);
+        db.getCollection("price_current").updateOne(new Document("sku_id", SKU),
+                new Document("$set", new Document("selling_price_paise", 5100L)));
+        Document cartBefore = db.getCollection("customer_carts").find(new Document("_id", f.customerId().value())).first();
 
-        Order o = service(full).placeCodOrder(f.customerId(), f.quoteId());
+        assertFailure(() -> service(realBenefits(rule(SUBTOTAL, 500))).placeCodOrder(f.customerId(), f.quoteId()),
+                OrderFailure.Reason.PRICE_CHANGED);
 
-        assertThat(o.moneySnapshot()).isEqualTo(OrderMoneySnapshot.from(4950, 4950));
-        assertThat(o.moneySnapshot().payablePaise()).isZero();
-        assertThat(com.tazzzo.customer.order.CustomerOrderDto.of(o, "req").money())
-                .isEqualTo(new com.tazzzo.customer.order.CustomerOrderDto.OrderMoney(4950, 4950, 0));
-        assertThat(o.paymentMethod()).isEqualTo(PaymentMethod.COD);
-        assertThat(o.confirmedPaymentCondition()).as("COD semantics are unchanged by this PR")
-                .isEqualTo(ConfirmedPaymentCondition.COD_DUE);
+        assertNothingCommitted(f, cartBefore);
     }
 
     @Test
-    void a_replay_after_the_benefit_state_changed_returns_the_same_order_and_money_never_PAYABLE_CHANGED() {
-        Fixture f = fixture(500);
-        Membership term = grant(f.customerId());
-        Order first = service(realBenefits(rule(SUBTOTAL, 500))).placeCodOrder(f.customerId(), f.quoteId());
-        termination.revoke(term.membershipId());                    // a NEW placement would now be refused (live discount 0)
-
-        Order replay = service(realBenefits(rule(SUBTOTAL, 500))).placeCodOrder(f.customerId(), f.quoteId());
-
-        assertThat(replay).isEqualTo(first);
-        assertThat(replay.moneySnapshot()).isEqualTo(OrderMoneySnapshot.from(SUBTOTAL, 500));
-        assertThat(count("orders")).isEqualTo(1);
-    }
-
-    @Test
-    void a_replay_after_the_quote_expired_still_returns_the_order_and_a_new_placement_of_it_would_not() {
-        Fixture f = fixture(500);
+    void a_replay_after_the_quote_expired_still_returns_the_stored_order() {
+        Fixture f = fixtureQuoted(500);
         grant(f.customerId());
         Order first = service(realBenefits(rule(SUBTOTAL, 500))).placeCodOrder(f.customerId(), f.quoteId());
         db.getCollection("checkout_quotes").updateOne(new Document("_id", f.quoteId()),
                 new Document("$set", new Document("expiresAt", Date.from(NOW.minusSeconds(1)))));
 
         assertThat(service(MUST_NOT_BE_CALLED).placeCodOrder(f.customerId(), f.quoteId())).isEqualTo(first);
-    }
-
-    @Test
-    void a_money_refusal_is_counted_as_a_failure_not_a_success() {
-        Fixture f = fixture(500);
-
-        assertFailure(() -> service(realBenefits(rule(SUBTOTAL, 500))).placeCodOrder(f.customerId(), f.quoteId()),
-                OrderFailure.Reason.PAYABLE_CHANGED);
-
-        assertThat(counter("order_place_cod_success")).isZero();
-        assertThat(counter("order_place_cod_failure")).isEqualTo(1.0);
     }
 }

@@ -1,7 +1,7 @@
 package com.tazzzo.customer.checkout;
 
 /**
- * The PUBLIC-SAFE projection of a quote's stored {@link CheckoutBenefitSnapshot}: the only Benefits view the
+ * The PUBLIC-SAFE projection of a quote's stored advisory {@link CheckoutBenefitSnapshot}: the only Benefits view the
  * HTTP layer ever sees. It is deliberately structurally incapable of carrying anything internal: no no-benefit reason
  * (NO_MEMBERSHIP / NO_RULE / NOT_ELIGIBLE all collapse to {@link NotApplied}), no eligible subtotal (the quote's own
  * canonical {@code subtotalPaise} already is that), no Membership or plan identity.

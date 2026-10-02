@@ -3,7 +3,7 @@
 Single source of truth for what is actually built and verified in `tazzzo-backend`.
 Reflects **current reality only** — nothing is marked complete unless verified from existing code.
 
-Last updated: 2026-10-02
+Last updated: 2026-09-28
 
 ---
 
@@ -872,7 +872,7 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
     Membership gates. Legacy Orders reconstruct without a snapshot, so this slice needs no backfill, but the existing
     Order gate stays until separately verified. Do not claim production readiness.
 
-- **Checkout Benefits evaluation snapshot — internal advisory preview persisted with the quote** [SUPERSEDED by PR-21: the quote money is now binding]
+- **Checkout Benefits evaluation snapshot — internal advisory preview persisted with the quote**
   (`com.tazzzo.customer.checkout`, second Checkout + Order money-model slice): **COMPLETE** (PR #36, squash
   `30dea72482f71418048783b348647fdc0165a133`). *(Its public projection is the next slice, below.)* **Internal only: no
   public DTO/OpenAPI/HTTP change, no payable/final-total field, no Payment, no coupons, tax or fees, no production
@@ -882,7 +882,7 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
     merchandise subtotal and persists the result with the quote as `CheckoutBenefitSnapshot`. The evaluation happens
     after the final line set and subtotal are built and before the quote is persisted; nothing afterwards alters lines,
     quantities or subtotal. A forced persistence-transaction retry never re-evaluates (the evaluation precedes it).
-  - **Advisory, not authoritative (SUPERSEDED by PR-21: the quote money is now binding):** Order placement still re-evaluates Benefits transactionally and its
+  - **Advisory, not authoritative:** Order placement still re-evaluates Benefits transactionally and its
     `OrderBenefitSnapshot` is the authority. The two may disagree (e.g. preview `APPLIED`, Membership then revoked, Order
     `NO_MEMBERSHIP`; or preview `NO_RULE`, a later deployment configures a rule, Order `APPLIED`): the Order simply
     wins. No `BENEFIT_CHANGED`/`REQUOTE_REQUIRED` reason exists and Order never rejects because the Benefits outcome
@@ -922,7 +922,7 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   - **Deployment gates unchanged and PENDING / UNVERIFIED:** the Order `orders`-count == 0 gate and the five
     Membership gates. Do not claim production readiness.
 
-- **Checkout Benefits preview — minimal public projection from the persisted advisory snapshot** [SUPERSEDED by PR-21: the quote money is now binding]
+- **Checkout Benefits preview — minimal public projection from the persisted advisory snapshot**
   (`com.tazzzo.customer.checkout`, third Checkout + Order money-model slice): **COMPLETE** (PR #37, squash
   `48380964edb18f35eef501eb5aaf495da95d5c32`). **Projection / API only:
   no Benefits calculation change, no Checkout persistence or evaluation change, no Order change, no payable/final-total
@@ -946,8 +946,8 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
     replay and a GET return the stored preview unchanged even after a Membership or Benefits-configuration change.
   - **Canonical money unchanged:** `subtotalPaise` stays the canonical merchandise subtotal and the preview does not make the
     quote a price lock or payable amount; no net/discounted/payable field exists and none is computed.
-  - **Advisory (SUPERSEDED by PR-21: the quote money is now binding):** OpenAPI states the preview is advisory, reflects the Benefits evaluation stored with the quote, and that
-    Order placement re-evaluates Benefits authoritatively and may differ if Membership state or Benefits configuration [SUPERSEDED by PR-21: the quote money is now binding]
+  - **Advisory:** OpenAPI states the preview is advisory, reflects the Benefits evaluation stored with the quote, and that
+    Order placement re-evaluates Benefits authoritatively and may differ if Membership state or Benefits configuration
     changes before placement.
   - **Today's customer-visible effect:** with 0 production Benefits rules every modern quote shows `benefitPreview:
     {applied:false}` (non-member and member alike); this slice exposes the plumbing and creates no customer-visible
@@ -984,7 +984,7 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   - **Sources (Order enforces them):** `merchandiseSubtotalPaise` is the Order's own canonical `subtotalPaise` (canonical lines
     after Pricing revalidation), never a client, Cart or Checkout-preview value; `benefitDiscountPaise` is the authoritative
     discount of the Order-side Benefits evaluation already used for `OrderBenefitSnapshot` (0 for no benefit), never recomputed
-    from a rate and never taken from Checkout's advisory `benefitPreview` [SUPERSEDED by PR-21: the quote money is now binding]. The Order constructor rejects a money snapshot whose
+    from a rate and never taken from Checkout's advisory `benefitPreview`. The Order constructor rejects a money snapshot whose
     subtotal differs from the Order's, whose discount differs from the Benefit snapshot's, or that has no Benefit snapshot.
   - **Placement:** built in `OrderDraftAssembler` inside the existing placement `Tx.call`, after Pricing revalidation and the
     Benefits evaluation and before the Inventory reserve, and persisted by the same Order insert; no nested transaction.
@@ -1001,22 +1001,22 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   - **Public API:** unchanged. `CustomerOrderDto`/OpenAPI do not expose `moneySnapshot`, `merchandiseSubtotalPaise`,
     `benefitDiscountPaise` or `payablePaise`; the existing `subtotalPaise` is unchanged. One new narrow ArchUnit rule keeps the
     Order HTTP layer and metrics independent of the snapshot (63 -> 64); Benefits, Checkout and Cart are already barred from
-    `customer.order` by existing rules. No Checkout payable/money preview in this slice (see the Checkout advisory money slice [SUPERSEDED by PR-21: the quote money is now binding]).
+    `customer.order` by existing rules. No Checkout payable/money preview in this slice (see the Checkout advisory money slice).
   - **Deployment gate analysis:** the new field is additive and optional on reconstruction, so it adds no new requirement and
     no backfill; the existing `orders`-count == 0 gate (strict schema introduced earlier) neither covers nor is relaxed by it
     and stays PENDING / UNVERIFIED; no new gate is created. The five Membership gates (PENDING / UNVERIFIED) still gate
     Benefits-aware Order placement and Checkout quote creation. Do not claim production readiness.
 
-- **Checkout advisory money snapshot + public `moneyPreview`** [SUPERSEDED by PR-21: the quote money is now binding] (`com.tazzzo.customer.checkout`, fifth Checkout + Order
-  money-model slice): **COMPLETE** (PR #39, squash `f98aafb67d946c04a7a7141f164e1d0998ab759b`). **Checkout-side money only (made BINDING by the next slice, PR-21): no Order change, no Benefits change, no Payment,
+- **Checkout advisory money snapshot + public `moneyPreview`** (`com.tazzzo.customer.checkout`, fifth Checkout + Order
+  money-model slice): **COMPLETE** (PR #39, squash `f98aafb67d946c04a7a7141f164e1d0998ab759b`). **Checkout-side advisory money only: no Order change, no Benefits change, no Payment,
   no gateway, no tax/GST engine, no fees, no coupons, no spendable Coins, no wallet, no production Benefits rule (0
   configured).**
   - **Same ratified V1 formula as the Order:** `payablePaise = merchandiseSubtotalPaise - benefitDiscountPaise` (tax-inclusive
     prices; no fees/coupons/Coins/wallet; none of them appears, not even as a zero placeholder). Zero payable is valid.
-  - **`CheckoutMoneySnapshot`** (Checkout-owned, immutable; deliberately NOT `OrderMoneySnapshot`, [SUPERSEDED by PR-21: the quote money is now binding] because Checkout is advisory
+  - **`CheckoutMoneySnapshot`** (Checkout-owned, immutable; deliberately NOT `OrderMoneySnapshot`, because Checkout is advisory
     and Order is authoritative and Checkout never depends on Order): components `merchandiseSubtotalPaise` and
     `benefitDiscountPaise`; `payablePaise()` is derived. Invariants: both `>= 0`, discount `<=` subtotal. `CheckoutQuote` enforces
-    that the subtotal is the quote's own `subtotalPaise`, the discount is the STORED advisory `CheckoutBenefitSnapshot` [SUPERSEDED by PR-21: the quote money is now binding] discount
+    that the subtotal is the quote's own `subtotalPaise`, the discount is the STORED advisory `CheckoutBenefitSnapshot` discount
     (`Applied.discountPaise`, 0 for no benefit; never a rate recomputation and never a second Benefits call), and that a money
     snapshot requires the Benefits snapshot.
   - **Creation:** built in `CheckoutService.candidate` right after the Benefits snapshot and before the single quote persist;
@@ -1027,11 +1027,13 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
     never `0`, nothing is synthesized. Money present with Benefits absent, or disagreeing with them, is invalid and fails loud
     (safe 500 `INTERNAL`).
   - **Replay / GET:** return the stored quote and its stored money unchanged; no Benefits evaluation, no recalculation.
-  - **Advisory vs authoritative (SUPERSEDED by PR-21 below):** when this slice merged the Order computed its own money and could
-    differ from the quote. PR-21 makes the quote money binding and the Order refuses a difference with `PAYABLE_CHANGED`.
+  - **Advisory vs authoritative:** the Order computes its own money and may legitimately differ after a Membership,
+    Benefits-configuration or Pricing change (tested: Checkout payable 9500 stays stored while the Order is 10000). There is no
+    `PAYABLE_CHANGED`/`BENEFIT_CHANGED`/`QUOTE_CHANGED` behaviour and the Order does not honour the Checkout payable.
   - **Public API (additive):** one optional nested `moneyPreview {merchandiseSubtotalPaise, benefitDiscountPaise, payablePaise}`
     on `CustomerCheckoutQuote` (closed, all three `int64`, `minimum: 0`; absent on an older quote), alongside the unchanged
-    `benefitPreview` and top-level `subtotalPaise`. The OpenAPI text originally called it advisory (SUPERSEDED by PR-21: the quote money is now binding). The DTO consumes only the public-safe `CheckoutMoneyPreview` projection.
+    `benefitPreview` and top-level `subtotalPaise`. The OpenAPI text says it is advisory, not Payment authority, not a price lock,
+    and that the Order may differ. The DTO consumes only the public-safe `CheckoutMoneyPreview` projection.
   - **Architecture:** two new rules (64 -> 66): the Checkout HTTP layer and metrics do not depend on `CheckoutMoneySnapshot` or its
     codec, and no production code creates a quote through the Benefits-only (money-less) constructor.
   - **Deployment gates unchanged and PENDING / UNVERIFIED:** the Order `orders`-count == 0 gate and the five Membership gates.
@@ -1060,49 +1062,51 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
     `tazzzo.membership.plans` AND `tazzzo.benefits.rules` on every application instance and environment (instances with
     different static rules would produce different Checkout/Order outcomes). This clarifies the SAME gate; the total stays six
     (the `orders`-count gate plus the five Membership gates), all PENDING / UNVERIFIED. This PR reduces config mistakes; it does
-    not itself introduce any `PAYABLE_CHANGED`/`BENEFIT_CHANGED`/`QUOTE_CHANGED` behaviour (the binding Checkout payable and
-    `PAYABLE_CHANGED` arrive in PR-21 below; the startup validation here and that runtime binding are complementary).
+    not introduce any `PAYABLE_CHANGED`/`BENEFIT_CHANGED`/`QUOTE_CHANGED` behaviour, and Order does not honour the Checkout payable.
   - **Admin:** none added. Current admin security (two static shared service tokens, no per-person identity, no fine-grained
     authorization, no actor-attributed audit) is insufficient for mutable Benefits; that is a separate prerequisite.
-  - **Documentation cleanup carried from PR #39:** Checkout Advisory Money [SUPERSEDED by PR-21: the quote money is now binding] moved to COMPLETE; Last verification refreshed; the
+  - **Documentation cleanup carried from PR #39:** Checkout Advisory Money moved to COMPLETE; Last verification refreshed; the
     Checkout quote Javadoc and the `customer-checkout` OpenAPI tag description no longer describe Checkout only as "not a final
-    payable total" (they said `moneyPreview` exists and is advisory -- that ADVISORY wording is SUPERSEDED by PR-21's binding contract; the
-    stale "no order endpoints exist yet" sentence correction stands). Description-only: no OpenAPI schema or DTO change.
+    payable total" (they say `moneyPreview` exists, is ADVISORY, and Order is AUTHORITATIVE; the stale "no order endpoints exist
+    yet" sentence was corrected). Description-only: no OpenAPI schema or DTO change.
   - **Architecture:** no new rule (66 stay green); Benefits remains decoupled from Membership internals.
+
+- **PR-21 — binding payable contract (PR #40, squash `3839f3d26e94f7d6cfed6e0da098ed900fd95a04`): MERGED WITHOUT
+  RATIFICATION; its binding semantics are REMOVED by the forward fix below.** History, recorded as fact: PR #40 made the quote's
+  `moneyPreview` BINDING (Order placement had to reproduce it exactly, in either direction, or was refused with a new 409
+  `PAYABLE_CHANGED`; a legacy quote without money was refused too), rewrote the Checkout/Order documentation and Javadoc from
+  "advisory" to "binding", annotated the earlier money-model entries here as superseded, and added a source-scan test banning
+  the word "advisory" from Checkout/Order sources. It ALSO added a useful, independent public projection of the Order's
+  authoritative money (`CustomerOrderDto.money`) and documented the previously undocumented POST-quote replay-after-expiry 410.
+  An independent architecture review classified the binding behaviour as an unratified architecture change (the ratified model
+  is: Checkout money ADVISORY, Order money AUTHORITATIVE, they may differ, no `PAYABLE_CHANGED`). The forward fix keeps the
+  public Order money (hardened) and the 410 documentation and removes everything binding.
 
 ## In review (NOT merged)
 
-- **Binding payable contract (PR-21)** (`com.tazzzo.customer.order` + the `customer.checkout` money docs): **IN REVIEW**. **Money
-  contract only: no new money component, no Payment, no gateway, no tax/GST engine, no fees, no coupons, no spendable Coins,
-  no wallet, no order-list endpoint, no schema/index/data migration, no new collection.**
-  - **The invariant:** a quote's `moneyPreview` is the BINDING customer money of that quote (the amount due if this exact quote is
-    ordered). Order placement either reproduces it EXACTLY or is refused with the new **409 `PAYABLE_CHANGED`** and the customer
-    must review a new quote (new `Idempotency-Key`). Nothing is created, reserved, consumed or cleared on a refusal.
-  - **Comparison:** `OrderDraftAssembler.validateAndReserve`, after line-price revalidation (`PRICE_CHANGED` keeps precedence), after
-    the live Benefits evaluation and the live money calculation, and BEFORE the Inventory reserve (so nothing is written on a
-    refusal). It compares `(merchandiseSubtotalPaise, benefitDiscountPaise)` (the payable is derived), NOT the benefit identity:
-    two benefit states with the same money leave the agreement unchanged. ANY difference is refused, in BOTH directions (a larger
-    discount is refused too). The persisted Order money is the AGREED (quote) money, equal to the live money by the check.
-  - **Legacy quote** (no persisted money, with or without a benefit snapshot): refused with `PAYABLE_CHANGED`; the customer was
-    never shown a payable, so live money is never silently substituted. Quotes live at most an hour, so no migration is needed.
-  - **Replay unchanged:** the durable (customer, quote) lookup still runs before quote expiry, revalidation, Benefits and this
-    check; a committed Order is never re-judged and returns its stored money.
-  - **Public API (additive):** optional `money {merchandiseSubtotalPaise, benefitDiscountPaise, payablePaise}` on `CustomerOrder`
-    (`CustomerOrderDto.OrderMoney`), projected from the persisted `OrderMoneySnapshot` and never recomputed on read; absent on an
-    order created before the money model (never a zero payable). `subtotalPaise` is unchanged and equals
-    `money.merchandiseSubtotalPaise` on every new order. `moneyPreview` and `benefitPreview` keep their names; their documented
-    meaning changes from advisory to binding/frozen. `payablePaise` is the amount DUE ON DELIVERY (`COD_DUE`); `0` is valid (a full
-    discount), and presentation must then not say money is due (a future payment-condition enum is out of scope).
-  - **OpenAPI** (`docs/api/v1/openapi.yaml` and the generated `docs/openapi.json`): binding wording, the order `money` schema,
-    `PAYABLE_CHANGED` in the order 409 set and error enum with the requote recovery, and the previously undocumented POST-quote
-    replay-after-expiry `410`. A new `OrderContractTest` pins the YAML to the DTO.
-  - **Arithmetic/validation:** integer paise only; the existing checked arithmetic and invariants (subtotal >= 0, 0 <= discount <=
-    subtotal, payable == subtotal - discount) are unchanged and apply to the new public record too; overflow keeps the existing safe
-    failure and commits nothing.
-  - **Deployment sequence:** deploy the backend first (all NEW quotes already carry money since #39; legacy quotes age out within
-    their TTL), confirm it, and only then enable production ordering in the app. The Order `orders`-count == 0 strict-schema gate
-    and the five Membership gates remain PENDING / UNVERIFIED; no new gate. Do not claim production readiness.
-
+- **Forward fix — restore advisory Checkout money, keep public Order money** (`com.tazzzo.customer.order` +
+  `customer.checkout` documentation): **IN REVIEW**. **No Payment, no gateway, no new money component, no Benefits change, no
+  change to persisted Checkout or Order money, no production Benefits rule (0 configured).**
+  - **Removed (PR #40's unratified binding contract):** `OrderFailure.PAYABLE_CHANGED`, its 409 mapping and public error code,
+    the Checkout/Order money-equality check in `OrderDraftAssembler` (Order placement no longer reads the quote's money at all),
+    the refusal of quotes without money, all binding wording in Javadoc and OpenAPI, the binding/refusal tests, the
+    `TestQuotes` helper and the source-scan test that banned the word "advisory".
+  - **Restored (ratified model):** Checkout Benefits and Checkout money are ADVISORY; Order Benefits and Order money are
+    AUTHORITATIVE; they may differ and the Order wins, in BOTH directions (a benefit lost OR gained after the quote, a Benefits
+    configuration change, a zero payable appearing or disappearing). A legacy quote without money places normally. Order
+    placement still revalidates Pricing (`PRICE_CHANGED` is unchanged and independent), Membership, Benefits, Inventory,
+    serviceability and the address. Replay, in-transaction replay and duplicate-key recovery still return the stored Order.
+    The end-to-end disagreement test (quote 10000/500/9500, Membership revoked, Order 10000/0/10000 succeeds) is restored.
+  - **Kept and hardened (public Order money):** optional `CustomerOrder.money {merchandiseSubtotalPaise, benefitDiscountPaise,
+    payablePaise}` (closed OpenAPI schema `CustomerOrderMoney`, all `int64`, `minimum: 0`), ABSENT on a legacy Order (never a
+    zero payable), the commerce amount owed (`COD_DUE`: due on delivery), never a payment fact. The DTO now reads it through a
+    new package-private public-safe projection `OrderMoneyView` (`Order.moneyView()`), the Order counterpart of Checkout's
+    `CheckoutMoneyPreview`, and no longer takes `OrderMoneySnapshot` directly.
+  - **Architecture:** the Order HTTP/metrics money rule now also selects types NESTED in a controller/handler/DTO/observability
+    class (the nested `CustomerOrderDto.OrderMoney` record had bypassed the suffix-only selector), and a new rule forbids
+    `customer.order` from depending on Checkout's advisory money types (`CheckoutMoney*`). `ModuleBoundaryTest` 66 -> 67.
+  - **Deployment gates unchanged:** the Order `orders`-count == 0 gate and the five Membership gates (the plan/rule identical-config
+    gate covers `tazzzo.membership.plans` and `tazzzo.benefits.rules`) remain PENDING / UNVERIFIED; no new gate.
 ## Follow-up debt (recorded)
 
 - **Non-Auth `tx.run` result-holder audit (PR-11D, no action taken):** `AttributeAuthoringService`
@@ -1160,7 +1164,7 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   `PublicServiceability`, pincode-keyed routing) is **COMPLETE** and unchanged; the
   customer-address BINDING to it (PR-12B) is **COMPLETE**.
   (Address ↔ Serviceability binding: COMPLETE.)
-- Cart (PR-12C): **COMPLETE** (PR #21). Auth transaction retry hardening (PR-11D): **COMPLETE** (PR #22). Checkout (PR-13A): **COMPLETE** (PR #23). Checkout provenance (PR-13B): **COMPLETE** (PR #24, squash `8b4fabb9b82e4e3502202ffaff1aadd35f9ba311`). Inventory Reservation lifecycle (PR-14A): **COMPLETE** (PR #25, squash `44438031022238334ecdf3995ba1096101e2e47f`). Order Foundation (PR-14B): **COMPLETE** (PR #26, squash `b620538e34afc35f7f080461750681b467ed4096`). Cart purchase-finalization seam (PR-15A-0): **COMPLETE** (PR #28, squash `611829c3649de3f5c37dec4ac5b375a1d8ef454e`). COD Order domain (PR-15A-1): **COMPLETE** (PR #29, squash `e8d4d45e88ad4935f7ad84a46ae65a671e50ba63`). Customer Order HTTP (PR-15A-2): **COMPLETE** (PR #30, squash `0cdcc97b8fcf5f7c079815b8cb276874635d15d6`; operational `orders`-count==0 deployment gate **PENDING**, not verified). Membership write foundation (PR-16A-1): **COMPLETE** (PR #31, squash `d32a23fb2e4b52fa8076de45a07bf3b60912b1e2`; Membership deployment gates **PENDING**, not verified). Membership entitlement read seam (PR-16A-2): **COMPLETE** (PR #32, squash `580633abbc8d162f45110443f503d4998f4caa48`). Membership termination (PR-16A-3): **COMPLETE** (PR #33, squash `99e2d1b7cc26982e0825bc4a9766b815aa6ae8e0`; cancel-at-period-end and immediate revoke; internal only). Benefits Foundation (order-level percentage + threshold evaluation seam; internal, no persistence): **COMPLETE** (PR #34, squash `cb2097f5979fe666d0d52de958b40db7058e3d16`; 0 production rules configured). Order Benefits snapshot (authoritative Benefits evaluation at COD placement; persisted snapshot, no public API change): **COMPLETE** (PR #35, squash `4486044e1c2f200ed05fe44abbb6525bf24a98f7`). Checkout Benefits evaluation snapshot (internal advisory preview persisted with the quote [SUPERSEDED by PR-21: the quote money is now binding]; no public API change): **COMPLETE** (PR #36, squash `30dea72482f71418048783b348647fdc0165a133`). Checkout Benefits preview public projection (additive nested `benefitPreview`, projection/API only): **COMPLETE** (PR #37, squash `48380964edb18f35eef501eb5aaf495da95d5c32`). Order money snapshot (authoritative V1 payable): **COMPLETE** (PR #38, squash `8051c45b7cf96dbc8d1374892d3b18281ff4a7b4`). Checkout advisory money snapshot + `moneyPreview`: **COMPLETE** (PR #39, squash `f98aafb67d946c04a7a7141f164e1d0998ab759b`). Order money snapshot (authoritative V1 payable: merchandise subtotal minus Benefits discount; internal, no public API change): **IN REVIEW**. Payment: **NOT STARTED**. Real payment gateway: **NOT STARTED**.
+- Cart (PR-12C): **COMPLETE** (PR #21). Auth transaction retry hardening (PR-11D): **COMPLETE** (PR #22). Checkout (PR-13A): **COMPLETE** (PR #23). Checkout provenance (PR-13B): **COMPLETE** (PR #24, squash `8b4fabb9b82e4e3502202ffaff1aadd35f9ba311`). Inventory Reservation lifecycle (PR-14A): **COMPLETE** (PR #25, squash `44438031022238334ecdf3995ba1096101e2e47f`). Order Foundation (PR-14B): **COMPLETE** (PR #26, squash `b620538e34afc35f7f080461750681b467ed4096`). Cart purchase-finalization seam (PR-15A-0): **COMPLETE** (PR #28, squash `611829c3649de3f5c37dec4ac5b375a1d8ef454e`). COD Order domain (PR-15A-1): **COMPLETE** (PR #29, squash `e8d4d45e88ad4935f7ad84a46ae65a671e50ba63`). Customer Order HTTP (PR-15A-2): **COMPLETE** (PR #30, squash `0cdcc97b8fcf5f7c079815b8cb276874635d15d6`; operational `orders`-count==0 deployment gate **PENDING**, not verified). Membership write foundation (PR-16A-1): **COMPLETE** (PR #31, squash `d32a23fb2e4b52fa8076de45a07bf3b60912b1e2`; Membership deployment gates **PENDING**, not verified). Membership entitlement read seam (PR-16A-2): **COMPLETE** (PR #32, squash `580633abbc8d162f45110443f503d4998f4caa48`). Membership termination (PR-16A-3): **COMPLETE** (PR #33, squash `99e2d1b7cc26982e0825bc4a9766b815aa6ae8e0`; cancel-at-period-end and immediate revoke; internal only). Benefits Foundation (order-level percentage + threshold evaluation seam; internal, no persistence): **COMPLETE** (PR #34, squash `cb2097f5979fe666d0d52de958b40db7058e3d16`; 0 production rules configured). Order Benefits snapshot (authoritative Benefits evaluation at COD placement; persisted snapshot, no public API change): **COMPLETE** (PR #35, squash `4486044e1c2f200ed05fe44abbb6525bf24a98f7`). Checkout Benefits evaluation snapshot (internal advisory preview persisted with the quote; no public API change): **COMPLETE** (PR #36, squash `30dea72482f71418048783b348647fdc0165a133`). Checkout Benefits preview public projection (additive nested `benefitPreview`, projection/API only): **COMPLETE** (PR #37, squash `48380964edb18f35eef501eb5aaf495da95d5c32`). Order money snapshot (authoritative V1 payable): **COMPLETE** (PR #38, squash `8051c45b7cf96dbc8d1374892d3b18281ff4a7b4`). Checkout advisory money snapshot + `moneyPreview`: **COMPLETE** (PR #39, squash `f98aafb67d946c04a7a7141f164e1d0998ab759b`). Benefits static config hardening: **COMPLETE** (PR #41, squash `22416e7a90aa36bc557d0926cc4b44dd7007a6b4`). PR-21 binding payable contract (PR #40, squash `3839f3d26e94f7d6cfed6e0da098ed900fd95a04`): merged without ratification; binding removed by the forward fix (in review), public Order money kept. Order money snapshot (authoritative V1 payable: merchandise subtotal minus Benefits discount; internal, no public API change): **IN REVIEW**. Payment: **NOT STARTED**. Real payment gateway: **NOT STARTED**.
 
 ## Next (ratified sequence)
 
@@ -1170,11 +1174,11 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
    slice complete (PR #34); flat/free-delivery/coupon/other benefit types and ratified launch rules remain undefined.
 3. Checkout + Order money-model upgrade — first slice (Order Benefits snapshot: authoritative evaluation at COD
    placement, persisted snapshot) complete (PR #35); second slice (Checkout Benefits evaluation snapshot: internal
-   advisory preview persisted with the quote [SUPERSEDED by PR-21: the quote money is now binding]) complete (PR #36); third slice (minimal public `benefitPreview`
+   advisory preview persisted with the quote) complete (PR #36); third slice (minimal public `benefitPreview`
    projection) complete (PR #37); fourth slice (Order money snapshot: authoritative V1 payable, internal) complete (PR #38); fifth slice
-   (Checkout money snapshot + public `moneyPreview`) complete (PR #39); sixth slice (Benefits static config hardening: plan
-   cross-validation) complete (PR #41); seventh slice (PR-21: the quote money becomes BINDING, the Order refuses a difference
-   with `PAYABLE_CHANGED`, and the Order exposes its authoritative `money`) in review; Payment comes last.
+   (Checkout advisory money snapshot + public `moneyPreview`) complete (PR #39); sixth slice (Benefits static config
+   hardening: plan cross-validation) complete (PR #41); PR #40 (binding payable, unratified) was merged and its binding is
+   removed by the forward fix (in review), which keeps the public authoritative Order money; Payment comes last.
 4. Payment domain, then the prepaid Order flow, then a real gateway.
 5. Admin/CMS expansion.
 
@@ -1211,6 +1215,18 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-10-02** — `./mvnw clean test` on Java 21 + Docker on `feature/pr22a-restore-advisory-payable` (based on `main`
+  `3839f3d26e94f7d6cfed6e0da098ed900fd95a04`, i.e. after PR #40): **BUILD SUCCESS**, 2250 tests, 0 failures / 0 errors / 0
+  skipped; `ModuleBoundaryTest` 67/67. The count is 9 below `main`'s 2259 because PR #40's binding-only tests were removed
+  deliberately: `OrderBenefitsPlacementIT` 38 -> 33 (13 PR #40 tests out, 8 advisory/authoritative tests in), `OrderContractTest`
+  9 -> 5 (6 binding/source-scan tests out, 2 positive contract pins in), `OrderHttpIT` 38 -> 37 (4 out, 3 in), `CheckoutQuoteIT`
+  73 -> 73 (the binding refusal test swapped back for the ratified disagreement test), `ModuleBoundaryTest` 66 -> 67; no other
+  test class changed count. Eight mutation checks were each killed: money-mismatch rejection reintroduced, revoke-after-quote
+  rejected, benefit-gained-after-quote rejected, the DTO consuming `OrderMoneySnapshot` through a nested record (the PR #40 shape,
+  now caught by the hardened rule), a synthesized legacy Order money, an identity field leaking into the public money,
+  `PRICE_CHANGED` bypassed, and `PAYABLE_CHANGED` re-added to the OpenAPI error enum.
+- **2026-10-02** — merged-`main` verification of PR #41 (squash `22416e7a90aa36bc557d0926cc4b44dd7007a6b4`, push CI run
+  `37024797843` on Java 21): **BUILD SUCCESS**, 2227 tests, 0 failures / 0 errors / 0 skipped; `ModuleBoundaryTest` 66/66.
 - **2026-10-02** — `./mvnw clean test` on Java 21 + Docker on `feature/pr22-benefits-config-hardening` (based on `main`
   `f98aafb67d946c04a7a7141f164e1d0998ab759b`): **BUILD SUCCESS**, 2227 tests, 0 failures / 0 errors / 0 skipped (2216
   baseline + 11 `BenefitsPlanCrossValidationTest`); `ModuleBoundaryTest` 66/66 (no new rule); no customer DTO/OpenAPI
