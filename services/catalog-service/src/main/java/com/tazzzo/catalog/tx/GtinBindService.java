@@ -1,5 +1,6 @@
 package com.tazzzo.catalog.tx;
 
+import com.tazzzo.common.audit.Actor;
 import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.UpdateOptions;
 import com.mongodb.client.model.Updates;
@@ -8,6 +9,7 @@ import com.tazzzo.catalog.repo.WritePath;
 import org.bson.Document;
 import org.springframework.stereotype.Service;
 
+import java.util.Objects;
 import java.util.Date;
 import java.util.Map;
 
@@ -23,10 +25,12 @@ public class GtinBindService {
         this.writePath = writePath;
     }
 
-    public void bind(String productId, String gtin, String market) {
+    public void bind(Actor actor, String productId, String gtin, String market) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
         tx.run(session -> {
             EventPayload bound = new EventPayload("GTIN_BOUND", productId,
-                    Map.of("gtin", gtin, "market", market));
+                    Map.of("gtin", gtin, "market", market), actor);
             // close any open binding for this market, then open the new one
             writePath.auxWrite(session, "gtin_registry", bound, c -> c.updateOne(session,
                     Filters.eq("_id", gtin),

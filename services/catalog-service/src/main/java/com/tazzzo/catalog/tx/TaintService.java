@@ -1,5 +1,6 @@
 package com.tazzzo.catalog.tx;
 
+import com.tazzzo.common.audit.Actor;
 import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.Sorts;
 import com.mongodb.client.model.UpdateOptions;
@@ -10,6 +11,7 @@ import org.bson.Document;
 import org.bson.types.ObjectId;
 import org.springframework.stereotype.Service;
 
+import java.util.Objects;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -29,13 +31,18 @@ public class TaintService {
     private final Tx tx;
     private final WritePath writePath;
 
+    /** The taint cascade worker is resumable background work, never an admin request. */
+    static final Actor WORKER = Actor.system("system:taint-worker");
+
     public TaintService(Tx tx, WritePath writePath) {
         this.tx = tx;
         this.writePath = writePath;
     }
 
     /** Flip validity out of active AND enqueue the cascade item, one transaction. */
-    public void retractEvidence(String evidenceId, String requested) {
+    public void retractEvidence(Actor actor, String evidenceId, String requested) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
         String newValidity = requested;
         if (newValidity == null) newValidity = "retracted";   // domain default, not transport
         if (!Set.of("retracted", "superseded").contains(newValidity)) {
@@ -46,7 +53,7 @@ public class TaintService {
         final String finalValidity = newValidity;
         tx.run(session -> {
             EventPayload e = new EventPayload("EVIDENCE_VALIDITY_FLIPPED", "TZP-SYSTEM",
-                    Map.of("evidence", evidenceId, "to", finalValidity));
+                    Map.of("evidence", evidenceId, "to", finalValidity), actor);
             Document current = writePath.database().getCollection("evidence")
                     .find(session, Filters.eq("_id", evidenceId)).first();
             if (current == null) {
@@ -117,7 +124,7 @@ public class TaintService {
         ObjectId[] last = new ObjectId[1];
         tx.run(session -> {
             EventPayload e = new EventPayload("TAINT_BATCH", "TZP-SYSTEM",
-                    Map.of("evidence", item.getString("evidence_id"), "n", links.size()));
+                    Map.of("evidence", item.getString("evidence_id"), "n", links.size()), WORKER);
             for (Document link : links) {
                 String productId = link.getString("product_id");
                 writePath.auxWrite(session, "work_queue", e, c -> c.updateOne(session,
@@ -141,7 +148,7 @@ public class TaintService {
     private void finishItem(Document item) {
         tx.run(session -> writePath.auxWrite(session, "work_queue",
                 new EventPayload("TAINT_DONE", "TZP-SYSTEM",
-                        Map.of("evidence", item.getString("evidence_id"))),
+                        Map.of("evidence", item.getString("evidence_id")), WORKER),
                 c -> c.updateOne(session, Filters.eq("_id", item.getString("_id")),
                         Updates.set("status", "completed"))));
     }

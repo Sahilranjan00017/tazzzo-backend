@@ -1,5 +1,6 @@
 package com.tazzzo.customer.cart;
 
+import com.tazzzo.common.audit.TestActors;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tazzzo.auth.otp.OtpPurpose;
@@ -105,7 +106,7 @@ class CartHttpIT extends AbstractApiIT {
         db.drop();
         schemaBootstrap.bootstrap(db);
         loader.load(db);
-        changes.recordBaseline("R1");
+        changes.recordBaseline(TestActors.TEST, "R1");
         serviceability.upsertServiceArea(new UpsertServiceAreaCommand(PIN_OK, "SA-CART-1",
                 List.of(new ServiceabilityRoute("FUL-CART-INTERNAL", 0, true)), "seed", null));
     }

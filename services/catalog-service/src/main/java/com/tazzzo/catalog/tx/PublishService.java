@@ -1,5 +1,6 @@
 package com.tazzzo.catalog.tx;
 
+import com.tazzzo.common.audit.Actor;
 import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.Updates;
 import com.tazzzo.catalog.events.EventPayload;
@@ -7,6 +8,7 @@ import com.tazzzo.catalog.repo.WritePath;
 import org.bson.Document;
 import org.springframework.stereotype.Service;
 
+import java.util.Objects;
 import java.util.List;
 import java.util.Map;
 
@@ -26,13 +28,15 @@ public class PublishService {
         this.writePath = writePath;
     }
 
-    public void publishClaim(String productId, String attrKey, List<String> evidenceIds) {
+    public void publishClaim(Actor actor, String productId, String attrKey, List<String> evidenceIds) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
         if (evidenceIds == null || evidenceIds.isEmpty()) {
             throw new EvidenceGateException("claim-tier publish requires at least one evidence reference");
         }
         tx.run(session -> {
             EventPayload published = new EventPayload("CLAIM_PUBLISHED", productId,
-                    Map.of("attr", attrKey, "evidence", evidenceIds));
+                    Map.of("attr", attrKey, "evidence", evidenceIds), actor);
             for (String ev : evidenceIds) {
                 writePath.auxWrite(session, "evidence", published, c -> c.updateOne(session,
                         Filters.eq("_id", ev), Updates.inc("fence", 1)));      // fence BEFORE read

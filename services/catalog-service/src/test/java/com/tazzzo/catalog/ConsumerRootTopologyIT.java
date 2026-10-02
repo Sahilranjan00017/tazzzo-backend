@@ -1,5 +1,6 @@
 package com.tazzzo.catalog;
 
+import com.tazzzo.common.audit.TestActors;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -56,13 +57,13 @@ class ConsumerRootTopologyIT extends AbstractConsumerIT {
         db.drop();
         schemaBootstrap.bootstrap(db);
         loader.load(db);
-        changes.recordBaseline("R1");
+        changes.recordBaseline(TestActors.TEST, "R1");
         // sanity: the fixture ids are what the seed says they are
         assertThat(db.getCollection("taxonomy_nodes").find(eq("_id", V_SLEEP)).first().getString("name"))
                 .isEqualTo("Sleep Support");
-        changes.openRelease("R2", "R1");
-        changes.deprecateNode(V_SLEEP, version(V_SLEEP));
-        changes.activateRelease("R2");          // pointer -> R2; snapshot has V_SLEEP deprecated
+        changes.openRelease(TestActors.TEST, "R2", "R1");
+        changes.deprecateNode(TestActors.TEST, V_SLEEP, version(V_SLEEP));
+        changes.activateRelease(TestActors.TEST, "R2");          // pointer -> R2; snapshot has V_SLEEP deprecated
         eligibleProduct("TZP-SLEEP", V_SLEEP);   // eligible by every product-level rule
     }
 

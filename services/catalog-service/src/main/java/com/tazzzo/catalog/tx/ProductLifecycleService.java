@@ -1,5 +1,6 @@
 package com.tazzzo.catalog.tx;
 
+import com.tazzzo.common.audit.Actor;
 import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.Updates;
 import com.tazzzo.catalog.events.EventPayload;
@@ -7,6 +8,7 @@ import com.tazzzo.catalog.repo.WritePath;
 import org.bson.Document;
 import org.springframework.stereotype.Service;
 
+import java.util.Objects;
 import java.util.Date;
 import java.util.Map;
 import java.util.Set;
@@ -40,16 +42,22 @@ public class ProductLifecycleService {
         this.writePath = writePath;
     }
 
-    public void activate(String productId, int expectedVersion) {
-        transition(productId, expectedVersion, "active", "PRODUCT_ACTIVATED", null);
+    public void activate(Actor actor, String productId, int expectedVersion) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
+        transition(actor, productId, expectedVersion, "active", "PRODUCT_ACTIVATED", null);
     }
 
-    public void discontinue(String productId, int expectedVersion, String reason) {
-        transition(productId, expectedVersion, "discontinued", "PRODUCT_DISCONTINUED", reason);
+    public void discontinue(Actor actor, String productId, int expectedVersion, String reason) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
+        transition(actor, productId, expectedVersion, "discontinued", "PRODUCT_DISCONTINUED", reason);
     }
 
     /** Reactivate a discontinued product. Refused if the formulation has changed. */
-    public void revive(String productId, int expectedVersion, Integer declaredFormulationVersion) {
+    public void revive(Actor actor, String productId, int expectedVersion, Integer declaredFormulationVersion) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
         tx.run(session -> {
             Document p = require(session, productId);
             assertLegal(p.getString("lifecycle"), "active");
@@ -62,16 +70,18 @@ public class ProductLifecycleService {
             writePath.casUpdateWithEvent(session, "products", productId, expectedVersion,
                     Updates.combine(Updates.set("lifecycle", "active"),
                             Updates.set("updated_at", new Date()), Updates.inc("version", 1)),
-                    new EventPayload("PRODUCT_REVIVED", productId, Map.of()));
+                    new EventPayload("PRODUCT_REVIVED", productId, Map.of(), actor));
         });
     }
 
     /** Terminal. Nothing leaves `archived`. */
-    public void archive(String productId, int expectedVersion) {
-        transition(productId, expectedVersion, "archived", "PRODUCT_ARCHIVED", null);
+    public void archive(Actor actor, String productId, int expectedVersion) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
+        transition(actor, productId, expectedVersion, "archived", "PRODUCT_ARCHIVED", null);
     }
 
-    private void transition(String productId, int expectedVersion, String target,
+    private void transition(Actor actor, String productId, int expectedVersion, String target,
                             String eventType, String reason) {
         tx.run(session -> {
             Document p = require(session, productId);
@@ -80,7 +90,7 @@ public class ProductLifecycleService {
                     Updates.combine(Updates.set("lifecycle", target),
                             Updates.set("updated_at", new Date()), Updates.inc("version", 1)),
                     new EventPayload(eventType, productId,
-                            reason == null ? Map.of() : Map.of("reason", reason)));
+                            reason == null ? Map.of() : Map.of("reason", reason), actor));
         });
     }
 

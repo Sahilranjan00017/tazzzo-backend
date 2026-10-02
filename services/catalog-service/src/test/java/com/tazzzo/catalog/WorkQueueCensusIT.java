@@ -1,5 +1,6 @@
 package com.tazzzo.catalog;
 
+import com.tazzzo.common.audit.TestActors;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.tazzzo.catalog.schema.DiscriminatingAttributeRegistry;
 import com.tazzzo.catalog.schema.TaxonomyLoader;
@@ -75,7 +76,7 @@ class WorkQueueCensusIT extends AbstractApiIT {
         db.drop();
         schemaBootstrap.bootstrap(db);
         loader.load(db);
-        releases.recordBaseline(RELEASE);
+        releases.recordBaseline(TestActors.TEST, RELEASE);
     }
 
     // ------------------------------------------------------------------ minting

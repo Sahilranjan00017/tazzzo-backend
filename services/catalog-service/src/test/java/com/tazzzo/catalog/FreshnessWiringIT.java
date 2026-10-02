@@ -1,5 +1,6 @@
 package com.tazzzo.catalog;
 
+import com.tazzzo.common.audit.TestActors;
 import com.mongodb.client.model.Filters;
 import com.tazzzo.catalog.repo.WritePath;
 import com.tazzzo.catalog.tx.ProductUpdateService;
@@ -50,7 +51,7 @@ class FreshnessWiringIT extends AbstractMongoIT {
 
         // A real Catalog mutation through the SINGLETON WritePath bean (attached by the freshness
         // config at startup) — not a test-constructed WritePath.
-        new ProductUpdateService(new Tx(client), writePath).updateTitle("TZP-WIRE", 1, "Renamed WIRE");
+        new ProductUpdateService(new Tx(client), writePath).updateTitle(TestActors.TEST, "TZP-WIRE", 1, "Renamed WIRE");
 
         assertNotNull(db.getCollection("work_queue").find(Filters.eq("_id", "card_rebuild:TZP-WIRE")).first(),
                 "freshness.enabled attached the queue to the production WritePath bean");

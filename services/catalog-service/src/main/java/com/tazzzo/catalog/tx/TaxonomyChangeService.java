@@ -1,5 +1,6 @@
 package com.tazzzo.catalog.tx;
 
+import com.tazzzo.common.audit.Actor;
 import com.mongodb.MongoWriteException;
 import com.mongodb.client.ClientSession;
 import com.mongodb.client.model.Filters;
@@ -12,6 +13,7 @@ import org.bson.Document;
 import org.bson.conversions.Bson;
 import org.springframework.stereotype.Service;
 
+import java.util.Objects;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -41,6 +43,9 @@ public class TaxonomyChangeService {
     private final WritePath writePath;
     private final ReleaseGate releaseGate;
 
+    /** The stamp fan-out worker runs on a scheduler, never on an admin request. */
+    static final Actor STAMP_WORKER = Actor.system("system:taxonomy-stamp-worker");
+
     public TaxonomyChangeService(Tx tx, WritePath writePath, ReleaseGate releaseGate) {
         this.tx = tx;
         this.writePath = writePath;
@@ -50,9 +55,11 @@ public class TaxonomyChangeService {
     // ---------- release state machine ----------
 
     /** Open a release. DB partial-unique index guarantees at most one open release. */
-    public void openRelease(String releaseId, String basedOn) {
+    public void openRelease(Actor actor, String releaseId, String basedOn) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
         tx.run(session -> {
-            EventPayload e = ev("RELEASE_OPENED", Map.of("release", releaseId));
+            EventPayload e = ev(actor, "RELEASE_OPENED", Map.of("release", releaseId));
             try {
                 writePath.auxWrite(session, "catalogue_releases", e, c -> c.insertOne(session,
                         new Document("_id", releaseId).append("status", "publishing")
@@ -73,7 +80,9 @@ public class TaxonomyChangeService {
      * idempotent; a crash leaves the release in `publishing` (unusable, fail-closed) and a
      * re-run completes it. crashAfterBatches >= 0 is the K-series fault-injection hook.
      */
-    public void activateRelease(String releaseId, int batchSize, int crashAfterBatches) {
+    public void activateRelease(Actor actor, String releaseId, int batchSize, int crashAfterBatches) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
         Document rel = writePath.database().getCollection("catalogue_releases")
                 .find(Filters.eq("_id", releaseId)).first();
         if (rel == null || !List.of("publishing", "freezing").contains(rel.getString("status"))) {
@@ -87,7 +96,7 @@ public class TaxonomyChangeService {
         // `freezing` — changes stay blocked, resume completes the identical snapshot.
         if ("publishing".equals(rel.getString("status"))) {
             tx.run(session -> writePath.auxWrite(session, "catalogue_releases",
-                    ev("RELEASE_FREEZING", Map.of("release", releaseId)), c -> {
+                    ev(actor, "RELEASE_FREEZING", Map.of("release", releaseId)), c -> {
                         long n = c.updateOne(session,
                                 Filters.and(Filters.eq("_id", releaseId),
                                         Filters.eq("status", "publishing")),
@@ -104,7 +113,7 @@ public class TaxonomyChangeService {
         for (int i = 0; i < nodes.size(); i += batchSize) {
             List<Document> batch = nodes.subList(i, Math.min(i + batchSize, nodes.size()));
             tx.run(session -> {
-                EventPayload e = ev("RELEASE_SNAPSHOT_BATCH", Map.of("release", releaseId));
+                EventPayload e = ev(actor, "RELEASE_SNAPSHOT_BATCH", Map.of("release", releaseId));
                 for (Document n : batch) {
                     Document snap = new Document(n);
                     snap.remove("_id");
@@ -124,7 +133,7 @@ public class TaxonomyChangeService {
             }
         }
         tx.run(session -> {
-            EventPayload e = ev("RELEASE_ACTIVATED", Map.of("release", releaseId));
+            EventPayload e = ev(actor, "RELEASE_ACTIVATED", Map.of("release", releaseId));
             // Atomic attribute flip (Step 2): pending definition/schema versions authored in
             // this release become active, prior actives become superseded — in the SAME txn
             // as the status flip, so a partially active schema is unrepresentable.
@@ -180,25 +189,31 @@ public class TaxonomyChangeService {
         });
     }
 
-    public void activateRelease(String releaseId) {
-        activateRelease(releaseId, 200, -1);
+    public void activateRelease(Actor actor, String releaseId) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
+        activateRelease(actor, releaseId, 200, -1);
     }
 
     /** Record the frozen baseline (v0.9.0) as an active, snapshotted release. */
-    public void recordBaseline(String releaseId) {
+    public void recordBaseline(Actor actor, String releaseId) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
         try {
-            openRelease(releaseId, null);
+            openRelease(actor, releaseId, null);
         } catch (TaxonomyChangeException e) {
             if (!"RELEASE_ALREADY_OPEN".equals(e.code)) throw e;
         }
-        activateRelease(releaseId);
+        activateRelease(actor, releaseId);
     }
 
     // ---------- change operations (all require an open release) ----------
 
-    public void renameNode(String nodeId, int expectedVersion, String newName) {
+    public void renameNode(Actor actor, String nodeId, int expectedVersion, String newName) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
         tx.run(session -> {
-            EventPayload e = ev("NODE_RENAMED", Map.of("node", nodeId, "to", newName));
+            EventPayload e = ev(actor, "NODE_RENAMED", Map.of("node", nodeId, "to", newName));
             String rel = releaseGate.requireOpen(session, e);
             Document node = activeNode(session, nodeId);
             String old = node.getString("name");
@@ -219,9 +234,11 @@ public class TaxonomyChangeService {
         });
     }
 
-    public void moveNode(String nodeId, int expectedVersion, String newParentId) {
+    public void moveNode(Actor actor, String nodeId, int expectedVersion, String newParentId) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
         tx.run(session -> {
-            EventPayload e = ev("NODE_MOVED", Map.of("node", nodeId, "to", newParentId));
+            EventPayload e = ev(actor, "NODE_MOVED", Map.of("node", nodeId, "to", newParentId));
             String rel = releaseGate.requireOpen(session, e);
             Document node = activeNode(session, nodeId);
             if (nodeId.equals(newParentId)) {
@@ -259,10 +276,12 @@ public class TaxonomyChangeService {
     }
 
     /** Merge loser vertical into survivor. Blocked on schema conflict unless reconciled. */
-    public void mergeNodes(String loserId, int expectedVersion, String survivorId,
+    public void mergeNodes(Actor actor, String loserId, int expectedVersion, String survivorId,
                            boolean schemaReconciliationApproved) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
         tx.run(session -> {
-            EventPayload e = ev("NODE_MERGED", Map.of("loser", loserId, "survivor", survivorId));
+            EventPayload e = ev(actor, "NODE_MERGED", Map.of("loser", loserId, "survivor", survivorId));
             String rel = releaseGate.requireOpen(session, e);
             Document loser = activeNode(session, loserId);
             Document survivor = activeNode(session, survivorId);
@@ -289,11 +308,13 @@ public class TaxonomyChangeService {
     }
 
     /** Split a vertical: children minted with NEW ids, parent deprecated (never reused). */
-    public List<String> splitNode(String nodeId, int expectedVersion, List<String> childNames) {
+    public List<String> splitNode(Actor actor, String nodeId, int expectedVersion, List<String> childNames) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
         List<String> minted = new ArrayList<>();
         tx.run(session -> {
             minted.clear();
-            EventPayload e = ev("NODE_SPLIT", Map.of("node", nodeId));
+            EventPayload e = ev(actor, "NODE_SPLIT", Map.of("node", nodeId));
             String rel = releaseGate.requireOpen(session, e);
             Document node = activeNode(session, nodeId);
             if (!"vertical".equals(node.getString("node_type"))) {
@@ -329,9 +350,11 @@ public class TaxonomyChangeService {
         return minted;
     }
 
-    public void deprecateNode(String nodeId, int expectedVersion) {
+    public void deprecateNode(Actor actor, String nodeId, int expectedVersion) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
         tx.run(session -> {
-            EventPayload e = ev("NODE_DEPRECATED", Map.of("node", nodeId));
+            EventPayload e = ev(actor, "NODE_DEPRECATED", Map.of("node", nodeId));
             String rel = releaseGate.requireOpen(session, e);
             Document node = activeNode(session, nodeId);
             long activeChildren = writePath.database().getCollection("taxonomy_nodes")
@@ -349,9 +372,11 @@ public class TaxonomyChangeService {
     /** Revive a deprecated node (approved model: deprecate/revive). Merged nodes are
      *  terminal — reviving one would resurrect an identity that products redirect away
      *  from, so it is refused. Parent must be active or the tree would be inconsistent. */
-    public void reviveNode(String nodeId, int expectedVersion) {
+    public void reviveNode(Actor actor, String nodeId, int expectedVersion) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
         tx.run(session -> {
-            EventPayload e = ev("NODE_REVIVED", Map.of("node", nodeId));
+            EventPayload e = ev(actor, "NODE_REVIVED", Map.of("node", nodeId));
             String rel = releaseGate.requireOpen(session, e);
             Document node = writePath.database().getCollection("taxonomy_nodes")
                     .find(session, Filters.eq("_id", nodeId)).first();
@@ -413,9 +438,9 @@ public class TaxonomyChangeService {
     private void nodeEvent(ClientSession session, EventPayload e, String nodeId,
                            String eventType, String releaseId, Document detail) {
         writePath.auxWrite(session, "node_events", e, c -> c.insertOne(session,
-                new Document("node_id", nodeId).append("event", eventType)
-                        .append("release_id", releaseId).append("detail", detail)
-                        .append("at", new Date())));
+                com.tazzzo.common.audit.ActorDocuments.appendTo(new Document("node_id", nodeId)
+                        .append("event", eventType).append("release_id", releaseId).append("detail", detail)
+                        .append("at", new Date()), e.actor())));
     }
 
     /** M4 fix: the change txn enqueues ONE deterministic scan item (bounded txn size);
@@ -460,7 +485,7 @@ public class TaxonomyChangeService {
                 if (page.isEmpty()) break;
                 String last = page.get(page.size() - 1).getString("_id");
                 tx.run(session -> {
-                    EventPayload e = ev("STAMP_BATCH", Map.of("node", verticalId, "n", page.size()));
+                    EventPayload e = ev(STAMP_WORKER, "STAMP_BATCH", Map.of("node", verticalId, "n", page.size()));
                     for (Document p : page) {
                         String pid = p.getString("_id");
                         writePath.auxWrite(session, "work_queue", e, c -> c.updateOne(session,
@@ -478,7 +503,7 @@ public class TaxonomyChangeService {
                 checkpoint = last;
             }
             tx.run(session -> writePath.auxWrite(session, "work_queue",
-                    ev("STAMP_SCAN_DONE", Map.of("node", verticalId)),
+                    ev(STAMP_WORKER, "STAMP_SCAN_DONE", Map.of("node", verticalId)),
                     c -> c.updateOne(session, Filters.eq("_id", item.getString("_id")),
                             Updates.set("status", "completed"))));
         }
@@ -504,7 +529,7 @@ public class TaxonomyChangeService {
         return String.format("TZV-%06d", seq[0].get("seq", Number.class).longValue());
     }
 
-    private EventPayload ev(String type, Map<String, Object> detail) {
-        return new EventPayload(type, "TZP-SYSTEM", detail);
+    private EventPayload ev(Actor actor, String type, Map<String, Object> detail) {
+        return new EventPayload(type, "TZP-SYSTEM", detail, actor);
     }
 }

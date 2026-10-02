@@ -1,5 +1,6 @@
 package com.tazzzo.catalog.api;
 
+import jakarta.servlet.http.HttpServletRequest;
 import com.tazzzo.catalog.api.ApiDtos.*;
 import com.tazzzo.catalog.schema.TaxonomyService;
 import com.tazzzo.catalog.tx.ProductQueryService;
@@ -28,15 +29,17 @@ public class TaxonomyController {
     }
 
     @PostMapping("/releases")
-    public ResponseEntity<IdResponse> openRelease(@RequestBody OpenReleaseRequest body) {
-        changes.openRelease(body.releaseId(), body.basedOn());
+    public ResponseEntity<IdResponse> openRelease(@RequestBody OpenReleaseRequest body,
+                                    HttpServletRequest httpRequest) {
+        changes.openRelease(AdminActors.require(httpRequest), body.releaseId(), body.basedOn());
         return ResponseEntity.status(HttpStatus.CREATED).body(new IdResponse(body.releaseId(), null));
     }
 
     /** Publishing is idempotent-by-state: freeze -> snapshot -> activate; safe to retry. */
     @PostMapping("/releases/{id}/publish")
-    public IdResponse publishRelease(@PathVariable String id) {
-        changes.activateRelease(id);
+    public IdResponse publishRelease(@PathVariable String id,
+                                    HttpServletRequest httpRequest) {
+        changes.activateRelease(AdminActors.require(httpRequest), id);
         return new IdResponse(id, null);
     }
 
@@ -48,40 +51,46 @@ public class TaxonomyController {
     }
 
     @PostMapping("/nodes/{id}/revive")
-    public NodeResponse revive(@PathVariable String id, @RequestBody RenameNodeRequest body) {
-        changes.reviveNode(id, requireVersion(body.expectedVersion()));
+    public NodeResponse revive(@PathVariable String id, @RequestBody RenameNodeRequest body,
+                                    HttpServletRequest httpRequest) {
+        changes.reviveNode(AdminActors.require(httpRequest), id, requireVersion(body.expectedVersion()));
         return node(id);
     }
 
     /** deprecate: the last proven change operation lacking an endpoint (review m10). */
     @PostMapping("/nodes/{id}/deprecate")
-    public NodeResponse deprecate(@PathVariable String id, @RequestBody RenameNodeRequest body) {
-        changes.deprecateNode(id, requireVersion(body.expectedVersion()));
+    public NodeResponse deprecate(@PathVariable String id, @RequestBody RenameNodeRequest body,
+                                    HttpServletRequest httpRequest) {
+        changes.deprecateNode(AdminActors.require(httpRequest), id, requireVersion(body.expectedVersion()));
         return node(id);
     }
 
     @PostMapping("/nodes/{id}/rename")
-    public NodeResponse rename(@PathVariable String id, @RequestBody RenameNodeRequest body) {
-        changes.renameNode(id, requireVersion(body.expectedVersion()), body.name());
+    public NodeResponse rename(@PathVariable String id, @RequestBody RenameNodeRequest body,
+                                    HttpServletRequest httpRequest) {
+        changes.renameNode(AdminActors.require(httpRequest), id, requireVersion(body.expectedVersion()), body.name());
         return node(id);
     }
 
     @PostMapping("/nodes/{id}/move")
-    public NodeResponse move(@PathVariable String id, @RequestBody MoveNodeRequest body) {
-        changes.moveNode(id, requireVersion(body.expectedVersion()), body.newParentId());
+    public NodeResponse move(@PathVariable String id, @RequestBody MoveNodeRequest body,
+                                    HttpServletRequest httpRequest) {
+        changes.moveNode(AdminActors.require(httpRequest), id, requireVersion(body.expectedVersion()), body.newParentId());
         return node(id);
     }
 
     @PostMapping("/nodes/{id}/merge")
-    public NodeResponse merge(@PathVariable String id, @RequestBody MergeNodeRequest body) {
-        changes.mergeNodes(id, requireVersion(body.expectedVersion()), body.survivorId(),
+    public NodeResponse merge(@PathVariable String id, @RequestBody MergeNodeRequest body,
+                                    HttpServletRequest httpRequest) {
+        changes.mergeNodes(AdminActors.require(httpRequest), id, requireVersion(body.expectedVersion()), body.survivorId(),
                 Boolean.TRUE.equals(body.schemaReconciliationApproved()));
         return node(id);
     }
 
     @PostMapping("/nodes/{id}/split")
-    public List<NodeResponse> split(@PathVariable String id, @RequestBody SplitNodeRequest body) {
-        List<String> minted = changes.splitNode(id, requireVersion(body.expectedVersion()),
+    public List<NodeResponse> split(@PathVariable String id, @RequestBody SplitNodeRequest body,
+                                    HttpServletRequest httpRequest) {
+        List<String> minted = changes.splitNode(AdminActors.require(httpRequest), id, requireVersion(body.expectedVersion()),
                 body.childNames());
         List<NodeResponse> out = new ArrayList<>();
         for (String m : minted) out.add(node(m));

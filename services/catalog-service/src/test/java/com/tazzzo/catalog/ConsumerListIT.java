@@ -1,5 +1,6 @@
 package com.tazzzo.catalog;
 
+import com.tazzzo.common.audit.TestActors;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.tazzzo.catalog.consumer.ConsumerCursorCodec;
 import com.tazzzo.catalog.consumer.ConsumerObservability;
@@ -86,7 +87,7 @@ class ConsumerListIT extends AbstractConsumerIT {
         db.drop();
         schemaBootstrap.bootstrap(db);
         loader.load(db);
-        changes.recordBaseline("R1");
+        changes.recordBaseline(TestActors.TEST, "R1");
         assertThat(db.getCollection("taxonomy_nodes").find(eq("_id", V_BASMATI)).first().getString("name"))
                 .isEqualTo("Basmati Rice");
         assertThat(db.getCollection("taxonomy_nodes").find(eq("_id", V_SONA)).first().getString("parent_id"))

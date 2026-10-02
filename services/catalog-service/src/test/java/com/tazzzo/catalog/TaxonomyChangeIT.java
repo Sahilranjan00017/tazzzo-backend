@@ -1,5 +1,6 @@
 package com.tazzzo.catalog;
 
+import com.tazzzo.common.audit.TestActors;
 import com.tazzzo.catalog.schema.TaxonomyLoader;
 import com.tazzzo.catalog.schema.TaxonomyService;
 import com.tazzzo.catalog.tx.CasConflictException;
@@ -53,14 +54,14 @@ class TaxonomyChangeIT extends AbstractMongoIT {
     @BeforeAll
     void seedAndBaseline() {
         loader.load(db);
-        changes.recordBaseline("0.9.0");
+        changes.recordBaseline(TestActors.TEST, "0.9.0");
         // a product classified under the baseline, in a vertical we will merge away
         // (TZV-000002 is a real seeded rice vertical -> strict governance applies)
-        mintService.mint(new com.tazzzo.catalog.domain.ProductDraft("TZP-TX1", "single",
+        mintService.mint(TestActors.TEST, new com.tazzzo.catalog.domain.ProductDraft("TZP-TX1", "single",
                 "internal", "txm|1", null, "BR-TEST", "Merge-victim product",
                 "TZV-000002", "0.9.0", "provisional",
                 Map.of("pack_size", 1, "pack_unit", "kg"), List.of(), null));
-        classifyService.classify("TZP-TX1", "TZV-000002", "0.9.0", "confirmed", 0.99, List.of());
+        classifyService.classify(TestActors.TEST, "TZP-TX1", "TZV-000002", "0.9.0", "confirmed", 0.99, List.of());
     }
 
     @Test @Order(1)
@@ -73,19 +74,19 @@ class TaxonomyChangeIT extends AbstractMongoIT {
 
     @Test @Order(2)
     void change_without_open_release_fails_closed() {
-        expectCode("NO_OPEN_RELEASE", () -> changes.renameNode(BASMATI, 1, "Nope"));
+        expectCode("NO_OPEN_RELEASE", () -> changes.renameNode(TestActors.TEST, BASMATI, 1, "Nope"));
         assertThat(node(BASMATI).getString("name")).isEqualTo("Basmati Rice"); // untouched
     }
 
     @Test @Order(3)
     void open_release_then_second_open_rejected() {
-        changes.openRelease("1.0.0", "0.9.0");
-        expectCode("RELEASE_ALREADY_OPEN", () -> changes.openRelease("1.1.0", "0.9.0"));
+        changes.openRelease(TestActors.TEST, "1.0.0", "0.9.0");
+        expectCode("RELEASE_ALREADY_OPEN", () -> changes.openRelease(TestActors.TEST, "1.1.0", "0.9.0"));
     }
 
     @Test @Order(4)
     void rename_node_with_ledger_row() {
-        changes.renameNode(BASMATI, 1, "Basmati Rice (Premium Grades)");
+        changes.renameNode(TestActors.TEST, BASMATI, 1, "Basmati Rice (Premium Grades)");
         assertThat(node(BASMATI).getString("name")).isEqualTo("Basmati Rice (Premium Grades)");
         Document ev = db.getCollection("node_events")
                 .find(and(eq("node_id", BASMATI), eq("event", "renamed"))).first();
@@ -97,23 +98,23 @@ class TaxonomyChangeIT extends AbstractMongoIT {
     @Test @Order(5)
     void concurrent_modification_stale_cas_rejected() {
         // version is now 2 after the rename; a caller still holding version 1 must lose
-        assertThatThrownBy(() -> changes.renameNode(BASMATI, 1, "Stale Writer"))
+        assertThatThrownBy(() -> changes.renameNode(TestActors.TEST, BASMATI, 1, "Stale Writer"))
                 .isInstanceOf(CasConflictException.class);
         assertThat(node(BASMATI).getString("name")).isEqualTo("Basmati Rice (Premium Grades)");
     }
 
     @Test @Order(6)
     void move_rules_invalid_parent_level_cycle_and_missing_parent() {
-        expectCode("INVALID_PARENT_LEVEL", () -> changes.moveNode(BASMATI, 2, "TZS-000001"));
-        expectCode("CYCLE", () -> changes.moveNode(BASMATI, 2, BASMATI)); // self-parent
-        expectCode("INVALID_PARENT", () -> changes.moveNode(BASMATI, 2, "TZG-999999"));
+        expectCode("INVALID_PARENT_LEVEL", () -> changes.moveNode(TestActors.TEST, BASMATI, 2, "TZS-000001"));
+        expectCode("CYCLE", () -> changes.moveNode(TestActors.TEST, BASMATI, 2, BASMATI)); // self-parent
+        expectCode("INVALID_PARENT", () -> changes.moveNode(TestActors.TEST, BASMATI, 2, "TZG-999999"));
         // legal move: vertical to another sub_category
-        changes.moveNode(BASMATI, 2, "TZG-000002");
+        changes.moveNode(TestActors.TEST, BASMATI, 2, "TZG-000002");
         assertThat(node(BASMATI).getString("parent_id")).isEqualTo("TZG-000002");
         assertThat(db.getCollection("node_events")
                 .find(and(eq("node_id", BASMATI), eq("event", "re_parented"))).first()).isNotNull();
         // move it back for later tests
-        changes.moveNode(BASMATI, 3, BASMATI_SUB);
+        changes.moveNode(TestActors.TEST, BASMATI, 3, BASMATI_SUB);
     }
 
     @Test @Order(7)
@@ -122,11 +123,11 @@ class TaxonomyChangeIT extends AbstractMongoIT {
         Document other = db.getCollection("taxonomy_nodes").find(and(eq("node_type", "vertical"),
                 new Document("attribute_schema_id", new Document("$ne", "rice")),
                 eq("status", "active"))).first();
-        expectCode("SCHEMA_CONFLICT", () -> changes.mergeNodes("TZV-000002", 1,
+        expectCode("SCHEMA_CONFLICT", () -> changes.mergeNodes(TestActors.TEST, "TZV-000002", 1,
                 other.getString("_id"), false));
         assertThat(node("TZV-000002").getString("status")).isEqualTo("active"); // untouched
         // reconciled merge into a same-schema sibling (Basmati)
-        changes.mergeNodes("TZV-000002", 1, BASMATI, true);
+        changes.mergeNodes(TestActors.TEST, "TZV-000002", 1, BASMATI, true);
         Document loser = node("TZV-000002");
         assertThat(loser.getString("status")).isEqualTo("merged");
         assertThat(loser.getString("merged_into")).isEqualTo(BASMATI);
@@ -143,7 +144,7 @@ class TaxonomyChangeIT extends AbstractMongoIT {
         assertThat(p.get("classification", Document.class).getString("release_id")).isEqualTo("0.9.0");
         assertThat(p.get("classification", Document.class).getString("vertical_id")).isEqualTo("TZV-000002");
         // now reclassify through T4 under the new release
-        classifyService.classify("TZP-TX1", BASMATI, "1.0.0", "confirmed", 0.99, List.of());
+        classifyService.classify(TestActors.TEST, "TZP-TX1", BASMATI, "1.0.0", "confirmed", 0.99, List.of());
         List<Document> hist = db.getCollection("classification_history")
                 .find(eq("product_id", "TZP-TX1")).into(new java.util.ArrayList<>());
         assertThat(hist).hasSizeGreaterThanOrEqualTo(3); // mint + 0.9.0 decision + 1.0.0 decision
@@ -157,18 +158,18 @@ class TaxonomyChangeIT extends AbstractMongoIT {
         db.getCollection("aliases").insertOne(new Document("alias_norm", "old rice name")
                 .append("lang", "xx").append("region", "all")
                 .append("node_id", "TZV-000003").append("status", "active"));
-        changes.mergeNodes("TZV-000003", 1, BASMATI, true);
+        changes.mergeNodes(TestActors.TEST, "TZV-000003", 1, BASMATI, true);
         assertThat(db.getCollection("aliases").find(eq("alias_norm", "old rice name")).first()
                 .getString("node_id")).isEqualTo(BASMATI);
     }
 
     @Test @Order(10)
     void split_mints_new_ids_never_reuses_and_rejects_duplicates() {
-        expectCode("INVALID_SPLIT", () -> changes.splitNode("TZV-000004", 1, List.of("Only One")));
+        expectCode("INVALID_SPLIT", () -> changes.splitNode(TestActors.TEST, "TZV-000004", 1, List.of("Only One")));
         // "Ponni Rice" IS an active sibling of TZV-000004 (same sub-category TZG-000002)
-        expectCode("DUPLICATE_NODE", () -> changes.splitNode("TZV-000004", 1,
+        expectCode("DUPLICATE_NODE", () -> changes.splitNode(TestActors.TEST, "TZV-000004", 1,
                 List.of("Ponni Rice", "Something Else")));
-        List<String> minted = changes.splitNode("TZV-000004", 1,
+        List<String> minted = changes.splitNode(TestActors.TEST, "TZV-000004", 1,
                 List.of("Split Child A", "Split Child B"));
         assertThat(minted).hasSize(2);
         assertThat(minted).allMatch(id -> id.compareTo("TZV-100000") > 0); // fresh id space
@@ -178,26 +179,26 @@ class TaxonomyChangeIT extends AbstractMongoIT {
             assertThat(node(id).getString("parent_id")).isEqualTo(node("TZV-000004").getString("parent_id"));
         }
         // deprecated/merged nodes reject further changes
-        expectCode("NODE_NOT_ACTIVE", () -> changes.renameNode("TZV-000004", 2, "Zombie"));
+        expectCode("NODE_NOT_ACTIVE", () -> changes.renameNode(TestActors.TEST, "TZV-000004", 2, "Zombie"));
     }
 
     @Test @Order(11)
     void release_activation_crash_is_resumable_and_idempotent() {
-        changes.activateRelease("1.0.0", 100, 2); // crash after 2 batches (~200 of 462 nodes)
+        changes.activateRelease(TestActors.TEST, "1.0.0", 100, 2); // crash after 2 batches (~200 of 462 nodes)
         assertThat(db.getCollection("catalogue_releases").find(eq("_id", "1.0.0")).first()
                 .getString("status")).as("crashed activation stays FROZEN (fail-closed)")
                 .isEqualTo("freezing");
         // the frozen tree rejects changes while the snapshot is incomplete (M3)
-        expectCode("NO_OPEN_RELEASE", () -> changes.renameNode(BASMATI, 4, "Blocked"));
+        expectCode("NO_OPEN_RELEASE", () -> changes.renameNode(TestActors.TEST, BASMATI, 4, "Blocked"));
         long partial = db.getCollection("taxonomy_snapshot_nodes").countDocuments(eq("release_id", "1.0.0"));
         assertThat(partial).isGreaterThan(0).isLessThan(460);
-        changes.activateRelease("1.0.0"); // resume
+        changes.activateRelease(TestActors.TEST, "1.0.0"); // resume
         assertThat(db.getCollection("catalogue_releases").find(eq("_id", "1.0.0")).first()
                 .getString("status")).isEqualTo("active");
         long full = db.getCollection("taxonomy_snapshot_nodes").countDocuments(eq("release_id", "1.0.0"));
         assertThat(full).isEqualTo(db.getCollection("taxonomy_nodes").countDocuments());
         // idempotent re-run of the snapshot phase must change nothing
-        assertThatThrownBy(() -> changes.activateRelease("1.0.0"))
+        assertThatThrownBy(() -> changes.activateRelease(TestActors.TEST, "1.0.0"))
                 .isInstanceOf(TaxonomyChangeException.class)
                 .hasMessageContaining("RELEASE_NOT_OPEN");
     }
@@ -217,27 +218,27 @@ class TaxonomyChangeIT extends AbstractMongoIT {
 
     @Test @Order(13)
     void extra_codes_deprecate_flow_and_guards() {
-        changes.openRelease("1.1.0", "1.0.0");
-        expectCode("NODE_NOT_FOUND", () -> changes.renameNode("TZV-999998", 1, "Ghost"));
-        expectCode("INVALID_MERGE", () -> changes.mergeNodes(BASMATI, 4, BASMATI, true));
+        changes.openRelease(TestActors.TEST, "1.1.0", "1.0.0");
+        expectCode("NODE_NOT_FOUND", () -> changes.renameNode(TestActors.TEST, "TZV-999998", 1, "Ghost"));
+        expectCode("INVALID_MERGE", () -> changes.mergeNodes(TestActors.TEST, BASMATI, 4, BASMATI, true));
         // rename onto an ACTIVE sibling's name is rejected (review m-finding guard):
         // "Biryani Basmati Rice"... was TZV-000002 (merged). Use a live sibling under TZG-000001.
         Document sibling = db.getCollection("taxonomy_nodes").find(and(
                 eq("parent_id", BASMATI_SUB), eq("status", "active"),
                 new Document("_id", new Document("$ne", BASMATI)))).first();
         if (sibling != null) {
-            expectCode("DUPLICATE_NODE", () -> changes.renameNode(BASMATI, 4, sibling.getString("name")));
+            expectCode("DUPLICATE_NODE", () -> changes.renameNode(TestActors.TEST, BASMATI, 4, sibling.getString("name")));
         }
         // deprecate guard: a sub-category with active verticals refuses deprecation
-        expectCode("HAS_ACTIVE_CHILDREN", () -> changes.deprecateNode("TZG-000002", 1));
+        expectCode("HAS_ACTIVE_CHILDREN", () -> changes.deprecateNode(TestActors.TEST, "TZG-000002", 1));
         // a leaf vertical deprecates cleanly, and further changes are refused
         Document leaf = db.getCollection("taxonomy_nodes").find(and(
                 eq("node_type", "vertical"), eq("status", "active"),
                 eq("parent_id", "TZG-000003"))).first();
-        changes.deprecateNode(leaf.getString("_id"), leaf.getInteger("version"));
-        expectCode("NODE_NOT_ACTIVE", () -> changes.renameNode(leaf.getString("_id"),
+        changes.deprecateNode(TestActors.TEST, leaf.getString("_id"), leaf.getInteger("version"));
+        expectCode("NODE_NOT_ACTIVE", () -> changes.renameNode(TestActors.TEST, leaf.getString("_id"),
                 leaf.getInteger("version") + 1, "Zombie"));
-        changes.activateRelease("1.1.0");
+        changes.activateRelease(TestActors.TEST, "1.1.0");
     }
 
     @Test @Order(14)

@@ -1,5 +1,6 @@
 package com.tazzzo.catalog;
 
+import com.tazzzo.common.audit.TestActors;
 import com.mongodb.client.ClientSession;
 import com.mongodb.client.model.Filters;
 import com.tazzzo.catalog.repo.ProjectionRebuildQueue;
@@ -172,7 +173,7 @@ class FreshnessFoundationIT extends AbstractMongoIT {
 
     @Test void catalog_write_enqueues_rebuild_through_the_single_write_path() {
         seedProduct("TZP-C1", "active");
-        catalogWithQueue().updateTitle("TZP-C1", 1, "Renamed C1");
+        catalogWithQueue().updateTitle(TestActors.TEST, "TZP-C1", 1, "Renamed C1");
         assertNotNull(rebuildItem("TZP-C1"), "the WritePath chokepoint enqueues for every products mutation");
         assertEquals("catalog", rebuildItem("TZP-C1").getString("reason"));
     }
@@ -419,7 +420,7 @@ class FreshnessFoundationIT extends AbstractMongoIT {
     @Test void production_writepath_bean_without_freshness_flag_does_not_enqueue() {
         seedProduct("TZP-DIS", "active");
         // The Spring WritePath bean has no queue attached (tazzzo.freshness.enabled is absent here).
-        new ProductUpdateService(new Tx(client), springWritePath).updateTitle("TZP-DIS", 1, "Renamed");
+        new ProductUpdateService(new Tx(client), springWritePath).updateTitle(TestActors.TEST, "TZP-DIS", 1, "Renamed");
         assertEquals(0, rebuildItems(), "freshness disabled -> WritePath bean has no queue -> no enqueue");
     }
 

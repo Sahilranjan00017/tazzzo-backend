@@ -1,5 +1,6 @@
 package com.tazzzo.catalog;
 
+import com.tazzzo.common.audit.TestActors;
 import com.tazzzo.catalog.tx.TaintService;
 import org.bson.Document;
 import org.junit.jupiter.api.MethodOrderer;
@@ -33,7 +34,7 @@ class TaintCrashIT extends AbstractMongoIT {
 
     @Test @Order(2)
     void k3_worker_dies_after_one_batch_checkpoint_survives() {
-        taintService.retractEvidence("EV-K3", "retracted");
+        taintService.retractEvidence(TestActors.TEST, "EV-K3", "retracted");
         taintService.runTaintWorker(10, 1); // dies after 1 batch of 10
         Document item = db.getCollection("work_queue").find(eq("_id", "taint:EV-K3")).first();
         assertThat(item.getString("status")).as("item leased by dead worker; lease expiry re-claims").isEqualTo("leased");

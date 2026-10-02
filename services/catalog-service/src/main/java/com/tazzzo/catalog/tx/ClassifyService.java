@@ -1,5 +1,6 @@
 package com.tazzzo.catalog.tx;
 
+import com.tazzzo.common.audit.Actor;
 import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.UpdateOptions;
 import com.mongodb.client.model.Updates;
@@ -8,6 +9,7 @@ import com.tazzzo.catalog.repo.WritePath;
 import org.bson.Document;
 import org.springframework.stereotype.Service;
 
+import java.util.Objects;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
@@ -27,14 +29,16 @@ public class ClassifyService {
         this.writePath = writePath;
     }
 
-    public void classify(String productId, String verticalId, String releaseId,
+    public void classify(Actor actor, String productId, String verticalId, String releaseId,
                          String status, double confidence, List<String> evidenceIds) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
         if (!STATUSES.contains(status)) {
             throw new IllegalArgumentException("invalid classification status: " + status);
         }
         tx.run(session -> {
             EventPayload classified = new EventPayload("CLASSIFIED", productId,
-                    Map.of("vertical", verticalId, "release", releaseId, "status", status));
+                    Map.of("vertical", verticalId, "release", releaseId, "status", status), actor);
             writePath.auxWrite(session, "classification_history", classified, c -> c.insertOne(session,
                     new Document("product_id", productId).append("vertical_id", verticalId)
                             .append("release_id", releaseId).append("status", status)

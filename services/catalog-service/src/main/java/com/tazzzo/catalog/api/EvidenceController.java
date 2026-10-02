@@ -1,5 +1,6 @@
 package com.tazzzo.catalog.api;
 
+import jakarta.servlet.http.HttpServletRequest;
 import com.tazzzo.catalog.api.ApiDtos.*;
 import com.tazzzo.catalog.tx.EvidenceContractException;
 import com.tazzzo.catalog.tx.EvidenceService;
@@ -30,7 +31,8 @@ public class EvidenceController {
     }
 
     @PostMapping
-    public ResponseEntity<EvidenceResponse> create(@RequestBody CreateEvidenceRequest body) {
+    public ResponseEntity<EvidenceResponse> create(@RequestBody CreateEvidenceRequest body,
+                                    HttpServletRequest httpRequest) {
         if (body.payload() != null) {
             throw new EvidenceContractException("PAYLOAD_NOT_ACCEPTED",
                     "send bytes to the media service and reference them via payloadRef");
@@ -41,7 +43,7 @@ public class EvidenceController {
                         .append("sha256", body.payloadRef().sha256());
         Date observedAt = body.observedAt() == null ? null
                 : Date.from(Instant.parse(body.observedAt()));   // DateTimeParseException -> 400
-        EvidenceService.CreateOutcome outcome = evidenceService.create(body.id(),
+        EvidenceService.CreateOutcome outcome = evidenceService.create(AdminActors.require(httpRequest), body.id(),
                 body.evidenceType(), body.source(), body.sourceVersion(), ref,
                 body.excerpt(), body.url(), observedAt);
         HttpStatus status = outcome == EvidenceService.CreateOutcome.CREATED
@@ -51,8 +53,9 @@ public class EvidenceController {
 
     @PostMapping("/{id}/retract")
     public ResponseEntity<RetractAcceptedResponse> retract(@PathVariable String id,
-                                                           @RequestBody RetractEvidenceRequest body) {
-        taintService.retractEvidence(id, body.to());   // validity flip + cascade item, one transaction
+                                                           @RequestBody RetractEvidenceRequest body,
+                                    HttpServletRequest httpRequest) {
+        taintService.retractEvidence(AdminActors.require(httpRequest), id, body.to());   // validity flip + cascade item, one transaction
         String validity = evidenceService.find(id).getString("validity");
         return ResponseEntity.accepted()
                 .body(new RetractAcceptedResponse(id, validity, "queued"));

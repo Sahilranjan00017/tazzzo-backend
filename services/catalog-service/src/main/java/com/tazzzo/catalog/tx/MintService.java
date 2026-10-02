@@ -1,5 +1,6 @@
 package com.tazzzo.catalog.tx;
 
+import com.tazzzo.common.audit.Actor;
 import com.mongodb.MongoWriteException;
 import com.tazzzo.catalog.domain.GtinBinding;
 import com.tazzzo.catalog.domain.ProductDocuments;
@@ -10,6 +11,7 @@ import com.tazzzo.catalog.schema.AttributeGovernanceService;
 import com.tazzzo.catalog.schema.CanonicalKey;
 import com.tazzzo.catalog.schema.CanonicalKeyService;
 
+import java.util.Objects;
 import java.util.Optional;
 import org.bson.Document;
 import org.springframework.stereotype.Service;
@@ -38,12 +40,14 @@ public class MintService {
         this.canonicalKeys = canonicalKeys;
     }
 
-    public String mint(ProductDraft d) {
+    public String mint(Actor actor, ProductDraft d) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
         // Service-tier enforcement (the I-6 bypass closes HERE, not in the validator):
         List<org.bson.Document> governanceItems = governance.validate(
                 d.verticalId(), d.attributes() == null ? Map.of() : d.attributes(), d.evidenceRefs());
         tx.run(session -> {
-            EventPayload minted = new EventPayload("MINTED", d.id(), Map.of("brand", d.brandCode()));
+            EventPayload minted = new EventPayload("MINTED", d.id(), Map.of("brand", d.brandCode()), actor);
             try {
                 if ("internal".equals(d.identityType())) {
                     writePath.auxWrite(session, "identity_keys", minted, c -> c.insertOne(session,

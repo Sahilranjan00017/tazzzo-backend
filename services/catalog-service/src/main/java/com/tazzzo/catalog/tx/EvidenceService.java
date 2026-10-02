@@ -1,11 +1,13 @@
 package com.tazzzo.catalog.tx;
 
+import com.tazzzo.common.audit.Actor;
 import com.mongodb.client.model.Filters;
 import com.tazzzo.catalog.events.EventPayload;
 import com.tazzzo.catalog.repo.WritePath;
 import org.bson.Document;
 import org.springframework.stereotype.Service;
 
+import java.util.Objects;
 import java.util.Date;
 import java.util.Map;
 import java.util.Set;
@@ -41,8 +43,10 @@ public class EvidenceService {
         this.writePath = writePath;
     }
 
-    public CreateOutcome create(String id, String evidenceType, String source, String sourceVersion,
+    public CreateOutcome create(Actor actor, String id, String evidenceType, String source, String sourceVersion,
                                 Document payloadRef, String excerpt, String url, Date observedAt) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
         final boolean observedAtSupplied = observedAt != null;
         if (id == null || !id.startsWith("EV-")) {
             throw new IllegalArgumentException("evidence id must start with EV-");
@@ -84,7 +88,7 @@ public class EvidenceService {
             }
             writePath.insertWithEvent(session, "evidence", candidate,
                     new EventPayload("EVIDENCE_CREATED", "TZP-SYSTEM",
-                            Map.of("evidence", id, "type", evidenceType, "source", source)));
+                            Map.of("evidence", id, "type", evidenceType, "source", source), actor));
             outcome[0] = CreateOutcome.CREATED;
         });
         return outcome[0];

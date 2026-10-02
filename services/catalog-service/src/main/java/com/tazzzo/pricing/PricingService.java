@@ -107,7 +107,19 @@ public class PricingService implements PriceReadPort, TransactionalPriceReadPort
      *
      * @return the new version after this write.
      */
+    /**
+     * An UNATTRIBUTED price write (no audited caller yet: there is no admin pricing endpoint). The ledger row and its event
+     * carry no {@code actor}; the caller-supplied {@code source} is provenance, never identity.
+     */
     public long upsertPrice(UpsertPriceCommand cmd) {
+        return upsertPrice(cmd, null);
+    }
+
+    /**
+     * As {@link #upsertPrice(UpsertPriceCommand)}, attributed to {@code actor}: the {@code price_events} ledger row and its
+     * product event record the actor in the same transaction as the price change. {@code null} means unattributed.
+     */
+    public long upsertPrice(UpsertPriceCommand cmd, com.tazzzo.common.audit.Actor actor) {
         validateCommand(cmd);
         long newVersion = (cmd.expectedVersion() == null) ? 1L : cmd.expectedVersion() + 1;
         String skuId = cmd.skuId();
@@ -117,14 +129,15 @@ public class PricingService implements PriceReadPort, TransactionalPriceReadPort
         Date from = cmd.effectiveFrom() == null ? null : Date.from(cmd.effectiveFrom());
         Date to = cmd.effectiveTo() == null ? null : Date.from(cmd.effectiveTo());
 
-        EventPayload event = new EventPayload("PRICE_UPDATED", skuId, auditDetail(cmd, newVersion));
+        EventPayload event = new EventPayload("PRICE_UPDATED", skuId, auditDetail(cmd, newVersion), actor);
 
         try {
             tx.run(session -> {
                 // 1) immutable paise ledger row (the "event" in event-before-state). Legacy rows
                 //    (product_id/source/seller/channel/price) are a DIFFERENT shape and untouched;
                 //    new rows are additive and carry only explicit paise fields + version.
-                writePath.auxWrite(session, LEDGER, event, c -> c.insertOne(session, ledgerRow(cmd, newVersion, now)));
+                writePath.auxWrite(session, LEDGER, event, c -> c.insertOne(session, com.tazzzo.common.audit.ActorDocuments.appendTo(
+                        ledgerRow(cmd, newVersion, now), actor)));
 
                 // 2) canonical current-price state, CAS on version, same transaction.
                 if (cmd.expectedVersion() == null) {

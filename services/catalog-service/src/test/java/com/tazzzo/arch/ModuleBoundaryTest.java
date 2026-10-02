@@ -976,6 +976,30 @@ class ModuleBoundaryTest {
                     .should().dependOnClassesThat(selfOrEnclosingSimpleNameStartingWithAny("CheckoutMoneySnapshot"))
                     .allowEmptyShould(true);
 
+    /** Admin audit -- the audit {@code Actor} is NEUTRAL: {@code common} (and therefore every domain that records an actor)
+     *  never depends on admin authentication. An {@code AdminPrincipal} converts INTO an {@code Actor}, never the reverse. */
+    @ArchTest
+    static final ArchRule common_audit_never_depends_on_admin_authentication =
+            noClasses().that().resideInAPackage("com.tazzzo.common..")
+                    .should().dependOnClassesThat().resideInAPackage("com.tazzzo.admin..")
+                    .allowEmptyShould(true);
+
+    /** Admin audit -- admin (internal-surface) authentication depends on neither customer authentication (separate trust
+     *  domains: a customer principal can never become an admin principal) nor catalog (the HTTP layer adapts the principal
+     *  into an audit actor; {@code admin.auth} stays a small, reusable leaf). */
+    @ArchTest
+    static final ArchRule admin_authentication_depends_on_neither_customer_auth_nor_catalog =
+            noClasses().that().resideInAPackage("com.tazzzo.admin..")
+                    .should().dependOnClassesThat().resideInAPackage("com.tazzzo.auth..")
+                    .orShould().dependOnClassesThat().resideInAPackage("com.tazzzo.catalog..")
+                    .allowEmptyShould(false);
+
+    @ArchTest
+    static final ArchRule customer_authentication_never_depends_on_admin_authentication =
+            noClasses().that().resideInAPackage("com.tazzzo.auth..")
+                    .should().dependOnClassesThat().resideInAPackage("com.tazzzo.admin..")
+                    .allowEmptyShould(true);
+
     /**
      * No dependency cycles between top-level Tazzzo modules.
      *

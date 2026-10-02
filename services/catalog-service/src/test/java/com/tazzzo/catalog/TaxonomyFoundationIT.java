@@ -1,5 +1,6 @@
 package com.tazzzo.catalog;
 
+import com.tazzzo.common.audit.TestActors;
 import com.tazzzo.catalog.domain.ProductDraft;
 import com.tazzzo.catalog.schema.TaxonomyLoader;
 import com.tazzzo.catalog.schema.TaxonomyService;
@@ -63,7 +64,7 @@ class TaxonomyFoundationIT extends AbstractMongoIT {
 
     @Test
     void mint_against_real_vertical_valid_attributes_passes() {
-        mintService.mint(new ProductDraft("TZP-F1", "single", "internal", "found|1", null,
+        mintService.mint(TestActors.TEST, new ProductDraft("TZP-F1", "single", "internal", "found|1", null,
                 "BR-TEST", "India Gate Basmati 5kg", BASMATI, "0.9.0", "provisional",
                 Map.of("pack_size", 5, "pack_unit", "kg", "variety_grade", "1121", "origin", "India"),
                 List.of("EV-000001"), null));
@@ -72,7 +73,7 @@ class TaxonomyFoundationIT extends AbstractMongoIT {
 
     @Test
     void i6_closure_fake_taxonomy_key_now_rejected_at_service_tier() {
-        assertThatThrownBy(() -> mintService.mint(new ProductDraft("TZP-F2", "single", "internal",
+        assertThatThrownBy(() -> mintService.mint(TestActors.TEST, new ProductDraft("TZP-F2", "single", "internal",
                 "found|2", null, "BR-TEST", "Bad", BASMATI, "0.9.0", "provisional",
                 Map.of("pack_size", 1, "pack_unit", "kg", "fake_taxonomy_category", "whatever"),
                 List.of(), null)))
@@ -96,7 +97,7 @@ class TaxonomyFoundationIT extends AbstractMongoIT {
      */
     @Test
     void quantity_is_not_required_for_catalogue_acceptance() {
-        mintService.mint(new ProductDraft("TZP-F3", "single", "internal",
+        mintService.mint(TestActors.TEST, new ProductDraft("TZP-F3", "single", "internal",
                 "found|3", null, "BR-TEST", "No pack", BASMATI, "0.9.0", "provisional",
                 Map.of("variety_grade", "1121"), List.of(), null));
         Document p = db.getCollection("products").find(eq("_id", "TZP-F3")).first();
@@ -107,14 +108,14 @@ class TaxonomyFoundationIT extends AbstractMongoIT {
 
     @Test
     void claim_tier_attribute_requires_evidence() {
-        assertThatThrownBy(() -> mintService.mint(new ProductDraft("TZP-F4", "single", "internal",
+        assertThatThrownBy(() -> mintService.mint(TestActors.TEST, new ProductDraft("TZP-F4", "single", "internal",
                 "found|4", null, "BR-TEST", "Organic claim", BASMATI, "0.9.0", "provisional",
                 Map.of("pack_size", 1, "pack_unit", "kg", "organic_certified", true),
                 List.of(), null)))
                 .isInstanceOf(AttributeViolationException.class)
                 .hasMessageContaining("organic_certified");
         // with evidence it passes
-        mintService.mint(new ProductDraft("TZP-F5", "single", "internal", "found|5", null,
+        mintService.mint(TestActors.TEST, new ProductDraft("TZP-F5", "single", "internal", "found|5", null,
                 "BR-TEST", "Organic ok", BASMATI, "0.9.0", "provisional",
                 Map.of("pack_size", 1, "pack_unit", "kg", "organic_certified", true),
                 List.of("EV-000009"), null));
@@ -122,7 +123,7 @@ class TaxonomyFoundationIT extends AbstractMongoIT {
 
     @Test
     void unknown_enum_value_accepted_and_flagged() {
-        mintService.mint(new ProductDraft("TZP-F6", "single", "internal", "found|6", null,
+        mintService.mint(TestActors.TEST, new ProductDraft("TZP-F6", "single", "internal", "found|6", null,
                 "BR-TEST", "New unit", BASMATI, "0.9.0", "provisional",
                 Map.of("pack_size", 1, "pack_unit", "quintal"), List.of(), null));
         assertThat(db.getCollection("work_queue")
@@ -132,7 +133,7 @@ class TaxonomyFoundationIT extends AbstractMongoIT {
 
     @Test
     void lenient_path_for_unknown_vertical_emits_validation_gap() {
-        mintService.mint(new ProductDraft("TZP-F7", "single", "internal", "found|7", null,
+        mintService.mint(TestActors.TEST, new ProductDraft("TZP-F7", "single", "internal", "found|7", null,
                 "BR-TEST", "Fixture vertical", "TZV-999999", "0.9.0", "provisional",
                 Map.of("pack_size", 1), List.of(), null));
         assertThat(db.getCollection("work_queue").find(eq("_id", "validation_gap:TZV-999999")).first())

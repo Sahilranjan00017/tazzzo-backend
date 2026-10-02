@@ -1,5 +1,6 @@
 package com.tazzzo.catalog;
 
+import com.tazzzo.common.audit.TestActors;
 import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.Updates;
 import com.tazzzo.catalog.domain.ProductDraft;
@@ -46,7 +47,7 @@ class ImmutableFieldGuardIT extends AbstractMongoIT {
     @BeforeAll
     void setUp() {
         taxonomyLoader.load(db);
-        mintService.mint(new ProductDraft("TZP-D1B", "single", "internal", "d1b|1", null,
+        mintService.mint(TestActors.TEST, new ProductDraft("TZP-D1B", "single", "internal", "d1b|1", null,
                 "BR-TEST", "Guard fixture", BASMATI, "0.9.0", "provisional",
                 Map.of("pack_size", 5, "pack_unit", "kg"), List.of(), null));
     }
@@ -101,7 +102,7 @@ class ImmutableFieldGuardIT extends AbstractMongoIT {
 
     @Test
     void d1b_6_legitimate_updates_are_unaffected() {
-        assertThatCode(() -> productUpdateService.updateTitle("TZP-D1B", 1, "Renamed"))
+        assertThatCode(() -> productUpdateService.updateTitle(TestActors.TEST, "TZP-D1B", 1, "Renamed"))
                 .doesNotThrowAnyException();
         assertThat(db.getCollection("products").find(Filters.eq("_id", "TZP-D1B")).first()
                 .getString("title")).isEqualTo("Renamed");

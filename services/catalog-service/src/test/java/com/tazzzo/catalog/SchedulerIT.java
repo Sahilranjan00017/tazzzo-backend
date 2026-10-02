@@ -1,5 +1,6 @@
 package com.tazzzo.catalog;
 
+import com.tazzzo.common.audit.TestActors;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoDatabase;
 import com.tazzzo.catalog.domain.ProductDraft;
@@ -81,11 +82,11 @@ class SchedulerIT {
         db.drop();
         schemaBootstrap.bootstrap(db);
         loader.load(db);
-        changes.recordBaseline("0.9.0");
+        changes.recordBaseline(TestActors.TEST, "0.9.0");
     }
 
     private void mint(String id, String key) {
-        mintService.mint(new ProductDraft(id, "single", "internal", key, null, "BR-SCH",
+        mintService.mint(TestActors.TEST, new ProductDraft(id, "single", "internal", key, null, "BR-SCH",
                 "Sched " + id, BASMATI, "0.9.0", "provisional",
                 Map.of("pack_size", 1, "pack_unit", "kg"), List.of(), null));
     }
@@ -104,9 +105,9 @@ class SchedulerIT {
     void merge_finalizes_without_anyone_calling_the_worker() {
         mint("TZP-SCH-1", "sch|1");
         mint("TZP-SCH-2", "sch|2");
-        lifecycle.activate("TZP-SCH-1", version("TZP-SCH-1"));
-        lifecycle.activate("TZP-SCH-2", version("TZP-SCH-2"));
-        mergeService.startMerge("TZP-SCH-1", "TZP-SCH-2");
+        lifecycle.activate(TestActors.TEST, "TZP-SCH-1", version("TZP-SCH-1"));
+        lifecycle.activate(TestActors.TEST, "TZP-SCH-2", version("TZP-SCH-2"));
+        mergeService.startMerge(TestActors.TEST, "TZP-SCH-1", "TZP-SCH-2");
         assertThat(db.getCollection("products").find(eq("_id", "TZP-SCH-1")).first()
                 .getString("lifecycle")).isEqualTo("merging");
 
@@ -142,9 +143,9 @@ class SchedulerIT {
     @Test @org.junit.jupiter.api.Order(4)
     void taint_cascade_is_processed_by_the_scheduler() {
         mint("TZP-SCH-EV", "sch|ev");
-        evidenceService.create("EV-SCH", "lab_report", "supplier", null, null, "x", null, null);
-        publishService.publishClaim("TZP-SCH-EV", "sched_claim", List.of("EV-SCH"));
-        taintService.retractEvidence("EV-SCH", "retracted");
+        evidenceService.create(TestActors.TEST, "EV-SCH", "lab_report", "supplier", null, null, "x", null, null);
+        publishService.publishClaim(TestActors.TEST, "TZP-SCH-EV", "sched_claim", List.of("EV-SCH"));
+        taintService.retractEvidence(TestActors.TEST, "EV-SCH", "retracted");
         // no manual runTaintWorker call
         Awaitility.await().atMost(Duration.ofSeconds(20)).pollInterval(Duration.ofMillis(200))
                 .untilAsserted(() -> assertThat(db.getCollection("work_queue")
@@ -158,17 +159,17 @@ class SchedulerIT {
     @Test @org.junit.jupiter.api.Order(5)
     void taxonomy_stamp_work_is_processed_by_the_scheduler() {
         mint("TZP-SCH-TX", "sch|tx");
-        changes.openRelease("sched-1.0", "0.9.0");
+        changes.openRelease(TestActors.TEST, "sched-1.0", "0.9.0");
         Document leaf = db.getCollection("taxonomy_nodes").find(and(
                 eq("node_type", "vertical"), eq("status", "active"), eq("_id", BASMATI))).first();
-        changes.moveNode(BASMATI, leaf.getInteger("version"), "TZG-000002");   // enqueues a stamp scan
+        changes.moveNode(TestActors.TEST, BASMATI, leaf.getInteger("version"), "TZG-000002");   // enqueues a stamp scan
         Awaitility.await().atMost(Duration.ofSeconds(20)).pollInterval(Duration.ofMillis(200))
                 .untilAsserted(() -> assertThat(db.getCollection("work_queue").find(and(
                         eq("_id", "stamp_scan:attribute_revalidation:" + BASMATI + ":sched-1.0"),
                         eq("status", "completed"))).first())
                         .as("the specific scan enqueued by this move was completed by the scheduler")
                         .isNotNull());
-        changes.activateRelease("sched-1.0");
+        changes.activateRelease(TestActors.TEST, "sched-1.0");
     }
 
     @Test @org.junit.jupiter.api.Order(6)
@@ -206,9 +207,9 @@ class SchedulerIT {
         // simulate two instances ticking at once: leases must serialize them
         mint("TZP-SCH-C1", "sch|c1");
         mint("TZP-SCH-C2", "sch|c2");
-        lifecycle.activate("TZP-SCH-C1", version("TZP-SCH-C1"));
-        lifecycle.activate("TZP-SCH-C2", version("TZP-SCH-C2"));
-        mergeService.startMerge("TZP-SCH-C1", "TZP-SCH-C2");
+        lifecycle.activate(TestActors.TEST, "TZP-SCH-C1", version("TZP-SCH-C1"));
+        lifecycle.activate(TestActors.TEST, "TZP-SCH-C2", version("TZP-SCH-C2"));
+        mergeService.startMerge(TestActors.TEST, "TZP-SCH-C1", "TZP-SCH-C2");
         ExecutorService pool = Executors.newFixedThreadPool(4);
         CountDownLatch go = new CountDownLatch(1);
         java.util.List<java.util.concurrent.Future<?>> futures = new java.util.ArrayList<>();

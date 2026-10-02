@@ -1,5 +1,6 @@
 package com.tazzzo.catalog;
 
+import com.tazzzo.common.audit.TestActors;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.tazzzo.catalog.consumer.ConsumerObservability;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -65,7 +66,7 @@ class ConsumerTopologyCorruptionIT extends AbstractConsumerIT {
         db.drop();
         schemaBootstrap.bootstrap(db);
         loader.load(db);
-        changes.recordBaseline("R1");
+        changes.recordBaseline(TestActors.TEST, "R1");
         eligibleProduct("TZP-SALT", "TZV-000057");   // Staples visible via Salt
         eligibleProduct("TZP-TEA", V_TEA);           // Food visible, and untouched by either corruption
         assertThat(db.getCollection(SNAPSHOTS).find(and(eq("release_id", "R1"), eq("node_id", G_SALT)))

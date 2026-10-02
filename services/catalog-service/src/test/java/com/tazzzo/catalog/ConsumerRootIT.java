@@ -1,5 +1,6 @@
 package com.tazzzo.catalog;
 
+import com.tazzzo.common.audit.TestActors;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.bson.Document;
 import org.junit.jupiter.api.BeforeAll;
@@ -58,7 +59,7 @@ class ConsumerRootIT extends AbstractConsumerIT {
         db.drop();
         schemaBootstrap.bootstrap(db);
         loader.load(db);
-        changes.recordBaseline("R1");
+        changes.recordBaseline(TestActors.TEST, "R1");
         eligibleProduct("TZP-BAS1", V_BASMATI);   // makes Staples visible
         eligibleProduct("TZP-TEA1", V_TEA);       // makes Food visible
     }

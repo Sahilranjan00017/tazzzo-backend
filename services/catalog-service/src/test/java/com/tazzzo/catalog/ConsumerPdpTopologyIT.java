@@ -1,5 +1,6 @@
 package com.tazzzo.catalog;
 
+import com.tazzzo.common.audit.TestActors;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.bson.Document;
 import org.junit.jupiter.api.BeforeAll;
@@ -62,17 +63,17 @@ class ConsumerPdpTopologyIT extends AbstractConsumerIT {
         db.drop();
         schemaBootstrap.bootstrap(db);
         loader.load(db);
-        changes.recordBaseline("R1");
+        changes.recordBaseline(TestActors.TEST, "R1");
         assertThat(db.getCollection("taxonomy_nodes").find(eq("_id", V_PROTEIN)).first().getString("parent_id"))
                 .isEqualTo(db.getCollection("taxonomy_nodes").find(eq("_id", V_BARS)).first().getString("parent_id"));
         eligibleProduct("TZP-SLEEP", V_SLEEP);
         eligibleProduct("TZP-PROTEIN", V_PROTEIN);
         eligibleProduct("TZP-SALT", V_SALT);
 
-        changes.openRelease("R2", "R1");
-        changes.deprecateNode(V_SLEEP, version(V_SLEEP));
-        changes.mergeNodes(V_PROTEIN, version(V_PROTEIN), V_BARS, true);
-        changes.activateRelease("R2");
+        changes.openRelease(TestActors.TEST, "R2", "R1");
+        changes.deprecateNode(TestActors.TEST, V_SLEEP, version(V_SLEEP));
+        changes.mergeNodes(TestActors.TEST, V_PROTEIN, version(V_PROTEIN), V_BARS, true);
+        changes.activateRelease(TestActors.TEST, "R2");
         assertThat(db.getCollection("taxonomy_snapshot_nodes")
                 .find(and(eq("release_id", "R2"), eq("node_id", V_PROTEIN))).first().getString("status")).isEqualTo("merged");
         assertThat(db.getCollection("products").find(eq("_id", "TZP-PROTEIN")).first()
