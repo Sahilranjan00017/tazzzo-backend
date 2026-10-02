@@ -61,6 +61,8 @@ public class OrderExceptionHandler {
                     "the stock hold expired before the order could be placed", requestId);
             case CART_VERSION_ALREADY_PURCHASED -> reject(op, null, HttpStatus.CONFLICT,
                     "CART_VERSION_ALREADY_PURCHASED", "this cart has already been ordered", requestId);
+            case PAYABLE_CHANGED -> reject(op, null, HttpStatus.CONFLICT, "PAYABLE_CHANGED",
+                    "the amount no longer matches the reviewed quote", requestId);
             case INTEGRITY_FAILURE -> {
                 log.error("customer_order_integrity_failure request_id={}", requestId);
                 yield reject(op, OrderHttpObservability.Reason.INTERNAL, HttpStatus.INTERNAL_SERVER_ERROR,

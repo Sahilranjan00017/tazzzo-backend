@@ -1,7 +1,7 @@
 package com.tazzzo.customer.checkout;
 
 /**
- * The PUBLIC-SAFE projection of a quote's stored advisory {@link CheckoutMoneySnapshot}: the only money view the HTTP
+ * The PUBLIC-SAFE projection of a quote's stored binding {@link CheckoutMoneySnapshot}: the only money view the HTTP
  * layer ever sees. It carries only the three commerce amounts (no Benefits reason, no identity) and is a pure
  * projection of PERSISTED values: it never re-evaluates Benefits, reads Membership or rules, or recomputes anything.
  * ABSENCE (no preview at all) is a quote created before the money model existed, never a zero payable.

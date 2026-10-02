@@ -159,7 +159,7 @@ public class CheckoutService {
         // 5. Immutable candidate (all ids/instants fixed BEFORE the transaction).
         // millisecond precision == what Mongo stores, so the creating response and every replay are identical
         Instant createdAt = now.truncatedTo(java.time.temporal.ChronoUnit.MILLIS);
-        // The ADVISORY Benefits snapshot is evaluated over the FINAL canonical merchandise subtotal (standalone port,
+        // The Benefits snapshot (the basis of the BINDING quote money) is evaluated over the FINAL canonical merchandise subtotal (standalone port,
         // outside any transaction, like the commerce validation above) and the quote is built ONCE with it. Nothing
         // after this alters the lines, quantities or subtotal: the quote is persisted exactly as built.
         CheckoutQuote candidate = candidate(CheckoutQuoteId.generate(), expectedCartVersion, addressId,
@@ -383,7 +383,7 @@ public class CheckoutService {
             throw new CheckoutFailure(CheckoutFailure.Reason.UNAVAILABLE);
         }
         CheckoutBenefitSnapshot benefitSnapshot = benefitsForSubtotal.apply(subtotal);
-        // advisory money from the canonical subtotal and the STORED-to-be Benefits discount: no second Benefits call,
+        // binding money from the canonical subtotal and the STORED-to-be Benefits discount: no second Benefits call,
         // no rate recomputation; built before the single persist
         CheckoutMoneySnapshot moneySnapshot = CheckoutMoneySnapshot.from(subtotal, benefitSnapshot);
         return new CheckoutQuote(id.value(), cartVersion, addressId.value(), addressVersion, List.copyOf(lines),

@@ -15,7 +15,7 @@ import java.util.List;
 public record CustomerOrderDto(String orderId, String status, String paymentMethod, String paymentCondition,
                                List<Item> items, int itemCount, long subtotalPaise, String currency,
                                DeliveryAddress deliveryAddress, String createdAt, String confirmedAt,
-                               String requestId) {
+                               @JsonInclude(JsonInclude.Include.NON_NULL) OrderMoney money, String requestId) {
 
     public record Item(String skuId, String title, String brandCode, int quantity, long unitPricePaise,
                        long lineTotalPaise) {
@@ -25,6 +25,26 @@ public record CustomerOrderDto(String orderId, String status, String paymentMeth
     public record DeliveryAddress(String label, String recipientName, String recipientPhone, String addressLine1,
                                   String addressLine2, String landmark, String city, String state,
                                   String postalCode) {
+    }
+
+    /**
+     * The AUTHORITATIVE commerce money of this Order, projected from the persisted {@link OrderMoneySnapshot} and never
+     * recomputed here: {@code payablePaise = merchandiseSubtotalPaise - benefitDiscountPaise}. It equals the money of the
+     * quote the Order was placed from. {@code payablePaise} is the amount DUE ON DELIVERY (the Order is {@code COD_DUE}); it
+     * is not a statement that anything was paid, and {@code 0} is valid (a full discount: nothing is due). ABSENT on an Order
+     * created before the money model, which is NEVER a zero payable.
+     */
+    public record OrderMoney(long merchandiseSubtotalPaise, long benefitDiscountPaise, long payablePaise) {
+        public OrderMoney {
+            if (merchandiseSubtotalPaise < 0 || benefitDiscountPaise < 0 || benefitDiscountPaise > merchandiseSubtotalPaise
+                    || payablePaise != merchandiseSubtotalPaise - benefitDiscountPaise) {
+                throw new IllegalArgumentException("inconsistent order money");
+            }
+        }
+
+        static OrderMoney of(OrderMoneySnapshot s) {
+            return new OrderMoney(s.merchandiseSubtotalPaise(), s.benefitDiscountPaise(), s.payablePaise());
+        }
     }
 
     /** Only a {@code CONFIRMED} Order is ever customer-visible ({@code OrderService.getOrder} and
@@ -42,6 +62,7 @@ public record CustomerOrderDto(String orderId, String status, String paymentMeth
                 o.itemCount(), o.subtotalPaise(), o.currency(),
                 new DeliveryAddress(a.label(), a.recipientName(), a.recipientPhone(), a.addressLine1(),
                         a.addressLine2(), a.landmark(), a.city(), a.state(), a.postalCode()),
-                o.createdAt().toString(), o.confirmedAt().toString(), requestId);
+                o.createdAt().toString(), o.confirmedAt().toString(),
+                o.moneySnapshot() == null ? null : OrderMoney.of(o.moneySnapshot()), requestId);
     }
 }

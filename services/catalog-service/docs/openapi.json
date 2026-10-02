@@ -2202,6 +2202,9 @@
           "confirmedAt" : {
             "type" : "string"
           },
+          "money" : {
+            "$ref" : "#/components/schemas/OrderMoney"
+          },
           "requestId" : {
             "type" : "string"
           }
@@ -2236,6 +2239,23 @@
           },
           "postalCode" : {
             "type" : "string"
+          }
+        }
+      },
+      "OrderMoney" : {
+        "type" : "object",
+        "properties" : {
+          "merchandiseSubtotalPaise" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "benefitDiscountPaise" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "payablePaise" : {
+            "type" : "integer",
+            "format" : "int64"
           }
         }
       },

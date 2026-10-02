@@ -9,7 +9,7 @@ import java.util.Set;
  * <pre>
  *   { merchandiseSubtotalPaise, benefitDiscountPaise, payablePaise }
  * </pre>
- * {@code payablePaise} is stored explicitly as the frozen advisory fact, but is never trusted: reconstruction rebuilds
+ * {@code payablePaise} is stored explicitly as the frozen, binding fact, but is never trusted: reconstruction rebuilds
  * the snapshot from the two components and requires the stored payable to equal the derived one. STRICT (the Checkout
  * convention: nothing is defaulted or repaired): a missing/foreign field, a wrong BSON type, an explicit null or a
  * violated invariant throws. The ABSENCE of the whole field is a legacy quote and is decided by the caller. Corruption
