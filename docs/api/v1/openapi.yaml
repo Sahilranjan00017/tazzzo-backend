@@ -1356,8 +1356,8 @@ components:
       type: object
       description: >
         A validated snapshot at `createdAt`, valid until `expiresAt`. NOT a stock reservation, NOT a
-        permanent price lock, NOT a final payable total. `subtotalPaise` is the canonical merchandise subtotal;
-        no net or payable amount is provided.
+        permanent price lock, NOT a guaranteed final amount. `subtotalPaise` is the canonical merchandise subtotal.
+        `moneyPreview`, when present, is the advisory commerce money stored with the quote.
       required: [quoteId, cartVersion, addressId, items, itemCount, distinctItemCount, subtotalPaise, currency,
                  createdAt, expiresAt, requestId]
       properties:
@@ -1403,6 +1403,26 @@ components:
                 applied: { type: boolean, enum: [true], example: true }
                 discountPaise: { type: integer, format: int64, minimum: 1, example: 500 }
                 discountBps: { type: integer, minimum: 1, maximum: 10000, example: 500 }
+        moneyPreview:
+          type: object
+          additionalProperties: false
+          required: [merchandiseSubtotalPaise, benefitDiscountPaise, payablePaise]
+          description: >
+            ADVISORY commerce money stored with this quote: `payablePaise = merchandiseSubtotalPaise -
+            benefitDiscountPaise`. `merchandiseSubtotalPaise` equals the quote's `subtotalPaise`;
+            `benefitDiscountPaise` equals `benefitPreview.discountPaise` when `benefitPreview.applied` is true and is 0
+            otherwise; `0 <= benefitDiscountPaise <= merchandiseSubtotalPaise`, so `payablePaise` is never negative
+            and 0 is valid (a full discount). It reflects this stored quote only. It is NOT Payment authority, NOT a
+            price lock and NOT a guarantee for Order placement: Order placement revalidates and computes its own
+            authoritative money independently, and the Order's payable may differ if Membership, Benefits
+            configuration, Pricing or other authoritative inputs change before placement. No tax, fee, coupon, Coins
+            or wallet component is included. The field is ABSENT on a quote created before this money preview
+            existed, which is NOT a zero payable. Replaying a quote or reading it returns the stored values
+            unchanged. The examples are illustrative only.
+          properties:
+            merchandiseSubtotalPaise: { type: integer, format: int64, minimum: 0, example: 10000 }
+            benefitDiscountPaise: { type: integer, format: int64, minimum: 0, example: 500 }
+            payablePaise: { type: integer, format: int64, minimum: 0, example: 9500 }
         requestId: { type: string }
     CustomerCheckoutErrorEnvelope:
       type: object

@@ -82,6 +82,9 @@ public class CheckoutQuoteRepository {
         if (quote.benefitSnapshot() != null) { // absent ONLY on a legacy quote; never written as null/placeholder
             d.append(CheckoutBenefitSnapshotCodec.FIELD, CheckoutBenefitSnapshotCodec.toDocument(quote.benefitSnapshot()));
         }
+        if (quote.moneySnapshot() != null) { // absent ONLY on a legacy quote; never written as null/placeholder
+            d.append(CheckoutMoneySnapshotCodec.FIELD, CheckoutMoneySnapshotCodec.toDocument(quote.moneySnapshot()));
+        }
         return d;
     }
 
@@ -108,11 +111,14 @@ public class CheckoutQuoteRepository {
         // expired quote's 410 into a 500 before expiry handling)
         CheckoutBenefitSnapshot benefitSnapshot = d.containsKey(CheckoutBenefitSnapshotCodec.FIELD)
                 ? CheckoutBenefitSnapshotCodec.fromDocument(d.get(CheckoutBenefitSnapshotCodec.FIELD)) : null;
+        // same rule for money: PRESENT => strictly reconstructed, ABSENT => legacy quote (never a synthesized payable)
+        CheckoutMoneySnapshot moneySnapshot = d.containsKey(CheckoutMoneySnapshotCodec.FIELD)
+                ? CheckoutMoneySnapshotCodec.fromDocument(d.get(CheckoutMoneySnapshotCodec.FIELD)) : null;
         return new CheckoutQuote(d.getString("_id"), d.get("cartVersion", Number.class).longValue(),
                 d.getString("addressId"), addressVersion.longValue(), List.copyOf(lines),
                 d.get("itemCount", Number.class).intValue(), d.get("subtotalPaise", Number.class).longValue(),
                 d.getString("currency"), d.getDate("createdAt").toInstant(), d.getDate("expiresAt").toInstant(),
-                benefitSnapshot);
+                benefitSnapshot, moneySnapshot);
     }
 
     private static org.bson.conversions.Bson idempotencyFilter(String customerId, String keyDigest) {
