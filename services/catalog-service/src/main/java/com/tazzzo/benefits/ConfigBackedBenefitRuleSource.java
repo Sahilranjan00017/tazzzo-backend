@@ -35,6 +35,11 @@ public final class ConfigBackedBenefitRuleSource implements BenefitRuleSource {
         this.rules = Map.copyOf(byKey);
     }
 
+    /** The number of configured rules (0 is valid). Exposed so the configured count can be reported and tested. */
+    public int ruleCount() {
+        return rules.size();
+    }
+
     @Override
     public Optional<BenefitRule> find(String planId, int planVersion) {
         return Optional.ofNullable(rules.get(new Key(planId, planVersion)));

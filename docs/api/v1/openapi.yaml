@@ -75,8 +75,10 @@ tags:
       (`Idempotency-Key`, scoped per customer) and never mutates the cart. A quote is NOT a
       reservation: NO stock is held, prices are NOT locked beyond this snapshot, and a future order
       must revalidate stock and quote validity. `subtotalPaise` is the sum of line totals at the
-      quoted current prices — not a final payable total. Internal routing/fulfillment identifiers are
-      never exposed. No order or payment endpoints exist yet.
+      quoted current prices. The optional `moneyPreview` is an ADVISORY payable preview stored with the
+      quote: it is not Payment authority, not a price lock and not binding on Order placement, which
+      revalidates and computes its own authoritative money (it may differ). Internal routing/fulfillment
+      identifiers are never exposed. Order placement is a separate surface; no payment endpoint exists yet.
   - name: customer-orders
     description: >
       PR-15A-2 — Cash-on-Delivery order placement for the authenticated customer. One operation places an

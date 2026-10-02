@@ -33,7 +33,9 @@ class BenefitsConfigBindingTest {
         }
         BenefitsRuleProperties props = Binder.get(env).bind("tazzzo.benefits", BenefitsRuleProperties.class)
                 .orElseGet(BenefitsRuleProperties::new);
-        return new BenefitsConfig().benefitRuleSource(props); // the exact factory the application context invokes
+        // the exact factory the application context invokes; this test is about BINDING, so every plan version is
+        // "configured" here (the plan cross-reference is covered by BenefitsPlanCrossValidationTest)
+        return new BenefitsConfig().benefitRuleSource(props, (planId, planVersion) -> true);
     }
 
     private static String rule(String body) {

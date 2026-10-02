@@ -641,7 +641,9 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
     while `ACTIVE` and is `$unset` (never false/null) when terminal; partial unique index
     `membership_one_open_per_customer`. `membership_one_per_grant_reference` is unique on
     `(grantSource, grantRef)` (`GrantSource` is exactly `INTERNAL_GRANT`; the caller never supplies it).
-    No TTL, history or expiry-scan index.
+    No TTL, history or expiry-scan index. **Membership has exactly THREE indexes:** `membership_one_open_per_customer` (partial
+    unique), `membership_one_per_grant_reference` (unique) and `membership_active_by_customer` `{customerId, status}`
+    (NON-unique; added with the entitlement read).
   - **Concurrency.** One transaction repeats the reference check, applies plan effectiveness at a fresh
     per-attempt clock read, and either rejects (`now < validUntil` => `ALREADY_ACTIVE`) or CAS-expires the
     time-ended term (`_id`, status, version AND `validUntil <= now`; unsets `openTerm`) and inserts the
@@ -656,7 +658,8 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   - **Membership operational gates — all PENDING, NOT verified from the repository, to be confirmed
     before deployment:** (1) no pre-existing conflicting `memberships` collection/schema in each persistent
     environment; (2) `SchemaBootstrap` has collection/index privileges; (3) the effective
-    `tazzzo.membership.plans` configuration is identical across environments as intended; (4) the deployed
+    `tazzzo.membership.plans` configuration (and, since the Benefits static config hardening, the effective
+    `tazzzo.benefits.rules` configuration) is identical across environments and application instances as intended; (4) the deployed
     Mongo URI has no unexpected `readPreference` override; (5) the deployed cluster default read/write
     concern is as assumed. These do not block source review.
   - **The existing Order deployment gate is unchanged and still PENDING:** the `orders` collection must
@@ -1004,10 +1007,8 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
     and stays PENDING / UNVERIFIED; no new gate is created. The five Membership gates (PENDING / UNVERIFIED) still gate
     Benefits-aware Order placement and Checkout quote creation. Do not claim production readiness.
 
-## In review (NOT merged)
-
 - **Checkout advisory money snapshot + public `moneyPreview`** (`com.tazzzo.customer.checkout`, fifth Checkout + Order
-  money-model slice): **IN REVIEW**. **Checkout-side advisory money only: no Order change, no Benefits change, no Payment,
+  money-model slice): **COMPLETE** (PR #39, squash `f98aafb67d946c04a7a7141f164e1d0998ab759b`). **Checkout-side advisory money only: no Order change, no Benefits change, no Payment,
   no gateway, no tax/GST engine, no fees, no coupons, no spendable Coins, no wallet, no production Benefits rule (0
   configured).**
   - **Same ratified V1 formula as the Order:** `payablePaise = merchandiseSubtotalPaise - benefitDiscountPaise` (tax-inclusive
@@ -1037,6 +1038,40 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
     codec, and no production code creates a quote through the Benefits-only (money-less) constructor.
   - **Deployment gates unchanged and PENDING / UNVERIFIED:** the Order `orders`-count == 0 gate and the five Membership gates.
     No new gate. Do not claim production readiness.
+
+## In review (NOT merged)
+
+- **Benefits static config hardening — plan cross-validation + config consistency** (`com.tazzzo.benefits`,
+  `com.tazzzo.wiring`, sixth Checkout + Order money-model slice): **IN REVIEW**. **Configuration boundary only: no
+  runtime evaluation change, no customer API change, no Order/Checkout semantics change, no Admin API, no Mongo-backed
+  Benefits rules, no Payment, no gateway, no coupons, no tax/fees/Coins/wallet. Production Benefits rules remain 0 (no
+  launch percentage, minimum subtotal, 100%-discount policy or cap is ratified).**
+  - **V1 model preserved:** Benefits stays STATIC configuration (`tazzzo.benefits.rules`): process-local, immutable after
+    startup, no reload or runtime mutation. Rule identity is `(planId, planVersion)`, one rule per Membership plan version.
+    A rule is immutable for its `(planId, planVersion)`: changing the discount rate or minimum subtotal for a commercial
+    plan means a NEW Membership plan version (Git/deployment governs static config evolution; there is no runtime
+    comparison with historical deployments).
+  - **Orphan rules fail startup.** `BenefitsConfig` validates every configured rule against a Benefits-owned port
+    (`BenefitPlanCatalog`) while building the rule source; `com.tazzzo.wiring.BenefitPlanCatalogConfig` answers it from the
+    already-loaded Membership plan CONFIGURATION (`MembershipPlanSource`: no Mongo read, no entitlement lookup). A rule whose
+    `(planId, planVersion)` is not a configured plan fails the application start with a message naming only the planId and
+    planVersion (no commercial values); it is never ignored, dropped, turned into `NO_RULE` or re-pointed at another version.
+    Benefits still depends on no Membership implementation class (the composition layer is the only place that sees both).
+  - **Unchanged and still valid:** zero rules; a plan or plan version WITHOUT a rule (evaluates to `NO_RULE`); several rules for
+    distinct configured plan versions. The existing duplicate-rule and malformed-rule startup failures are unchanged.
+  - **Startup visibility:** one INFO line reports the configured rule COUNT only (no rule identity, no commercial value).
+  - **Config consistency:** the existing identical-configuration deployment gate now explicitly covers BOTH
+    `tazzzo.membership.plans` AND `tazzzo.benefits.rules` on every application instance and environment (instances with
+    different static rules would produce different Checkout/Order outcomes). This clarifies the SAME gate; the total stays six
+    (the `orders`-count gate plus the five Membership gates), all PENDING / UNVERIFIED. This PR reduces config mistakes; it does
+    not introduce any `PAYABLE_CHANGED`/`BENEFIT_CHANGED`/`QUOTE_CHANGED` behaviour, and Order does not honour the Checkout payable.
+  - **Admin:** none added. Current admin security (two static shared service tokens, no per-person identity, no fine-grained
+    authorization, no actor-attributed audit) is insufficient for mutable Benefits; that is a separate prerequisite.
+  - **Documentation cleanup carried from PR #39:** Checkout Advisory Money moved to COMPLETE; Last verification refreshed; the
+    Checkout quote Javadoc and the `customer-checkout` OpenAPI tag description no longer describe Checkout only as "not a final
+    payable total" (they say `moneyPreview` exists, is ADVISORY, and Order is AUTHORITATIVE; the stale "no order endpoints exist
+    yet" sentence was corrected). Description-only: no OpenAPI schema or DTO change.
+  - **Architecture:** no new rule (66 stay green); Benefits remains decoupled from Membership internals.
 ## Follow-up debt (recorded)
 
 - **Non-Auth `tx.run` result-holder audit (PR-11D, no action taken):** `AttributeAuthoringService`
@@ -1094,7 +1129,7 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   `PublicServiceability`, pincode-keyed routing) is **COMPLETE** and unchanged; the
   customer-address BINDING to it (PR-12B) is **COMPLETE**.
   (Address ↔ Serviceability binding: COMPLETE.)
-- Cart (PR-12C): **COMPLETE** (PR #21). Auth transaction retry hardening (PR-11D): **COMPLETE** (PR #22). Checkout (PR-13A): **COMPLETE** (PR #23). Checkout provenance (PR-13B): **COMPLETE** (PR #24, squash `8b4fabb9b82e4e3502202ffaff1aadd35f9ba311`). Inventory Reservation lifecycle (PR-14A): **COMPLETE** (PR #25, squash `44438031022238334ecdf3995ba1096101e2e47f`). Order Foundation (PR-14B): **COMPLETE** (PR #26, squash `b620538e34afc35f7f080461750681b467ed4096`). Cart purchase-finalization seam (PR-15A-0): **COMPLETE** (PR #28, squash `611829c3649de3f5c37dec4ac5b375a1d8ef454e`). COD Order domain (PR-15A-1): **COMPLETE** (PR #29, squash `e8d4d45e88ad4935f7ad84a46ae65a671e50ba63`). Customer Order HTTP (PR-15A-2): **COMPLETE** (PR #30, squash `0cdcc97b8fcf5f7c079815b8cb276874635d15d6`; operational `orders`-count==0 deployment gate **PENDING**, not verified). Membership write foundation (PR-16A-1): **COMPLETE** (PR #31, squash `d32a23fb2e4b52fa8076de45a07bf3b60912b1e2`; Membership deployment gates **PENDING**, not verified). Membership entitlement read seam (PR-16A-2): **COMPLETE** (PR #32, squash `580633abbc8d162f45110443f503d4998f4caa48`). Membership termination (PR-16A-3): **COMPLETE** (PR #33, squash `99e2d1b7cc26982e0825bc4a9766b815aa6ae8e0`; cancel-at-period-end and immediate revoke; internal only). Benefits Foundation (order-level percentage + threshold evaluation seam; internal, no persistence): **COMPLETE** (PR #34, squash `cb2097f5979fe666d0d52de958b40db7058e3d16`; 0 production rules configured). Order Benefits snapshot (authoritative Benefits evaluation at COD placement; persisted snapshot, no public API change): **COMPLETE** (PR #35, squash `4486044e1c2f200ed05fe44abbb6525bf24a98f7`). Checkout Benefits evaluation snapshot (internal advisory preview persisted with the quote; no public API change): **COMPLETE** (PR #36, squash `30dea72482f71418048783b348647fdc0165a133`). Checkout Benefits preview public projection (additive nested `benefitPreview`, projection/API only): **COMPLETE** (PR #37, squash `48380964edb18f35eef501eb5aaf495da95d5c32`). Order money snapshot (authoritative V1 payable): **COMPLETE** (PR #38, squash `8051c45b7cf96dbc8d1374892d3b18281ff4a7b4`). Order money snapshot (authoritative V1 payable: merchandise subtotal minus Benefits discount; internal, no public API change): **IN REVIEW**. Payment: **NOT STARTED**. Real payment gateway: **NOT STARTED**.
+- Cart (PR-12C): **COMPLETE** (PR #21). Auth transaction retry hardening (PR-11D): **COMPLETE** (PR #22). Checkout (PR-13A): **COMPLETE** (PR #23). Checkout provenance (PR-13B): **COMPLETE** (PR #24, squash `8b4fabb9b82e4e3502202ffaff1aadd35f9ba311`). Inventory Reservation lifecycle (PR-14A): **COMPLETE** (PR #25, squash `44438031022238334ecdf3995ba1096101e2e47f`). Order Foundation (PR-14B): **COMPLETE** (PR #26, squash `b620538e34afc35f7f080461750681b467ed4096`). Cart purchase-finalization seam (PR-15A-0): **COMPLETE** (PR #28, squash `611829c3649de3f5c37dec4ac5b375a1d8ef454e`). COD Order domain (PR-15A-1): **COMPLETE** (PR #29, squash `e8d4d45e88ad4935f7ad84a46ae65a671e50ba63`). Customer Order HTTP (PR-15A-2): **COMPLETE** (PR #30, squash `0cdcc97b8fcf5f7c079815b8cb276874635d15d6`; operational `orders`-count==0 deployment gate **PENDING**, not verified). Membership write foundation (PR-16A-1): **COMPLETE** (PR #31, squash `d32a23fb2e4b52fa8076de45a07bf3b60912b1e2`; Membership deployment gates **PENDING**, not verified). Membership entitlement read seam (PR-16A-2): **COMPLETE** (PR #32, squash `580633abbc8d162f45110443f503d4998f4caa48`). Membership termination (PR-16A-3): **COMPLETE** (PR #33, squash `99e2d1b7cc26982e0825bc4a9766b815aa6ae8e0`; cancel-at-period-end and immediate revoke; internal only). Benefits Foundation (order-level percentage + threshold evaluation seam; internal, no persistence): **COMPLETE** (PR #34, squash `cb2097f5979fe666d0d52de958b40db7058e3d16`; 0 production rules configured). Order Benefits snapshot (authoritative Benefits evaluation at COD placement; persisted snapshot, no public API change): **COMPLETE** (PR #35, squash `4486044e1c2f200ed05fe44abbb6525bf24a98f7`). Checkout Benefits evaluation snapshot (internal advisory preview persisted with the quote; no public API change): **COMPLETE** (PR #36, squash `30dea72482f71418048783b348647fdc0165a133`). Checkout Benefits preview public projection (additive nested `benefitPreview`, projection/API only): **COMPLETE** (PR #37, squash `48380964edb18f35eef501eb5aaf495da95d5c32`). Order money snapshot (authoritative V1 payable): **COMPLETE** (PR #38, squash `8051c45b7cf96dbc8d1374892d3b18281ff4a7b4`). Checkout advisory money snapshot + `moneyPreview`: **COMPLETE** (PR #39, squash `f98aafb67d946c04a7a7141f164e1d0998ab759b`). Order money snapshot (authoritative V1 payable: merchandise subtotal minus Benefits discount; internal, no public API change): **IN REVIEW**. Payment: **NOT STARTED**. Real payment gateway: **NOT STARTED**.
 
 ## Next (ratified sequence)
 
@@ -1106,8 +1141,9 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
    placement, persisted snapshot) complete (PR #35); second slice (Checkout Benefits evaluation snapshot: internal
    advisory preview persisted with the quote) complete (PR #36); third slice (minimal public `benefitPreview`
    projection) complete (PR #37); fourth slice (Order money snapshot: authoritative V1 payable, internal) complete (PR #38); fifth slice
-   (Checkout advisory money snapshot + public `moneyPreview`) in review; public exposure of the Order payable remains a
-   later slice, and Payment comes last.
+   (Checkout advisory money snapshot + public `moneyPreview`) complete (PR #39); sixth slice (Benefits static config
+   hardening: plan cross-validation) in review; public exposure of the Order payable remains a later slice, and Payment
+   comes last.
 4. Payment domain, then the prepaid Order flow, then a real gateway.
 5. Admin/CMS expansion.
 
@@ -1144,6 +1180,15 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-10-02** — `./mvnw clean test` on Java 21 + Docker on `feature/pr22-benefits-config-hardening` (based on `main`
+  `f98aafb67d946c04a7a7141f164e1d0998ab759b`): **BUILD SUCCESS**, 2227 tests, 0 failures / 0 errors / 0 skipped (2216
+  baseline + 11 `BenefitsPlanCrossValidationTest`); `ModuleBoundaryTest` 66/66 (no new rule); no customer DTO/OpenAPI
+  schema change (the `customer-checkout` tag description wording was refreshed). Seven mutation checks (unknown planId
+  accepted, unknown planVersion accepted, empty Benefits config made invalid, every plan version required to have a rule,
+  orphan rule silently ignored, planId-only matching, and a wrong rule count) were each killed by the tests above; the
+  startup rule-count LOG line itself has no text-matching test (the count seam, `ruleCount()`, is tested).
+- **2026-10-02** — merged-`main` verification of PR #39 (squash `f98aafb67d946c04a7a7141f164e1d0998ab759b`, push CI run
+  `37011600092` on Java 21): **BUILD SUCCESS**, 2216 tests, 0 failures / 0 errors / 0 skipped; `ModuleBoundaryTest` 66/66.
 - **2026-10-02** — `./mvnw clean test` on Java 21 + Docker on `feature/pr20a-order-money-snapshot` (based on `main`
   `4838096`): **BUILD SUCCESS**, 2188 tests, 0 failures / 0 errors / 0 skipped (2173 baseline + 9 `OrderMoneySnapshotTest`
   + 5 new `OrderBenefitsPlacementIT` tests + 1 ArchUnit rule); `ModuleBoundaryTest` 64/64; the public Order DTO/OpenAPI are
