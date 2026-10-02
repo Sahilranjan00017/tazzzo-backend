@@ -1026,12 +1026,14 @@ is FUTURE work and not required for the production modular monolith.
 ## Last verification
 
 - **2026-10-02** — `./mvnw clean test` on Java 21 + Docker on `feature/pr19a1-checkout-benefits-snapshot`
-  (based on `main` `4486044`): **BUILD SUCCESS**, 2155 tests, 0 failures / 0 errors / 0 skipped (2126 baseline + 11
-  `CheckoutBenefitSnapshotTest` + 15 new `CheckoutQuoteIT` tests + 3 net ArchUnit rules); `ModuleBoundaryTest` 62/62; the
-  public Checkout DTO/OpenAPI are unchanged (the exact public field set is still asserted). Six mutation checks
-  (Checkout using the transactional port, replay re-evaluating Benefits, GET re-evaluating Benefits, NO_BENEFIT not
-  persisted, a discount overwriting the canonical subtotal, a legacy missing snapshot treated as corruption) were each
-  killed by the tests/rules above.
+  (based on `main` `4486044`, after the independent-review hardening): **BUILD SUCCESS**, 2157 tests, 0 failures /
+  0 errors / 0 skipped (2126 baseline + 11 `CheckoutBenefitSnapshotTest` + 17 new `CheckoutQuoteIT` tests + 3 net
+  ArchUnit rules); `ModuleBoundaryTest` 62/62; the public Checkout DTO/OpenAPI are unchanged (the exact public field
+  set is still asserted). Mutation checks killed: Checkout using the transactional port, replay re-evaluating
+  Benefits, GET re-evaluating Benefits, NO_BENEFIT not persisted, a discount overwriting the canonical subtotal, a
+  legacy missing snapshot treated as corruption, and (added by the hardening: two direct tests, a durable quote found by
+  the IN-TRANSACTION replay check and by duplicate-key recovery, neither of which evaluates Benefits again and both
+  of which return the stored winner's snapshot) a Benefits re-evaluation, discarded or used, in either path.
 - **2026-10-02** — `./mvnw clean test` on Java 21 + Docker on `feature/pr18a1-order-benefits-snapshot`
   (based on `main` `cb2097f`, after the independent-review hardening): **BUILD SUCCESS**, 2126 tests, 0 failures /
   0 errors / 0 skipped (2090 baseline + 12 `OrderBenefitSnapshotTest` + 20 `OrderBenefitsPlacementIT` + 1 Benefits
