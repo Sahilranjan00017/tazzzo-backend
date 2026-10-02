@@ -177,7 +177,7 @@ class OrderMoneySnapshotTest {
                 .containsExactly("merchandiseSubtotalPaise", "benefitDiscountPaise", "payablePaise");
     }
 
-    // ---------- PR-21: the public `money` is the persisted snapshot, projected and never recomputed ----------
+    // ---------- the public `money` is the persisted AUTHORITATIVE snapshot, projected and never recomputed ----------
 
     @Test
     void the_public_money_projects_the_persisted_snapshot_exactly() {

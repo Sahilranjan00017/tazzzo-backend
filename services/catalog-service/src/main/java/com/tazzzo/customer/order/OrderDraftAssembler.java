@@ -12,7 +12,6 @@ import com.tazzzo.commerce.read.TransactionalCatalogCardReadPort;
 import com.tazzzo.common.money.Currency;
 import com.tazzzo.common.money.Money;
 import com.tazzzo.customer.address.AddressRepository;
-import com.tazzzo.customer.checkout.CheckoutMoneySnapshot;
 import com.tazzzo.customer.checkout.CheckoutQuote;
 import com.tazzzo.inventory.InventoryReservation;
 import com.tazzzo.inventory.InventoryReservationAllocation;
@@ -144,12 +143,7 @@ final class OrderDraftAssembler {
         // Money: the authoritative V1 payable fact, built from the canonical subtotal just validated and the
         // authoritative Benefits discount just evaluated (never a client, Cart or Checkout-preview value, never
         // recomputed from a rate); before the reserve, in the same transaction, persisting nothing yet.
-        OrderMoneySnapshot liveMoney = moneyFrom(orderLines, benefitSnapshot);
-        // Binding agreement: the quote's money is what the customer reviewed. The live authoritative money must reproduce it
-        // EXACTLY -- in either direction (a larger discount is refused too) -- or the order is refused and a fresh quote is
-        // required. A quote with no money was never shown a payable, so it cannot be ordered either. This runs after the
-        // price check (PRICE_CHANGED keeps precedence) and BEFORE the Inventory reserve, so a refusal writes nothing.
-        OrderMoneySnapshot moneySnapshot = requireBindingMoney(quote, liveMoney);
+        OrderMoneySnapshot moneySnapshot = moneyFrom(orderLines, benefitSnapshot);
 
         // allocation constructed fresh, inside the callback, from THIS route + the immutable quote's items.
         List<InventoryReservationItem> items = quote.lines().stream()
@@ -164,21 +158,6 @@ final class OrderDraftAssembler {
             throw mapReserveFailure(e);
         }
         return new Draft(addressSnapshot, List.copyOf(orderLines), reservation, benefitSnapshot, moneySnapshot);
-    }
-
-    /**
-     * The monetary agreement is compared, not the Benefits identity: two different benefit states that produce the same
-     * (merchandise subtotal, discount) leave the agreement unchanged. The persisted Order money is the AGREED one (equal to the
-     * live one by this check), never a value rebuilt from anything else.
-     */
-    private static OrderMoneySnapshot requireBindingMoney(CheckoutQuote quote, OrderMoneySnapshot live) {
-        CheckoutMoneySnapshot agreed = quote.moneySnapshot();
-        if (agreed == null
-                || agreed.merchandiseSubtotalPaise() != live.merchandiseSubtotalPaise()
-                || agreed.benefitDiscountPaise() != live.benefitDiscountPaise()) {
-            throw new OrderFailure(OrderFailure.Reason.PAYABLE_CHANGED, "the reviewed money is not the current money");
-        }
-        return OrderMoneySnapshot.from(agreed.merchandiseSubtotalPaise(), agreed.benefitDiscountPaise());
     }
 
     /** {@code payable = merchandise subtotal - benefit discount}; any inconsistency is an internal defect. */

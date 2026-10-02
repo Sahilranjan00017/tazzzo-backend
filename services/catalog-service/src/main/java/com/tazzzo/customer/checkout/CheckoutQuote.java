@@ -143,13 +143,13 @@ public record CheckoutQuote(String quoteId, long cartVersion, String addressId, 
         }
     }
 
-    /** The public-safe projection of the stored benefit snapshot; EMPTY for a legacy quote (never "not applied"). */
+    /** The public-safe projection of the stored advisory snapshot; EMPTY for a legacy quote (never "not applied"). */
     java.util.Optional<CheckoutBenefitPreview> benefitPreview() {
         return benefitSnapshot == null ? java.util.Optional.empty()
                 : java.util.Optional.of(CheckoutBenefitPreview.from(benefitSnapshot));
     }
 
-    /** The public-safe projection of the stored BINDING money; EMPTY for a legacy quote (never a zero payable). */
+    /** The public-safe projection of the stored advisory money; EMPTY for a legacy quote (never a zero payable). */
     java.util.Optional<CheckoutMoneyPreview> moneyPreview() {
         return moneySnapshot == null ? java.util.Optional.empty()
                 : java.util.Optional.of(CheckoutMoneyPreview.from(moneySnapshot));

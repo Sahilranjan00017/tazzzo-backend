@@ -155,9 +155,9 @@ class OrderServiceIT extends AbstractMongoIT {
     private CheckoutQuote quote(String quoteId, String addressId, long addressVersion, String sku, int qty,
                                 long unitPricePaise, Instant createdAt, Instant expiresAt) {
         long lineTotal = unitPricePaise * qty;
-        return TestQuotes.bindNoBenefit(new CheckoutQuote(quoteId, 1L, addressId, addressVersion,
+        return new CheckoutQuote(quoteId, 1L, addressId, addressVersion,
                 List.of(new CheckoutQuote.Line(sku, qty, unitPricePaise, lineTotal)), qty, lineTotal, "INR",
-                createdAt, expiresAt));
+                createdAt, expiresAt);
     }
 
     private void insertQuote(CheckoutQuote quote, String customerId) {
@@ -472,9 +472,9 @@ class OrderServiceIT extends AbstractMongoIT {
         seedStock(skuA, LOC, 10);
         seedStock(skuB, LOC, 10);
         CheckoutQuoteId quoteId = CheckoutQuoteId.generate();
-        CheckoutQuote q = TestQuotes.bindNoBenefit(new CheckoutQuote(quoteId.value(), 1L, addressId, 1L,
+        CheckoutQuote q = new CheckoutQuote(quoteId.value(), 1L, addressId, 1L,
                 List.of(new CheckoutQuote.Line(skuA, 1, 1000, 1000), new CheckoutQuote.Line(skuB, 1, 2000, 2000)),
-                2, 3000, "INR", NOW, NOW.plusSeconds(600)));
+                2, 3000, "INR", NOW, NOW.plusSeconds(600));
         insertQuote(q, customerId.value());
         db.getCollection("price_current").updateOne(new Document("sku_id", skuB),
                 new Document("$set", new Document("selling_price_paise", 2200L)));

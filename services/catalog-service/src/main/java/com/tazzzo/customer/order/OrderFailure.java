@@ -25,12 +25,6 @@ public final class OrderFailure extends RuntimeException {
          *  intent was consumed by another. Never raised for a same-quote replay (the durable Order
          *  lookup returns first). */
         CART_VERSION_ALREADY_PURCHASED,
-        /** The money the customer REVIEWED (the quote's binding {@code moneyPreview}) is not the money the order would
-         *  commit now -- in EITHER direction, and also when the quote carries no binding money at all (a quote created
-         *  before the money model, which never showed the customer a payable). Raised before any Inventory write, so
-         *  nothing was created, reserved, consumed or cleared; the customer must obtain a fresh quote. Never raised
-         *  for a same-quote replay (the durable Order lookup returns first). */
-        PAYABLE_CHANGED,
         /** PR-15A-2 — READ path only ({@code OrderService.getOrder}): the id is malformed, unknown,
          *  owned by another customer, or names an internal non-{@code CONFIRMED} row. All four are one
          *  indistinguishable outcome by design. The placement path never raises it. */

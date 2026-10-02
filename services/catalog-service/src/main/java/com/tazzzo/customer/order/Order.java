@@ -162,4 +162,10 @@ public record Order(OrderId orderId, String customerId, String quoteId, OrderSta
             }
         }
     }
+
+    /** The public-safe projection of the stored AUTHORITATIVE money; EMPTY for a legacy Order (never a zero payable). */
+    java.util.Optional<OrderMoneyView> moneyView() {
+        return moneySnapshot == null ? java.util.Optional.empty()
+                : java.util.Optional.of(OrderMoneyView.from(moneySnapshot));
+    }
 }

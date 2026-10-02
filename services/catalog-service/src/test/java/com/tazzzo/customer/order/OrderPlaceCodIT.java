@@ -215,8 +215,8 @@ class OrderPlaceCodIT extends AbstractMongoIT {
 
     private void insertQuote(String quoteId, CustomerId customerId, String addressId, long cartVersion,
                              Instant expiresAt) {
-        CheckoutQuote q = TestQuotes.bindNoBenefit(new CheckoutQuote(quoteId, cartVersion, addressId, 1L,
-                List.of(new CheckoutQuote.Line(SKU, 2, 5000, 10000)), 2, 10000, "INR", NOW, expiresAt));
+        CheckoutQuote q = new CheckoutQuote(quoteId, cartVersion, addressId, 1L,
+                List.of(new CheckoutQuote.Line(SKU, 2, 5000, 10000)), 2, 10000, "INR", NOW, expiresAt);
         new Tx(client).run(session -> new CheckoutQuoteRepository(db).insert(session, q, customerId.value(),
                 "digest-" + quoteId, "fingerprint-" + quoteId));
     }
