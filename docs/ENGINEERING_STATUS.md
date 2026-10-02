@@ -1208,9 +1208,11 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
     selected by `kid` from Google's published JWKS (`https://www.googleapis.com/oauth2/v3/certs`; cached 5 min, refreshed on an
     unknown `kid` for rotation, rate-limited, retried; unavailable keys or an unknown `kid` after refresh fail CLOSED; no key is
     committed to source); issuer `https://accounts.google.com` or Google's documented legacy `accounts.google.com`, nothing else;
-    the exactly-configured audience; `exp`/`nbf` with 60 s skew; `iat` no more than 60 s in the future; `hd` EXACTLY the configured
+    exactly ONE audience, the configured one (a multi-audience token is refused even when it lists the admin client), and an
+    authorized party `azp`, when present, equal to that audience (review hardening LOW-1: a token issued for a different
+    client is refused; Nimbus' audience-membership check is kept as defense-in-depth); `exp`/`nbf` with 60 s skew; `iat` no more than 60 s in the future; `hd` EXACTLY the configured
     Workspace domain (absent, e.g. a personal account, is a mismatch; the email suffix is never consulted); `email_verified`
-    true; non-blank `sub`. Only `sub` leaves the verifier.
+    the JSON boolean `true` only (review hardening NOTE-1: string/numeric forms are refused); non-blank `sub`. Only `sub` leaves the verifier.
   - **Identity and roles:** actor `HUMAN_ADMIN`, id `google:<sub>` (never the email; an email change keeps the identity),
     credential id `oidc:google:<credential-label>` (short, non-secret). Roles come ONLY from the backend allowlist
     `tazzzo.admin.users` (keyed by provider + subject); Google claims never grant roles. A valid in-domain identity that is not

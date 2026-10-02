@@ -137,6 +137,19 @@ public final class GoogleIdTokens {
         }
     }
 
+    /** RS256 by the trusted key over an exact JSON payload (for claim shapes the claims builder cannot express). */
+    public String signRaw(String jsonPayload) {
+        try {
+            com.nimbusds.jose.JWSObject jws = new com.nimbusds.jose.JWSObject(
+                    new JWSHeader.Builder(JWSAlgorithm.RS256).keyID(key.getKeyID()).build(),
+                    new com.nimbusds.jose.Payload(jsonPayload));
+            jws.sign(new RSASSASigner(key));
+            return jws.serialize();
+        } catch (JOSEException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
     /** HS256 keyed with the trusted PUBLIC key bytes: the classic RS256 -> HS256 algorithm-confusion attack. */
     public String hmacConfusion(String sub, Instant now) {
         try {

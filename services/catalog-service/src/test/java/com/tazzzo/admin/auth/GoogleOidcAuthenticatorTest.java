@@ -19,6 +19,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -100,10 +101,90 @@ class GoogleOidcAuthenticatorTest {
                 .actorId()).isEqualTo("google:" + WRITER);
     }
 
+    // ---------- audience + authorized party: a token issued to the admin client and ONLY to it ----------
+
+    static final String FOREIGN = "customer-app.apps.googleusercontent.com";
+
+    AdminAuthentication withAudience(Object aud, Object azp, boolean azpPresent) {
+        return authenticate(tokens.token(WRITER, NOW, c -> {
+            c.put("aud", aud);
+            if (azpPresent) {
+                c.put("azp", azp);
+            } else {
+                c.remove("azp");
+            }
+        }));
+    }
+
     @Test
-    void A_an_audience_list_containing_the_admin_client_is_accepted() {
-        assertThat(authenticate(tokens.token(WRITER, NOW,
-                c -> c.put("aud", List.of("other-client", GoogleIdTokens.AUDIENCE)))))
+    void A1_a_single_configured_audience_without_azp_is_accepted() {
+        assertThat(withAudience(GoogleIdTokens.AUDIENCE, null, false)).isInstanceOf(AdminAuthentication.Authenticated.class);
+    }
+
+    @Test
+    void A2_a_single_configured_audience_with_azp_equal_to_it_is_accepted() {
+        assertThat(withAudience(GoogleIdTokens.AUDIENCE, GoogleIdTokens.AUDIENCE, true))
+                .isInstanceOf(AdminAuthentication.Authenticated.class);
+        assertThat(withAudience(List.of(GoogleIdTokens.AUDIENCE), GoogleIdTokens.AUDIENCE, true))
+                .as("a one-element audience array is the same single audience")
+                .isInstanceOf(AdminAuthentication.Authenticated.class);
+    }
+
+    @Test
+    void A3_a_foreign_single_audience_is_invalid() {
+        assertThat(withAudience(FOREIGN, null, false)).isEqualTo(rejected(AdminAuthRejection.INVALID_TOKEN));
+        assertThat(withAudience(FOREIGN, FOREIGN, true)).isEqualTo(rejected(AdminAuthRejection.INVALID_TOKEN));
+    }
+
+    @Test
+    void A4_A5_a_multi_audience_token_is_invalid_even_when_it_lists_the_admin_client() {
+        assertThat(withAudience(List.of(GoogleIdTokens.AUDIENCE, FOREIGN), null, false))
+                .isEqualTo(rejected(AdminAuthRejection.INVALID_TOKEN));
+        assertThat(withAudience(List.of(FOREIGN, GoogleIdTokens.AUDIENCE), null, false))
+                .isEqualTo(rejected(AdminAuthRejection.INVALID_TOKEN));
+        assertThat(withAudience(List.of(GoogleIdTokens.AUDIENCE, GoogleIdTokens.AUDIENCE), null, false))
+                .as("a duplicated admin audience is still not exactly one audience")
+                .isEqualTo(rejected(AdminAuthRejection.INVALID_TOKEN));
+    }
+
+    @Test
+    void A6_a_multi_audience_token_authorized_for_a_foreign_client_is_invalid() {
+        assertThat(withAudience(List.of(GoogleIdTokens.AUDIENCE, FOREIGN), FOREIGN, true))
+                .isEqualTo(rejected(AdminAuthRejection.INVALID_TOKEN));
+    }
+
+    @Test
+    void A7_a_multi_audience_token_is_invalid_even_when_azp_is_the_admin_client() {
+        assertThat(withAudience(List.of(GoogleIdTokens.AUDIENCE, FOREIGN), GoogleIdTokens.AUDIENCE, true))
+                .isEqualTo(rejected(AdminAuthRejection.INVALID_TOKEN));
+    }
+
+    @Test
+    void A8_a_single_admin_audience_authorized_for_a_foreign_client_is_invalid() {
+        assertThat(withAudience(GoogleIdTokens.AUDIENCE, FOREIGN, true)).isEqualTo(rejected(AdminAuthRejection.INVALID_TOKEN));
+    }
+
+    @Test
+    void A9_an_explicitly_blank_azp_is_invalid() {
+        assertThat(withAudience(GoogleIdTokens.AUDIENCE, "", true)).isEqualTo(rejected(AdminAuthRejection.INVALID_TOKEN));
+        assertThat(withAudience(GoogleIdTokens.AUDIENCE, " ", true)).isEqualTo(rejected(AdminAuthRejection.INVALID_TOKEN));
+    }
+
+    @Test
+    void A10_a_non_string_azp_is_invalid() {
+        for (Object azp : new Object[]{42, true, List.of(GoogleIdTokens.AUDIENCE), Map.of("id", GoogleIdTokens.AUDIENCE)}) {
+            assertThat(withAudience(GoogleIdTokens.AUDIENCE, azp, true)).as(String.valueOf(azp))
+                    .isEqualTo(rejected(AdminAuthRejection.INVALID_TOKEN));
+        }
+        // The claims builder drops null values, so an explicit "azp": null is signed from a raw JSON payload.
+        String rawNullAzp = "{\"iss\":\"https://accounts.google.com\",\"aud\":\"" + GoogleIdTokens.AUDIENCE
+                + "\",\"azp\":null,\"sub\":\"" + WRITER + "\",\"hd\":\"" + GoogleIdTokens.DOMAIN
+                + "\",\"email_verified\":true,\"iat\":" + NOW.getEpochSecond() + ",\"exp\":"
+                + NOW.plusSeconds(3600).getEpochSecond() + "}";
+        assertThat(authenticate(tokens.signRaw(rawNullAzp))).as("explicit JSON null azp")
+                .isEqualTo(rejected(AdminAuthRejection.INVALID_TOKEN));
+        String rawNoAzp = rawNullAzp.replace("\"azp\":null,", "");
+        assertThat(authenticate(tokens.signRaw(rawNoAzp))).as("control: the same raw payload without azp verifies")
                 .isInstanceOf(AdminAuthentication.Authenticated.class);
     }
 
@@ -225,6 +306,16 @@ class GoogleOidcAuthenticatorTest {
                 .isEqualTo(rejected(AdminAuthRejection.EMAIL_UNVERIFIED));
         assertThat(authenticate(tokens.token(WRITER, NOW, c -> c.remove("email_verified"))))
                 .isEqualTo(rejected(AdminAuthRejection.EMAIL_UNVERIFIED));
+    }
+
+    @Test
+    void J_only_the_json_boolean_true_counts_as_verified() {
+        assertThat(authenticate(tokens.token(WRITER, NOW, c -> c.put("email_verified", true))))
+                .isInstanceOf(AdminAuthentication.Authenticated.class);
+        for (Object alternate : new Object[]{"true", "TRUE", 1, List.of(true)}) {
+            assertThat(authenticate(tokens.token(WRITER, NOW, c -> c.put("email_verified", alternate))))
+                    .as(String.valueOf(alternate)).isEqualTo(rejected(AdminAuthRejection.EMAIL_UNVERIFIED));
+        }
     }
 
     @Test

@@ -22,6 +22,8 @@ import java.time.Clock;
 import java.time.Duration;
 import java.util.Date;
 import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -35,9 +37,11 @@ import java.util.Set;
  *   <li>claims: required {@code iss sub aud exp iat}; {@code aud} must contain exactly-configured audience; {@code exp}
  *       and {@code nbf} against the injected clock with {@value #MAX_CLOCK_SKEW_SECONDS}s skew; {@code iss} must be one of
  *       Google's documented issuers (here); {@code iat} no further in the future than the skew (here);</li>
- *   <li>after verification (here): {@code hd} exactly the configured Workspace domain (absent is a mismatch: personal
- *       accounts carry no {@code hd}; the email suffix is never consulted), {@code email_verified} true, {@code sub}
- *       non-blank.</li>
+ *   <li>after verification (here): {@code aud} is EXACTLY one value, the configured audience (a multi-audience token is
+ *       refused even when it lists ours), and {@code azp}, when present, equals that audience (a token authorized for a
+ *       different client is refused); {@code hd} exactly the configured Workspace domain (absent is a mismatch: personal
+ *       accounts carry no {@code hd}; the email suffix is never consulted); {@code email_verified} the JSON boolean
+ *       {@code true} (no string or numeric forms); {@code sub} non-blank.</li>
  * </ol>
  * The result is only the stable {@code sub}: email, name, picture and the rest of the claims are dropped here.
  *
@@ -120,12 +124,23 @@ public final class GoogleOidcVerifier {
             log.warn("admin_oidc_verification_failed type={}", e.getClass().getSimpleName());
             throw new Rejected(AdminAuthRejection.INVALID_TOKEN);
         }
+        // Strict audience: Nimbus' membership check (above, inside the processor) is kept as defense-in-depth; the admin
+        // backend additionally accepts ONLY a token issued to its own client: exactly one audience, the configured one,
+        // and an authorized party (when present) that is that same client. Read from VERIFIED claims only.
+        List<String> audiences = claims.getAudience();
+        if (audiences.size() != 1 || !settings.audience().equals(audiences.get(0))) {
+            throw new Rejected(AdminAuthRejection.INVALID_TOKEN);
+        }
+        Map<String, Object> verified = claims.getClaims();
+        if (verified.containsKey("azp") && !settings.audience().equals(verified.get("azp"))) {
+            throw new Rejected(AdminAuthRejection.INVALID_TOKEN);
+        }
         Object hd = claims.getClaim("hd");
         if (!(hd instanceof String domain) || !domain.equals(settings.hostedDomain())) {
             throw new Rejected(AdminAuthRejection.DOMAIN_MISMATCH);
         }
         Object emailVerified = claims.getClaim("email_verified");
-        if (!Boolean.TRUE.equals(emailVerified) && !"true".equals(emailVerified)) {
+        if (!Boolean.TRUE.equals(emailVerified)) {
             throw new Rejected(AdminAuthRejection.EMAIL_UNVERIFIED);
         }
         String subject = claims.getSubject();
