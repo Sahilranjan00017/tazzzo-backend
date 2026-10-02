@@ -909,6 +909,30 @@ class ModuleBoundaryTest {
                     String.class, java.time.Instant.class, java.time.Instant.class)
                     .allowEmptyShould(true);
 
+    /** Checkout -- no production code CREATES a quote without a money snapshot: the Benefits-only (11-argument)
+     *  {@code CheckoutQuote} constructor exists only for legacy (pre-money-model) fixtures and tests. */
+    @ArchTest
+    static final ArchRule no_production_code_creates_a_checkout_quote_without_a_money_snapshot =
+            noClasses().should().callConstructor(com.tazzzo.customer.checkout.CheckoutQuote.class,
+                    String.class, long.class, String.class, long.class, java.util.List.class, int.class, long.class,
+                    String.class, java.time.Instant.class, java.time.Instant.class,
+                    com.tazzzo.customer.checkout.CheckoutBenefitSnapshot.class)
+                    .allowEmptyShould(true);
+
+    /** Checkout -- the public HTTP surface and the Checkout metrics never touch the persistence money snapshot or its
+     *  codec: the DTO sees only the public-safe {@code CheckoutMoneyPreview} projection. */
+    @ArchTest
+    static final ArchRule checkout_http_layer_and_metrics_do_not_depend_on_the_money_snapshot =
+            noClasses().that(com.tngtech.archunit.core.domain.JavaClass.Predicates
+                            .resideInAPackage("com.tazzzo.customer.checkout..")
+                            .and(com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameEndingWith("Controller")
+                                    .or(com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameEndingWith("ExceptionHandler"))
+                                    .or(com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameEndingWith("Dto"))
+                                    .or(com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameEndingWith("Observability"))))
+                    .should().dependOnClassesThat(com.tngtech.archunit.core.domain.JavaClass.Predicates
+                            .simpleNameStartingWith("CheckoutMoneySnapshot"))
+                    .allowEmptyShould(true);
+
     /**
      * No dependency cycles between top-level Tazzzo modules.
      *
