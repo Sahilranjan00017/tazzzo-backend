@@ -3,12 +3,14 @@ package com.tazzzo.customer.checkout;
 import com.tazzzo.benefits.BenefitEvaluation;
 
 /**
- * The immutable, Checkout-owned record of the ADVISORY Benefits evaluation the Checkout service observed when it
- * created the quote, persisted with the quote and never re-evaluated (an idempotent replay and a GET return it
+ * The immutable, Checkout-owned record of the Benefits evaluation the Checkout service froze when it
+ * created the quote (the basis of the quote's binding money), persisted with the quote and never re-evaluated (an idempotent replay and a GET return it
  * unchanged). INTERNAL only: it is not in {@code CheckoutQuoteDto}, the OpenAPI schema or any HTTP response.
  *
- * <p>Advisory, not authoritative: Order placement re-evaluates Benefits transactionally and its snapshot is the
- * authority; a later Membership or Benefits-configuration change may make the two disagree and the Order wins.
+ * <p>Order placement still re-evaluates Benefits transactionally (its own snapshot, with the membership identity, is
+ * what the Order records), but only to VERIFY the money the customer reviewed: if a later Membership or Benefits
+ * change makes the resulting money differ from this quote's, the Order is refused ({@code PAYABLE_CHANGED}) and a
+ * fresh quote is required; the live result is never substituted silently.
  * Deliberately a separate type from the Order's snapshot (different owner, different purpose; Checkout never
  * depends on Order). Exactly two shapes, conditional presence, no placeholders:
  * <ul>

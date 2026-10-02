@@ -5,19 +5,19 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import java.util.List;
 
 /**
- * PR-13A — the public quote. A validated snapshot at {@code createdAt}: NOT a stock reservation and
- * NOT a binding or final payable amount: the optional {@code moneyPreview} is ADVISORY only (Order placement
- * computes the AUTHORITATIVE money and may differ), and no delivery/platform fee, tax or tip is included. Never
- * exposes a fulfillment/routing identity.
+ * PR-13A — the public quote. A validated snapshot at {@code createdAt}: NOT a stock reservation. Its optional
+ * {@code moneyPreview} is the BINDING customer money of the quote (see below); no delivery/platform fee, tax or tip
+ * exists in it. Never exposes a fulfillment/routing identity.
  *
- * <p>{@code benefitPreview} is the ADVISORY Benefits result stored with this quote (present on every quote created
- * since Benefits preview exists; ABSENT on an older quote, which is NOT the same as {@code applied=false}). It is
- * projected from the stored snapshot only; Order placement re-evaluates Benefits authoritatively and may differ.
- * {@code subtotalPaise} stays the canonical merchandise subtotal.
+ * <p>{@code benefitPreview} is the Benefits decision frozen with this quote and the basis of its money (present on
+ * every quote created since Benefits preview exists; ABSENT on an older quote, which is NOT the same as
+ * {@code applied=false}). It is projected from the stored snapshot only. {@code subtotalPaise} stays the canonical
+ * merchandise subtotal.
  *
- * <p>{@code moneyPreview} is the ADVISORY commerce money stored with this quote ({@code payablePaise =
- * merchandiseSubtotalPaise - benefitDiscountPaise}); ABSENT on a quote created before the money model, which is NOT a
- * zero payable. Not Payment authority and not a price lock: Order placement computes its own authoritative money.
+ * <p>{@code moneyPreview} is the BINDING customer money of this quote ({@code payablePaise =
+ * merchandiseSubtotalPaise - benefitDiscountPaise}): the amount due if this exact quote is successfully ordered. Order
+ * placement reproduces it exactly or is refused with {@code PAYABLE_CHANGED} (a fresh quote is then required); ABSENT on
+ * a quote created before the money model, which is NOT a zero payable and cannot be ordered. {@code 0} is valid.
  */
 public record CheckoutQuoteDto(String quoteId, long cartVersion, String addressId, List<Item> items, int itemCount,
                                int distinctItemCount, long subtotalPaise, String currency, String createdAt,
@@ -53,7 +53,7 @@ public record CheckoutQuoteDto(String quoteId, long cartVersion, String addressI
         }
     }
 
-    /** The three advisory commerce amounts; always all present. No reason, identity, fee, tax or payment field. */
+    /** The three binding commerce amounts; always all present. No reason, identity, fee, tax or payment field. */
     public record MoneyPreview(long merchandiseSubtotalPaise, long benefitDiscountPaise, long payablePaise) {
         public MoneyPreview {
             if (merchandiseSubtotalPaise < 0 || benefitDiscountPaise < 0

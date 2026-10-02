@@ -168,9 +168,60 @@ class OrderMoneySnapshotTest {
     }
 
     @Test
-    void the_public_order_dto_exposes_no_money_snapshot_or_payable_field() {
+    void the_public_order_dto_exposes_the_persisted_money_with_exactly_the_three_v1_amounts() {
         assertThat(Arrays.stream(CustomerOrderDto.class.getRecordComponents()).map(c -> c.getName()).toList())
                 .containsExactly("orderId", "status", "paymentMethod", "paymentCondition", "items", "itemCount",
-                        "subtotalPaise", "currency", "deliveryAddress", "createdAt", "confirmedAt", "requestId");
+                        "subtotalPaise", "currency", "deliveryAddress", "createdAt", "confirmedAt", "money", "requestId");
+        // V1 has NO fee, tax, COD charge, coupon, coin or wallet component -- not even as a zero placeholder
+        assertThat(Arrays.stream(CustomerOrderDto.OrderMoney.class.getRecordComponents()).map(c -> c.getName()).toList())
+                .containsExactly("merchandiseSubtotalPaise", "benefitDiscountPaise", "payablePaise");
+    }
+
+    // ---------- PR-21: the public `money` is the persisted snapshot, projected and never recomputed ----------
+
+    @Test
+    void the_public_money_projects_the_persisted_snapshot_exactly() {
+        CustomerOrderDto.OrderMoney m = CustomerOrderDto.of(order(applied(500), OrderMoneySnapshot.from(SUBTOTAL, 500)), "req").money();
+
+        assertThat(m).isEqualTo(new CustomerOrderDto.OrderMoney(10_000, 500, 9_500));
+    }
+
+    @Test
+    void a_full_discount_projects_a_valid_zero_payable() {
+        CustomerOrderDto.OrderMoney m = CustomerOrderDto.of(order(applied(SUBTOTAL), OrderMoneySnapshot.from(SUBTOTAL, SUBTOTAL)), "req").money();
+
+        assertThat(m).isEqualTo(new CustomerOrderDto.OrderMoney(10_000, 10_000, 0));
+        assertThat(m.payablePaise()).isZero();
+    }
+
+    @Test
+    void a_legacy_order_has_no_money_and_the_json_omits_it_rather_than_inventing_a_zero_payable() throws Exception {
+        CustomerOrderDto dto = CustomerOrderDto.of(order(null, null), "req");
+
+        assertThat(dto.money()).isNull();
+        com.fasterxml.jackson.databind.JsonNode json = new com.fasterxml.jackson.databind.ObjectMapper().valueToTree(dto);
+        assertThat(json.has("money")).isFalse();
+        assertThat(json.get("subtotalPaise").asLong()).isEqualTo(SUBTOTAL);
+    }
+
+    @Test
+    void the_serialized_money_has_exactly_the_three_v1_amounts_and_no_fee_tax_or_placeholder() throws Exception {
+        com.fasterxml.jackson.databind.JsonNode money = new com.fasterxml.jackson.databind.ObjectMapper().valueToTree(
+                CustomerOrderDto.of(order(applied(500), OrderMoneySnapshot.from(SUBTOTAL, 500)), "req")).get("money");
+
+        assertThat(money.fieldNames()).toIterable()
+                .containsExactlyInAnyOrder("merchandiseSubtotalPaise", "benefitDiscountPaise", "payablePaise");
+        assertThat(money.get("merchandiseSubtotalPaise").asLong()).isEqualTo(10_000);
+        assertThat(money.get("payablePaise").isIntegralNumber()).as("integer paise, never a decimal").isTrue();
+    }
+
+    @Test
+    void the_public_money_rejects_every_inconsistent_shape() {
+        assertThatThrownBy(() -> new CustomerOrderDto.OrderMoney(-1, 0, -1)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new CustomerOrderDto.OrderMoney(10_000, -1, 10_001)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new CustomerOrderDto.OrderMoney(10_000, 10_001, -1)).as("over-discount").isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new CustomerOrderDto.OrderMoney(10_000, 500, 9_000)).as("payable must be subtotal - discount")
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new CustomerOrderDto.OrderMoney(10_000, 500, 10_000)).isInstanceOf(IllegalArgumentException.class);
     }
 }

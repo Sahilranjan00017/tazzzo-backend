@@ -368,7 +368,9 @@ class OrderHttpIT extends AbstractApiIT {
         }
         assertThat(keys(r.getBody())).containsExactlyInAnyOrder("orderId", "status", "paymentMethod",
                 "paymentCondition", "items", "itemCount", "subtotalPaise", "currency", "deliveryAddress",
-                "createdAt", "confirmedAt", "requestId");
+                "createdAt", "confirmedAt", "money", "requestId");
+        assertThat(keys(r.getBody().get("money"))).containsExactlyInAnyOrder("merchandiseSubtotalPaise",
+                "benefitDiscountPaise", "payablePaise");
         assertThat(keys(r.getBody().get("items").get(0))).containsExactlyInAnyOrder("skuId", "title", "brandCode",
                 "quantity", "unitPricePaise", "lineTotalPaise");
         assertThat(keys(r.getBody().get("deliveryAddress"))).containsExactlyInAnyOrder("label", "recipientName",
@@ -817,5 +819,94 @@ class OrderHttpIT extends AbstractApiIT {
             }
         }
         assertThat(routes).containsExactlyInAnyOrder("place", "read");
+    }
+
+    // ============================================================
+    // PR-21: the quote's money is binding; the order returns the authoritative money
+    // ============================================================
+
+    private ResponseEntity<JsonNode> getQuote(Shopper s) {
+        return call(HttpMethod.GET, "/v1/customer/checkout/quotes/" + s.quoteId(), s.token(), null, null);
+    }
+
+    @Test void the_order_money_is_the_quotes_binding_money_and_get_and_replay_return_it_identically() {
+        Shopper s = shopper();
+        JsonNode quoteMoney = getQuote(s).getBody().get("moneyPreview");
+        assertThat(quoteMoney.get("payablePaise").asLong()).isEqualTo(10_000);          // 2 x 5000, no benefit
+
+        ResponseEntity<JsonNode> placed = placeCod(s);
+        assertThat(placed.getStatusCode().value()).isEqualTo(200);
+        JsonNode money = placed.getBody().get("money");
+        assertThat(money).as("the order money IS the quote's binding money").isEqualTo(quoteMoney);
+        assertThat(money.get("merchandiseSubtotalPaise").asLong()).isEqualTo(placed.getBody().get("subtotalPaise").asLong());
+        assertThat(placed.getBody().get("paymentCondition").asText()).isEqualTo("COD_DUE");
+
+        String orderId = placed.getBody().get("orderId").asText();
+        assertThat(read(s.token(), orderId).getBody().get("money")).as("GET returns the persisted money").isEqualTo(money);
+        assertThat(placeCod(s).getBody().get("money")).as("a replay returns the same money").isEqualTo(money);
+        Document stored = (Document) orderDoc(orderId).get("money");
+        assertThat(stored.get("payablePaise", Number.class).longValue()).isEqualTo(money.get("payablePaise").asLong());
+    }
+
+    @Test void a_money_mismatch_is_a_safe_409_PAYABLE_CHANGED_and_nothing_is_created_reserved_or_cleared() {
+        Shopper s = shopper();
+        // the customer "reviewed" a 1000 discount (payable 9000) ...
+        db.getCollection("checkout_quotes").updateOne(new Document("_id", s.quoteId()), new Document("$set", new Document()
+                .append("benefits", new Document("outcome", "APPLIED").append("eligibleSubtotalPaise", 10_000L)
+                        .append("discountPaise", 1_000L).append("discountBps", 1_000))
+                .append("money", new Document("merchandiseSubtotalPaise", 10_000L).append("benefitDiscountPaise", 1_000L)
+                        .append("payablePaise", 9_000L))));
+        Document cartBefore = cart(s);
+        long reservationsBefore = db.getCollection("inventory_reservations").countDocuments();
+
+        ResponseEntity<JsonNode> r = placeCod(s);       // ... but this customer has no benefit now: live payable is 10000
+
+        assertSafeError(r, 409, "PAYABLE_CHANGED");
+        assertThat(r.getBody().toString()).as("no amounts or internals in the error").doesNotContain("9000").doesNotContain("1000")
+                .doesNotContain(s.customerId()).doesNotContain(s.quoteId());
+        assertThat(db.getCollection("orders").countDocuments(new Document("customerId", s.customerId()))).isZero();
+        assertThat(onHand(s.sku())).as("stock untouched").isEqualTo(10);
+        assertThat(db.getCollection("inventory_reservations").countDocuments()).as("no reservation written").isEqualTo(reservationsBefore);
+        assertThat(cart(s)).as("cart untouched").isEqualTo(cartBefore);
+    }
+
+    @Test void a_quote_without_binding_money_is_a_409_PAYABLE_CHANGED_and_a_fresh_quote_then_places() {
+        Shopper s = shopper();
+        db.getCollection("checkout_quotes").updateOne(new Document("_id", s.quoteId()),
+                new Document("$unset", new Document("money", "")));                   // a quote the customer was never shown a payable for
+        Document cartBefore = cart(s);
+
+        assertSafeError(placeCod(s), 409, "PAYABLE_CHANGED");
+        assertThat(db.getCollection("orders").countDocuments(new Document("customerId", s.customerId()))).isZero();
+        assertThat(onHand(s.sku())).isEqualTo(10);
+        assertThat(cart(s)).isEqualTo(cartBefore);
+
+        // recovery: a NEW quote (new key) carries binding money and places
+        String freshQuoteId = quote(s.token(), s.addressId(), 1).getBody().get("quoteId").asText();
+        ResponseEntity<JsonNode> ok = place(s.token(), Map.of("quoteId", freshQuoteId, "paymentMethod", "COD"));
+        assertThat(ok.getStatusCode().value()).isEqualTo(200);
+        assertThat(ok.getBody().get("money").get("payablePaise").asLong()).isEqualTo(10_000);
+    }
+
+    @Test void a_fully_legacy_quote_with_neither_benefit_nor_money_is_refused_too() {
+        Shopper s = shopper();
+        db.getCollection("checkout_quotes").updateOne(new Document("_id", s.quoteId()),
+                new Document("$unset", new Document("money", "").append("benefits", "")));
+
+        assertSafeError(placeCod(s), 409, "PAYABLE_CHANGED");
+        assertThat(db.getCollection("orders").countDocuments(new Document("customerId", s.customerId()))).isZero();
+    }
+
+    @Test void a_legacy_order_without_money_omits_the_field_it_is_never_a_zero_payable() {
+        Shopper s = shopper();
+        String orderId = placeCod(s).getBody().get("orderId").asText();
+        // a historical order created before the money model: no persisted money (and no benefit snapshot, which money requires)
+        db.getCollection("orders").updateOne(new Document("_id", orderId),
+                new Document("$unset", new Document("money", "").append("benefits", "")));
+
+        JsonNode body = read(s.token(), orderId).getBody();
+
+        assertThat(body.has("money")).as("absent, never 0").isFalse();
+        assertThat(body.get("subtotalPaise").asLong()).isEqualTo(10_000);
     }
 }

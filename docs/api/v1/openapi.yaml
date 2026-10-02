@@ -75,10 +75,11 @@ tags:
       (`Idempotency-Key`, scoped per customer) and never mutates the cart. A quote is NOT a
       reservation: NO stock is held, prices are NOT locked beyond this snapshot, and a future order
       must revalidate stock and quote validity. `subtotalPaise` is the sum of line totals at the
-      quoted current prices. The optional `moneyPreview` is an ADVISORY payable preview stored with the
-      quote: it is not Payment authority, not a price lock and not binding on Order placement, which
-      revalidates and computes its own authoritative money (it may differ). Internal routing/fulfillment
-      identifiers are never exposed. Order placement is a separate surface; no payment endpoint exists yet.
+      quoted current prices; it is the merchandise subtotal, not the amount due. The quote's `moneyPreview` is
+      the BINDING money of that quote (the amount due if this exact quote is ordered): placing an order from it
+      either reproduces that money exactly or is refused with PAYABLE_CHANGED, and the customer must review a
+      new quote. Internal routing/fulfillment identifiers are never exposed. Order placement is a separate
+      surface; no payment endpoint exists yet.
   - name: customer-orders
     description: >
       PR-15A-2 — Cash-on-Delivery order placement for the authenticated customer. One operation places an
@@ -89,7 +90,10 @@ tags:
       means the order is confirmed and payment is OWED ON DELIVERY — nothing has been collected.
       Placement is idempotent by `quoteId` (no `Idempotency-Key`): replaying the same quote returns the
       same order. The order is the immutable snapshot taken at placement — title, brand, price and
-      address never change with later catalog, pricing or address edits. Internal identifiers (customer,
+      address never change with later catalog, pricing or address edits. The order carries its authoritative
+      `money` (merchandise subtotal, benefit discount, payable), which always equals the binding `moneyPreview`
+      of the quote it was placed from; a placement whose current money would differ in EITHER direction, or
+      whose quote carries no binding money, is refused (PAYABLE_CHANGED) before anything is reserved. Internal identifiers (customer,
       quote, reservation, address, fulfillment/routing, coordinates) are never exposed. Responses are
       no-store.
 paths:
@@ -689,7 +693,8 @@ paths:
         create a short-lived quote. Requires If-Match (the cart ETag reviewed) and Idempotency-Key.
         Replaying the same key with the same input returns the ORIGINAL quote (same id, expiry not
         extended, not re-priced); the same key with a different address or cart version is 409
-        IDEMPOTENCY_CONFLICT. A new quote after expiry needs a new key. Does not reserve stock.
+        IDEMPOTENCY_CONFLICT. Replaying the same key AFTER the quote expired is 410 QUOTE_EXPIRED (never 200):
+        a new quote after expiry needs a new key. Does not reserve stock.
       security:
         - customerBearerAuth: []
       parameters:
@@ -720,6 +725,7 @@ paths:
         '401': { $ref: '#/components/responses/CheckoutUnauthenticated' }
         '404': { $ref: '#/components/responses/CheckoutNotFound' }
         '409': { $ref: '#/components/responses/CheckoutConflict' }
+        '410': { $ref: '#/components/responses/CheckoutQuoteExpired' }
         '412': { $ref: '#/components/responses/CheckoutPreconditionFailed' }
         '415': { $ref: '#/components/responses/CheckoutUnsupportedMediaType' }
         '428': { $ref: '#/components/responses/CheckoutPreconditionRequired' }
@@ -759,8 +765,10 @@ paths:
         Place a Cash-on-Delivery order from one of the caller's OWN checkout quotes. On success the order is
         `CONFIRMED` with `paymentCondition` `COD_DUE`. Idempotent by `quoteId`: the first placement and any
         replay of the same quote both return 200 with the same order (and never reserve, consume or clear
-        the cart again). Only `quoteId` and `paymentMethod` are read from the body; any other field is
-        ignored. Fails as a whole — a failed placement leaves stock, cart and orders untouched.
+        the cart again), and a replay is never re-judged: it returns the stored order and its stored money even if
+        the benefit state has changed since. Only `quoteId` and `paymentMethod` are read from the body; any other
+        field is ignored. The placement commits exactly the money of the quote (`moneyPreview`) or is refused with
+        409 PAYABLE_CHANGED. Fails as a whole — a failed placement leaves stock, cart and orders untouched.
       security:
         - customerBearerAuth: []
       requestBody:
@@ -1357,9 +1365,9 @@ components:
     CustomerCheckoutQuote:
       type: object
       description: >
-        A validated snapshot at `createdAt`, valid until `expiresAt`. NOT a stock reservation, NOT a
-        permanent price lock, NOT a guaranteed final amount. `subtotalPaise` is the canonical merchandise subtotal.
-        `moneyPreview`, when present, is the advisory commerce money stored with the quote.
+        A validated snapshot at `createdAt`, valid until `expiresAt`. NOT a stock reservation and NOT a
+        permanent price lock. `subtotalPaise` is the canonical merchandise subtotal. `moneyPreview`, when present, is
+        the BINDING customer money of this quote: the amount due if this exact quote is successfully ordered.
       required: [quoteId, cartVersion, addressId, items, itemCount, distinctItemCount, subtotalPaise, currency,
                  createdAt, expiresAt, requestId]
       properties:
@@ -1384,14 +1392,14 @@ components:
         expiresAt: { type: string, format: date-time }
         benefitPreview:
           description: >
-            ADVISORY Benefits result stored with this quote. It is NOT final payable authority, NOT a price lock and NOT
-            an Order commitment: Order placement re-evaluates Benefits authoritatively, and the Order result can differ
-            if Membership state or Benefits configuration changes before placement. `subtotalPaise` remains the
-            canonical merchandise subtotal the preview was evaluated against; this object does not make the quote a
-            price lock or a final payable amount. The field is ABSENT on a quote created before Benefits preview
-            existed, which is NOT the same as `applied: false` (`applied: false` means Benefits was evaluated and no
-            benefit applied; no reason is given). Replaying a quote or reading it returns the stored preview unchanged.
-            The examples are illustrative only.
+            The Benefits decision frozen with this quote, and the basis of `moneyPreview`. Order placement
+            re-evaluates Benefits authoritatively ONLY to VERIFY the money the customer reviewed: if the resulting
+            money differs from `moneyPreview` in either direction, the order is refused with PAYABLE_CHANGED and a
+            new quote is required; the live result is never substituted silently. `subtotalPaise` remains the
+            canonical merchandise subtotal this was evaluated against. The field is ABSENT on a quote created before
+            Benefits preview existed, which is NOT the same as `applied: false` (`applied: false` means Benefits was
+            evaluated and no benefit applied; no reason is given). Replaying a quote or reading it returns the
+            stored value unchanged. The examples are illustrative only.
           oneOf:
             - type: object
               additionalProperties: false
@@ -1410,17 +1418,17 @@ components:
           additionalProperties: false
           required: [merchandiseSubtotalPaise, benefitDiscountPaise, payablePaise]
           description: >
-            ADVISORY commerce money stored with this quote: `payablePaise = merchandiseSubtotalPaise -
-            benefitDiscountPaise`. `merchandiseSubtotalPaise` equals the quote's `subtotalPaise`;
-            `benefitDiscountPaise` equals `benefitPreview.discountPaise` when `benefitPreview.applied` is true and is 0
-            otherwise; `0 <= benefitDiscountPaise <= merchandiseSubtotalPaise`, so `payablePaise` is never negative
-            and 0 is valid (a full discount). It reflects this stored quote only. It is NOT Payment authority, NOT a
-            price lock and NOT a guarantee for Order placement: Order placement revalidates and computes its own
-            authoritative money independently, and the Order's payable may differ if Membership, Benefits
-            configuration, Pricing or other authoritative inputs change before placement. No tax, fee, coupon, Coins
-            or wallet component is included. The field is ABSENT on a quote created before this money preview
-            existed, which is NOT a zero payable. Replaying a quote or reading it returns the stored values
-            unchanged. The examples are illustrative only.
+            The BINDING customer money of this quote: `payablePaise = merchandiseSubtotalPaise - benefitDiscountPaise`,
+            and `payablePaise` is the amount due if this exact quote is successfully ordered. `merchandiseSubtotalPaise`
+            equals the quote's `subtotalPaise`; `0 <= benefitDiscountPaise <= merchandiseSubtotalPaise`, so
+            `payablePaise` is never negative and `0` is valid (a full discount: nothing is due). Order placement either
+            reproduces this money EXACTLY or is refused with 409 PAYABLE_CHANGED (also when a larger discount would now
+            apply, and also when the quote has no `moneyPreview`); the customer must then review a NEW quote, created
+            with a NEW Idempotency-Key. Not a stock reservation. No delivery, platform, handling, packaging, small-cart
+            or surge fee, no tax line (prices are treated as tax-inclusive), no COD charge, coupon, Coins or wallet
+            component exists in this model, so none appears here, not even as a zero. The field is ABSENT on a quote
+            created before this money model existed, which is NOT a zero payable and cannot be ordered. Replaying a
+            quote or reading it returns the stored values unchanged. The examples are illustrative only.
           properties:
             merchandiseSubtotalPaise: { type: integer, format: int64, minimum: 0, example: 10000 }
             benefitDiscountPaise: { type: integer, format: int64, minimum: 0, example: 500 }
@@ -1493,7 +1501,9 @@ components:
       type: object
       description: >
         A placed order. `status` is always `CONFIRMED`. `paymentCondition` `COD_DUE` means the order is
-        confirmed and payment is owed on delivery; nothing has been collected.
+        confirmed and payment is owed on delivery; nothing has been collected. `money.payablePaise` is the amount
+        due on delivery (it is never a statement that anything was paid); it is `0` for a fully discounted order,
+        in which case nothing is due.
       required: [orderId, status, paymentMethod, paymentCondition, items, itemCount, subtotalPaise, currency,
                  deliveryAddress, createdAt, confirmedAt, requestId]
       properties:
@@ -1510,7 +1520,23 @@ components:
         deliveryAddress: { $ref: '#/components/schemas/CustomerOrderAddress' }
         createdAt: { type: string, format: date-time }
         confirmedAt: { type: string, format: date-time }
+        money: { $ref: '#/components/schemas/CustomerOrderMoney' }
         requestId: { type: string }
+    CustomerOrderMoney:
+      type: object
+      additionalProperties: false
+      required: [merchandiseSubtotalPaise, benefitDiscountPaise, payablePaise]
+      description: >
+        The AUTHORITATIVE money of this order, projected from what was persisted at placement (never recomputed when
+        read): `payablePaise = merchandiseSubtotalPaise - benefitDiscountPaise`. It always equals the binding
+        `moneyPreview` of the quote the order was placed from, and `merchandiseSubtotalPaise` equals `subtotalPaise`.
+        `0 <= benefitDiscountPaise <= merchandiseSubtotalPaise`; `payablePaise` is never negative and `0` is valid.
+        The field is ABSENT on an order created before the money model existed; absence is NEVER a zero payable.
+        Replaying the placement or reading the order returns the same values.
+      properties:
+        merchandiseSubtotalPaise: { type: integer, format: int64, minimum: 0, example: 10000 }
+        benefitDiscountPaise: { type: integer, format: int64, minimum: 0, example: 500 }
+        payablePaise: { type: integer, format: int64, minimum: 0, example: 9500 }
     CustomerOrderErrorEnvelope:
       type: object
       description: Safe, generic. Never carries routing, inventory internals, Mongo text or PII.
@@ -1520,8 +1546,8 @@ components:
           type: string
           enum: [INVALID_REQUEST, PAYMENT_METHOD_UNSUPPORTED, UNSUPPORTED_MEDIA_TYPE, UNAUTHENTICATED, NOT_FOUND,
                  QUOTE_EXPIRED, ADDRESS_CHANGED, NOT_SERVICEABLE, PRICE_CHANGED, PRODUCT_UNAVAILABLE,
-                 STOCK_UNAVAILABLE, RESERVATION_EXPIRED, CART_VERSION_ALREADY_PURCHASED, SERVICE_UNAVAILABLE,
-                 INTERNAL]
+                 STOCK_UNAVAILABLE, RESERVATION_EXPIRED, CART_VERSION_ALREADY_PURCHASED, PAYABLE_CHANGED,
+                 SERVICE_UNAVAILABLE, INTERNAL]
         message: { type: string }
         requestId: { type: string }
   responses:
@@ -1860,7 +1886,12 @@ components:
           schema: { $ref: '#/components/schemas/CustomerOrderErrorEnvelope' }
     OrderConflict:
       description: >
-        The order could not be placed: ADDRESS_CHANGED, NOT_SERVICEABLE, PRICE_CHANGED, PRODUCT_UNAVAILABLE, STOCK_UNAVAILABLE, RESERVATION_EXPIRED, or CART_VERSION_ALREADY_PURCHASED (a different quote from this cart was already ordered). Nothing was created, reserved or cleared.
+        The order could not be placed: ADDRESS_CHANGED, NOT_SERVICEABLE, PRICE_CHANGED, PRODUCT_UNAVAILABLE, STOCK_UNAVAILABLE, RESERVATION_EXPIRED, PAYABLE_CHANGED, or CART_VERSION_ALREADY_PURCHASED (a different quote from this cart was already ordered). Nothing was created, reserved or cleared.
+        PAYABLE_CHANGED: the current authoritative money no longer equals the quote's binding `moneyPreview` (a
+        benefit was gained or lost, in either direction), or the quote carries no binding money. NO order was created,
+        NO stock was consumed and NO cart was finalized. Do NOT retry the same quote expecting success: obtain the
+        current cart state, create a NEW quote with a NEW Idempotency-Key, show the customer its new `moneyPreview`,
+        and let them confirm again. A line price that changed is PRICE_CHANGED (checked first), not PAYABLE_CHANGED.
       headers:
         Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
       content:

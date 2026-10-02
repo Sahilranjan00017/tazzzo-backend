@@ -236,10 +236,11 @@ class OrderBenefitSnapshotTest {
     }
 
     @Test
-    void the_public_order_dto_is_unchanged_and_exposes_no_benefits_or_payable_field() {
+    void the_public_order_dto_exposes_only_the_authoritative_money_and_no_benefit_identity_field() {
+        // the authoritative money is the ONLY addition (optional `money`); the benefit snapshot (reason, membership, plan) stays internal
         assertThat(java.util.Arrays.stream(CustomerOrderDto.class.getRecordComponents()).map(c -> c.getName()).toList())
                 .containsExactly("orderId", "status", "paymentMethod", "paymentCondition", "items", "itemCount",
-                        "subtotalPaise", "currency", "deliveryAddress", "createdAt", "confirmedAt", "requestId");
+                        "subtotalPaise", "currency", "deliveryAddress", "createdAt", "confirmedAt", "money", "requestId");
     }
 
     @Test
