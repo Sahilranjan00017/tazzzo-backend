@@ -139,7 +139,7 @@ class OrderPlaceCodIT extends AbstractMongoIT {
         WritePath writePath = new WritePath(db);
         return new OrderService(orderRepo, new CheckoutQuoteRepository(db), new AddressRepository(db),
                 new ServiceabilityService(tx, db, new DomainAudit(db, clock), clock),
-                new PricingService(tx, writePath, clock), new com.tazzzo.commerce.read.CatalogCardReader(db), port,
+                new PricingService(tx, writePath, clock), new com.tazzzo.commerce.read.CatalogCardReader(db), TestBenefits.NO_MEMBERSHIP, port,
                 cart, clock, ALWAYS_EXISTS, tx, new OrderObservability(registry));
     }
 
@@ -916,7 +916,7 @@ class OrderPlaceCodIT extends AbstractMongoIT {
         OrderService svc = new OrderService(new OrderRepository(brokenDb), new CheckoutQuoteRepository(brokenDb),
                 new AddressRepository(brokenDb), new ServiceabilityService(brokenTx, brokenDb,
                         new DomainAudit(brokenDb, clock), clock),
-                new PricingService(brokenTx, writePath, clock), new com.tazzzo.commerce.read.CatalogCardReader(brokenDb),
+                new PricingService(brokenTx, writePath, clock), new com.tazzzo.commerce.read.CatalogCardReader(brokenDb), TestBenefits.NO_MEMBERSHIP,
                 new InventoryReservationService(new InventoryService(brokenTx, writePath, clock),
                         new InventoryReservationRepository(brokenDb), new InventoryReservationProperties(),
                         new InventoryReservationObservability(new SimpleMeterRegistry()), clock, brokenTx),

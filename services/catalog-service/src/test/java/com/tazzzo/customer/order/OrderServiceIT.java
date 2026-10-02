@@ -93,7 +93,7 @@ class OrderServiceIT extends AbstractMongoIT {
                 new InventoryReservationObservability(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()),
                 clock, tx);
         return new OrderService(new OrderRepository(db), new CheckoutQuoteRepository(db), new AddressRepository(db),
-                serviceability, pricing, catalog, reservations,
+                serviceability, pricing, catalog, TestBenefits.NO_MEMBERSHIP, reservations,
                 new com.tazzzo.customer.cart.CartPurchaseService(new com.tazzzo.customer.cart.CartRepository(db), clock),
                 clock, ALWAYS_EXISTS, tx,
                 new OrderObservability(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
@@ -550,7 +550,7 @@ class OrderServiceIT extends AbstractMongoIT {
                 new InventoryReservationObservability(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()),
                 movable, retryTx);
         OrderService svc = new OrderService(new OrderRepository(db), new CheckoutQuoteRepository(db),
-                new AddressRepository(db), serviceability, pricing, catalog, reservations,
+                new AddressRepository(db), serviceability, pricing, catalog, TestBenefits.NO_MEMBERSHIP, reservations,
                 new com.tazzzo.customer.cart.CartPurchaseService(new com.tazzzo.customer.cart.CartRepository(db), movable),
                 movable, ALWAYS_EXISTS,
                 retryTx, new OrderObservability(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
@@ -665,7 +665,7 @@ class OrderServiceIT extends AbstractMongoIT {
         OrderService svc = new OrderService(new OrderRepository(brokenDb), new CheckoutQuoteRepository(brokenDb),
                 new AddressRepository(brokenDb), new ServiceabilityService(brokenTx, brokenDb,
                         new DomainAudit(brokenDb, clock), clock),
-                new PricingService(brokenTx, writePath, clock), new com.tazzzo.commerce.read.CatalogCardReader(brokenDb),
+                new PricingService(brokenTx, writePath, clock), new com.tazzzo.commerce.read.CatalogCardReader(brokenDb), TestBenefits.NO_MEMBERSHIP,
                 new InventoryReservationService(new InventoryService(brokenTx, writePath, clock),
                         new InventoryReservationRepository(brokenDb), new InventoryReservationProperties(),
                         new InventoryReservationObservability(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()),

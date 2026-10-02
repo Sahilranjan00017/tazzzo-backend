@@ -83,6 +83,9 @@ public class OrderRepository {
                 .append("itemCount", o.itemCount()).append("subtotalPaise", o.subtotalPaise())
                 .append("currency", o.currency()).append("reservationId", o.reservationId())
                 .append("createdAt", Date.from(o.createdAt())).append("updatedAt", Date.from(o.updatedAt()));
+        if (o.benefitSnapshot() != null) { // absent ONLY on a legacy Order; never written as null/placeholder
+            d.append(OrderBenefitSnapshotCodec.FIELD, OrderBenefitSnapshotCodec.toDocument(o.benefitSnapshot()));
+        }
         if (o.confirmedAt() != null) { // present ONLY on a CONFIRMED order (Order's constructor enforces it)
             d.append("confirmedPaymentCondition", o.confirmedPaymentCondition().name())
                     .append("confirmedAt", Date.from(o.confirmedAt()));
@@ -111,6 +114,9 @@ public class OrderRepository {
         OrderStatus status = OrderStatus.valueOf(requireString(d, "status"));
         Object rawCondition = d.get("confirmedPaymentCondition");
         Object rawConfirmedAt = d.get("confirmedAt");
+        // PRESENT => strictly reconstructed (an explicit null is corruption); ABSENT => a legacy Order, never "no benefit"
+        OrderBenefitSnapshot benefitSnapshot = d.containsKey(OrderBenefitSnapshotCodec.FIELD)
+                ? OrderBenefitSnapshotCodec.fromDocument(d.get(OrderBenefitSnapshotCodec.FIELD)) : null;
         return new Order(new OrderId(d.getString("_id")), d.getString("customerId"), d.getString("quoteId"),
                 status, PaymentMethod.valueOf(requireString(d, "paymentMethod")), requireLong(d, "version"),
                 d.getString("addressId"), d.get("addressVersion", Number.class).longValue(), addressSnapshot,
@@ -120,7 +126,7 @@ public class OrderRepository {
                 rawCondition == null ? null : ConfirmedPaymentCondition.valueOf(requireString(d, "confirmedPaymentCondition")),
                 d.getDate("createdAt").toInstant(),
                 rawConfirmedAt == null ? null : d.getDate("confirmedAt").toInstant(),
-                d.getDate("updatedAt").toInstant());
+                d.getDate("updatedAt").toInstant(), benefitSnapshot);
     }
 
     /** PR-15A-2 — coordinates are nullable as a PAIR (enforced by {@link OrderAddressSnapshot}); a present

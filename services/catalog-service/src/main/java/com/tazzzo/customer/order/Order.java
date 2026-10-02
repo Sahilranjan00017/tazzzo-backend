@@ -33,16 +33,18 @@ import java.util.Set;
  *       {@code confirmedAt >= createdAt}, {@code updatedAt >= confirmedAt}.</li>
  * </ul>
  *
- * <p>Deliberately excludes {@code discountPaise}/{@code taxPaise}/{@code feePaise}: Membership/
- * Benefits/Promotion do not exist yet, and a placeholder-zero field would misrepresent "designed for"
- * when it has only been left a gap for. See {@code OrderService}'s class-level documentation.
+ * <p>Deliberately has no top-level {@code discountPaise}/{@code taxPaise}/{@code feePaise}/payable total: the
+ * canonical merchandise money ({@code unitPricePaise}, {@code lineTotalPaise}, {@code subtotalPaise}) is Pricing's and
+ * is never rewritten. The authoritative Benefits evaluation lives beside it as the separate immutable
+ * {@link OrderBenefitSnapshot} (null ONLY on a legacy Order; every Order created by the Benefits-aware placement carries
+ * one, including the normal no-benefit outcomes). See {@code OrderService}'s class-level documentation.
  */
 public record Order(OrderId orderId, String customerId, String quoteId, OrderStatus status,
                     PaymentMethod paymentMethod, long version, String addressId, long addressVersion,
                     OrderAddressSnapshot addressSnapshot, List<OrderLine> lines, int itemCount,
                     long subtotalPaise, String currency, String reservationId,
                     ConfirmedPaymentCondition confirmedPaymentCondition, Instant createdAt, Instant confirmedAt,
-                    Instant updatedAt) {
+                    Instant updatedAt, OrderBenefitSnapshot benefitSnapshot) {
 
     public Order {
         if (orderId == null) {
@@ -101,6 +103,11 @@ public record Order(OrderId orderId, String customerId, String quoteId, OrderSta
         }
         if (!InventoryReservationId.isValid(reservationId)) {
             throw new IllegalArgumentException("invalid reservationId shape");
+        }
+        // benefitSnapshot: null ONLY for a legacy Order created before the Benefits-aware placement (never "no
+        // benefit"). When present it must be about THIS Order's canonical merchandise subtotal.
+        if (benefitSnapshot != null && benefitSnapshot.eligibleSubtotalPaise() != subtotalPaise) {
+            throw new IllegalArgumentException("benefit snapshot eligibleSubtotalPaise does not equal the order subtotal");
         }
         if (createdAt == null || updatedAt == null) {
             throw new IllegalArgumentException("createdAt/updatedAt required");
