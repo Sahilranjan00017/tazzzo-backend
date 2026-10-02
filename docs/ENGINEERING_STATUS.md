@@ -1389,6 +1389,13 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-10-03** — `./mvnw clean test` on Java 21 + Docker on `feature/pr26-admin-me` (based on `main`
+  `d018cac373c0461fb0d4c7eaa56a425a883f7b3f`): **BUILD SUCCESS**, 2382 tests, 0 failures / 0 errors / 0 skipped (2366 + 12
+  `AdminMeIT` + 4 `AdminProfilesTest`); `ModuleBoundaryTest` 73/73. Mutations, each killed: `credentialId` exposed, raw subject
+  exposed, token email used instead of the configured label, an email fabricated for service accounts, reader access removed,
+  `/me` unauthenticated, email-based actor id, token roles instead of principal roles.
+- **2026-10-03** — merged-`main` verification of PR #45 (squash `d018cac373c0461fb0d4c7eaa56a425a883f7b3f`, push CI run
+  `37076192370` on Java 21): **BUILD SUCCESS**, 2366 tests, 0 failures / 0 errors / 0 skipped; `ModuleBoundaryTest` 73/73.
 - **2026-10-03** — PR #45 review hardening (LOW-1 strict single audience + `azp`, NOTE-1 boolean-only `email_verified`):
   `./mvnw clean test` on Java 21 + Docker: **BUILD SUCCESS**, 2366 tests, 0 failures / 0 errors / 0 skipped (2357 + 9 net in
   `GoogleOidcAuthenticatorTest`); `ModuleBoundaryTest` 73/73. Mutations, each killed: audience count back to membership,

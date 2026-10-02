@@ -1971,6 +1971,24 @@
           }
         }
       }
+    },
+    "/api/v1/admin/me" : {
+      "get" : {
+        "tags" : [ "admin-me-controller" ],
+        "operationId" : "me",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AdminMeResponse"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components" : {
@@ -3476,6 +3494,26 @@
           },
           "status" : {
             "type" : "string"
+          }
+        }
+      },
+      "AdminMeResponse" : {
+        "type" : "object",
+        "properties" : {
+          "actorType" : {
+            "type" : "string"
+          },
+          "actorId" : {
+            "type" : "string"
+          },
+          "email" : {
+            "type" : "string"
+          },
+          "roles" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
           }
         }
       }
