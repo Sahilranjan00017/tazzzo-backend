@@ -65,10 +65,22 @@ class CheckoutQuoteContractTest {
         Map<String, Object> applied = shapes.get(1);
         assertThat(notApplied.get("additionalProperties")).isEqualTo(false);
         assertThat(applied.get("additionalProperties")).isEqualTo(false);
-        assertThat((List<String>) notApplied.get("required")).containsExactly("applied");
+        assertThat((List<String>) notApplied.get("required")).containsExactly("applied")
+                .doesNotContain("discountPaise", "discountBps");
         assertThat(properties(notApplied).keySet()).containsExactly("applied");
         assertThat((List<String>) applied.get("required")).containsExactly("applied", "discountPaise", "discountBps");
         assertThat(properties(applied).keySet()).containsExactly("applied", "discountPaise", "discountBps");
+
+        // the DISCRIMINATOR: exactly what makes the two branches mutually exclusive and `{applied:false}` /
+        // `{applied:true,...}` each validate exactly one of them
+        Map<String, Object> notAppliedDiscriminator = (Map<String, Object>) properties(notApplied).get("applied");
+        assertThat(notAppliedDiscriminator.get("type")).as("not-applied: applied is a boolean").isEqualTo("boolean");
+        assertThat((List<Object>) notAppliedDiscriminator.get("enum")).as("not-applied: applied is exactly false")
+                .containsExactly(false);
+        Map<String, Object> appliedDiscriminator = (Map<String, Object>) properties(applied).get("applied");
+        assertThat(appliedDiscriminator.get("type")).as("applied: applied is a boolean").isEqualTo("boolean");
+        assertThat((List<Object>) appliedDiscriminator.get("enum")).as("applied: applied is exactly true")
+                .containsExactly(true);
 
         Map<String, Object> discountPaise = (Map<String, Object>) properties(applied).get("discountPaise");
         assertThat(discountPaise.get("type")).isEqualTo("integer");

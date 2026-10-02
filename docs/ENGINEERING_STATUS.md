@@ -950,9 +950,14 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   - **Today's customer-visible effect:** with 0 production Benefits rules every modern quote shows `benefitPreview:
     {applied:false}` (non-member and member alike); this slice exposes the plumbing and creates no customer-visible
     discount until launch rules are configured.
-  - **Contract tests:** the DTO/OpenAPI parity is now pinned by `CheckoutQuoteContractTest` (property sets, additive
-    optional preview, closed conditional shapes, int64/min/max bounds, nothing internal documented) in addition to the CI
-    swagger structural validation, plus exact-JSON tests of both shapes and the legacy omission.
+  - **Contract tests:** the DTO/OpenAPI parity is pinned by `CheckoutQuoteContractTest`, which parses the authoritative YAML
+    structurally and asserts: the DTO and schema property sets match; `benefitPreview` is optional (not in `required`); it
+    is a closed two-shape `oneOf` (`additionalProperties: false` on both); the `applied` DISCRIMINATOR is `type: boolean`
+    with `enum: [false]` in the not-applied shape and `enum: [true]` in the applied shape; the not-applied shape requires only
+    `applied`; the applied shape requires `applied`, `discountPaise`, `discountBps`; `discountPaise` is `integer`/`int64`/
+    `minimum: 1`; `discountBps` is `integer`/`minimum: 1`/`maximum: 10000`; and no internal reason or authority identifier is
+    documented. This is in addition to the CI `swagger-cli` structural validation and the exact-JSON tests of both shapes
+    and the legacy omission. (It does not run a JSON Schema validator over runtime responses.)
   - **Architecture:** one new rule freezes the projection as purely structural (62 -> 63); the existing rule that the
     Checkout HTTP layer/DTO/metrics do not depend on Benefits or the snapshot is unchanged and still holds. No metric
     added; no persistence change; no new runtime dependency.
@@ -1071,6 +1076,10 @@ is FUTURE work and not required for the production modular monolith.
   exposed publicly, NO_MEMBERSHIP and NOT_ELIGIBLE projecting differently, the discount recomputed from the rate, a legacy
   quote synthesizing `applied:false`, the DTO depending on the Benefits port, and `subtotalPaise` replaced by
   subtotal-minus-discount) were each killed by the tests/rules above.
+  The contract-test hardening additionally kills four YAML mutations of the authoritative contract: the not-applied
+  discriminator enum flipped to `[true]` and `type: boolean` removed from the applied discriminator (both survived the
+  earlier test), plus `type: boolean` removed from the not-applied discriminator and the applied enum flipped to
+  `[false]`.
 - **2026-10-02** — `./mvnw clean test` on Java 21 + Docker on `feature/pr19a1-checkout-benefits-snapshot`
   (based on `main` `4486044`, after the independent-review hardening): **BUILD SUCCESS**, 2157 tests, 0 failures /
   0 errors / 0 skipped (2126 baseline + 11 `CheckoutBenefitSnapshotTest` + 17 new `CheckoutQuoteIT` tests + 3 net
