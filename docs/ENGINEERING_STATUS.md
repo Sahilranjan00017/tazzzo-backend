@@ -1363,6 +1363,11 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-10-03** — PR #45 review hardening (LOW-1 strict single audience + `azp`, NOTE-1 boolean-only `email_verified`):
+  `./mvnw clean test` on Java 21 + Docker: **BUILD SUCCESS**, 2366 tests, 0 failures / 0 errors / 0 skipped (2357 + 9 net in
+  `GoogleOidcAuthenticatorTest`); `ModuleBoundaryTest` 73/73. Mutations, each killed: audience count back to membership,
+  `azp` equality skipped, configured + foreign audience allowed when `azp` is the admin client, string `"true"` accepted for
+  `email_verified`.
 - **2026-10-03** — `./mvnw clean test` on Java 21 + Docker on `feature/pr25-human-admin-oidc` (based on `main`
   `2e8d87bd59bbb1d81c355b43b083694e6b928cc0`): **BUILD SUCCESS**, 2357 tests, 0 failures / 0 errors / 0 skipped (2283 baseline +
   32 `GoogleOidcAuthenticatorTest` + 18 `AdminAuthConfigStartupTest` + 4 `ServiceTokenAuthenticatorTest` + 6 human cases in
