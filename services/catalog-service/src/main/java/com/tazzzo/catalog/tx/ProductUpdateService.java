@@ -8,6 +8,7 @@ import com.tazzzo.catalog.repo.WritePath;
 import org.bson.Document;
 import org.springframework.stereotype.Service;
 
+import java.util.Objects;
 import java.util.Date;
 import java.util.Map;
 import java.util.Set;
@@ -31,6 +32,8 @@ public class ProductUpdateService {
     }
 
     public void updateTitle(Actor actor, String productId, int expectedVersion, String title) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
         if (title == null || title.isBlank()) {
             throw new IllegalArgumentException("title must not be blank");
         }

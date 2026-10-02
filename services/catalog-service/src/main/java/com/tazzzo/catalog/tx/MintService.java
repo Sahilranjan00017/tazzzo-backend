@@ -11,6 +11,7 @@ import com.tazzzo.catalog.schema.AttributeGovernanceService;
 import com.tazzzo.catalog.schema.CanonicalKey;
 import com.tazzzo.catalog.schema.CanonicalKeyService;
 
+import java.util.Objects;
 import java.util.Optional;
 import org.bson.Document;
 import org.springframework.stereotype.Service;
@@ -40,6 +41,8 @@ public class MintService {
     }
 
     public String mint(Actor actor, ProductDraft d) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
         // Service-tier enforcement (the I-6 bypass closes HERE, not in the validator):
         List<org.bson.Document> governanceItems = governance.validate(
                 d.verticalId(), d.attributes() == null ? Map.of() : d.attributes(), d.evidenceRefs());

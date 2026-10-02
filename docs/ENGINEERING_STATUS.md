@@ -1156,6 +1156,13 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
     deprecate/revive node; attributes: create definition, add enum value, add schema field; evidence: create, retract) takes an
     `Actor` as its first parameter, built ONLY from the authenticated principal plus the server request id (`AdminActors`); the
     request body and headers cannot choose it. No ThreadLocal or static holder.
+  - **Fail-closed admin boundary (review hardening, MEDIUM-1):** every public admin service method that takes an `Actor` (the 25
+    controller-invoked entry points plus `BundleService.activate`, the batch `activateRelease` overload and `recordBaseline`: 28)
+    rejects a `null` actor with `Objects.requireNonNull(actor, "actor")` as its FIRST statement, before any transaction, event or
+    write. The generic event infrastructure (`EventPayload`, `DomainEvent`, `ActorDocuments`) deliberately keeps the actor optional
+    for legacy and non-admin events. `AdminActorFailClosedIT` invokes all 28 entry points with a null actor and proves nothing is
+    written anywhere, proves valid product/taxonomy/attribute/evidence calls fail closed with `null` and succeed with an actor, and
+    proves an HTTP title PATCH is attributed to `service:cms-writer` with its request id.
   - **Transactional actor attribution on the existing ledgers:** `EventPayload`, `product_events`, `node_events`, `price_events`
     (when the caller supplies an actor through the new `PricingService.upsertPrice(cmd, actor)`) and `DomainAudit`/`domain_events`
     carry an optional `actor: {type, id, credential_id?, request_id?}` written in the SAME transaction as the mutation (event-first
@@ -1290,13 +1297,16 @@ is FUTURE work and not required for the production modular monolith.
 ## Last verification
 
 - **2026-10-03** — `./mvnw clean test` on Java 21 + Docker on `feature/pr24-admin-actor-audit-foundation` (based on `main`
-  `0dd83b51d9fd74f17960c769648a227ed0ee89d0`): **BUILD SUCCESS**, 2277 tests, 0 failures / 0 errors / 0 skipped (2250 baseline +
-  5 `ActorTest` + 4 `AdminPrincipalTest` + 6 `ApiAuthFilterPrincipalTest` + 9 `AdminActorAuditIT` + 3 ArchUnit rules; 243 existing
+  `0dd83b51d9fd74f17960c769648a227ed0ee89d0`): **BUILD SUCCESS**, 2283 tests, 0 failures / 0 errors / 0 skipped (2250 baseline +
+  5 `ActorTest` + 4 `AdminPrincipalTest` + 6 `ApiAuthFilterPrincipalTest` + 9 `AdminActorAuditIT` + 3 ArchUnit rules, then +6
+  `AdminActorFailClosedIT` in the fail-closed hardening; 243 existing
   test call sites now pass `TestActors.TEST`, a `system:test` actor); `ModuleBoundaryTest` 70/70. Twelve mutation checks were each
   killed: principal not attached, cms token mapped to HUMAN_ADMIN, actor request id differing from `X-Request-Id`, product event
   without actor, node event without actor, a service dropping the actor while still writing state, legacy actor-less events
   rejected, a malformed actor silently accepted, reader writes allowed, no metric on an invalid token, the raw token copied into
-  the credential id, and `common.audit` depending on `admin.auth`.
+  the credential id, and `common.audit` depending on `admin.auth`. The hardening adds five more, each killed: the null guard
+  removed from `ProductUpdateService.updateTitle`, `TaxonomyChangeService.renameNode`, `AttributeAuthoringService.createDefinition`
+  and `EvidenceService.create`, and the PATCH controller passing a `null` actor.
 - **2026-10-03** — merged-`main` verification of PR #43 (squash `0dd83b51d9fd74f17960c769648a227ed0ee89d0`, push CI run
   `37045625143` on Java 21): **BUILD SUCCESS**, 2250 tests, 0 failures / 0 errors / 0 skipped; `ModuleBoundaryTest` 67/67.
 - **2026-10-02** — `./mvnw clean test` on Java 21 + Docker on `feature/pr23-checkout-order-arch-hardening` (based on `main`

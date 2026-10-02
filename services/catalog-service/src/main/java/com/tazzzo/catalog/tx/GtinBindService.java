@@ -9,6 +9,7 @@ import com.tazzzo.catalog.repo.WritePath;
 import org.bson.Document;
 import org.springframework.stereotype.Service;
 
+import java.util.Objects;
 import java.util.Date;
 import java.util.Map;
 
@@ -25,6 +26,8 @@ public class GtinBindService {
     }
 
     public void bind(Actor actor, String productId, String gtin, String market) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
         tx.run(session -> {
             EventPayload bound = new EventPayload("GTIN_BOUND", productId,
                     Map.of("gtin", gtin, "market", market), actor);

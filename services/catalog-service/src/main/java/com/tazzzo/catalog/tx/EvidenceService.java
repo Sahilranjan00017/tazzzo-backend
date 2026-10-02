@@ -7,6 +7,7 @@ import com.tazzzo.catalog.repo.WritePath;
 import org.bson.Document;
 import org.springframework.stereotype.Service;
 
+import java.util.Objects;
 import java.util.Date;
 import java.util.Map;
 import java.util.Set;
@@ -44,6 +45,8 @@ public class EvidenceService {
 
     public CreateOutcome create(Actor actor, String id, String evidenceType, String source, String sourceVersion,
                                 Document payloadRef, String excerpt, String url, Date observedAt) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
         final boolean observedAtSupplied = observedAt != null;
         if (id == null || !id.startsWith("EV-")) {
             throw new IllegalArgumentException("evidence id must start with EV-");

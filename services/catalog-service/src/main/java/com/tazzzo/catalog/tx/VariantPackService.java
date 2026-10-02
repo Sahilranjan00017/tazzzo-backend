@@ -12,6 +12,7 @@ import com.tazzzo.catalog.schema.CanonicalKey;
 import com.tazzzo.catalog.schema.CanonicalKeyService;
 
 import com.mongodb.MongoWriteException;
+import java.util.Objects;
 import java.util.Date;
 import java.util.Optional;
 import org.bson.Document;
@@ -47,6 +48,8 @@ public class VariantPackService {
     }
 
     public void writeVariantPack(Actor actor, ProductDraft draft) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
         if (!"variant_pack".equals(draft.productType())) {
             throw new IllegalArgumentException("draft is not a variant_pack");
         }

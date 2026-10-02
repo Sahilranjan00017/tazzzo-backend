@@ -13,6 +13,7 @@ import org.bson.Document;
 import org.bson.conversions.Bson;
 import org.springframework.stereotype.Service;
 
+import java.util.Objects;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -55,6 +56,8 @@ public class TaxonomyChangeService {
 
     /** Open a release. DB partial-unique index guarantees at most one open release. */
     public void openRelease(Actor actor, String releaseId, String basedOn) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
         tx.run(session -> {
             EventPayload e = ev(actor, "RELEASE_OPENED", Map.of("release", releaseId));
             try {
@@ -78,6 +81,8 @@ public class TaxonomyChangeService {
      * re-run completes it. crashAfterBatches >= 0 is the K-series fault-injection hook.
      */
     public void activateRelease(Actor actor, String releaseId, int batchSize, int crashAfterBatches) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
         Document rel = writePath.database().getCollection("catalogue_releases")
                 .find(Filters.eq("_id", releaseId)).first();
         if (rel == null || !List.of("publishing", "freezing").contains(rel.getString("status"))) {
@@ -185,11 +190,15 @@ public class TaxonomyChangeService {
     }
 
     public void activateRelease(Actor actor, String releaseId) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
         activateRelease(actor, releaseId, 200, -1);
     }
 
     /** Record the frozen baseline (v0.9.0) as an active, snapshotted release. */
     public void recordBaseline(Actor actor, String releaseId) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
         try {
             openRelease(actor, releaseId, null);
         } catch (TaxonomyChangeException e) {
@@ -201,6 +210,8 @@ public class TaxonomyChangeService {
     // ---------- change operations (all require an open release) ----------
 
     public void renameNode(Actor actor, String nodeId, int expectedVersion, String newName) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
         tx.run(session -> {
             EventPayload e = ev(actor, "NODE_RENAMED", Map.of("node", nodeId, "to", newName));
             String rel = releaseGate.requireOpen(session, e);
@@ -224,6 +235,8 @@ public class TaxonomyChangeService {
     }
 
     public void moveNode(Actor actor, String nodeId, int expectedVersion, String newParentId) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
         tx.run(session -> {
             EventPayload e = ev(actor, "NODE_MOVED", Map.of("node", nodeId, "to", newParentId));
             String rel = releaseGate.requireOpen(session, e);
@@ -265,6 +278,8 @@ public class TaxonomyChangeService {
     /** Merge loser vertical into survivor. Blocked on schema conflict unless reconciled. */
     public void mergeNodes(Actor actor, String loserId, int expectedVersion, String survivorId,
                            boolean schemaReconciliationApproved) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
         tx.run(session -> {
             EventPayload e = ev(actor, "NODE_MERGED", Map.of("loser", loserId, "survivor", survivorId));
             String rel = releaseGate.requireOpen(session, e);
@@ -294,6 +309,8 @@ public class TaxonomyChangeService {
 
     /** Split a vertical: children minted with NEW ids, parent deprecated (never reused). */
     public List<String> splitNode(Actor actor, String nodeId, int expectedVersion, List<String> childNames) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
         List<String> minted = new ArrayList<>();
         tx.run(session -> {
             minted.clear();
@@ -334,6 +351,8 @@ public class TaxonomyChangeService {
     }
 
     public void deprecateNode(Actor actor, String nodeId, int expectedVersion) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
         tx.run(session -> {
             EventPayload e = ev(actor, "NODE_DEPRECATED", Map.of("node", nodeId));
             String rel = releaseGate.requireOpen(session, e);
@@ -354,6 +373,8 @@ public class TaxonomyChangeService {
      *  terminal — reviving one would resurrect an identity that products redirect away
      *  from, so it is refused. Parent must be active or the tree would be inconsistent. */
     public void reviveNode(Actor actor, String nodeId, int expectedVersion) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
         tx.run(session -> {
             EventPayload e = ev(actor, "NODE_REVIVED", Map.of("node", nodeId));
             String rel = releaseGate.requireOpen(session, e);

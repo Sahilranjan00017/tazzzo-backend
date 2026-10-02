@@ -11,6 +11,7 @@ import com.tazzzo.catalog.repo.WritePath;
 import org.bson.Document;
 import org.springframework.stereotype.Service;
 
+import java.util.Objects;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -33,6 +34,8 @@ public class BundleService {
     }
 
     public void writeBundle(Actor actor, ProductDraft bundle) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
         if (!"bundle".equals(bundle.productType())) {
             throw new IllegalArgumentException("draft is not a bundle");
         }
@@ -63,6 +66,8 @@ public class BundleService {
      * implementation of the transition rules.
      */
     public void activate(Actor actor, String productId) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
         Document p = writePath.database().getCollection("products")
                 .find(Filters.eq("_id", productId)).first();
         if (p == null) throw new ProductNotFoundException(productId);

@@ -9,6 +9,7 @@ import com.tazzzo.catalog.repo.WritePath;
 import org.bson.Document;
 import org.springframework.stereotype.Service;
 
+import java.util.Objects;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
@@ -30,6 +31,8 @@ public class ClassifyService {
 
     public void classify(Actor actor, String productId, String verticalId, String releaseId,
                          String status, double confidence, List<String> evidenceIds) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
         if (!STATUSES.contains(status)) {
             throw new IllegalArgumentException("invalid classification status: " + status);
         }

@@ -12,6 +12,7 @@ import com.tazzzo.catalog.repo.WritePath;
 import org.bson.Document;
 import org.springframework.stereotype.Service;
 
+import java.util.Objects;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -47,6 +48,8 @@ public class AttributeAuthoringService {
     /** New definition version (v1 for a new key). Type changes are forbidden (H-9): a type
      *  change is a NEW semantic key, never a new version of the old one. */
     public int createDefinition(Actor actor, String key, String type, String governance, List<String> knownValues) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
         if (!TYPES.contains(type)) {
             throw new TaxonomyChangeException("INVALID_TYPE", "unknown attribute type: " + type);
         }
@@ -99,6 +102,8 @@ public class AttributeAuthoringService {
 
     /** Additive enum value — data only, no release, no schema change (growth law). */
     public void addEnumValue(Actor actor, String key, String value) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
         tx.run(session -> {
             EventPayload e = ev(actor, "ATTR_ENUM_VALUE_ADDED", Map.of("key", key, "value", value));
             Document def = latestActive(session, "attribute_definitions", Filters.eq("key", key));
@@ -124,6 +129,8 @@ public class AttributeAuthoringService {
      * products at activation — never created silently.
      */
     public int addSchemaField(Actor actor, String schemaId, String key, boolean required, boolean allowBreaking) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
         int[] version = new int[1];
         tx.run(session -> {
             EventPayload e = ev(actor, "ATTR_SCHEMA_FIELD_ADDED",

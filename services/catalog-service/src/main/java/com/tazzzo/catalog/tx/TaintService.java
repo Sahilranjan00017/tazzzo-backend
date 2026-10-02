@@ -11,6 +11,7 @@ import org.bson.Document;
 import org.bson.types.ObjectId;
 import org.springframework.stereotype.Service;
 
+import java.util.Objects;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -40,6 +41,8 @@ public class TaintService {
 
     /** Flip validity out of active AND enqueue the cascade item, one transaction. */
     public void retractEvidence(Actor actor, String evidenceId, String requested) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
         String newValidity = requested;
         if (newValidity == null) newValidity = "retracted";   // domain default, not transport
         if (!Set.of("retracted", "superseded").contains(newValidity)) {

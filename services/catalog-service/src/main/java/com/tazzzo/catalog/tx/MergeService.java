@@ -10,6 +10,7 @@ import com.tazzzo.catalog.repo.WritePath;
 import org.bson.Document;
 import org.springframework.stereotype.Service;
 
+import java.util.Objects;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -35,6 +36,8 @@ public class MergeService {
     static final Actor FINALIZER = Actor.system("system:merge-finalizer");
 
     public void startMerge(Actor actor, String loserId, String survivorId) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
         tx.run(session -> {
             Document loser = mustGet(session, loserId);
             Document survivor = mustGet(session, survivorId);

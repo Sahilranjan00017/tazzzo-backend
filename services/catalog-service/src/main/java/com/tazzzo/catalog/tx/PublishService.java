@@ -8,6 +8,7 @@ import com.tazzzo.catalog.repo.WritePath;
 import org.bson.Document;
 import org.springframework.stereotype.Service;
 
+import java.util.Objects;
 import java.util.List;
 import java.util.Map;
 
@@ -28,6 +29,8 @@ public class PublishService {
     }
 
     public void publishClaim(Actor actor, String productId, String attrKey, List<String> evidenceIds) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
         if (evidenceIds == null || evidenceIds.isEmpty()) {
             throw new EvidenceGateException("claim-tier publish requires at least one evidence reference");
         }

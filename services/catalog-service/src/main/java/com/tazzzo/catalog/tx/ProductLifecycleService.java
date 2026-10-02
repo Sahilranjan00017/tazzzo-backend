@@ -8,6 +8,7 @@ import com.tazzzo.catalog.repo.WritePath;
 import org.bson.Document;
 import org.springframework.stereotype.Service;
 
+import java.util.Objects;
 import java.util.Date;
 import java.util.Map;
 import java.util.Set;
@@ -42,15 +43,21 @@ public class ProductLifecycleService {
     }
 
     public void activate(Actor actor, String productId, int expectedVersion) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
         transition(actor, productId, expectedVersion, "active", "PRODUCT_ACTIVATED", null);
     }
 
     public void discontinue(Actor actor, String productId, int expectedVersion, String reason) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
         transition(actor, productId, expectedVersion, "discontinued", "PRODUCT_DISCONTINUED", reason);
     }
 
     /** Reactivate a discontinued product. Refused if the formulation has changed. */
     public void revive(Actor actor, String productId, int expectedVersion, Integer declaredFormulationVersion) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
         tx.run(session -> {
             Document p = require(session, productId);
             assertLegal(p.getString("lifecycle"), "active");
@@ -69,6 +76,8 @@ public class ProductLifecycleService {
 
     /** Terminal. Nothing leaves `archived`. */
     public void archive(Actor actor, String productId, int expectedVersion) {
+        // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
+        Objects.requireNonNull(actor, "actor");
         transition(actor, productId, expectedVersion, "archived", "PRODUCT_ARCHIVED", null);
     }
 
