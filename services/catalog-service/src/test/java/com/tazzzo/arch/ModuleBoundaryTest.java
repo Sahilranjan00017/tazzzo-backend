@@ -836,6 +836,22 @@ class ModuleBoundaryTest {
                             .or(com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameStartingWith("OrderBenefitSnapshot")))
                     .allowEmptyShould(true);
 
+    /** Order -- the V1 money snapshot ({@code OrderMoneySnapshot}: merchandise subtotal, benefit discount, payable) is
+     *  INTERNAL for now: the public HTTP surface (controller, handler, DTO) and the Order metrics do not depend on it.
+     *  (Benefits, Checkout, Cart and the other upstream modules are already barred from {@code customer.order} entirely by
+     *  {@code upstream_modules_do_not_depend_on_customer_order} and the Benefits boundary rules.) */
+    @ArchTest
+    static final ArchRule order_http_layer_and_metrics_do_not_depend_on_the_money_snapshot =
+            noClasses().that(com.tngtech.archunit.core.domain.JavaClass.Predicates
+                            .resideInAPackage("com.tazzzo.customer.order..")
+                            .and(com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameEndingWith("Controller")
+                                    .or(com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameEndingWith("ExceptionHandler"))
+                                    .or(com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameEndingWith("Dto"))
+                                    .or(com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameEndingWith("Observability"))))
+                    .should().dependOnClassesThat(com.tngtech.archunit.core.domain.JavaClass.Predicates
+                            .simpleNameStartingWith("OrderMoneySnapshot"))
+                    .allowEmptyShould(true);
+
     /** Checkout -- reaches Benefits ONLY through the STANDALONE port and the result/failure types it must read (the
      *  advisory snapshot projection): never the transactional port (Checkout's persistence transaction is not where
      *  Benefits is evaluated), the services/evaluators, the rule source or rule, or any Benefits configuration.

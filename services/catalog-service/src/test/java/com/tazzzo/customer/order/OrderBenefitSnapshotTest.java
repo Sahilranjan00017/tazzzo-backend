@@ -42,7 +42,7 @@ class OrderBenefitSnapshotTest {
         return new Order(OrderId.generate(), "cus_1", CheckoutQuoteId.generate().value(), status, PaymentMethod.COD,
                 confirmed ? 2L : 1L, AddressId.generate().value(), 1L, address, lines, 2, SUBTOTAL, "INR",
                 InventoryReservationId.generate().value(), confirmed ? ConfirmedPaymentCondition.COD_DUE : null, T,
-                confirmed ? T : null, T, snapshot);
+                confirmed ? T : null, T, snapshot, null); // money null: a pre-money-model Order
     }
 
     // ---------- the two snapshot shapes ----------

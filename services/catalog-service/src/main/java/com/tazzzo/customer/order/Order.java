@@ -44,7 +44,7 @@ public record Order(OrderId orderId, String customerId, String quoteId, OrderSta
                     OrderAddressSnapshot addressSnapshot, List<OrderLine> lines, int itemCount,
                     long subtotalPaise, String currency, String reservationId,
                     ConfirmedPaymentCondition confirmedPaymentCondition, Instant createdAt, Instant confirmedAt,
-                    Instant updatedAt, OrderBenefitSnapshot benefitSnapshot) {
+                    Instant updatedAt, OrderBenefitSnapshot benefitSnapshot, OrderMoneySnapshot moneySnapshot) {
 
     public Order {
         if (orderId == null) {
@@ -108,6 +108,22 @@ public record Order(OrderId orderId, String customerId, String quoteId, OrderSta
         // benefit"). When present it must be about THIS Order's canonical merchandise subtotal.
         if (benefitSnapshot != null && benefitSnapshot.eligibleSubtotalPaise() != subtotalPaise) {
             throw new IllegalArgumentException("benefit snapshot eligibleSubtotalPaise does not equal the order subtotal");
+        }
+        // moneySnapshot: null ONLY for a legacy Order created before the V1 money model (never "payable = subtotal").
+        // When present it must be about THIS Order's canonical subtotal and its authoritative Benefits discount: the
+        // Order-side benefit snapshot is mandatory beside it (a discount cannot be verified without it), and the money
+        // discount is that snapshot's discount (0 for no benefit), never an independent value.
+        if (moneySnapshot != null) {
+            if (benefitSnapshot == null) {
+                throw new IllegalArgumentException("a money snapshot requires the benefit snapshot it was derived from");
+            }
+            if (moneySnapshot.merchandiseSubtotalPaise() != subtotalPaise) {
+                throw new IllegalArgumentException("money snapshot merchandise subtotal does not equal the order subtotal");
+            }
+            long benefitDiscount = benefitSnapshot instanceof OrderBenefitSnapshot.Applied a ? a.discountPaise() : 0L;
+            if (moneySnapshot.benefitDiscountPaise() != benefitDiscount) {
+                throw new IllegalArgumentException("money snapshot benefit discount does not equal the benefit snapshot's");
+            }
         }
         if (createdAt == null || updatedAt == null) {
             throw new IllegalArgumentException("createdAt/updatedAt required");
