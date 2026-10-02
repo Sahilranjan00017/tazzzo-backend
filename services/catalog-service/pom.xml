@@ -59,6 +59,19 @@
             <version>75.1</version>
         </dependency>
         <!--
+          Human admin authentication: Google OIDC ID-token verification. Nimbus JOSE+JWT does the
+          JOSE crypto (RS256 signature, kid key selection), the standard claim checks (aud, exp, nbf,
+          required claims) and the cached, rate-limited, rotation-aware remote JWKS source. It has
+          no Spring Security requirement and verifies against locally generated keys in tests. Not
+          managed by the Boot BOM, hence the pinned version. Confined to com.tazzzo.admin.auth by
+          ModuleBoundaryTest.
+        -->
+        <dependency>
+            <groupId>com.nimbusds</groupId>
+            <artifactId>nimbus-jose-jwt</artifactId>
+            <version>9.37.3</version>
+        </dependency>
+        <!--
           CAT-SEC-1 Q5-MECH-1: the consumer limiter is DISTRIBUTED. Two catalogue tasks serve
           consumers concurrently, so per-instance state would make the effective allowance depend
           on the replica count. Shared state is ElastiCache speaking the Redis/Valkey protocol.

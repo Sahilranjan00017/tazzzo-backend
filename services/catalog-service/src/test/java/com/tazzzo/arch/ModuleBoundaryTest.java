@@ -1000,6 +1000,35 @@ class ModuleBoundaryTest {
                     .should().dependOnClassesThat().resideInAPackage("com.tazzzo.admin..")
                     .allowEmptyShould(true);
 
+    /** Human admin OIDC -- the JOSE/JWT library is confined to admin authentication: no domain, commerce, customer-auth,
+     *  catalog or audit class can parse, verify or mint a JWT with it. */
+    @ArchTest
+    static final ArchRule jose_jwt_library_is_confined_to_admin_authentication =
+            noClasses().that().resideOutsideOfPackage("com.tazzzo.admin.auth..")
+                    .should().dependOnClassesThat().resideInAPackage("com.nimbusds..")
+                    .allowEmptyShould(false);
+
+    /** Human admin OIDC -- the Google verifier, the human allowlist and their configuration are {@code admin.auth}
+     *  internals. Outside it (the HTTP filter included) only the provider-neutral chain, credential and principal exist. */
+    @ArchTest
+    static final ArchRule google_oidc_implementation_is_internal_to_admin_authentication =
+            noClasses().that().resideOutsideOfPackage("com.tazzzo.admin.auth..")
+                    .should().dependOnClassesThat(selfOrEnclosingSimpleNameStartingWithAny(
+                            "GoogleOidc", "HumanAdmin", "AdminAuthProperties"))
+                    .allowEmptyShould(false);
+
+    /** Human admin OIDC -- {@code AdminPrincipal} and its resolver stay PROVIDER-NEUTRAL: they never learn which credential
+     *  family (shared token, Google) produced a principal, so downstream code cannot branch on it. */
+    @ArchTest
+    static final ArchRule admin_principal_is_provider_neutral =
+            noClasses().that().haveFullyQualifiedName("com.tazzzo.admin.auth.AdminPrincipal")
+                    .or().haveFullyQualifiedName("com.tazzzo.admin.auth.AdminPrincipalResolver")
+                    .should().dependOnClassesThat().resideInAPackage("com.nimbusds..")
+                    .orShould().dependOnClassesThat(selfOrEnclosingSimpleNameStartingWithAny(
+                            "GoogleOidc", "HumanAdmin", "AdminAuthProperties", "ServiceToken", "AdminBearerCredential",
+                            "AdminAuthenticat", "AdminCredentialAuthenticator"))
+                    .allowEmptyShould(false);
+
     /**
      * No dependency cycles between top-level Tazzzo modules.
      *

@@ -1,61 +1,53 @@
 package com.tazzzo.catalog.api;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.tazzzo.admin.auth.AdminAuthRejection;
+import com.tazzzo.admin.auth.AdminAuthentication;
+import com.tazzzo.admin.auth.AdminAuthenticatorChain;
+import com.tazzzo.admin.auth.AdminBearerCredential;
+import com.tazzzo.admin.auth.AdminPrincipal;
+import com.tazzzo.admin.auth.AdminPrincipalResolver;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import org.springframework.beans.factory.annotation.Value;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
-import com.tazzzo.admin.auth.AdminPrincipal;
-import com.tazzzo.admin.auth.AdminPrincipalResolver;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 
 /**
- * Service-token authentication + operation-class authorization (spec Part 16), applied to the
- * INTERNAL surface as classified by {@link SurfaceClassifier}. Bearer token maps to an {@code AdminPrincipal}
- * (the shared tokens are SERVICE_ACCOUNT principals, attached for {@link AdminActors}); writes
- * require cms-writer, reads accept any known role. The PUBLIC consumer namespace bypasses this
- * filter by decision (Q4-a/b); an UNKNOWN surface is refused by default (Q4-f).
- * Deliberately small and auditable: the API is a consumer of catalogue truth, not its owner.
+ * Admin authentication + operation-class authorization (spec Part 16), applied to the INTERNAL surface as classified by
+ * {@link SurfaceClassifier}. Two separate stages:
+ * <ol>
+ *   <li><b>authentication</b>: the bearer credential goes to {@link AdminAuthenticatorChain} (exact shared service token
+ *       first, then Google OIDC for human admins), which yields an {@code AdminPrincipal} or a bounded refusal;</li>
+ *   <li><b>authorization</b>: writes require cms-writer, reads accept any known role, whatever the credential family.</li>
+ * </ol>
+ * The same typed principal is attached for {@link AdminActors} either way. The PUBLIC consumer namespace bypasses this
+ * filter by decision (Q4-a/b); an UNKNOWN surface is refused by default (Q4-f). Deliberately small and auditable.
  */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 1)
 public class ApiAuthFilter extends OncePerRequestFilter {
 
     private static final Logger log = LoggerFactory.getLogger(ApiAuthFilter.class);
+    private static final String UNAUTHENTICATED_MESSAGE = "missing or unknown bearer token";
 
-    /** Token value -> its principal. The token itself never leaves this map: it is not logged, stored or audited. */
-    private final Map<String, AdminPrincipal> tokenPrincipals = new HashMap<>();
+    private final AdminAuthenticatorChain authenticators;
     private final AdminAuthObservability observability;
     private final ObjectMapper mapper = new ObjectMapper();
 
-    /**
-     * M7: NO default credentials. An unset token disables that role entirely (fail-closed);
-     * production cannot silently inherit a source-tree token. Writer is registered last so a
-     * misconfiguration that reuses one value cannot demote the writer to reader.
-     */
-    public ApiAuthFilter(@Value("${tazzzo.auth.cms-token:}") String cmsToken,
-                         @Value("${tazzzo.auth.read-token:}") String readToken,
-                         AdminAuthObservability observability) {
+    public ApiAuthFilter(AdminAuthenticatorChain authenticators, AdminAuthObservability observability) {
+        this.authenticators = authenticators;
         this.observability = observability;
-        // Insertion order is deliberate and unchanged: if both properties were (mis)configured to the SAME value, the
-        // cms-writer entry replaces the reader entry, exactly as before this principal mapping existed.
-        if (readToken != null && !readToken.isBlank()) {
-            tokenPrincipals.put(readToken, AdminPrincipal.sharedToken(AdminPrincipal.READER));
-        }
-        if (cmsToken != null && !cmsToken.isBlank()) {
-            tokenPrincipals.put(cmsToken, AdminPrincipal.sharedToken(AdminPrincipal.CMS_WRITER));
-        }
     }
 
     /**
@@ -88,26 +80,58 @@ public class ApiAuthFilter extends OncePerRequestFilter {
             reject(req, res, 404, "NO_SUCH_ENDPOINT", "no such endpoint");
             return;
         }
-        String header = req.getHeader("Authorization");
-        AdminPrincipal principal = null;
-        if (header != null && header.startsWith("Bearer ")) {
-            principal = tokenPrincipals.get(header.substring(7));
+        // Stage A: authentication. The credential is never logged, stored or audited; only bounded reasons are.
+        Optional<AdminBearerCredential> credential = AdminBearerCredential.fromAuthorizationHeader(req.getHeader("Authorization"));
+        AdminAuthentication result = credential.isPresent()
+                ? authenticators.authenticate(credential.get()) : AdminAuthentication.NOT_APPLICABLE;
+        AdminPrincipal principal;
+        switch (result) {
+            case AdminAuthentication.Authenticated authenticated -> principal = authenticated.principal();
+            case AdminAuthentication.Rejected rejected -> {
+                refuse(req, res, rejected.reason());
+                return;
+            }
+            case AdminAuthentication.NotApplicable notApplicable -> {
+                observability.rejected(AdminAuthObservability.Reason.UNAUTHENTICATED);
+                log.warn("admin_auth_rejected reason=unauthenticated request_id={}", req.getAttribute(RequestIdFilter.REQUEST_ID));
+                reject(req, res, 401, "UNAUTHENTICATED", UNAUTHENTICATED_MESSAGE);
+                return;
+            }
         }
-        if (principal == null) {
-            observability.rejected(AdminAuthObservability.Reason.UNAUTHENTICATED);
-            log.warn("admin_auth_rejected reason=unauthenticated request_id={}", req.getAttribute(RequestIdFilter.REQUEST_ID));
-            reject(req, res, 401, "UNAUTHENTICATED", "missing or unknown bearer token");
-            return;
-        }
+        // Stage B: operation authorization, identical for every credential family.
         if (!"GET".equals(req.getMethod()) && !principal.canWrite()) {
             observability.rejected(AdminAuthObservability.Reason.FORBIDDEN);
-            log.warn("admin_auth_rejected reason=forbidden actor={} request_id={}", principal.actorId(),
+            log.warn("admin_auth_rejected reason=forbidden actor_type={} request_id={}", principal.actorType(),
                     req.getAttribute(RequestIdFilter.REQUEST_ID));
             reject(req, res, 403, "FORBIDDEN", "role may not perform writes: " + AdminPrincipal.READER);
             return;
         }
         AdminPrincipalResolver.attach(req, principal);
         chain.doFilter(req, res);
+    }
+
+    /**
+     * A credential an authenticator recognised and refused. Every 401 carries the same body as a missing credential (no
+     * oracle for which check failed); every allowlist refusal the same 403 body. The reason lives only in the bounded
+     * metric and the log line (with the request id; never a subject, email or token).
+     */
+    private void refuse(HttpServletRequest req, HttpServletResponse res, AdminAuthRejection reason) throws IOException {
+        AdminAuthObservability.Reason metric = switch (reason) {
+            case INVALID_TOKEN -> AdminAuthObservability.Reason.INVALID_TOKEN;
+            case EXPIRED_TOKEN -> AdminAuthObservability.Reason.EXPIRED_TOKEN;
+            case DOMAIN_MISMATCH -> AdminAuthObservability.Reason.DOMAIN_MISMATCH;
+            case EMAIL_UNVERIFIED -> AdminAuthObservability.Reason.EMAIL_UNVERIFIED;
+            case NOT_ALLOWLISTED -> AdminAuthObservability.Reason.NOT_ALLOWLISTED;
+            case DISABLED -> AdminAuthObservability.Reason.DISABLED;
+        };
+        observability.rejected(metric);
+        log.warn("admin_auth_rejected reason={} request_id={}", metric.name().toLowerCase(Locale.ROOT),
+                req.getAttribute(RequestIdFilter.REQUEST_ID));
+        if (reason.httpStatus() == 403) {
+            reject(req, res, 403, "FORBIDDEN", "admin access not granted");
+        } else {
+            reject(req, res, 401, "UNAUTHENTICATED", UNAUTHENTICATED_MESSAGE);
+        }
     }
 
     private void reject(HttpServletRequest req, HttpServletResponse res, int status,
