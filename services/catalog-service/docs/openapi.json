@@ -2298,8 +2298,28 @@
           "benefitPreview" : {
             "$ref" : "#/components/schemas/BenefitPreview"
           },
+          "moneyPreview" : {
+            "$ref" : "#/components/schemas/MoneyPreview"
+          },
           "requestId" : {
             "type" : "string"
+          }
+        }
+      },
+      "MoneyPreview" : {
+        "type" : "object",
+        "properties" : {
+          "merchandiseSubtotalPaise" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "benefitDiscountPaise" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "payablePaise" : {
+            "type" : "integer",
+            "format" : "int64"
           }
         }
       },

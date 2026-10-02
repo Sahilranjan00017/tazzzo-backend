@@ -383,9 +383,12 @@ public class CheckoutService {
             throw new CheckoutFailure(CheckoutFailure.Reason.UNAVAILABLE);
         }
         CheckoutBenefitSnapshot benefitSnapshot = benefitsForSubtotal.apply(subtotal);
+        // advisory money from the canonical subtotal and the STORED-to-be Benefits discount: no second Benefits call,
+        // no rate recomputation; built before the single persist
+        CheckoutMoneySnapshot moneySnapshot = CheckoutMoneySnapshot.from(subtotal, benefitSnapshot);
         return new CheckoutQuote(id.value(), cartVersion, addressId.value(), addressVersion, List.copyOf(lines),
                 itemCount, subtotal, "INR", now, now.plus(Duration.ofSeconds(properties.getQuoteTtlSeconds())),
-                benefitSnapshot);
+                benefitSnapshot, moneySnapshot);
     }
 
     // ---------- identity / address ----------

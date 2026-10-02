@@ -29,16 +29,29 @@ import java.util.Set;
  */
 public record CheckoutQuote(String quoteId, long cartVersion, String addressId, long addressVersion,
                             List<Line> lines, int itemCount, long subtotalPaise, String currency,
-                            Instant createdAt, Instant expiresAt, CheckoutBenefitSnapshot benefitSnapshot) {
+                            Instant createdAt, Instant expiresAt, CheckoutBenefitSnapshot benefitSnapshot,
+                            CheckoutMoneySnapshot moneySnapshot) {
 
     /**
-     * A quote WITHOUT a Benefits snapshot: a legacy (pre-Checkout-Benefits) quote, or a test fixture. Production code
-     * that CREATES a quote never calls this (ArchUnit-enforced): every new quote carries a snapshot.
+     * A quote WITHOUT a Benefits or money snapshot: a legacy (pre-Checkout-Benefits) quote, or a test fixture.
+     * Production code that CREATES a quote never calls this (ArchUnit-enforced): every new quote carries both.
      */
     public CheckoutQuote(String quoteId, long cartVersion, String addressId, long addressVersion, List<Line> lines,
                          int itemCount, long subtotalPaise, String currency, Instant createdAt, Instant expiresAt) {
         this(quoteId, cartVersion, addressId, addressVersion, lines, itemCount, subtotalPaise, currency, createdAt,
-                expiresAt, null);
+                expiresAt, null, null);
+    }
+
+    /**
+     * A quote with a Benefits snapshot but NO money snapshot: a quote created after Checkout Benefits and before the
+     * Checkout money model (legacy), or a test fixture. Production code that CREATES a quote never calls this
+     * (ArchUnit-enforced).
+     */
+    public CheckoutQuote(String quoteId, long cartVersion, String addressId, long addressVersion, List<Line> lines,
+                         int itemCount, long subtotalPaise, String currency, Instant createdAt, Instant expiresAt,
+                         CheckoutBenefitSnapshot benefitSnapshot) {
+        this(quoteId, cartVersion, addressId, addressVersion, lines, itemCount, subtotalPaise, currency, createdAt,
+                expiresAt, benefitSnapshot, null);
     }
 
     public record Line(String skuId, int quantity, long unitPricePaise, long lineTotalPaise) {
@@ -115,12 +128,31 @@ public record CheckoutQuote(String quoteId, long cartVersion, String addressId, 
         if (benefitSnapshot != null && benefitSnapshot.eligibleSubtotalPaise() != subtotalPaise) {
             throw new IllegalArgumentException("benefit snapshot eligibleSubtotalPaise does not equal the quote subtotal");
         }
+        // null ONLY for a legacy quote (never "payable = subtotal" or 0); when present it is about THIS quote's subtotal
+        // and its stored Benefits discount (0 for no benefit), so the Benefits snapshot is mandatory beside it
+        if (moneySnapshot != null) {
+            if (benefitSnapshot == null) {
+                throw new IllegalArgumentException("a money snapshot requires the benefit snapshot it was derived from");
+            }
+            if (moneySnapshot.merchandiseSubtotalPaise() != subtotalPaise) {
+                throw new IllegalArgumentException("money snapshot merchandise subtotal does not equal the quote subtotal");
+            }
+            if (moneySnapshot.benefitDiscountPaise() != CheckoutMoneySnapshot.discountOf(benefitSnapshot)) {
+                throw new IllegalArgumentException("money snapshot benefit discount does not equal the benefit snapshot's");
+            }
+        }
     }
 
     /** The public-safe projection of the stored advisory snapshot; EMPTY for a legacy quote (never "not applied"). */
     java.util.Optional<CheckoutBenefitPreview> benefitPreview() {
         return benefitSnapshot == null ? java.util.Optional.empty()
                 : java.util.Optional.of(CheckoutBenefitPreview.from(benefitSnapshot));
+    }
+
+    /** The public-safe projection of the stored advisory money; EMPTY for a legacy quote (never a zero payable). */
+    java.util.Optional<CheckoutMoneyPreview> moneyPreview() {
+        return moneySnapshot == null ? java.util.Optional.empty()
+                : java.util.Optional.of(CheckoutMoneyPreview.from(moneySnapshot));
     }
 
     public boolean isExpired(Instant now) {

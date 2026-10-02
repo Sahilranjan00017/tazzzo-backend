@@ -12,11 +12,16 @@ import java.util.List;
  * <p>{@code benefitPreview} is the ADVISORY Benefits result stored with this quote (present on every quote created
  * since Benefits preview exists; ABSENT on an older quote, which is NOT the same as {@code applied=false}). It is
  * projected from the stored snapshot only; Order placement re-evaluates Benefits authoritatively and may differ.
- * {@code subtotalPaise} stays the canonical merchandise subtotal; there is no net/payable field.
+ * {@code subtotalPaise} stays the canonical merchandise subtotal.
+ *
+ * <p>{@code moneyPreview} is the ADVISORY commerce money stored with this quote ({@code payablePaise =
+ * merchandiseSubtotalPaise - benefitDiscountPaise}); ABSENT on a quote created before the money model, which is NOT a
+ * zero payable. Not Payment authority and not a price lock: Order placement computes its own authoritative money.
  */
 public record CheckoutQuoteDto(String quoteId, long cartVersion, String addressId, List<Item> items, int itemCount,
                                int distinctItemCount, long subtotalPaise, String currency, String createdAt,
                                String expiresAt, @JsonInclude(JsonInclude.Include.NON_NULL) BenefitPreview benefitPreview,
+                               @JsonInclude(JsonInclude.Include.NON_NULL) MoneyPreview moneyPreview,
                                String requestId) {
 
     public record Item(String skuId, int quantity, long unitPricePaise, long lineTotalPaise) {
@@ -47,11 +52,27 @@ public record CheckoutQuoteDto(String quoteId, long cartVersion, String addressI
         }
     }
 
+    /** The three advisory commerce amounts; always all present. No reason, identity, fee, tax or payment field. */
+    public record MoneyPreview(long merchandiseSubtotalPaise, long benefitDiscountPaise, long payablePaise) {
+        public MoneyPreview {
+            if (merchandiseSubtotalPaise < 0 || benefitDiscountPaise < 0
+                    || benefitDiscountPaise > merchandiseSubtotalPaise
+                    || payablePaise != merchandiseSubtotalPaise - benefitDiscountPaise) {
+                throw new IllegalArgumentException("inconsistent money preview");
+            }
+        }
+
+        static MoneyPreview of(CheckoutMoneyPreview p) {
+            return new MoneyPreview(p.merchandiseSubtotalPaise(), p.benefitDiscountPaise(), p.payablePaise());
+        }
+    }
+
     static CheckoutQuoteDto of(CheckoutQuote q, String requestId) {
         return new CheckoutQuoteDto(q.quoteId(), q.cartVersion(), q.addressId(),
                 q.lines().stream().map(l -> new Item(l.skuId(), l.quantity(), l.unitPricePaise(), l.lineTotalPaise()))
                         .toList(),
                 q.itemCount(), q.lines().size(), q.subtotalPaise(), q.currency(), q.createdAt().toString(),
-                q.expiresAt().toString(), q.benefitPreview().map(BenefitPreview::of).orElse(null), requestId);
+                q.expiresAt().toString(), q.benefitPreview().map(BenefitPreview::of).orElse(null),
+                q.moneyPreview().map(MoneyPreview::of).orElse(null), requestId);
     }
 }

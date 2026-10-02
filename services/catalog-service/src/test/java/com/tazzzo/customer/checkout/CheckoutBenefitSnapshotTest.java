@@ -201,10 +201,10 @@ class CheckoutBenefitSnapshotTest {
     }
 
     @Test
-    void the_public_quote_dto_gains_only_the_one_nested_benefit_preview_and_no_internal_or_payable_field() {
+    void the_public_quote_dto_gains_only_the_nested_previews_and_no_internal_field() {
         assertThat(Arrays.stream(CheckoutQuoteDto.class.getRecordComponents()).map(c -> c.getName()).toList())
                 .containsExactly("quoteId", "cartVersion", "addressId", "items", "itemCount", "distinctItemCount",
-                        "subtotalPaise", "currency", "createdAt", "expiresAt", "benefitPreview", "requestId");
+                        "subtotalPaise", "currency", "createdAt", "expiresAt", "benefitPreview", "moneyPreview", "requestId");
         assertThat(CheckoutQuoteDto.of(quote(applied()), "req").toString().toLowerCase()).doesNotContain("reason")
                 .doesNotContain("membership").doesNotContain("plan").doesNotContain("eligible")
                 .doesNotContain("payable").doesNotContain("no_rule");
