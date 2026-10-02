@@ -1356,7 +1356,8 @@ components:
       type: object
       description: >
         A validated snapshot at `createdAt`, valid until `expiresAt`. NOT a stock reservation, NOT a
-        permanent price lock, NOT a final payable total.
+        permanent price lock, NOT a final payable total. `subtotalPaise` is the canonical merchandise subtotal;
+        no net or payable amount is provided.
       required: [quoteId, cartVersion, addressId, items, itemCount, distinctItemCount, subtotalPaise, currency,
                  createdAt, expiresAt, requestId]
       properties:
@@ -1379,6 +1380,29 @@ components:
         currency: { type: string, enum: [INR] }
         createdAt: { type: string, format: date-time }
         expiresAt: { type: string, format: date-time }
+        benefitPreview:
+          description: >
+            ADVISORY Benefits result stored with this quote. It is NOT final payable authority, NOT a price lock and NOT
+            an Order commitment: Order placement re-evaluates Benefits authoritatively, and the Order result can differ
+            if Membership state or Benefits configuration changes before placement. `subtotalPaise` remains the
+            canonical merchandise subtotal the preview was evaluated against; this object does not make the quote a
+            price lock or a final payable amount. The field is ABSENT on a quote created before Benefits preview
+            existed, which is NOT the same as `applied: false` (`applied: false` means Benefits was evaluated and no
+            benefit applied; no reason is given). Replaying a quote or reading it returns the stored preview unchanged.
+            The examples are illustrative only.
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [applied]
+              properties:
+                applied: { type: boolean, enum: [false], example: false }
+            - type: object
+              additionalProperties: false
+              required: [applied, discountPaise, discountBps]
+              properties:
+                applied: { type: boolean, enum: [true], example: true }
+                discountPaise: { type: integer, format: int64, minimum: 1, example: 500 }
+                discountBps: { type: integer, minimum: 1, maximum: 10000, example: 500 }
         requestId: { type: string }
     CustomerCheckoutErrorEnvelope:
       type: object

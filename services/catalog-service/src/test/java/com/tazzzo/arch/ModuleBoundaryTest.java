@@ -857,8 +857,9 @@ class ModuleBoundaryTest {
                     .should().dependOnClassesThat().resideInAPackage("com.tazzzo.benefits..")
                     .allowEmptyShould(true);
 
-    /** Checkout -- the public HTTP surface and the Checkout metrics know nothing about Benefits or the snapshot: the
-     *  preview is INTERNAL (no DTO/OpenAPI change, no Benefits value in any metric). */
+    /** Checkout -- the public HTTP surface and the Checkout metrics know nothing about Benefits or the INTERNAL snapshot:
+     *  the DTO sees only the public-safe {@code CheckoutBenefitPreview} projection (no reason, no identity, no
+     *  eligible subtotal), and no Benefits value reaches any metric. */
     @ArchTest
     static final ArchRule checkout_http_layer_and_metrics_do_not_depend_on_benefits_or_the_snapshot =
             noClasses().that(com.tngtech.archunit.core.domain.JavaClass.Predicates
@@ -870,6 +871,18 @@ class ModuleBoundaryTest {
                     .should().dependOnClassesThat(resideInAnyPackage("com.tazzzo.benefits..")
                             .or(com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameStartingWith("CheckoutBenefitSnapshot")))
                     .allowEmptyShould(true);
+
+    /** Checkout -- the public-safe preview projection is purely structural: it depends on no Benefits, Membership or
+     *  Order class, so it can never re-evaluate Benefits, read Membership or rules, or recompute a discount. */
+    @ArchTest
+    static final ArchRule checkout_benefit_preview_projection_depends_on_no_benefits_membership_or_order =
+            noClasses().that(com.tngtech.archunit.core.domain.JavaClass.Predicates
+                            .resideInAPackage("com.tazzzo.customer.checkout..")
+                            .and(com.tngtech.archunit.core.domain.JavaClass.Predicates
+                                    .simpleNameStartingWith("CheckoutBenefitPreview")))
+                    .should().dependOnClassesThat().resideInAnyPackage("com.tazzzo.benefits..",
+                            "com.tazzzo.membership..", "com.tazzzo.customer.order..")
+                    .allowEmptyShould(false);
 
     /** Checkout -- no production code CREATES a quote without a Benefits snapshot: the snapshot-less
      *  {@code CheckoutQuote} constructor exists only for legacy reconstruction fixtures and tests. */

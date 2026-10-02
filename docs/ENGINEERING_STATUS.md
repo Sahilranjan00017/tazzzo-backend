@@ -869,10 +869,9 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
     Membership gates. Legacy Orders reconstruct without a snapshot, so this slice needs no backfill, but the existing
     Order gate stays until separately verified. Do not claim production readiness.
 
-## In review (NOT merged)
-
 - **Checkout Benefits evaluation snapshot — internal advisory preview persisted with the quote**
-  (`com.tazzzo.customer.checkout`, second Checkout + Order money-model slice): **IN REVIEW**. **Internal only: no
+  (`com.tazzzo.customer.checkout`, second Checkout + Order money-model slice): **COMPLETE** (PR #36, squash
+  `30dea72482f71418048783b348647fdc0165a133`). *(Its public projection is the next slice, below.)* **Internal only: no
   public DTO/OpenAPI/HTTP change, no payable/final-total field, no Payment, no coupons, tax or fees, no production
   Benefits rule (0 configured).**
   - **What it does:** when Checkout creates a quote it evaluates Benefits through the STANDALONE
@@ -919,6 +918,51 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
     creation. A Membership/Benefits outage now fails quote creation closed (`UNAVAILABLE`).
   - **Deployment gates unchanged and PENDING / UNVERIFIED:** the Order `orders`-count == 0 gate and the five
     Membership gates. Do not claim production readiness.
+
+## In review (NOT merged)
+
+- **Checkout Benefits preview — minimal public projection from the persisted advisory snapshot**
+  (`com.tazzzo.customer.checkout`, third Checkout + Order money-model slice): **IN REVIEW**. **Projection / API only:
+  no Benefits calculation change, no Checkout persistence or evaluation change, no Order change, no payable/final-total
+  field, no Payment, no coupons, tax, fees, coins or wallet, no production Benefits rule (0 configured).**
+  - **One additive nested public object**, `benefitPreview`, on `CheckoutQuoteDto` / OpenAPI `CustomerCheckoutQuote`
+    (not in `required`): `{ "applied": false }` for a modern quote whose Benefits evaluation applied no benefit, or
+    `{ "applied": true, "discountPaise": <int64 >= 1>, "discountBps": <1..10000> }` for an applied one (conditional
+    presence, no null placeholders; closed `oneOf`, `additionalProperties: false`). The three internal reasons
+    (`NO_MEMBERSHIP`, `NO_RULE`, `NOT_ELIGIBLE`) ALL project to the identical `{applied:false}`; `NO_RULE` (a
+    rollout/configuration state) and every other reason stay backend-only and no customer-facing reason vocabulary is
+    designed. Not exposed: `membershipId`, `planId`, `planVersion`, `eligibleSubtotalPaise` (the quote's own
+    `subtotalPaise` is that), Membership `validUntil`. Names deliberately avoid the catalog `discountAmountPaise` /
+    `discountPercent`, which mean the MRP-vs-selling display discount.
+  - **Legacy:** a quote created before Benefits preview (stored snapshot ABSENT) omits `benefitPreview` entirely; it is
+    never synthesized as `{applied:false}` (`applied:false` means Benefits WAS evaluated and nothing applied). Old expired
+    quotes still answer 410.
+  - **Projection only:** the public values come ONLY from the stored `CheckoutBenefitSnapshot`, through a package-private,
+    structurally pure `CheckoutBenefitPreview` projection owned by Checkout (it depends on no Benefits, Membership or Order
+    class and cannot carry a reason, subtotal or identity); the DTO maps from that, never from the snapshot. No
+    re-evaluation for the HTTP response, no Membership or rule read, no discount recomputation from the rate. A POST
+    replay and a GET return the stored preview unchanged even after a Membership or Benefits-configuration change.
+  - **Canonical money unchanged:** `subtotalPaise` stays the canonical merchandise subtotal and the preview does not make the
+    quote a price lock or payable amount; no net/discounted/payable field exists and none is computed.
+  - **Advisory:** OpenAPI states the preview is advisory, reflects the Benefits evaluation stored with the quote, and that
+    Order placement re-evaluates Benefits authoritatively and may differ if Membership state or Benefits configuration
+    changes before placement.
+  - **Today's customer-visible effect:** with 0 production Benefits rules every modern quote shows `benefitPreview:
+    {applied:false}` (non-member and member alike); this slice exposes the plumbing and creates no customer-visible
+    discount until launch rules are configured.
+  - **Contract tests:** the DTO/OpenAPI parity is pinned by `CheckoutQuoteContractTest`, which parses the authoritative YAML
+    structurally and asserts: the DTO and schema property sets match; `benefitPreview` is optional (not in `required`); it
+    is a closed two-shape `oneOf` (`additionalProperties: false` on both); the `applied` DISCRIMINATOR is `type: boolean`
+    with `enum: [false]` in the not-applied shape and `enum: [true]` in the applied shape; the not-applied shape requires only
+    `applied`; the applied shape requires `applied`, `discountPaise`, `discountBps`; `discountPaise` is `integer`/`int64`/
+    `minimum: 1`; `discountBps` is `integer`/`minimum: 1`/`maximum: 10000`; and no internal reason or authority identifier is
+    documented. This is in addition to the CI `swagger-cli` structural validation and the exact-JSON tests of both shapes
+    and the legacy omission. (It does not run a JSON Schema validator over runtime responses.)
+  - **Architecture:** one new rule freezes the projection as purely structural (62 -> 63); the existing rule that the
+    Checkout HTTP layer/DTO/metrics do not depend on Benefits or the snapshot is unchanged and still holds. No metric
+    added; no persistence change; no new runtime dependency.
+  - **Deployment gates unchanged and PENDING / UNVERIFIED:** the Order `orders`-count == 0 gate and the five Membership
+    gates (which also gate Benefits-aware Checkout quote creation and Order placement). Do not claim production readiness.
 
 ## Follow-up debt (recorded)
 
@@ -977,7 +1021,7 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   `PublicServiceability`, pincode-keyed routing) is **COMPLETE** and unchanged; the
   customer-address BINDING to it (PR-12B) is **COMPLETE**.
   (Address ↔ Serviceability binding: COMPLETE.)
-- Cart (PR-12C): **COMPLETE** (PR #21). Auth transaction retry hardening (PR-11D): **COMPLETE** (PR #22). Checkout (PR-13A): **COMPLETE** (PR #23). Checkout provenance (PR-13B): **COMPLETE** (PR #24, squash `8b4fabb9b82e4e3502202ffaff1aadd35f9ba311`). Inventory Reservation lifecycle (PR-14A): **COMPLETE** (PR #25, squash `44438031022238334ecdf3995ba1096101e2e47f`). Order Foundation (PR-14B): **COMPLETE** (PR #26, squash `b620538e34afc35f7f080461750681b467ed4096`). Cart purchase-finalization seam (PR-15A-0): **COMPLETE** (PR #28, squash `611829c3649de3f5c37dec4ac5b375a1d8ef454e`). COD Order domain (PR-15A-1): **COMPLETE** (PR #29, squash `e8d4d45e88ad4935f7ad84a46ae65a671e50ba63`). Customer Order HTTP (PR-15A-2): **COMPLETE** (PR #30, squash `0cdcc97b8fcf5f7c079815b8cb276874635d15d6`; operational `orders`-count==0 deployment gate **PENDING**, not verified). Membership write foundation (PR-16A-1): **COMPLETE** (PR #31, squash `d32a23fb2e4b52fa8076de45a07bf3b60912b1e2`; Membership deployment gates **PENDING**, not verified). Membership entitlement read seam (PR-16A-2): **COMPLETE** (PR #32, squash `580633abbc8d162f45110443f503d4998f4caa48`). Membership termination (PR-16A-3): **COMPLETE** (PR #33, squash `99e2d1b7cc26982e0825bc4a9766b815aa6ae8e0`; cancel-at-period-end and immediate revoke; internal only). Benefits Foundation (order-level percentage + threshold evaluation seam; internal, no persistence): **COMPLETE** (PR #34, squash `cb2097f5979fe666d0d52de958b40db7058e3d16`; 0 production rules configured). Order Benefits snapshot (authoritative Benefits evaluation at COD placement; persisted snapshot, no public API change): **COMPLETE** (PR #35, squash `4486044e1c2f200ed05fe44abbb6525bf24a98f7`). Checkout Benefits evaluation snapshot (internal advisory preview persisted with the quote; no public API change): **IN REVIEW**. Payment: **NOT STARTED**. Real payment gateway: **NOT STARTED**.
+- Cart (PR-12C): **COMPLETE** (PR #21). Auth transaction retry hardening (PR-11D): **COMPLETE** (PR #22). Checkout (PR-13A): **COMPLETE** (PR #23). Checkout provenance (PR-13B): **COMPLETE** (PR #24, squash `8b4fabb9b82e4e3502202ffaff1aadd35f9ba311`). Inventory Reservation lifecycle (PR-14A): **COMPLETE** (PR #25, squash `44438031022238334ecdf3995ba1096101e2e47f`). Order Foundation (PR-14B): **COMPLETE** (PR #26, squash `b620538e34afc35f7f080461750681b467ed4096`). Cart purchase-finalization seam (PR-15A-0): **COMPLETE** (PR #28, squash `611829c3649de3f5c37dec4ac5b375a1d8ef454e`). COD Order domain (PR-15A-1): **COMPLETE** (PR #29, squash `e8d4d45e88ad4935f7ad84a46ae65a671e50ba63`). Customer Order HTTP (PR-15A-2): **COMPLETE** (PR #30, squash `0cdcc97b8fcf5f7c079815b8cb276874635d15d6`; operational `orders`-count==0 deployment gate **PENDING**, not verified). Membership write foundation (PR-16A-1): **COMPLETE** (PR #31, squash `d32a23fb2e4b52fa8076de45a07bf3b60912b1e2`; Membership deployment gates **PENDING**, not verified). Membership entitlement read seam (PR-16A-2): **COMPLETE** (PR #32, squash `580633abbc8d162f45110443f503d4998f4caa48`). Membership termination (PR-16A-3): **COMPLETE** (PR #33, squash `99e2d1b7cc26982e0825bc4a9766b815aa6ae8e0`; cancel-at-period-end and immediate revoke; internal only). Benefits Foundation (order-level percentage + threshold evaluation seam; internal, no persistence): **COMPLETE** (PR #34, squash `cb2097f5979fe666d0d52de958b40db7058e3d16`; 0 production rules configured). Order Benefits snapshot (authoritative Benefits evaluation at COD placement; persisted snapshot, no public API change): **COMPLETE** (PR #35, squash `4486044e1c2f200ed05fe44abbb6525bf24a98f7`). Checkout Benefits evaluation snapshot (internal advisory preview persisted with the quote; no public API change): **COMPLETE** (PR #36, squash `30dea72482f71418048783b348647fdc0165a133`). Checkout Benefits preview public projection (additive nested `benefitPreview`, projection/API only): **IN REVIEW**. Payment: **NOT STARTED**. Real payment gateway: **NOT STARTED**.
 
 ## Next (ratified sequence)
 
@@ -987,8 +1031,8 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
    slice complete (PR #34); flat/free-delivery/coupon/other benefit types and ratified launch rules remain undefined.
 3. Checkout + Order money-model upgrade — first slice (Order Benefits snapshot: authoritative evaluation at COD
    placement, persisted snapshot) complete (PR #35); second slice (Checkout Benefits evaluation snapshot: internal
-   advisory preview persisted with the quote) in review; public API exposure and the Payment-facing payable amount
-   remain later slices.
+   advisory preview persisted with the quote) complete (PR #36); third slice (minimal public `benefitPreview`
+   projection, projection/API only) in review; the Payment-facing payable amount remains a later slice.
 4. Payment domain, then the prepaid Order flow, then a real gateway.
 5. Admin/CMS expansion.
 
@@ -1025,6 +1069,17 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-10-02** — `./mvnw clean test` on Java 21 + Docker on `feature/pr19a2-checkout-benefit-preview-projection`
+  (based on `main` `30dea72`): **BUILD SUCCESS**, 2173 tests, 0 failures / 0 errors / 0 skipped (2157 baseline + 9
+  `CheckoutBenefitPreviewTest` + 2 `CheckoutQuoteContractTest` + 4 new `CheckoutQuoteIT` tests + 1 ArchUnit rule);
+  `ModuleBoundaryTest` 63/63; `swagger-cli validate` of the OpenAPI passes. Six mutation checks (the internal reason
+  exposed publicly, NO_MEMBERSHIP and NOT_ELIGIBLE projecting differently, the discount recomputed from the rate, a legacy
+  quote synthesizing `applied:false`, the DTO depending on the Benefits port, and `subtotalPaise` replaced by
+  subtotal-minus-discount) were each killed by the tests/rules above.
+  The contract-test hardening additionally kills four YAML mutations of the authoritative contract: the not-applied
+  discriminator enum flipped to `[true]` and `type: boolean` removed from the applied discriminator (both survived the
+  earlier test), plus `type: boolean` removed from the not-applied discriminator and the applied enum flipped to
+  `[false]`.
 - **2026-10-02** — `./mvnw clean test` on Java 21 + Docker on `feature/pr19a1-checkout-benefits-snapshot`
   (based on `main` `4486044`, after the independent-review hardening): **BUILD SUCCESS**, 2157 tests, 0 failures /
   0 errors / 0 skipped (2126 baseline + 11 `CheckoutBenefitSnapshotTest` + 17 new `CheckoutQuoteIT` tests + 3 net
