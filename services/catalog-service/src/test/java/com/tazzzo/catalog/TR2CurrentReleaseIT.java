@@ -1,5 +1,6 @@
 package com.tazzzo.catalog;
 
+import com.tazzzo.common.audit.TestActors;
 import com.tazzzo.catalog.consumer.ConsumerFailures;
 import com.tazzzo.catalog.consumer.ConsumerReleaseResolver;
 import com.tazzzo.catalog.schema.TaxonomyLoader;
@@ -33,7 +34,7 @@ class TR2CurrentReleaseIT extends AbstractMongoIT {
     @BeforeAll
     void seedBaseline() {
         loader.load(db);
-        changes.recordBaseline("R1");
+        changes.recordBaseline(TestActors.TEST, "R1");
     }
 
     private String pointer() {
@@ -51,9 +52,9 @@ class TR2CurrentReleaseIT extends AbstractMongoIT {
         assertThat(pointer()).as("the baseline activation set it").isEqualTo("R1");
         assertThat(resolver.resolve(null)).isEqualTo("R1");
 
-        changes.openRelease("R2", "R1");
-        changes.renameNode(BASMATI, version(BASMATI), "Basmati Rice R2");
-        changes.activateRelease("R2");
+        changes.openRelease(TestActors.TEST, "R2", "R1");
+        changes.renameNode(TestActors.TEST, BASMATI, version(BASMATI), "Basmati Rice R2");
+        changes.activateRelease(TestActors.TEST, "R2");
 
         assertThat(pointer()).isEqualTo("R2");
         assertThat(resolver.resolve(null)).isEqualTo("R2");
@@ -69,10 +70,10 @@ class TR2CurrentReleaseIT extends AbstractMongoIT {
     @Test @org.junit.jupiter.api.Order(9)
     void an_incomplete_activation_does_NOT_move_the_pointer() {
         String before = pointer();
-        changes.openRelease("R-CRASH", before);
-        changes.renameNode(BASMATI, version(BASMATI), "Basmati Rice CRASH");
+        changes.openRelease(TestActors.TEST, "R-CRASH", before);
+        changes.renameNode(TestActors.TEST, BASMATI, version(BASMATI), "Basmati Rice CRASH");
 
-        changes.activateRelease("R-CRASH", 50, 1);   // simulated crash mid-snapshot
+        changes.activateRelease(TestActors.TEST, "R-CRASH", 50, 1);   // simulated crash mid-snapshot
 
         assertThat(pointer())
                 .as("a release that never completed activation must never become current")

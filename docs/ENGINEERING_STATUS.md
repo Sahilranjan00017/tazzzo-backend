@@ -1108,9 +1108,9 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   - **Deployment gates unchanged:** the Order `orders`-count == 0 gate and the five Membership gates (the plan/rule identical-config
     gate covers `tazzzo.membership.plans` and `tazzzo.benefits.rules`) remain PENDING / UNVERIFIED; no new gate.
 
-## In review (NOT merged)
-
-- **Checkout/Order architecture boundary hardening** (`ModuleBoundaryTest` only): **IN REVIEW**. **Architecture tests and
+- **Checkout/Order architecture boundary hardening** (`ModuleBoundaryTest` only): **COMPLETE** (PR #43, squash
+  `0dd83b51d9fd74f17960c769648a227ed0ee89d0`; merged-`main` push CI `37045625143`: 2250 tests, 0 failures / 0 errors / 0 skipped,
+  `ModuleBoundaryTest` 67/67). **Architecture tests and
   documentation only: zero production files changed, no runtime, API, persistence or transaction change, no Payment, no Admin.**
   - **Order never consumes Checkout's advisory outputs:** the rule `order_does_not_depend_on_checkout_advisory_money` is widened
     and renamed `order_does_not_depend_on_checkout_advisory_benefits_or_money`: `customer.order` may not depend on any
@@ -1135,6 +1135,50 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
     rules the nested Checkout DTO mutations and the `CheckoutBenefitSnapshot.Applied` mutation PASS (the closed blind spots), and with
     the widened Order rule removed the two Order mutations PASS (the rule is non-vacuous).
   - Production Benefits rules remain 0; the six deployment gates remain PENDING / UNVERIFIED; Payment remains deferred.
+
+## In review (NOT merged)
+
+- **Admin principal + actor-attributed audit foundation** (`com.tazzzo.common.audit`, `com.tazzzo.admin.auth`, the INTERNAL
+  `/api/**` controllers and their catalog services): **IN REVIEW**. **No per-person login, no OIDC/JWT/passwords, no admin
+  credential or user collection, no central audit collection, no new endpoint or OpenAPI change, no Benefits/Membership/
+  Pricing admin API, no Payment. Production Benefits rules remain 0.**
+  - **Neutral `Actor`** (`common.audit`): `type` (`HUMAN_ADMIN` | `SERVICE_ACCOUNT` | `SYSTEM`), stable `id`, optional
+    non-secret `credentialId`, and `requestId` (required for request-borne actors, absent for `SYSTEM`, whose ids are
+    `system:<name>`). No display name, email, permissions, IP or user agent. `common` never depends on `admin` (ArchUnit).
+  - **`AdminPrincipal` + `AdminPrincipalResolver`** (`admin.auth`, mirroring `CustomerPrincipal`/`CustomerPrincipalResolver`):
+    `ApiAuthFilter` now attaches a typed principal instead of the unused `auth_role` string. The two shared tokens map to explicit
+    SERVICE_ACCOUNT principals: `service:cms-writer` (credential `shared-token:cms-writer`, role `cms-writer`) and `service:reader`
+    (`shared-token:reader`, role `reader`). Token material is never stored, logged or audited. Coarse authorization is unchanged
+    (reader GET only, cms-writer read + write, unset token disables its role, UNKNOWN route 404 before credentials), and so is the
+    existing precedence when both tokens are configured identically (cms-writer wins; now pinned by a test).
+  - **Explicit actor propagation:** every admin mutation (products: create/mint, bundle, variant pack, patch title, classify,
+    publish claim, GTIN bind, activate/discontinue/revive/archive, merge; taxonomy: open/publish release, rename/move/merge/split/
+    deprecate/revive node; attributes: create definition, add enum value, add schema field; evidence: create, retract) takes an
+    `Actor` as its first parameter, built ONLY from the authenticated principal plus the server request id (`AdminActors`); the
+    request body and headers cannot choose it. No ThreadLocal or static holder.
+  - **Transactional actor attribution on the existing ledgers:** `EventPayload`, `product_events`, `node_events`, `price_events`
+    (when the caller supplies an actor through the new `PricingService.upsertPrice(cmd, actor)`) and `DomainAudit`/`domain_events`
+    carry an optional `actor: {type, id, credential_id?, request_id?}` written in the SAME transaction as the mutation (event-first
+    preserved); an event-write failure rolls the mutation back (tested), and the actor survives a transaction retry unchanged
+    (tested). Every product/taxonomy/attribute/evidence admin mutation's events carry the actor (its `classification_history`,
+    `evidence_links`, `work_queue` and registry side-writes are audited through those same `product_events` rows).
+  - **SYSTEM actors** for background work in the touched services: `system:taxonomy-stamp-worker`, `system:merge-finalizer`,
+    `system:taint-worker`. Paths with no audited caller yet (inventory, media, rollups, offers, canonical-key backfill, the
+    unattributed `upsertPrice(cmd)`, serviceability's `DomainAudit` use) still write events WITHOUT an actor: unattributed, never a
+    guessed identity.
+  - **Legacy compatibility:** an event without `actor` stays valid and means historical/unattributed; a PRESENT actor is read
+    strictly (`ActorDocuments`: unknown type, missing/blank/non-string field, foreign key or explicit null fails loud). No migration,
+    no new collection, no new index; actor querying is out of scope.
+  - **Observability:** `admin_auth_rejected{reason=unauthenticated|forbidden}` (bounded tag only) plus a bounded warning log with
+    the request id; no token, header or customer data is logged.
+  - **Architecture:** `common_audit_never_depends_on_admin_authentication`,
+    `admin_authentication_depends_on_neither_customer_auth_nor_catalog` and
+    `customer_authentication_never_depends_on_admin_authentication` (`ModuleBoundaryTest` 67 -> 70).
+  - **What this does and does not establish:** every audited admin mutation made through the shared tokens is attributed to a
+    named SERVICE_ACCOUNT principal and its request id. It does NOT identify WHICH PERSON made a change: per-person admin
+    authentication (identity provider or per-person credentials), CMS hosting/CORS and finer-grained sensitive permissions are
+    later slices. The CMS is still not ready for broad human administration of sensitive areas.
+  - **Deployment gates unchanged:** six, all PENDING / UNVERIFIED; no new collection, index or gate.
 ## Follow-up debt (recorded)
 
 - **Non-Auth `tx.run` result-holder audit (PR-11D, no action taken):** `AttributeAuthoringService`
@@ -1192,7 +1236,7 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   `PublicServiceability`, pincode-keyed routing) is **COMPLETE** and unchanged; the
   customer-address BINDING to it (PR-12B) is **COMPLETE**.
   (Address ↔ Serviceability binding: COMPLETE.)
-- Cart (PR-12C): **COMPLETE** (PR #21). Auth transaction retry hardening (PR-11D): **COMPLETE** (PR #22). Checkout (PR-13A): **COMPLETE** (PR #23). Checkout provenance (PR-13B): **COMPLETE** (PR #24, squash `8b4fabb9b82e4e3502202ffaff1aadd35f9ba311`). Inventory Reservation lifecycle (PR-14A): **COMPLETE** (PR #25, squash `44438031022238334ecdf3995ba1096101e2e47f`). Order Foundation (PR-14B): **COMPLETE** (PR #26, squash `b620538e34afc35f7f080461750681b467ed4096`). Cart purchase-finalization seam (PR-15A-0): **COMPLETE** (PR #28, squash `611829c3649de3f5c37dec4ac5b375a1d8ef454e`). COD Order domain (PR-15A-1): **COMPLETE** (PR #29, squash `e8d4d45e88ad4935f7ad84a46ae65a671e50ba63`). Customer Order HTTP (PR-15A-2): **COMPLETE** (PR #30, squash `0cdcc97b8fcf5f7c079815b8cb276874635d15d6`; operational `orders`-count==0 deployment gate **PENDING**, not verified). Membership write foundation (PR-16A-1): **COMPLETE** (PR #31, squash `d32a23fb2e4b52fa8076de45a07bf3b60912b1e2`; Membership deployment gates **PENDING**, not verified). Membership entitlement read seam (PR-16A-2): **COMPLETE** (PR #32, squash `580633abbc8d162f45110443f503d4998f4caa48`). Membership termination (PR-16A-3): **COMPLETE** (PR #33, squash `99e2d1b7cc26982e0825bc4a9766b815aa6ae8e0`; cancel-at-period-end and immediate revoke; internal only). Benefits Foundation (order-level percentage + threshold evaluation seam; internal, no persistence): **COMPLETE** (PR #34, squash `cb2097f5979fe666d0d52de958b40db7058e3d16`; 0 production rules configured). Order Benefits snapshot (authoritative Benefits evaluation at COD placement; persisted snapshot, no public API change): **COMPLETE** (PR #35, squash `4486044e1c2f200ed05fe44abbb6525bf24a98f7`). Checkout Benefits evaluation snapshot (internal advisory preview persisted with the quote; no public API change): **COMPLETE** (PR #36, squash `30dea72482f71418048783b348647fdc0165a133`). Checkout Benefits preview public projection (additive nested `benefitPreview`, projection/API only): **COMPLETE** (PR #37, squash `48380964edb18f35eef501eb5aaf495da95d5c32`). Order money snapshot (authoritative V1 payable): **COMPLETE** (PR #38, squash `8051c45b7cf96dbc8d1374892d3b18281ff4a7b4`). Checkout advisory money snapshot + `moneyPreview`: **COMPLETE** (PR #39, squash `f98aafb67d946c04a7a7141f164e1d0998ab759b`). Benefits static config hardening: **COMPLETE** (PR #41, squash `22416e7a90aa36bc557d0926cc4b44dd7007a6b4`). PR-21 binding payable contract (PR #40, squash `3839f3d26e94f7d6cfed6e0da098ed900fd95a04`): merged without ratification; binding removed by the forward fix, public Order money kept. Advisory payable forward fix: **COMPLETE** (PR #42, squash `89fcf349c24d67dd610c28eafa34d2e70669195a`). Order money snapshot (authoritative V1 payable: merchandise subtotal minus Benefits discount; internal, no public API change): **IN REVIEW**. Payment: **NOT STARTED**. Real payment gateway: **NOT STARTED**.
+- Cart (PR-12C): **COMPLETE** (PR #21). Auth transaction retry hardening (PR-11D): **COMPLETE** (PR #22). Checkout (PR-13A): **COMPLETE** (PR #23). Checkout provenance (PR-13B): **COMPLETE** (PR #24, squash `8b4fabb9b82e4e3502202ffaff1aadd35f9ba311`). Inventory Reservation lifecycle (PR-14A): **COMPLETE** (PR #25, squash `44438031022238334ecdf3995ba1096101e2e47f`). Order Foundation (PR-14B): **COMPLETE** (PR #26, squash `b620538e34afc35f7f080461750681b467ed4096`). Cart purchase-finalization seam (PR-15A-0): **COMPLETE** (PR #28, squash `611829c3649de3f5c37dec4ac5b375a1d8ef454e`). COD Order domain (PR-15A-1): **COMPLETE** (PR #29, squash `e8d4d45e88ad4935f7ad84a46ae65a671e50ba63`). Customer Order HTTP (PR-15A-2): **COMPLETE** (PR #30, squash `0cdcc97b8fcf5f7c079815b8cb276874635d15d6`; operational `orders`-count==0 deployment gate **PENDING**, not verified). Membership write foundation (PR-16A-1): **COMPLETE** (PR #31, squash `d32a23fb2e4b52fa8076de45a07bf3b60912b1e2`; Membership deployment gates **PENDING**, not verified). Membership entitlement read seam (PR-16A-2): **COMPLETE** (PR #32, squash `580633abbc8d162f45110443f503d4998f4caa48`). Membership termination (PR-16A-3): **COMPLETE** (PR #33, squash `99e2d1b7cc26982e0825bc4a9766b815aa6ae8e0`; cancel-at-period-end and immediate revoke; internal only). Benefits Foundation (order-level percentage + threshold evaluation seam; internal, no persistence): **COMPLETE** (PR #34, squash `cb2097f5979fe666d0d52de958b40db7058e3d16`; 0 production rules configured). Order Benefits snapshot (authoritative Benefits evaluation at COD placement; persisted snapshot, no public API change): **COMPLETE** (PR #35, squash `4486044e1c2f200ed05fe44abbb6525bf24a98f7`). Checkout Benefits evaluation snapshot (internal advisory preview persisted with the quote; no public API change): **COMPLETE** (PR #36, squash `30dea72482f71418048783b348647fdc0165a133`). Checkout Benefits preview public projection (additive nested `benefitPreview`, projection/API only): **COMPLETE** (PR #37, squash `48380964edb18f35eef501eb5aaf495da95d5c32`). Order money snapshot (authoritative V1 payable): **COMPLETE** (PR #38, squash `8051c45b7cf96dbc8d1374892d3b18281ff4a7b4`). Checkout advisory money snapshot + `moneyPreview`: **COMPLETE** (PR #39, squash `f98aafb67d946c04a7a7141f164e1d0998ab759b`). Benefits static config hardening: **COMPLETE** (PR #41, squash `22416e7a90aa36bc557d0926cc4b44dd7007a6b4`). PR-21 binding payable contract (PR #40, squash `3839f3d26e94f7d6cfed6e0da098ed900fd95a04`): merged without ratification; binding removed by the forward fix, public Order money kept. Advisory payable forward fix: **COMPLETE** (PR #42, squash `89fcf349c24d67dd610c28eafa34d2e70669195a`). Checkout/Order architecture boundary hardening: **COMPLETE** (PR #43, squash `0dd83b51d9fd74f17960c769648a227ed0ee89d0`). Order money snapshot (authoritative V1 payable: merchandise subtotal minus Benefits discount; internal, no public API change): **IN REVIEW**. Payment: **NOT STARTED**. Real payment gateway: **NOT STARTED**.
 
 ## Next (ratified sequence)
 
@@ -1207,7 +1251,8 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
    (Checkout advisory money snapshot + public `moneyPreview`) complete (PR #39); sixth slice (Benefits static config
    hardening: plan cross-validation) complete (PR #41); PR #40 (binding payable, unratified) was merged and its binding is
    removed by the forward fix (complete, PR #42), which keeps the public authoritative Order money; the Checkout/Order
-   architecture boundary hardening is in review; Payment comes last.
+   architecture boundary hardening is complete (PR #43); the admin principal + actor-audit foundation is in review
+   (per-person admin authentication is the next discovery); Payment comes last.
 4. Payment domain, then the prepaid Order flow, then a real gateway.
 5. Admin/CMS expansion.
 
@@ -1244,6 +1289,16 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-10-03** — `./mvnw clean test` on Java 21 + Docker on `feature/pr24-admin-actor-audit-foundation` (based on `main`
+  `0dd83b51d9fd74f17960c769648a227ed0ee89d0`): **BUILD SUCCESS**, 2277 tests, 0 failures / 0 errors / 0 skipped (2250 baseline +
+  5 `ActorTest` + 4 `AdminPrincipalTest` + 6 `ApiAuthFilterPrincipalTest` + 9 `AdminActorAuditIT` + 3 ArchUnit rules; 243 existing
+  test call sites now pass `TestActors.TEST`, a `system:test` actor); `ModuleBoundaryTest` 70/70. Twelve mutation checks were each
+  killed: principal not attached, cms token mapped to HUMAN_ADMIN, actor request id differing from `X-Request-Id`, product event
+  without actor, node event without actor, a service dropping the actor while still writing state, legacy actor-less events
+  rejected, a malformed actor silently accepted, reader writes allowed, no metric on an invalid token, the raw token copied into
+  the credential id, and `common.audit` depending on `admin.auth`.
+- **2026-10-03** — merged-`main` verification of PR #43 (squash `0dd83b51d9fd74f17960c769648a227ed0ee89d0`, push CI run
+  `37045625143` on Java 21): **BUILD SUCCESS**, 2250 tests, 0 failures / 0 errors / 0 skipped; `ModuleBoundaryTest` 67/67.
 - **2026-10-02** — `./mvnw clean test` on Java 21 + Docker on `feature/pr23-checkout-order-arch-hardening` (based on `main`
   `89fcf349c24d67dd610c28eafa34d2e70669195a`): **BUILD SUCCESS**, 2250 tests, 0 failures / 0 errors / 0 skipped;
   `ModuleBoundaryTest` 67/67 (rules hardened, none added or removed; no production file changed).

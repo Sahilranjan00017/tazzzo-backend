@@ -1,5 +1,6 @@
 package com.tazzzo.catalog;
 
+import com.tazzzo.common.audit.TestActors;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.tazzzo.catalog.consumer.ConsumerObservability;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -76,7 +77,7 @@ class ConsumerReachabilityIT extends AbstractConsumerIT {
         db.drop();
         schemaBootstrap.bootstrap(db);
         loader.load(db);
-        changes.recordBaseline("R1");
+        changes.recordBaseline(TestActors.TEST, "R1");
         eligibleProduct("TZP-SALT", V_SALT);
         eligibleProduct("TZP-TEA", V_TEA);
         eligibleProduct("TZP-SLEEP", V_SLEEP);
@@ -348,9 +349,9 @@ class ConsumerReachabilityIT extends AbstractConsumerIT {
     @Test @Order(11)
     void a_vertical_deprecated_in_a_later_release_stays_reachable_under_the_release_where_it_was_active() {
         int version = db.getCollection("taxonomy_nodes").find(eq("_id", V_SLEEP)).first().getInteger("version");
-        changes.openRelease("R2", "R1");
-        changes.deprecateNode(V_SLEEP, version);
-        changes.activateRelease("R2");
+        changes.openRelease(TestActors.TEST, "R2", "R1");
+        changes.deprecateNode(TestActors.TEST, V_SLEEP, version);
+        changes.activateRelease(TestActors.TEST, "R2");
 
         assertNotReachable("children", () -> children(V_SLEEP, ""));
         assertThat(children(V_SLEEP, "?release=R1").getStatusCode().value())

@@ -1,5 +1,6 @@
 package com.tazzzo.catalog;
 
+import com.tazzzo.common.audit.TestActors;
 import com.tazzzo.catalog.domain.BundleComponent;
 import com.tazzzo.catalog.tx.BundleService;
 import com.tazzzo.catalog.tx.MergeService;
@@ -38,27 +39,27 @@ class MergeCrashIT extends AbstractMongoIT {
 
     @Test @Order(1)
     void setup_products_offers_bundles() {
-        mintService.mint(TestFixtures.internalSingle(LOSER, "k|loser"));
-        mintService.mint(TestFixtures.internalSingle(SURVIVOR, "k|surv"));
-        mintService.mint(TestFixtures.internalSingle(THIRD, "k|third"));
-        bundleService.activate(LOSER);
-        bundleService.activate(SURVIVOR);
-        bundleService.activate(THIRD);
+        mintService.mint(TestActors.TEST, TestFixtures.internalSingle(LOSER, "k|loser"));
+        mintService.mint(TestActors.TEST, TestFixtures.internalSingle(SURVIVOR, "k|surv"));
+        mintService.mint(TestActors.TEST, TestFixtures.internalSingle(THIRD, "k|third"));
+        bundleService.activate(TestActors.TEST, LOSER);
+        bundleService.activate(TestActors.TEST, SURVIVOR);
+        bundleService.activate(TestActors.TEST, THIRD);
         // loser-only offer (should repoint) + colliding offer (survivor-wins delete)
         db.getCollection("offers_current").insertOne(offer(LOSER, "tazzzo", "S1", "retail", 100));
         db.getCollection("offers_current").insertOne(offer(LOSER, "tazzzo", "S2", "retail", 110));
         db.getCollection("offers_current").insertOne(offer(SURVIVOR, "tazzzo", "S2", "retail", 120));
         // 3-component bundle -> normal repoint; 2-component {loser,survivor} -> Law-4 fail-closed
-        bundleService.writeBundle(TestFixtures.bundle(BUNDLE3, List.of(
+        bundleService.writeBundle(TestActors.TEST, TestFixtures.bundle(BUNDLE3, List.of(
                 new BundleComponent(LOSER, 1, null), new BundleComponent(SURVIVOR, 1, null),
                 new BundleComponent(THIRD, 2, null))));
-        bundleService.writeBundle(TestFixtures.bundle(BUNDLE2, List.of(
+        bundleService.writeBundle(TestActors.TEST, TestFixtures.bundle(BUNDLE2, List.of(
                 new BundleComponent(LOSER, 1, null), new BundleComponent(SURVIVOR, 1, null))));
     }
 
     @Test @Order(2)
     void crash_window_state_is_failclosed_and_outbox_survives() {
-        mergeService.startMerge(LOSER, SURVIVOR);
+        mergeService.startMerge(TestActors.TEST, LOSER, SURVIVOR);
         // "crash": finalizer never runs
         assertThat(product(LOSER).getString("lifecycle")).isEqualTo("merging");
         assertThat(product(SURVIVOR).getString("lifecycle")).isEqualTo("merging");

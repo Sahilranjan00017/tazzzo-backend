@@ -1,5 +1,6 @@
 package com.tazzzo.catalog;
 
+import com.tazzzo.common.audit.TestActors;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.tazzzo.catalog.consumer.ConsumerObservability;
 import org.junit.jupiter.api.BeforeAll;
@@ -55,7 +56,7 @@ class CommerceFreshnessGateIT extends AbstractConsumerIT {
         db.drop();
         schemaBootstrap.bootstrap(db);
         loader.load(db);
-        changes.recordBaseline("R1");
+        changes.recordBaseline(TestActors.TEST, "R1");
     }
 
     @Test void list_fails_closed_503_when_freshness_disabled() {

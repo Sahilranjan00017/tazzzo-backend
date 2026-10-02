@@ -1,5 +1,6 @@
 package com.tazzzo.catalog;
 
+import com.tazzzo.common.audit.TestActors;
 import com.tazzzo.catalog.schema.SnapshotTaxonomyReader;
 import com.tazzzo.catalog.schema.SnapshotTopologyException;
 import com.tazzzo.catalog.schema.TaxonomyLoader;
@@ -60,13 +61,13 @@ class SnapshotTaxonomyReaderIT extends AbstractMongoIT {
     @BeforeAll
     void seedTwoDivergentReleases() {
         loader.load(db);
-        changes.recordBaseline(R1);
+        changes.recordBaseline(TestActors.TEST, R1);
 
-        changes.openRelease(R2, R1);
-        changes.renameNode(BASMATI, liveVersion(BASMATI), "Basmati Rice RENAMED");
-        changes.moveNode(BASMATI, liveVersion(BASMATI), NEW_PARENT);
-        minted = changes.splitNode(SALT, liveVersion(SALT), List.of("Salt Split X", "Salt Split Y"));
-        changes.activateRelease(R2);
+        changes.openRelease(TestActors.TEST, R2, R1);
+        changes.renameNode(TestActors.TEST, BASMATI, liveVersion(BASMATI), "Basmati Rice RENAMED");
+        changes.moveNode(TestActors.TEST, BASMATI, liveVersion(BASMATI), NEW_PARENT);
+        minted = changes.splitNode(TestActors.TEST, SALT, liveVersion(SALT), List.of("Salt Split X", "Salt Split Y"));
+        changes.activateRelease(TestActors.TEST, R2);
 
         // Precondition for every divergence test below: the live tree really did move on.
         assertThat(live(BASMATI).getString("name")).isEqualTo("Basmati Rice RENAMED");

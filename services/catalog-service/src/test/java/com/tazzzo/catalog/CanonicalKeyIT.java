@@ -1,5 +1,6 @@
 package com.tazzzo.catalog;
 
+import com.tazzzo.common.audit.TestActors;
 import com.tazzzo.catalog.domain.PackOf;
 import com.tazzzo.catalog.domain.ProductDraft;
 import com.tazzzo.catalog.schema.CanonicalKeyService;
@@ -119,7 +120,7 @@ class CanonicalKeyIT extends AbstractMongoIT {
 
     @Test
     void gate2_a_product_with_no_derivable_identity_STILL_MINTS() {
-        mintService.mint(draft("TZP-CK-NULL", "ck|null", "BR-X",
+        mintService.mint(TestActors.TEST, draft("TZP-CK-NULL", "ck|null", "BR-X",
                 Map.of("pack_size", 1, "pack_unit", "dozen")));
         Document p = db.getCollection("products").find(eq("_id", "TZP-CK-NULL")).first();
         assertThat(p).as("identity absence must never block catalogue coverage").isNotNull();
@@ -135,7 +136,7 @@ class CanonicalKeyIT extends AbstractMongoIT {
     @Test
     void p1_cross_source_convergence_without_any_caller_state() {
         // SRC-A mints. Nothing below refers to this id again.
-        mintService.mint(draft("TZP-CK-SRCA", "ck|srca", "BR-INDIAGATE",
+        mintService.mint(TestActors.TEST, draft("TZP-CK-SRCA", "ck|srca", "BR-INDIAGATE",
                 Map.of("pack_size", 5, "pack_unit", "kg")));
 
         // SRC-B: key recomputed FROM ITS OWN PAYLOAD ALONE (5000 g, phrased differently).
@@ -150,9 +151,9 @@ class CanonicalKeyIT extends AbstractMongoIT {
 
     @Test
     void race_second_mint_on_the_same_key_collides_rather_than_duplicating() {
-        mintService.mint(draft("TZP-CK-R1", "ck|r1", "BR-RACE",
+        mintService.mint(TestActors.TEST, draft("TZP-CK-R1", "ck|r1", "BR-RACE",
                 Map.of("pack_size", 2, "pack_unit", "kg")));
-        assertThatThrownBy(() -> mintService.mint(draft("TZP-CK-R2", "ck|r2", "BR-RACE",
+        assertThatThrownBy(() -> mintService.mint(TestActors.TEST, draft("TZP-CK-R2", "ck|r2", "BR-RACE",
                 Map.of("pack_size", 2000, "pack_unit", "g"))))
                 .isInstanceOf(IdentityCollisionException.class)
                 .hasMessageContaining("canonical identity");
@@ -163,14 +164,14 @@ class CanonicalKeyIT extends AbstractMongoIT {
 
     @Test
     void u4h_variant_pack_is_distinct_from_a_single_of_the_same_total() {
-        mintService.mint(draft("TZP-CK-C", "ck|c", "BR-VP",
+        mintService.mint(TestActors.TEST, draft("TZP-CK-C", "ck|c", "BR-VP",
                 Map.of("pack_size", 250, "pack_unit", "ml")));
         new BundleActivator().activate(this, "TZP-CK-C");
         // a 1500ml single
-        mintService.mint(draft("TZP-CK-1500", "ck|1500", "BR-VP",
+        mintService.mint(TestActors.TEST, draft("TZP-CK-1500", "ck|1500", "BR-VP",
                 Map.of("pack_size", 1500, "pack_unit", "ml")));
         // a 6 x 250ml pack: TOTAL measure per U-4-h, so also 1500ml
-        variantPackService.writeVariantPack(new ProductDraft("TZP-CK-VP", "variant_pack",
+        variantPackService.writeVariantPack(TestActors.TEST, new ProductDraft("TZP-CK-VP", "variant_pack",
                 "internal", "ck|vp", null, "BR-VP", "Pack", V, "0.9.0", "provisional",
                 Map.of("pack_size", 1500, "pack_unit", "ml"), List.of(), null,
                 new PackOf("TZP-CK-C", 6)));
@@ -185,7 +186,7 @@ class CanonicalKeyIT extends AbstractMongoIT {
     @Test
     void wp6_backfill_is_write_once_and_idempotent() {
         // a product that predates CAT-ID: strip its key, as a legacy row would be
-        mintService.mint(draft("TZP-CK-BF", "ck|bf", "BR-BF",
+        mintService.mint(TestActors.TEST, draft("TZP-CK-BF", "ck|bf", "BR-BF",
                 Map.of("pack_size", 9, "pack_unit", "kg")));
         String original = keyOf("TZP-CK-BF");
         db.getCollection("products").updateOne(eq("_id", "TZP-CK-BF"),
@@ -208,7 +209,7 @@ class CanonicalKeyIT extends AbstractMongoIT {
     static class BundleActivator {
         void activate(CanonicalKeyIT t, String id) {
             Document p = t.db.getCollection("products").find(eq("_id", id)).first();
-            t.lifecycle().activate(id, p.getInteger("version"));
+            t.lifecycle().activate(TestActors.TEST, id, p.getInteger("version"));
         }
     }
 

@@ -1,5 +1,6 @@
 package com.tazzzo.catalog;
 
+import com.tazzzo.common.audit.TestActors;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.tazzzo.catalog.consumer.ConsumerObservability;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -73,7 +74,7 @@ class ConsumerListTopologyIT extends AbstractConsumerIT {
         db.drop();
         schemaBootstrap.bootstrap(db);
         loader.load(db);
-        changes.recordBaseline("R1");
+        changes.recordBaseline(TestActors.TEST, "R1");
         assertThat(db.getCollection("taxonomy_nodes").find(eq("_id", V_SLEEP)).first().getString("name"))
                 .isEqualTo("Sleep Support");
         // Health & Wellness: 3 sleep products (ids sort first) and 3 protein products.
@@ -103,9 +104,9 @@ class ConsumerListTopologyIT extends AbstractConsumerIT {
 
     @Test @Order(2)
     void the_current_pointer_moves_to_R2_which_deprecates_sleep_support() {
-        changes.openRelease("R2", "R1");
-        changes.deprecateNode(V_SLEEP, version(V_SLEEP));
-        changes.activateRelease("R2");
+        changes.openRelease(TestActors.TEST, "R2", "R1");
+        changes.deprecateNode(TestActors.TEST, V_SLEEP, version(V_SLEEP));
+        changes.activateRelease(TestActors.TEST, "R2");
         assertThat(db.getCollection("system_config").find(eq("_id", "consumer_taxonomy_release")).first()
                 .getString("release_id")).isEqualTo("R2");
     }

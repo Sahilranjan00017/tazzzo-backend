@@ -1,5 +1,6 @@
 package com.tazzzo.catalog;
 
+import com.tazzzo.common.audit.TestActors;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.tazzzo.catalog.consumer.ConsumerObservability;
 import com.tazzzo.catalog.repo.WritePath;
@@ -94,7 +95,7 @@ class CommerceApiIT extends AbstractConsumerIT {
         db.drop();
         schemaBootstrap.bootstrap(db);
         loader.load(db);
-        changes.recordBaseline("R1");
+        changes.recordBaseline(TestActors.TEST, "R1");
         // three eligible products under Basmati, priced, projection built
         for (int i = 1; i <= 3; i++) {
             String sku = String.format("TZP-L%03d", i);

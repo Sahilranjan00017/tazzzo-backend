@@ -1,5 +1,6 @@
 package com.tazzzo.catalog;
 
+import com.tazzzo.common.audit.TestActors;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.tazzzo.catalog.schema.TaxonomyLoader;
 import com.tazzzo.catalog.tx.TaintService;
@@ -35,7 +36,7 @@ class EvidenceApiIT extends AbstractApiIT {
         db.drop();
         schemaBootstrap.bootstrap(db);
         loader.load(db);
-        releases.recordBaseline("0.9.0");
+        releases.recordBaseline(TestActors.TEST, "0.9.0");
     }
 
     private void assertErrorCode(ResponseEntity<JsonNode> res, HttpStatus status, String code) {

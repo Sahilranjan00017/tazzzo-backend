@@ -1,5 +1,6 @@
 package com.tazzzo.catalog;
 
+import com.tazzzo.common.audit.TestActors;
 import com.mongodb.MongoCommandException;
 import com.mongodb.client.ClientSession;
 import com.mongodb.client.model.Filters;
@@ -33,9 +34,9 @@ class PublishFenceIT extends AbstractMongoIT {
 
     @Test @Order(1)
     void gate_passes_on_active_readable_evidence() {
-        mintService.mint(TestFixtures.internalSingle("TZP-P1", "fence|p1"));
+        mintService.mint(TestActors.TEST, TestFixtures.internalSingle("TZP-P1", "fence|p1"));
         evidence("EV-100001", "active", "readable");
-        publishService.publishClaim("TZP-P1", "diabetic_friendly", List.of("EV-100001"));
+        publishService.publishClaim(TestActors.TEST, "TZP-P1", "diabetic_friendly", List.of("EV-100001"));
         Document p = db.getCollection("products").find(eq("_id", "TZP-P1")).first();
         assertThat(p.get("attributes", Document.class).getBoolean("diabetic_friendly_published")).isTrue();
     }
@@ -43,11 +44,11 @@ class PublishFenceIT extends AbstractMongoIT {
     @Test @Order(2)
     void gate_blocks_retracted_and_shredded_evidence() {
         evidence("EV-100002", "active", "readable");
-        taintService.retractEvidence("EV-100002", "retracted"); // THE single retraction path
-        assertThatThrownBy(() -> publishService.publishClaim("TZP-P1", "c2", List.of("EV-100002")))
+        taintService.retractEvidence(TestActors.TEST, "EV-100002", "retracted"); // THE single retraction path
+        assertThatThrownBy(() -> publishService.publishClaim(TestActors.TEST, "TZP-P1", "c2", List.of("EV-100002")))
                 .isInstanceOf(EvidenceGateException.class);
         evidence("EV-100003", "active", "shredded");
-        assertThatThrownBy(() -> publishService.publishClaim("TZP-P1", "c3", List.of("EV-100003")))
+        assertThatThrownBy(() -> publishService.publishClaim(TestActors.TEST, "TZP-P1", "c3", List.of("EV-100003")))
                 .isInstanceOf(EvidenceGateException.class);
         Document p = db.getCollection("products").find(eq("_id", "TZP-P1")).first();
         assertThat(p.get("attributes", Document.class).get("c2_published")).isNull();

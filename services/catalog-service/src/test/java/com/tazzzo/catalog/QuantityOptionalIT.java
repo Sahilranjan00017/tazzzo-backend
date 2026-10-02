@@ -1,5 +1,6 @@
 package com.tazzzo.catalog;
 
+import com.tazzzo.common.audit.TestActors;
 import com.tazzzo.catalog.domain.ProductDraft;
 import com.tazzzo.catalog.schema.TaxonomyLoader;
 import com.tazzzo.catalog.tx.MintService;
@@ -39,7 +40,7 @@ class QuantityOptionalIT extends AbstractMongoIT {
 
     @Test
     void u4f_1_a_quantityless_sku_is_catalogued_not_rejected() {
-        assertThatCode(() -> mintService.mint(new ProductDraft("TZP-U4F-1", "single", "internal",
+        assertThatCode(() -> mintService.mint(TestActors.TEST, new ProductDraft("TZP-U4F-1", "single", "internal",
                 "u4f|1", null, "BR-LOOSE", "Loose atta, sold by weight", V, "0.9.0",
                 "provisional", Map.of(), List.of(), null)))
                 .as("missing quantity is a data-completeness problem, not a creation failure")
@@ -52,7 +53,7 @@ class QuantityOptionalIT extends AbstractMongoIT {
 
     @Test
     void u4f_2_identity_stays_unresolved_and_is_never_guessed() {
-        mintService.mint(new ProductDraft("TZP-U4F-2", "single", "internal", "u4f|2", null,
+        mintService.mint(TestActors.TEST, new ProductDraft("TZP-U4F-2", "single", "internal", "u4f|2", null,
                 "BR-LOOSE", "Loose atta 2", V, "0.9.0", "provisional", Map.of(), List.of(), null));
 
         Document p = db.getCollection("products").find(eq("_id", "TZP-U4F-2")).first();
@@ -67,7 +68,7 @@ class QuantityOptionalIT extends AbstractMongoIT {
 
     @Test
     void u4f_3_the_missing_quantity_is_queued_not_silently_lost() {
-        mintService.mint(new ProductDraft("TZP-U4F-3", "single", "internal", "u4f|3", null,
+        mintService.mint(TestActors.TEST, new ProductDraft("TZP-U4F-3", "single", "internal", "u4f|3", null,
                 "BR-LOOSE", "Loose atta 3", V, "0.9.0", "provisional", Map.of(), List.of(), null));
 
         Document item = db.getCollection("work_queue")
@@ -87,7 +88,7 @@ class QuantityOptionalIT extends AbstractMongoIT {
     @Test
     void u4f_4_a_quantity_bearing_sku_raises_no_gap() {
         String clean = "TZV-000027"; // Maida & Refined Flour, untouched by the tests above
-        mintService.mint(new ProductDraft("TZP-U4F-4", "single", "internal", "u4f|4", null,
+        mintService.mint(TestActors.TEST, new ProductDraft("TZP-U4F-4", "single", "internal", "u4f|4", null,
                 "BR-LOOSE", "Packed maida 5kg", clean, "0.9.0", "provisional",
                 Map.of("pack_size", 5, "pack_unit", "kg"), List.of(), null));
         assertThat(db.getCollection("work_queue")

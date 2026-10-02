@@ -1,5 +1,6 @@
 package com.tazzzo.catalog;
 
+import com.tazzzo.common.audit.TestActors;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.tazzzo.catalog.consumer.ConsumerObservability;
 import com.tazzzo.catalog.tx.MergeService;
@@ -62,14 +63,14 @@ class ConsumerPdpMergeIT extends AbstractConsumerIT {
         db.drop();
         schemaBootstrap.bootstrap(db);
         loader.load(db);
-        changes.recordBaseline("R1");
+        changes.recordBaseline(TestActors.TEST, "R1");
         eligibleProduct("TZP-A", V);
         eligibleProduct("TZP-B", V);
         eligibleProduct("TZP-C", V);
         // A -> B, then B -> C: a two-hop chain minted by the REAL write path.
-        merges.startMerge("TZP-A", "TZP-B");
+        merges.startMerge(TestActors.TEST, "TZP-A", "TZP-B");
         merges.runFinalizer();
-        merges.startMerge("TZP-B", "TZP-C");
+        merges.startMerge(TestActors.TEST, "TZP-B", "TZP-C");
         merges.runFinalizer();
         assertThat(product("TZP-A").getString("lifecycle")).isEqualTo("merged");
         assertThat(product("TZP-A").getString("merged_into")).isEqualTo("TZP-B");

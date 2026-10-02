@@ -1,5 +1,6 @@
 package com.tazzzo.customer.checkout;
 
+import com.tazzzo.common.audit.TestActors;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -135,7 +136,7 @@ class CheckoutQuoteIT extends AbstractApiIT {
         db.drop();
         schemaBootstrap.bootstrap(db);
         loader.load(db);
-        changes.recordBaseline("R1");
+        changes.recordBaseline(TestActors.TEST, "R1");
         serviceability.upsertServiceArea(new UpsertServiceAreaCommand(PIN_OK, "SA-CHK-1",
                 List.of(new ServiceabilityRoute("FUL-CHK-INTERNAL", 0, true)), "seed", null));
     }

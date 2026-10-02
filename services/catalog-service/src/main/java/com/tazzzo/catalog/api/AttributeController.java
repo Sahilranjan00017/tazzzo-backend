@@ -1,5 +1,6 @@
 package com.tazzzo.catalog.api;
 
+import jakarta.servlet.http.HttpServletRequest;
 import java.util.ArrayList;
 import java.util.List;
 import com.tazzzo.catalog.api.ApiDtos.*;
@@ -21,15 +22,17 @@ public class AttributeController {
     }
 
     @PostMapping("/attributes")
-    public ResponseEntity<IdResponse> create(@RequestBody CreateAttributeRequest body) {
-        int version = authoring.createDefinition(body.key(), body.type(), body.governance(),
+    public ResponseEntity<IdResponse> create(@RequestBody CreateAttributeRequest body,
+                                    HttpServletRequest httpRequest) {
+        int version = authoring.createDefinition(AdminActors.require(httpRequest), body.key(), body.type(), body.governance(),
                 body.knownValues());
         return ResponseEntity.status(HttpStatus.CREATED).body(new IdResponse(body.key(), version));
     }
 
     @PostMapping("/attributes/{key}/values")
-    public IdResponse addValue(@PathVariable String key, @RequestBody AddEnumValueRequest body) {
-        authoring.addEnumValue(key, body.value());
+    public IdResponse addValue(@PathVariable String key, @RequestBody AddEnumValueRequest body,
+                                    HttpServletRequest httpRequest) {
+        authoring.addEnumValue(AdminActors.require(httpRequest), key, body.value());
         return new IdResponse(key, null);
     }
 
@@ -43,8 +46,9 @@ public class AttributeController {
     }
 
     @PostMapping("/attribute-schemas/{id}/fields")
-    public IdResponse addField(@PathVariable String id, @RequestBody AddSchemaFieldRequest body) {
-        int version = authoring.addSchemaField(id, body.key(),
+    public IdResponse addField(@PathVariable String id, @RequestBody AddSchemaFieldRequest body,
+                                    HttpServletRequest httpRequest) {
+        int version = authoring.addSchemaField(AdminActors.require(httpRequest), id, body.key(),
                 Boolean.TRUE.equals(body.required()), Boolean.TRUE.equals(body.allowBreaking()));
         return new IdResponse(id, version);
     }

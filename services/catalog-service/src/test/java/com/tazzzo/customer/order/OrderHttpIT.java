@@ -1,5 +1,6 @@
 package com.tazzzo.customer.order;
 
+import com.tazzzo.common.audit.TestActors;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.mongodb.MongoException;
 import com.mongodb.client.MongoDatabase;
@@ -156,7 +157,7 @@ class OrderHttpIT extends AbstractApiIT {
         db.drop();
         schemaBootstrap.bootstrap(db);
         loader.load(db);
-        changes.recordBaseline("R1");
+        changes.recordBaseline(TestActors.TEST, "R1");
     }
 
     @BeforeEach

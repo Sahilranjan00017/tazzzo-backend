@@ -1,5 +1,6 @@
 package com.tazzzo.catalog.tx;
 
+import com.tazzzo.common.audit.Actor;
 import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.Updates;
 import com.tazzzo.catalog.events.EventPayload;
@@ -29,7 +30,7 @@ public class ProductUpdateService {
         this.writePath = writePath;
     }
 
-    public void updateTitle(String productId, int expectedVersion, String title) {
+    public void updateTitle(Actor actor, String productId, int expectedVersion, String title) {
         if (title == null || title.isBlank()) {
             throw new IllegalArgumentException("title must not be blank");
         }
@@ -46,7 +47,7 @@ public class ProductUpdateService {
             writePath.casUpdateWithEvent(session, "products", productId, expectedVersion,
                     Updates.combine(Updates.set("title", title),
                             Updates.set("updated_at", new Date()), Updates.inc("version", 1)),
-                    new EventPayload("PRODUCT_TITLE_UPDATED", productId, Map.of("title", title)));
+                    new EventPayload("PRODUCT_TITLE_UPDATED", productId, Map.of("title", title), actor));
         });
     }
 }

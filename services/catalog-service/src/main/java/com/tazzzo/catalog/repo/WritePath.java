@@ -151,7 +151,7 @@ public class WritePath {
 
     private void appendEvent(ClientSession session, EventPayload event) {
         db.getCollection("product_events").insertOne(session,
-                ProductDocuments.eventDoc(event.type(), event.productId(), event.detail()));
+                ProductDocuments.eventDoc(event.type(), event.productId(), event.detail(), event.actor()));
     }
 
     /**

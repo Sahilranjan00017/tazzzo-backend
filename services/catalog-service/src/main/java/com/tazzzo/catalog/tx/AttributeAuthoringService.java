@@ -1,5 +1,6 @@
 package com.tazzzo.catalog.tx;
 
+import com.tazzzo.common.audit.Actor;
 import com.mongodb.MongoWriteException;
 import com.mongodb.client.ClientSession;
 import com.mongodb.client.model.Filters;
@@ -45,7 +46,7 @@ public class AttributeAuthoringService {
 
     /** New definition version (v1 for a new key). Type changes are forbidden (H-9): a type
      *  change is a NEW semantic key, never a new version of the old one. */
-    public int createDefinition(String key, String type, String governance, List<String> knownValues) {
+    public int createDefinition(Actor actor, String key, String type, String governance, List<String> knownValues) {
         if (!TYPES.contains(type)) {
             throw new TaxonomyChangeException("INVALID_TYPE", "unknown attribute type: " + type);
         }
@@ -59,7 +60,7 @@ public class AttributeAuthoringService {
         }
         int[] version = new int[1];
         tx.run(session -> {
-            EventPayload e = ev("ATTR_DEF_CREATED", Map.of("key", key, "type", type));
+            EventPayload e = ev(actor, "ATTR_DEF_CREATED", Map.of("key", key, "type", type));
             String rel = releaseGate.requireOpen(session, e);
             Document latest = latestAny(session, "attribute_definitions",
                     Filters.eq("key", key));
@@ -97,9 +98,9 @@ public class AttributeAuthoringService {
     }
 
     /** Additive enum value — data only, no release, no schema change (growth law). */
-    public void addEnumValue(String key, String value) {
+    public void addEnumValue(Actor actor, String key, String value) {
         tx.run(session -> {
-            EventPayload e = ev("ATTR_ENUM_VALUE_ADDED", Map.of("key", key, "value", value));
+            EventPayload e = ev(actor, "ATTR_ENUM_VALUE_ADDED", Map.of("key", key, "value", value));
             Document def = latestActive(session, "attribute_definitions", Filters.eq("key", key));
             if (def == null) {
                 throw new TaxonomyChangeException("UNKNOWN_DEFINITION", key);
@@ -122,10 +123,10 @@ public class AttributeAuthoringService {
      * allowBreaking acknowledgment (proof 3): compatibility debt is stamped onto affected
      * products at activation — never created silently.
      */
-    public int addSchemaField(String schemaId, String key, boolean required, boolean allowBreaking) {
+    public int addSchemaField(Actor actor, String schemaId, String key, boolean required, boolean allowBreaking) {
         int[] version = new int[1];
         tx.run(session -> {
-            EventPayload e = ev("ATTR_SCHEMA_FIELD_ADDED",
+            EventPayload e = ev(actor, "ATTR_SCHEMA_FIELD_ADDED",
                     Map.of("schema", schemaId, "key", key, "required", required));
             String rel = releaseGate.requireOpen(session, e);
             Document defActive = latestActive(session, "attribute_definitions", Filters.eq("key", key));
@@ -230,7 +231,7 @@ public class AttributeAuthoringService {
                 .sort(Sorts.descending("version")).first();
     }
 
-    private EventPayload ev(String type, Map<String, Object> detail) {
-        return new EventPayload(type, "TZP-SYSTEM", detail);
+    private EventPayload ev(Actor actor, String type, Map<String, Object> detail) {
+        return new EventPayload(type, "TZP-SYSTEM", detail, actor);
     }
 }

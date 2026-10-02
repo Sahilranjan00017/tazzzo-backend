@@ -1,5 +1,6 @@
 package com.tazzzo.catalog;
 
+import com.tazzzo.common.audit.TestActors;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.tazzzo.catalog.schema.TaxonomyLoader;
 import com.tazzzo.catalog.tx.TaxonomyChangeService;
@@ -42,7 +43,7 @@ class At3HttpEquivalenceIT extends AbstractApiIT {
         db.drop();
         schemaBootstrap.bootstrap(db);
         loader.load(db);
-        releases.recordBaseline("0.9.0");
+        releases.recordBaseline(TestActors.TEST, "0.9.0");
         runViaServices();
         Snapshot direct = snapshot();
 
@@ -50,7 +51,7 @@ class At3HttpEquivalenceIT extends AbstractApiIT {
         db.drop();
         schemaBootstrap.bootstrap(db);
         loader.load(db);
-        releases.recordBaseline("0.9.0");
+        releases.recordBaseline(TestActors.TEST, "0.9.0");
         runViaHttp();
         Snapshot http = snapshot();
 
@@ -70,10 +71,10 @@ class At3HttpEquivalenceIT extends AbstractApiIT {
 
     private void runViaServices() {
         var authoring = applicationAuthoring();
-        releases.openRelease("4.0.0", "0.9.0");
-        authoring.createDefinition("shelf_life_days", "number", "descriptive", null);
-        authoring.addSchemaField("rice", "shelf_life_days", false, false);
-        releases.activateRelease("4.0.0");
+        releases.openRelease(TestActors.TEST, "4.0.0", "0.9.0");
+        authoring.createDefinition(TestActors.TEST, "shelf_life_days", "number", "descriptive", null);
+        authoring.addSchemaField(TestActors.TEST, "rice", "shelf_life_days", false, false);
+        releases.activateRelease(TestActors.TEST, "4.0.0");
         mint("TZP-AT3", "at3|k", Map.of("pack_size", 5, "pack_unit", "kg", "shelf_life_days", 180));
     }
 
@@ -109,7 +110,7 @@ class At3HttpEquivalenceIT extends AbstractApiIT {
     @Autowired com.tazzzo.catalog.tx.MintService mintService;
 
     private void mint(String id, String key, Map<String, Object> attrs) {
-        mintService.mint(new com.tazzzo.catalog.domain.ProductDraft(id, "single", "internal", key,
+        mintService.mint(TestActors.TEST, new com.tazzzo.catalog.domain.ProductDraft(id, "single", "internal", key,
                 null, "BR-AT3", "AT3 product", BASMATI, "0.9.0", "provisional", attrs,
                 List.of(), null));
     }

@@ -1,5 +1,6 @@
 package com.tazzzo.catalog;
 
+import com.tazzzo.common.audit.TestActors;
 import com.mongodb.MongoWriteException;
 import com.tazzzo.catalog.domain.BundleComponent;
 import com.tazzzo.catalog.domain.ProductDraft;
@@ -32,7 +33,7 @@ class TransactionAtomicityIT extends AbstractMongoIT {
         ProductDraft bad = new ProductDraft("TZP-A1", "single", "internal", "BR-T|TZV-1|atomic",
                 null, "BR-TEST", "Atomicity", null /* null vertical => validator reject */,
                 "1.0.0", "provisional", Map.of(), List.of(), null);
-        assertThatThrownBy(() -> mintService.mint(bad)).isInstanceOf(MongoWriteException.class);
+        assertThatThrownBy(() -> mintService.mint(TestActors.TEST, bad)).isInstanceOf(MongoWriteException.class);
         assertThat(db.getCollection("identity_keys").find(eq("_id", "BR-T|TZV-1|atomic")).first())
                 .as("identity key must NOT survive the aborted mint (no burned keys, M10)").isNull();
         assertThat(db.getCollection("products").find(eq("_id", "TZP-A1")).first()).isNull();
@@ -43,7 +44,7 @@ class TransactionAtomicityIT extends AbstractMongoIT {
 
     @Test
     void tx_t1b_happy_mint_writes_all_four() {
-        mintService.mint(TestFixtures.internalSingle("TZP-A2", "BR-T|TZV-1|happy"));
+        mintService.mint(TestActors.TEST, TestFixtures.internalSingle("TZP-A2", "BR-T|TZV-1|happy"));
         assertThat(db.getCollection("products").find(eq("_id", "TZP-A2")).first()).isNotNull();
         assertThat(db.getCollection("identity_keys").find(eq("_id", "BR-T|TZV-1|happy")).first()).isNotNull();
         assertThat(db.getCollection("classification_history").find(eq("product_id", "TZP-A2")).first()).isNotNull();
@@ -55,7 +56,7 @@ class TransactionAtomicityIT extends AbstractMongoIT {
         ProductDraft holding = new ProductDraft("TZP-A3", "single", "internal", "BR-T|TZV-1|hold",
                 null, "BR-TEST", "Holding", MintService.UNCLASSIFIED, "1.0.0", "review",
                 Map.of(), List.of(), null);
-        mintService.mint(holding);
+        mintService.mint(TestActors.TEST, holding);
         // An UNCLASSIFIED mint legitimately enqueues TWO obligations: classification_review
         // (holding vertical) and identity_incomplete (CAT-ID: unratified vertical => no key).
         // Assert the intended item explicitly rather than relying on document order.
@@ -68,8 +69,8 @@ class TransactionAtomicityIT extends AbstractMongoIT {
 
     @Test
     void tx_t7a_bundle_with_nonactive_component_writes_nothing() {
-        mintService.mint(TestFixtures.internalSingle("TZP-A4", "BR-T|TZV-1|c1")); // stays draft
-        assertThatThrownBy(() -> bundleService.writeBundle(TestFixtures.bundle("TZP-A5",
+        mintService.mint(TestActors.TEST, TestFixtures.internalSingle("TZP-A4", "BR-T|TZV-1|c1")); // stays draft
+        assertThatThrownBy(() -> bundleService.writeBundle(TestActors.TEST, TestFixtures.bundle("TZP-A5",
                 List.of(new BundleComponent("TZP-A4", 1, null),
                         new BundleComponent("TZP-MISSING", 1, null)))))
                 .isInstanceOf(BundleComponentException.class);
@@ -79,8 +80,8 @@ class TransactionAtomicityIT extends AbstractMongoIT {
 
     @Test
     void r1_r2_identity_mint_race_second_mint_collides() {
-        mintService.mint(TestFixtures.internalSingle("TZP-R1", "BR-T|TZV-1|race"));
-        assertThatThrownBy(() -> mintService.mint(TestFixtures.internalSingle("TZP-R2", "BR-T|TZV-1|race")))
+        mintService.mint(TestActors.TEST, TestFixtures.internalSingle("TZP-R1", "BR-T|TZV-1|race"));
+        assertThatThrownBy(() -> mintService.mint(TestActors.TEST, TestFixtures.internalSingle("TZP-R2", "BR-T|TZV-1|race")))
                 .isInstanceOf(com.tazzzo.catalog.tx.IdentityCollisionException.class);
         assertThat(db.getCollection("products").find(eq("_id", "TZP-R2")).first())
                 .as("loser of the mint race must write nothing").isNull();
@@ -90,8 +91,8 @@ class TransactionAtomicityIT extends AbstractMongoIT {
 
     @Test
     void tx_t4a_invalid_status_writes_nothing() {
-        mintService.mint(TestFixtures.internalSingle("TZP-A6", "BR-T|TZV-1|cls"));
-        assertThatThrownBy(() -> classifyService.classify("TZP-A6", "TZV-000200", "1.0.0",
+        mintService.mint(TestActors.TEST, TestFixtures.internalSingle("TZP-A6", "BR-T|TZV-1|cls"));
+        assertThatThrownBy(() -> classifyService.classify(TestActors.TEST, "TZP-A6", "TZV-000200", "1.0.0",
                 "definitely_not_a_status", 0.9, List.of()))
                 .isInstanceOf(IllegalArgumentException.class);
         Document p = db.getCollection("products").find(eq("_id", "TZP-A6")).first();

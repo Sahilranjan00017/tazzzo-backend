@@ -1,5 +1,6 @@
 package com.tazzzo.catalog;
 
+import com.tazzzo.common.audit.TestActors;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.tazzzo.catalog.consumer.ConsumerObservability;
 import io.micrometer.core.instrument.Meter;
@@ -66,7 +67,7 @@ class ConsumerPdpIT extends AbstractConsumerIT {
         db.drop();
         schemaBootstrap.bootstrap(db);
         loader.load(db);
-        changes.recordBaseline("R1");
+        changes.recordBaseline(TestActors.TEST, "R1");
         eligibleProduct("TZP-OK", V_BASMATI);
         db.getCollection("products").updateOne(eq("_id", "TZP-OK"),
                 new Document("$set", new Document("attributes", new Document("aged", true).append("grain_length", "long"))));

@@ -1,5 +1,6 @@
 package com.tazzzo.catalog.tx;
 
+import com.tazzzo.common.audit.Actor;
 import com.mongodb.client.model.Filters;
 import com.tazzzo.catalog.domain.PackOf;
 import com.tazzzo.catalog.domain.ProductDocuments;
@@ -45,7 +46,7 @@ public class VariantPackService {
         this.canonicalKeys = canonicalKeys;
     }
 
-    public void writeVariantPack(ProductDraft draft) {
+    public void writeVariantPack(Actor actor, ProductDraft draft) {
         if (!"variant_pack".equals(draft.productType())) {
             throw new IllegalArgumentException("draft is not a variant_pack");
         }
@@ -74,7 +75,7 @@ public class VariantPackService {
                                 + packOf.componentProductId());
             }
             EventPayload packed = new EventPayload("VARIANT_PACK_LINKED", draft.id(),
-                    Map.of("component", packOf.componentProductId(), "qty", packOf.qty()));
+                    Map.of("component", packOf.componentProductId(), "qty", packOf.qty()), actor);
             // CAT-ID + U-4-h: the pack's key is self-derived from its OWN total plus packof=N,
             // so 6x250ml (pack=1500ml|packof=6) never collides with a 1500ml single.
             Optional<CanonicalKey> canonicalKey = canonicalKeys.derive(draft.verticalId(),

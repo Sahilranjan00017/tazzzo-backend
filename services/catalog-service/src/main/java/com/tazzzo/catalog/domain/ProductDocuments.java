@@ -72,6 +72,16 @@ public final class ProductDocuments {
     }
 
     public static Document eventDoc(String type, String productId, Map<String, Object> detail) {
+        return eventDoc(type, productId, detail, null);
+    }
+
+    /** As above, plus the optional {@code actor} sub-document (absent when the event is unattributed). */
+    public static Document eventDoc(String type, String productId, Map<String, Object> detail,
+                                    com.tazzzo.common.audit.Actor actor) {
+        return com.tazzzo.common.audit.ActorDocuments.appendTo(eventDocWithoutActor(type, productId, detail), actor);
+    }
+
+    private static Document eventDocWithoutActor(String type, String productId, Map<String, Object> detail) {
         return new Document("type", type)
                 .append("product_id", productId)
                 .append("detail", new Document(detail))

@@ -1,5 +1,6 @@
 package com.tazzzo.catalog.tx;
 
+import com.tazzzo.common.audit.Actor;
 import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.UpdateOptions;
 import com.mongodb.client.model.Updates;
@@ -23,10 +24,10 @@ public class GtinBindService {
         this.writePath = writePath;
     }
 
-    public void bind(String productId, String gtin, String market) {
+    public void bind(Actor actor, String productId, String gtin, String market) {
         tx.run(session -> {
             EventPayload bound = new EventPayload("GTIN_BOUND", productId,
-                    Map.of("gtin", gtin, "market", market));
+                    Map.of("gtin", gtin, "market", market), actor);
             // close any open binding for this market, then open the new one
             writePath.auxWrite(session, "gtin_registry", bound, c -> c.updateOne(session,
                     Filters.eq("_id", gtin),

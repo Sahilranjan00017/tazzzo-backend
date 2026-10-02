@@ -22,7 +22,7 @@ import java.util.Map;
  * not part of this contract.
  */
 public record DomainEvent(String aggregateType, String aggregateId, String type,
-                          Map<String, Object> detail) {
+                          Map<String, Object> detail, Actor actor) {
 
     static final int MAX_FIELD = 200;
 
@@ -31,6 +31,11 @@ public record DomainEvent(String aggregateType, String aggregateId, String type,
         aggregateId = requireBounded(aggregateId, "aggregateId");
         type = requireBounded(type, "event type");
         detail = (detail == null) ? Map.of() : Map.copyOf(detail);
+    }
+
+    /** An UNATTRIBUTED event ({@code actor} absent): for callers that have no audited actor yet. */
+    public DomainEvent(String aggregateType, String aggregateId, String type, Map<String, Object> detail) {
+        this(aggregateType, aggregateId, type, detail, null);
     }
 
     private static String requireBounded(String value, String name) {

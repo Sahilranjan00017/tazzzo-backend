@@ -1,5 +1,6 @@
 package com.tazzzo.catalog.tx;
 
+import com.tazzzo.common.audit.Actor;
 import com.mongodb.MongoWriteException;
 import com.tazzzo.catalog.domain.GtinBinding;
 import com.tazzzo.catalog.domain.ProductDocuments;
@@ -38,12 +39,12 @@ public class MintService {
         this.canonicalKeys = canonicalKeys;
     }
 
-    public String mint(ProductDraft d) {
+    public String mint(Actor actor, ProductDraft d) {
         // Service-tier enforcement (the I-6 bypass closes HERE, not in the validator):
         List<org.bson.Document> governanceItems = governance.validate(
                 d.verticalId(), d.attributes() == null ? Map.of() : d.attributes(), d.evidenceRefs());
         tx.run(session -> {
-            EventPayload minted = new EventPayload("MINTED", d.id(), Map.of("brand", d.brandCode()));
+            EventPayload minted = new EventPayload("MINTED", d.id(), Map.of("brand", d.brandCode()), actor);
             try {
                 if ("internal".equals(d.identityType())) {
                     writePath.auxWrite(session, "identity_keys", minted, c -> c.insertOne(session,

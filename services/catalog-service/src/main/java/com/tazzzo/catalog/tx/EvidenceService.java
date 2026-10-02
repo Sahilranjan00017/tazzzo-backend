@@ -1,5 +1,6 @@
 package com.tazzzo.catalog.tx;
 
+import com.tazzzo.common.audit.Actor;
 import com.mongodb.client.model.Filters;
 import com.tazzzo.catalog.events.EventPayload;
 import com.tazzzo.catalog.repo.WritePath;
@@ -41,7 +42,7 @@ public class EvidenceService {
         this.writePath = writePath;
     }
 
-    public CreateOutcome create(String id, String evidenceType, String source, String sourceVersion,
+    public CreateOutcome create(Actor actor, String id, String evidenceType, String source, String sourceVersion,
                                 Document payloadRef, String excerpt, String url, Date observedAt) {
         final boolean observedAtSupplied = observedAt != null;
         if (id == null || !id.startsWith("EV-")) {
@@ -84,7 +85,7 @@ public class EvidenceService {
             }
             writePath.insertWithEvent(session, "evidence", candidate,
                     new EventPayload("EVIDENCE_CREATED", "TZP-SYSTEM",
-                            Map.of("evidence", id, "type", evidenceType, "source", source)));
+                            Map.of("evidence", id, "type", evidenceType, "source", source), actor));
             outcome[0] = CreateOutcome.CREATED;
         });
         return outcome[0];

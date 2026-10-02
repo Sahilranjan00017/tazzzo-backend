@@ -1,5 +1,6 @@
 package com.tazzzo.catalog;
 
+import com.tazzzo.common.audit.TestActors;
 import com.tazzzo.catalog.domain.PackOf;
 import com.tazzzo.catalog.domain.ProductDraft;
 import com.tazzzo.catalog.schema.TaxonomyLoader;
@@ -44,10 +45,10 @@ class VariantPackIT extends AbstractMongoIT {
 
     /** The component a multipack points at: one ordinary 70g single. */
     private void mintComponent(String id, String key) {
-        mintService.mint(new ProductDraft(id, "single", "internal", key, null, "BR-TEST",
+        mintService.mint(TestActors.TEST, new ProductDraft(id, "single", "internal", key, null, "BR-TEST",
                 "Component " + id, NOODLES, "0.9.0", "provisional",
                 Map.of("pack_size", 70, "pack_unit", "g"), List.of(), null));
-        bundleService.activate(id);
+        bundleService.activate(TestActors.TEST, id);
     }
 
     /**
@@ -66,7 +67,7 @@ class VariantPackIT extends AbstractMongoIT {
     @Test
     void f5_1_variant_pack_is_written_with_pack_of_and_is_distinct_from_the_component() {
         mintComponent("TZP-VP-C1", "vp|c1");
-        variantPackService.writeVariantPack(pack("TZP-VP-P1", "vp|p1", "TZP-VP-C1", 8));
+        variantPackService.writeVariantPack(TestActors.TEST, pack("TZP-VP-P1", "vp|p1", "TZP-VP-C1", 8));
 
         Document p = db.getCollection("products").find(eq("_id", "TZP-VP-P1")).first();
         assertThat(p).isNotNull();
@@ -89,7 +90,7 @@ class VariantPackIT extends AbstractMongoIT {
 
     @Test
     void f5_2_variant_pack_without_pack_of_is_refused() {
-        assertThatThrownBy(() -> variantPackService.writeVariantPack(
+        assertThatThrownBy(() -> variantPackService.writeVariantPack(TestActors.TEST, 
                 new ProductDraft("TZP-VP-P2", "variant_pack", "internal", "vp|p2", null, "BR-TEST",
                         "No packOf", NOODLES, "0.9.0", "provisional",
                         Map.of("pack_size", 70, "pack_unit", "g"), List.of(), null)))
@@ -101,7 +102,7 @@ class VariantPackIT extends AbstractMongoIT {
     @Test
     void f5_3_qty_below_two_is_refused_a_pack_of_one_is_a_single() {
         mintComponent("TZP-VP-C3", "vp|c3");
-        assertThatThrownBy(() -> variantPackService.writeVariantPack(
+        assertThatThrownBy(() -> variantPackService.writeVariantPack(TestActors.TEST, 
                 pack("TZP-VP-P3", "vp|p3", "TZP-VP-C3", 1)))
                 .isInstanceOf(VariantPackException.class)
                 .hasMessageContaining("qty must be >= 2");
@@ -110,16 +111,16 @@ class VariantPackIT extends AbstractMongoIT {
 
     @Test
     void f5_4_component_must_exist_and_be_active() {
-        assertThatThrownBy(() -> variantPackService.writeVariantPack(
+        assertThatThrownBy(() -> variantPackService.writeVariantPack(TestActors.TEST, 
                 pack("TZP-VP-P4", "vp|p4", "TZP-VP-MISSING", 6)))
                 .isInstanceOf(VariantPackException.class)
                 .hasMessageContaining("not active");
 
         // exists but still draft — never activated
-        mintService.mint(new ProductDraft("TZP-VP-C5", "single", "internal", "vp|c5", null,
+        mintService.mint(TestActors.TEST, new ProductDraft("TZP-VP-C5", "single", "internal", "vp|c5", null,
                 "BR-TEST", "Draft component", NOODLES, "0.9.0", "provisional",
                 Map.of("pack_size", 70, "pack_unit", "g"), List.of(), null));
-        assertThatThrownBy(() -> variantPackService.writeVariantPack(
+        assertThatThrownBy(() -> variantPackService.writeVariantPack(TestActors.TEST, 
                 pack("TZP-VP-P5", "vp|p5", "TZP-VP-C5", 6)))
                 .isInstanceOf(VariantPackException.class)
                 .hasMessageContaining("not active");
@@ -129,10 +130,10 @@ class VariantPackIT extends AbstractMongoIT {
     @Test
     void f5_5_no_nesting_a_variant_pack_may_not_pack_another_variant_pack() {
         mintComponent("TZP-VP-C6", "vp|c6");
-        variantPackService.writeVariantPack(pack("TZP-VP-P6", "vp|p6", "TZP-VP-C6", 6));
-        bundleService.activate("TZP-VP-P6");
+        variantPackService.writeVariantPack(TestActors.TEST, pack("TZP-VP-P6", "vp|p6", "TZP-VP-C6", 6));
+        bundleService.activate(TestActors.TEST, "TZP-VP-P6");
 
-        assertThatThrownBy(() -> variantPackService.writeVariantPack(
+        assertThatThrownBy(() -> variantPackService.writeVariantPack(TestActors.TEST, 
                 pack("TZP-VP-P7", "vp|p7", "TZP-VP-P6", 2)))
                 .isInstanceOf(VariantPackException.class)
                 .hasMessageContaining("no nesting");

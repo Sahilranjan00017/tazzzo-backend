@@ -1,5 +1,6 @@
 package com.tazzzo.catalog.tx;
 
+import com.tazzzo.common.audit.Actor;
 import com.mongodb.client.ClientSession;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.model.Filters;
@@ -30,7 +31,10 @@ public class MergeService {
         this.writePath = writePath;
     }
 
-    public void startMerge(String loserId, String survivorId) {
+    /** The repoint finalizer is resumable background work, never an admin request. */
+    static final Actor FINALIZER = Actor.system("system:merge-finalizer");
+
+    public void startMerge(Actor actor, String loserId, String survivorId) {
         tx.run(session -> {
             Document loser = mustGet(session, loserId);
             Document survivor = mustGet(session, survivorId);
@@ -38,7 +42,7 @@ public class MergeService {
                 throw new IllegalStateException("both products must be active to merge");
             }
             EventPayload started = new EventPayload("MERGE_STARTED", loserId,
-                    Map.of("survivor", survivorId, "manifest", List.of("offers", "bundles")));
+                    Map.of("survivor", survivorId, "manifest", List.of("offers", "bundles")), actor);
             writePath.casUpdateWithEvent(session, "products", loserId, loser.getInteger("version"),
                     Updates.combine(Updates.set("lifecycle", "merging"), Updates.inc("version", 1)), started);
             writePath.casUpdateWithEvent(session, "products", survivorId, survivor.getInteger("version"),
@@ -78,7 +82,7 @@ public class MergeService {
             String loser = item.getString("loser");
             String survivor = item.getString("survivor");
             tx.run(session -> {
-                EventPayload done = new EventPayload("MERGE_COMPLETED", loser, Map.of("survivor", survivor));
+                EventPayload done = new EventPayload("MERGE_COMPLETED", loser, Map.of("survivor", survivor), FINALIZER);
                 repointOffers(session, loser, survivor, done);
                 repointBundles(session, loser, survivor, done);
                 Document l = mustGet(session, loser);

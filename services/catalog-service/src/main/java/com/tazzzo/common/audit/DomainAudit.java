@@ -36,11 +36,11 @@ public class DomainAudit {
 
     /** Event-before-state: call this before the state mutation, same session. */
     public void append(ClientSession session, DomainEvent event) {
-        db.getCollection(COLLECTION).insertOne(session,
+        db.getCollection(COLLECTION).insertOne(session, ActorDocuments.appendTo(
                 new Document("aggregate_type", event.aggregateType())
                         .append("aggregate_id", event.aggregateId())
                         .append("type", event.type())
                         .append("detail", new Document(event.detail()))
-                        .append("at", Date.from(clock.instant())));
+                        .append("at", Date.from(clock.instant())), event.actor()));
     }
 }

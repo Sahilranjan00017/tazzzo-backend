@@ -1,5 +1,6 @@
 package com.tazzzo.catalog.api;
 
+import jakarta.servlet.http.HttpServletRequest;
 import com.tazzzo.catalog.api.ApiDtos.*;
 import com.tazzzo.catalog.domain.BundleComponent;
 import com.tazzzo.catalog.domain.GtinBinding;
@@ -60,14 +61,15 @@ public class ProductController {
     // replay-returns-original is NOT implemented. Retry semantics today: a replayed create
     // collides on the identity registry and returns 409 IDENTITY_COLLISION.
     @PostMapping
-    public ResponseEntity<ProductResponse> create(@RequestBody CreateProductRequest body) {
+    public ResponseEntity<ProductResponse> create(@RequestBody CreateProductRequest body,
+                                    HttpServletRequest httpRequest) {
         ProductDraft draft = toDraft(body);
         if ("bundle".equals(body.productType())) {
-            bundleService.writeBundle(draft);
+            bundleService.writeBundle(AdminActors.require(httpRequest), draft);
         } else if ("variant_pack".equals(body.productType())) {
-            variantPackService.writeVariantPack(draft);   // F-5: no longer falls through to mint
+            variantPackService.writeVariantPack(AdminActors.require(httpRequest), draft);   // F-5: no longer falls through to mint
         } else {
-            mintService.mint(draft);
+            mintService.mint(AdminActors.require(httpRequest), draft);
         }
         return ResponseEntity.status(HttpStatus.CREATED).body(read(body.id()));
     }
@@ -87,67 +89,76 @@ public class ProductController {
     @PatchMapping("/{id}")
     public ProductResponse patch(@PathVariable String id,
                                  @RequestHeader("If-Match") int expectedVersion,
-                                 @RequestBody PatchProductRequest body) {
-        productUpdateService.updateTitle(id, expectedVersion, body.title());
+                                 @RequestBody PatchProductRequest body,
+                                    HttpServletRequest httpRequest) {
+        productUpdateService.updateTitle(AdminActors.require(httpRequest), id, expectedVersion, body.title());
         return read(id);
     }
 
     @PostMapping("/{id}/classify")
-    public ProductResponse classify(@PathVariable String id, @RequestBody ClassifyRequest body) {
-        classifyService.classify(id, body.verticalId(), body.releaseId(), body.status(),
+    public ProductResponse classify(@PathVariable String id, @RequestBody ClassifyRequest body,
+                                    HttpServletRequest httpRequest) {
+        classifyService.classify(AdminActors.require(httpRequest), id, body.verticalId(), body.releaseId(), body.status(),
                 body.confidence() == null ? 1.0 : body.confidence(),
                 body.evidenceRefs() == null ? List.of() : body.evidenceRefs());
         return read(id);
     }
 
     @PostMapping("/{id}/publish")
-    public ProductResponse publish(@PathVariable String id, @RequestBody PublishClaimRequest body) {
-        publishService.publishClaim(id, body.attributeKey(),
+    public ProductResponse publish(@PathVariable String id, @RequestBody PublishClaimRequest body,
+                                    HttpServletRequest httpRequest) {
+        publishService.publishClaim(AdminActors.require(httpRequest), id, body.attributeKey(),
                 body.evidenceRefs() == null ? List.of() : body.evidenceRefs());
         return read(id);
     }
 
     @PostMapping("/{id}/gtins")
-    public ProductResponse bindGtin(@PathVariable String id, @RequestBody GtinBindRequest body) {
-        gtinBindService.bind(id, body.gtin(), body.market());
+    public ProductResponse bindGtin(@PathVariable String id, @RequestBody GtinBindRequest body,
+                                    HttpServletRequest httpRequest) {
+        gtinBindService.bind(AdminActors.require(httpRequest), id, body.gtin(), body.market());
         return read(id);
     }
 
     @PostMapping("/{id}/activate")
     public ProductResponse activate(@PathVariable String id,
-                                    @RequestHeader("If-Match") int expectedVersion) {
-        lifecycle.activate(id, expectedVersion);
+                                    @RequestHeader("If-Match") int expectedVersion,
+                                    HttpServletRequest httpRequest) {
+        lifecycle.activate(AdminActors.require(httpRequest), id, expectedVersion);
         return read(id);
     }
 
     @PostMapping("/{id}/retire")
     public ProductResponse retire(@PathVariable String id,
                                   @RequestHeader("If-Match") int expectedVersion,
-                                  @RequestBody(required = false) RetireRequest body) {
-        lifecycle.discontinue(id, expectedVersion, body == null ? null : body.reason());
+                                  @RequestBody(required = false) RetireRequest body,
+                                    HttpServletRequest httpRequest) {
+        lifecycle.discontinue(AdminActors.require(httpRequest), id, expectedVersion, body == null ? null : body.reason());
         return read(id);
     }
 
     @PostMapping("/{id}/revive")
     public ProductResponse revive(@PathVariable String id,
                                   @RequestHeader("If-Match") int expectedVersion,
-                                  @RequestBody(required = false) ReviveRequest body) {
-        lifecycle.revive(id, expectedVersion, body == null ? null : body.formulationVersion());
+                                  @RequestBody(required = false) ReviveRequest body,
+                                    HttpServletRequest httpRequest) {
+        lifecycle.revive(AdminActors.require(httpRequest), id, expectedVersion, body == null ? null : body.formulationVersion());
         return read(id);
     }
 
     @PostMapping("/{id}/archive")
     public ProductResponse archive(@PathVariable String id,
-                                   @RequestHeader("If-Match") int expectedVersion) {
-        lifecycle.archive(id, expectedVersion);
+                                   @RequestHeader("If-Match") int expectedVersion,
+                                    HttpServletRequest httpRequest) {
+        lifecycle.archive(AdminActors.require(httpRequest), id, expectedVersion);
         return read(id);
     }
 
     /** Merge is ASYNC by contract: the core txn commits, the finalizer completes it. */
     @PostMapping("/{id}/merge/{survivorId}")
     public ResponseEntity<AcceptedResponse> merge(@PathVariable String id,
-                                                  @PathVariable String survivorId) {
-        mergeService.startMerge(id, survivorId);
+                                                  @PathVariable String survivorId,
+                                    HttpServletRequest httpRequest) {
+        mergeService.startMerge(AdminActors.require(httpRequest), id, survivorId);
         return ResponseEntity.accepted().body(new AcceptedResponse("merging",
                 "outbox committed; finalizer completes repointing asynchronously"));
     }
