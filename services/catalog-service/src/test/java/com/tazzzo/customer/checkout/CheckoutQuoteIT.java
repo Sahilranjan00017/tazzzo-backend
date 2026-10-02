@@ -981,7 +981,8 @@ class CheckoutQuoteIT extends AbstractApiIT {
         assertThat(created.getBody().toString()).doesNotContain("addressVersion");
         assertThat(created.getBody().fieldNames()).toIterable()
                 .containsExactlyInAnyOrder("quoteId", "cartVersion", "addressId", "items", "itemCount",
-                        "distinctItemCount", "subtotalPaise", "currency", "createdAt", "expiresAt", "requestId");
+                        "distinctItemCount", "subtotalPaise", "currency", "createdAt", "expiresAt", "benefitPreview",
+                        "requestId");
 
         String quoteId = created.getBody().get("quoteId").asText();
         ResponseEntity<JsonNode> read = getQuote(r.token(), quoteId);
@@ -1095,14 +1096,17 @@ class CheckoutQuoteIT extends AbstractApiIT {
                 .containsExactlyInAnyOrder("skuId", "quantity", "unitPricePaise", "lineTotalPaise");
     }
 
-    @Test void the_http_quote_persists_a_snapshot_with_the_wired_production_configuration_and_exposes_nothing() {
+    @Test void the_http_quote_persists_a_snapshot_with_the_wired_production_configuration_and_exposes_only_applied_false() {
         Ready r = tenThousand();
 
         ResponseEntity<JsonNode> res = quote(r.token(), 1, newKey(), r.address());
 
         assertThat(res.getStatusCode().value()).isEqualTo(200);
-        assertThat(res.getBody().toString().toLowerCase()).doesNotContain("benefit").doesNotContain("no_rule")
-                .doesNotContain("no_membership").doesNotContain("discount");
+        assertThat(res.getBody().get("benefitPreview").toString()).as("zero production rules: nothing is applied")
+                .isEqualTo("{\"applied\":false}");
+        assertThat(res.getBody().toString().toLowerCase()).doesNotContain("no_rule").doesNotContain("no_membership")
+                .doesNotContain("reason").doesNotContain("membershipid").doesNotContain("planid")
+                .doesNotContain("eligible").doesNotContain("payable");
         Document stored = (Document) storedQuote(res.getBody().get("quoteId").asText()).get("benefits");
         assertThat(stored.getString("outcome")).isEqualTo("NO_BENEFIT");
         assertThat(stored.getString("noBenefitReason")).isEqualTo("NO_MEMBERSHIP");
@@ -1210,7 +1214,7 @@ class CheckoutQuoteIT extends AbstractApiIT {
         assertThat(http.getStatusCode().value()).isEqualTo(200);
         assertThat(http.getBody().fieldNames()).toIterable().containsExactlyInAnyOrder("quoteId", "cartVersion",
                 "addressId", "items", "itemCount", "distinctItemCount", "subtotalPaise", "currency", "createdAt",
-                "expiresAt", "requestId");
+                "expiresAt", "benefitPreview", "requestId");
     }
 
     // ---------- legacy absence and corruption ----------
@@ -1431,5 +1435,107 @@ class CheckoutQuoteIT extends AbstractApiIT {
         assertThat(storedQuote(winner.quoteId())).as("the winner's document is not replaced or recalculated")
                 .isEqualTo(winnerDoc);
         assertThat(quoteCount(r.token())).isEqualTo(1);
+    }
+
+    // ============================================================
+    // PR-19A-2 -- the PUBLIC projection of the stored advisory Benefits preview (HTTP level)
+    // ============================================================
+
+    private static final String ONLY_NOT_APPLIED = "{\"applied\":false}";
+
+    private static void assertNoInternalBenefitDetail(JsonNode body) {
+        assertThat(body.toString()).doesNotContain("NO_MEMBERSHIP").doesNotContain("NO_RULE")
+                .doesNotContain("NOT_ELIGIBLE").doesNotContain("reason").doesNotContain("eligible")
+                .doesNotContain("membership").doesNotContain("planId").doesNotContain("planVersion")
+                .doesNotContain("payable").doesNotContain("amountDue").doesNotContain("grandTotal");
+    }
+
+    @Test void every_internal_no_benefit_reason_is_publicly_the_identical_applied_false() {
+        for (int scenario = 0; scenario < 3; scenario++) {
+            Ready r = tenThousand();
+            CustomerId cid = new CustomerId(customerId(r.token()));
+            BenefitsEvaluationPort port;
+            switch (scenario) {
+                case 0 -> port = realBenefits(benefitRule(10_000, 500));                       // NO_MEMBERSHIP
+                case 1 -> { grantMembership(cid); port = realBenefits(); }                     // NO_RULE
+                default -> { grantMembership(cid); port = realBenefits(benefitRule(10_001, 500)); } // NOT_ELIGIBLE
+            }
+            String key = newKey();
+            CheckoutQuote q = serviceWith(new RetryInjectingTx(client), port).createQuote(cid, 1, key, r.address(), "req");
+            String internal = ((CheckoutBenefitSnapshot.NoBenefit) q.benefitSnapshot()).reason().name();
+
+            ResponseEntity<JsonNode> get = getQuote(r.token(), q.quoteId());
+            ResponseEntity<JsonNode> replay = quote(r.token(), 1, key, r.address());
+
+            assertThat(get.getStatusCode().value()).as(internal).isEqualTo(200);
+            assertThat(get.getBody().get("benefitPreview").toString()).as(internal).isEqualTo(ONLY_NOT_APPLIED);
+            assertThat(replay.getBody().get("benefitPreview").toString()).as("replay " + internal)
+                    .isEqualTo(ONLY_NOT_APPLIED);
+            assertNoInternalBenefitDetail(get.getBody());
+            assertNoInternalBenefitDetail(replay.getBody());
+        }
+    }
+
+    @Test void an_applied_preview_projects_the_STORED_discount_and_rate_exactly_and_never_recomputes_them() {
+        Ready r = tenThousand();
+        CustomerId cid = new CustomerId(customerId(r.token()));
+        grantMembership(cid);
+        CheckoutQuote q = serviceWith(new RetryInjectingTx(client), realBenefits(benefitRule(10_000, 500)))
+                .createQuote(cid, 1, newKey(), r.address(), "req");
+        // distinguishing stored values: floor(10000 * 123 / 10000) = 123, NOT 777
+        db.getCollection("checkout_quotes").updateOne(new Document("_id", q.quoteId()), new Document("$set",
+                new Document("benefits", new Document("outcome", "APPLIED").append("eligibleSubtotalPaise", 10_000L)
+                        .append("discountPaise", 777L).append("discountBps", 123))));
+
+        ResponseEntity<JsonNode> res = getQuote(r.token(), q.quoteId());
+
+        assertThat(res.getStatusCode().value()).isEqualTo(200);
+        assertThat(res.getBody().get("benefitPreview").toString())
+                .isEqualTo("{\"applied\":true,\"discountPaise\":777,\"discountBps\":123}");
+        assertThat(res.getBody().get("subtotalPaise").asLong()).as("canonical subtotal is untouched").isEqualTo(10_000);
+        assertThat(res.getBody().get("items").get(0).get("lineTotalPaise").asLong()).isEqualTo(10_000);
+        assertNoInternalBenefitDetail(res.getBody());
+    }
+
+    @Test void a_replay_and_a_get_after_a_membership_change_still_show_the_original_applied_preview() {
+        Ready r = tenThousand();
+        CustomerId cid = new CustomerId(customerId(r.token()));
+        com.tazzzo.membership.Membership term = grantMembership(cid);
+        String key = newKey();
+        CheckoutQuote q = serviceWith(new RetryInjectingTx(client), realBenefits(benefitRule(10_000, 500)))
+                .createQuote(cid, 1, key, r.address(), "req");
+        membershipTermination.revoke(term.membershipId()); // a fresh evaluation would now be NO_MEMBERSHIP -> applied=false
+
+        ResponseEntity<JsonNode> replay = quote(r.token(), 1, key, r.address());
+        ResponseEntity<JsonNode> get = getQuote(r.token(), q.quoteId());
+
+        String expected = "{\"applied\":true,\"discountPaise\":500,\"discountBps\":500}";
+        assertThat(replay.getStatusCode().value()).isEqualTo(200);
+        assertThat(replay.getBody().get("benefitPreview").toString()).as("replay: stored, not re-evaluated")
+                .isEqualTo(expected);
+        assertThat(get.getBody().get("benefitPreview").toString()).as("GET: stored, not re-evaluated")
+                .isEqualTo(expected);
+        assertNoInternalBenefitDetail(replay.getBody());
+    }
+
+    @Test void a_legacy_quote_omits_benefit_preview_while_every_other_public_field_is_unchanged() {
+        Ready r = tenThousand();
+        String key = newKey();
+        String quoteId = quote(r.token(), 1, key, r.address()).getBody().get("quoteId").asText();
+        db.getCollection("checkout_quotes").updateOne(new Document("_id", quoteId),
+                new Document("$unset", new Document("benefits", "")));
+
+        for (ResponseEntity<JsonNode> res : List.of(getQuote(r.token(), quoteId), quote(r.token(), 1, key, r.address()))) {
+            assertThat(res.getStatusCode().value()).isEqualTo(200);
+            assertThat(res.getBody().has("benefitPreview")).as("absent, NOT a synthesized applied=false").isFalse();
+            assertThat(res.getBody().fieldNames()).toIterable().containsExactlyInAnyOrder("quoteId", "cartVersion",
+                    "addressId", "items", "itemCount", "distinctItemCount", "subtotalPaise", "currency", "createdAt",
+                    "expiresAt", "requestId");
+            assertThat(res.getBody().get("subtotalPaise").asLong()).isEqualTo(10_000);
+        }
+
+        expire(quoteId);
+        assertThat(getQuote(r.token(), quoteId).getStatusCode().value()).as("legacy expired stays 410").isEqualTo(410);
+        assertThat(quote(r.token(), 1, key, r.address()).getStatusCode().value()).isEqualTo(410);
     }
 }

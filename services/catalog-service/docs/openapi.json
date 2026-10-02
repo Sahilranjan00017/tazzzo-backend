@@ -2239,6 +2239,22 @@
           }
         }
       },
+      "BenefitPreview" : {
+        "type" : "object",
+        "properties" : {
+          "applied" : {
+            "type" : "boolean"
+          },
+          "discountPaise" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "discountBps" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }
+      },
       "CheckoutQuoteDto" : {
         "type" : "object",
         "properties" : {
@@ -2278,6 +2294,9 @@
           },
           "expiresAt" : {
             "type" : "string"
+          },
+          "benefitPreview" : {
+            "$ref" : "#/components/schemas/BenefitPreview"
           },
           "requestId" : {
             "type" : "string"

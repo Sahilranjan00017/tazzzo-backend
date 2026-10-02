@@ -117,6 +117,12 @@ public record CheckoutQuote(String quoteId, long cartVersion, String addressId, 
         }
     }
 
+    /** The public-safe projection of the stored advisory snapshot; EMPTY for a legacy quote (never "not applied"). */
+    java.util.Optional<CheckoutBenefitPreview> benefitPreview() {
+        return benefitSnapshot == null ? java.util.Optional.empty()
+                : java.util.Optional.of(CheckoutBenefitPreview.from(benefitSnapshot));
+    }
+
     public boolean isExpired(Instant now) {
         return !expiresAt.isAfter(now);
     }
