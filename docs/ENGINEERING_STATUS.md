@@ -1361,6 +1361,19 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-10-03** — `./mvnw clean test` on Java 21 + Docker on `feature/pr25-human-admin-oidc` (based on `main`
+  `2e8d87bd59bbb1d81c355b43b083694e6b928cc0`): **BUILD SUCCESS**, 2357 tests, 0 failures / 0 errors / 0 skipped (2283 baseline +
+  32 `GoogleOidcAuthenticatorTest` + 18 `AdminAuthConfigStartupTest` + 4 `ServiceTokenAuthenticatorTest` + 6 human cases in
+  `ApiAuthFilterPrincipalTest` + 11 `HumanAdminOidcIT` + 3 ArchUnit rules); `ModuleBoundaryTest` 73/73. No live Google network
+  call (local RSA keys, loopback JWKS server). Mutation checks, each killed: signature verification skipped, audience skipped,
+  issuer skipped, expiry skipped, `alg=none` accepted, RS512/HS256 accepted, `hd` skipped, `email_verified` skipped, email as
+  actor id, roles trusted from token claims, non-allowlisted human allowed, disabled admin allowed, raw ID token in the credential
+  id, HUMAN_ADMIN produced as SERVICE_ACCOUNT, human audit request id differing from `X-Request-Id`, cms service token broken, a
+  JWT-shaped token accepted on the customer surface, an unrecognised (customer) credential accepted on `/api/**` (with OIDC
+  disabled and enabled), duplicate-subject validation removed, unknown role allowed, email stored in the audit actor. The two
+  new confinement rules were also shown to fail on a scratch violation.
+- **2026-10-03** — merged-`main` verification of PR #44 (squash `2e8d87bd59bbb1d81c355b43b083694e6b928cc0`, push CI run
+  `37060802238` on Java 21): **BUILD SUCCESS**, 2283 tests, 0 failures / 0 errors / 0 skipped; `ModuleBoundaryTest` 70/70.
 - **2026-10-03** — `./mvnw clean test` on Java 21 + Docker on `feature/pr24-admin-actor-audit-foundation` (based on `main`
   `0dd83b51d9fd74f17960c769648a227ed0ee89d0`): **BUILD SUCCESS**, 2283 tests, 0 failures / 0 errors / 0 skipped (2250 baseline +
   5 `ActorTest` + 4 `AdminPrincipalTest` + 6 `ApiAuthFilterPrincipalTest` + 9 `AdminActorAuditIT` + 3 ArchUnit rules, then +6
