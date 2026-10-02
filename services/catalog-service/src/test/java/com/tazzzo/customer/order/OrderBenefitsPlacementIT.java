@@ -667,6 +667,9 @@ class OrderBenefitsPlacementIT extends AbstractMongoIT {
         assertThat(orders.inTransactionHits.get()).as("the IN-TRANSACTION check found the Order").isEqualTo(1);
         assertThat(replay).isEqualTo(first);
         assertThat(replay.benefitSnapshot()).isInstanceOf(OrderBenefitSnapshot.Applied.class);
+        assertThat(replay.moneySnapshot()).as("the stored winner's money snapshot, unchanged")
+                .isEqualTo(OrderMoneySnapshot.from(SUBTOTAL, 500));
+        assertThat(replay.moneySnapshot().payablePaise()).isEqualTo(9_500);
         assertThat(benefitsCalls.get()).as("Benefits NOT evaluated").isZero();
         assertThat(calls(pricingCalls, "findCurrentPrices") + calls(pricingCalls, "findCurrentPrice"))
                 .as("no Pricing revalidation").isZero();
@@ -746,11 +749,108 @@ class OrderBenefitsPlacementIT extends AbstractMongoIT {
         assertThat(result).as("the WINNER's stored Order is returned").isEqualTo(winner);
         assertThat(result.benefitSnapshot()).as("its snapshot is the winner's, not the loser's recalculation")
                 .isEqualTo(winner.benefitSnapshot());
+        assertThat(result.moneySnapshot()).as("the winner's money, never the loser's (which would be payable 10000)")
+                .isEqualTo(OrderMoneySnapshot.from(SUBTOTAL, 500));
+        assertThat(result.moneySnapshot().payablePaise()).isEqualTo(9_500);
         assertThat(loserEvaluations.get()).as("exactly the loser's one pre-insert evaluation; recovery adds none")
                 .isEqualTo(1);
         assertThat(orders.recoveryReads.get()).as("recovery re-read the durable winner").isEqualTo(1);
         assertThat(orderDoc(winner)).as("the winner's persisted snapshot is not recalculated or replaced")
                 .isEqualTo(winnerDoc);
         assertThat(count("orders")).isEqualTo(1);
+    }
+
+    // ============================================================
+    // PR-20A: the authoritative V1 money snapshot (payable = merchandise subtotal - benefit discount)
+    // ============================================================
+
+    private Document moneyDoc(Order o) {
+        return (Document) orderDoc(o).get("money");
+    }
+
+    @Test
+    void a_no_benefit_order_stores_payable_equal_to_the_canonical_subtotal() {
+        Fixture f = fixture();
+
+        Order o = service(realBenefits(rule(SUBTOTAL, 500))).placeCodOrder(f.customerId(), f.quoteId());
+
+        assertThat(o.benefitSnapshot()).isInstanceOf(OrderBenefitSnapshot.NoBenefit.class);
+        assertThat(o.moneySnapshot()).isEqualTo(OrderMoneySnapshot.from(SUBTOTAL, 0));
+        assertThat(o.moneySnapshot().merchandiseSubtotalPaise()).isEqualTo(o.subtotalPaise());
+        assertThat(o.moneySnapshot().benefitDiscountPaise()).isZero();
+        assertThat(o.moneySnapshot().payablePaise()).isEqualTo(SUBTOTAL);
+        assertThat(moneyDoc(o).keySet()).containsExactlyInAnyOrder("merchandiseSubtotalPaise", "benefitDiscountPaise",
+                "payablePaise");
+        assertThat(moneyDoc(o).get("payablePaise")).isEqualTo(SUBTOTAL);
+    }
+
+    @Test
+    void an_applied_benefit_order_stores_subtotal_minus_the_authoritative_discount_as_payable() {
+        Fixture f = fixture();
+        grant(f.customerId());
+
+        Order o = service(realBenefits(rule(SUBTOTAL, 500))).placeCodOrder(f.customerId(), f.quoteId());
+
+        OrderBenefitSnapshot.Applied applied = (OrderBenefitSnapshot.Applied) o.benefitSnapshot();
+        assertThat(o.moneySnapshot()).isEqualTo(OrderMoneySnapshot.from(SUBTOTAL, 500));
+        assertThat(o.moneySnapshot().benefitDiscountPaise()).as("the SAME discount as the benefit snapshot")
+                .isEqualTo(applied.discountPaise());
+        assertThat(o.moneySnapshot().merchandiseSubtotalPaise()).isEqualTo(applied.eligibleSubtotalPaise());
+        assertThat(o.moneySnapshot().payablePaise()).isEqualTo(9_500);
+        assertThat(moneyDoc(o).get("benefitDiscountPaise")).isEqualTo(500L);
+        assertThat(moneyDoc(o).get("payablePaise")).isEqualTo(9_500L);
+        // canonical money is untouched
+        assertThat(o.subtotalPaise()).isEqualTo(SUBTOTAL);
+        assertThat(o.lines().get(0).unitPricePaise()).isEqualTo(5_000);
+        assertThat(o.lines().get(0).lineTotalPaise()).isEqualTo(SUBTOTAL);
+    }
+
+    @Test
+    void a_100_percent_benefit_is_a_valid_zero_payable_order_with_unchanged_payment_semantics() {
+        Fixture f = fixture();
+        grant(f.customerId());
+
+        Order o = service(realBenefits(new BenefitRule(PLAN, 1, Money.ofInrPaise(SUBTOTAL), new DiscountBps(10_000))))
+                .placeCodOrder(f.customerId(), f.quoteId());
+
+        assertThat(o.moneySnapshot()).isEqualTo(OrderMoneySnapshot.from(SUBTOTAL, SUBTOTAL));
+        assertThat(o.moneySnapshot().payablePaise()).as("zero payable is valid").isZero();
+        assertThat(moneyDoc(o).get("payablePaise")).isEqualTo(0L);
+        assertThat(o.status()).isEqualTo(OrderStatus.CONFIRMED);
+        assertThat(o.paymentMethod()).isEqualTo(PaymentMethod.COD);
+        assertThat(o.confirmedPaymentCondition()).as("no new payment state").isEqualTo(ConfirmedPaymentCondition.COD_DUE);
+        assertThat(OrderRepository.toOrder(orderDoc(o))).isEqualTo(o);
+    }
+
+    @Test
+    void every_new_order_path_persists_a_money_snapshot_consistent_with_its_benefit_snapshot() {
+        for (int i = 0; i < 2; i++) {
+            reset();
+            Fixture f = fixture();
+            grant(f.customerId());
+            OrderService svc = service(realBenefits(rule(SUBTOTAL, 500)));
+            Order o = i == 0 ? svc.placeCodOrder(f.customerId(), f.quoteId())
+                    : svc.createOrder(f.customerId(), f.quoteId(), PaymentMethod.COD);
+
+            assertThat(orderDoc(o).containsKey("money")).as(o.status().name()).isTrue();
+            assertThat(o.moneySnapshot()).isNotNull();
+            assertThat(OrderRepository.toOrder(orderDoc(o)).moneySnapshot()).isEqualTo(o.moneySnapshot());
+        }
+    }
+
+    @Test
+    void a_fast_replay_returns_the_stored_money_unchanged_after_a_membership_and_configuration_change() {
+        Fixture f = fixture();
+        Membership term = grant(f.customerId());
+        Order first = service(realBenefits(rule(SUBTOTAL, 500))).placeCodOrder(f.customerId(), f.quoteId());
+        termination.revoke(term.membershipId());
+
+        Order replay = service(MUST_NOT_BE_CALLED).placeCodOrder(f.customerId(), f.quoteId());
+
+        assertThat(replay.moneySnapshot()).isEqualTo(first.moneySnapshot());
+        assertThat(replay.moneySnapshot().payablePaise()).isEqualTo(9_500);
+        Order afterConfigChange = service(realBenefits(rule(1_000, 9_000))).placeCodOrder(f.customerId(), f.quoteId());
+        assertThat(afterConfigChange.moneySnapshot().payablePaise()).isEqualTo(9_500);
+        assertThat(moneyDoc(first).get("payablePaise")).as("the stored payable is untouched").isEqualTo(9_500L);
     }
 }

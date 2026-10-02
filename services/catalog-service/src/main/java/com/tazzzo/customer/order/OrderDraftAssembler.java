@@ -59,7 +59,7 @@ final class OrderDraftAssembler {
     /** What the shared checks validated, ready for the caller to finish: the frozen snapshots and the
      *  Inventory-owned reservation reserved in the caller's session. */
     record Draft(OrderAddressSnapshot addressSnapshot, List<OrderLine> lines, InventoryReservation reservation,
-                 OrderBenefitSnapshot benefitSnapshot) {
+                 OrderBenefitSnapshot benefitSnapshot, OrderMoneySnapshot moneySnapshot) {
     }
 
     private final AddressRepository addresses;
@@ -140,6 +140,10 @@ final class OrderDraftAssembler {
         // subtotal just validated (every line's unit price equals current Pricing). Before the reserve, so a
         // Benefits failure aborts before any Inventory write; it persists nothing and emits no metric.
         OrderBenefitSnapshot benefitSnapshot = evaluateBenefits(session, customerId, orderLines);
+        // Money: the authoritative V1 payable fact, built from the canonical subtotal just validated and the
+        // authoritative Benefits discount just evaluated (never a client, Cart or Checkout-preview value, never
+        // recomputed from a rate); before the reserve, in the same transaction, persisting nothing yet.
+        OrderMoneySnapshot moneySnapshot = moneyFrom(orderLines, benefitSnapshot);
 
         // allocation constructed fresh, inside the callback, from THIS route + the immutable quote's items.
         List<InventoryReservationItem> items = quote.lines().stream()
@@ -153,7 +157,21 @@ final class OrderDraftAssembler {
         } catch (InventoryReservationFailure e) {
             throw mapReserveFailure(e);
         }
-        return new Draft(addressSnapshot, List.copyOf(orderLines), reservation, benefitSnapshot);
+        return new Draft(addressSnapshot, List.copyOf(orderLines), reservation, benefitSnapshot, moneySnapshot);
+    }
+
+    /** {@code payable = merchandise subtotal - benefit discount}; any inconsistency is an internal defect. */
+    private static OrderMoneySnapshot moneyFrom(List<OrderLine> orderLines, OrderBenefitSnapshot benefitSnapshot) {
+        long subtotalPaise = 0;
+        for (OrderLine line : orderLines) {
+            subtotalPaise = Math.addExact(subtotalPaise, line.lineTotalPaise());
+        }
+        long benefitDiscountPaise = benefitSnapshot instanceof OrderBenefitSnapshot.Applied a ? a.discountPaise() : 0L;
+        try {
+            return OrderMoneySnapshot.from(subtotalPaise, benefitDiscountPaise);
+        } catch (IllegalArgumentException e) {
+            throw new OrderFailure(OrderFailure.Reason.INTEGRITY_FAILURE, "order money is inconsistent");
+        }
     }
 
     /**

@@ -100,6 +100,12 @@ import java.time.temporal.ChronoUnit;
  * entitlement this attempt observed (the same accepted snapshot semantics as the Pricing check — a stronger
  * serializability model is a separate cross-domain design change). Canonical Pricing money is never rewritten.
  *
+ * <p><b>Money snapshot (PR-20A):</b> in the same transaction, after Pricing revalidation and the Benefits evaluation and
+ * before the reserve, {@link OrderDraftAssembler} builds the immutable {@link OrderMoneySnapshot}
+ * ({@code payablePaise = merchandiseSubtotalPaise - benefitDiscountPaise}, V1: tax-inclusive prices, no fees, coupons,
+ * spendable coins or wallet) and it is persisted with the Order (every new Order carries one). A durable replay and
+ * duplicate-key recovery return the stored Order and never recompute it. No Payment state is implied.
+ *
  * <p><b>Money model — PRE-Membership (documented):</b> {@code CheckoutQuote.Line.unitPricePaise} IS the
  * canonical {@code Pricing} selling price today, so a direct equality revalidation against
  * {@link TransactionalPriceReadPort} is correct. A future Membership/Benefits PR MUST NOT collapse
@@ -321,7 +327,7 @@ public class OrderService {
         Order order = new Order(orderId, customerId.value(), quoteIdRaw, OrderStatus.CREATED, paymentMethod, 1L,
                 quote.addressId(), quote.addressVersion(), draft.addressSnapshot(), draft.lines(),
                 quote.itemCount(), quote.subtotalPaise(), quote.currency(), draft.reservation().reservationId(),
-                null, createdAt, null, clock.instant(), draft.benefitSnapshot());
+                null, createdAt, null, clock.instant(), draft.benefitSnapshot(), draft.moneySnapshot());
         orders.insert(session, order);
         return order;
     }
@@ -360,7 +366,8 @@ public class OrderService {
         Order order = new Order(orderId, customerId.value(), quoteIdRaw, OrderStatus.CONFIRMED, PaymentMethod.COD,
                 2L, quote.addressId(), quote.addressVersion(), draft.addressSnapshot(), draft.lines(),
                 quote.itemCount(), quote.subtotalPaise(), quote.currency(), reservationId,
-                ConfirmedPaymentCondition.COD_DUE, createdAt, confirmedAt, confirmedAt, draft.benefitSnapshot());
+                ConfirmedPaymentCondition.COD_DUE, createdAt, confirmedAt, confirmedAt, draft.benefitSnapshot(),
+                draft.moneySnapshot());
         orders.insert(session, order);
         return order;
     }
