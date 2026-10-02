@@ -19,9 +19,19 @@ public class AdminAuthConfig {
 
     private static final Logger log = LoggerFactory.getLogger(AdminAuthConfig.class);
 
+    /** The validated trust policy and allowlist; an invalid configuration fails startup here. */
     @Bean
-    public GoogleOidcAuthenticator googleOidcAuthenticator(AdminAuthProperties properties, Clock clock) {
-        HumanAdminSettings settings = HumanAdminSettings.from(properties);
+    public HumanAdminSettings humanAdminSettings(AdminAuthProperties properties) {
+        return HumanAdminSettings.from(properties);
+    }
+
+    @Bean
+    public AdminProfiles adminProfiles(HumanAdminSettings settings) {
+        return new AdminProfiles(settings.allowlist());
+    }
+
+    @Bean
+    public GoogleOidcAuthenticator googleOidcAuthenticator(HumanAdminSettings settings, Clock clock) {
         if (settings.oidc().isEmpty()) {
             log.info("admin_oidc state=disabled");
             return GoogleOidcAuthenticator.disabled();

@@ -1189,9 +1189,9 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
     follows in "Human Admin Google OIDC + config allowlist", below.)
   - **Deployment gates unchanged:** six, all PENDING / UNVERIFIED; no new collection, index or gate.
 
-## In review (NOT merged)
-
-- **Human Admin Google OIDC + config allowlist** (`com.tazzzo.admin.auth`, `ApiAuthFilter`): **IN REVIEW**. **HUMAN_ADMIN
+- **Human Admin Google OIDC + config allowlist** (`com.tazzzo.admin.auth`, `ApiAuthFilter`): **COMPLETE** (PR #45, squash
+  `d018cac373c0461fb0d4c7eaa56a425a883f7b3f`; merged-`main` push CI `37076192370`: 2366 tests, 0 failures / 0 errors / 0 skipped,
+  `ModuleBoundaryTest` 73/73). **HUMAN_ADMIN
   authentication is added. No CMS UI or BFF, no login/callback/authorization endpoint, no `/me`, no CORS, no cookies, no backend
   admin session, no token/refresh-token/session persistence, no admin user or credential collection, no Google client secret,
   no new endpoint and no OpenAPI change. Sensitive Admin modules (Pricing, Membership, Benefits, Coins/Wallet) remain blocked;
@@ -1252,6 +1252,32 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   - **Deployment gates unchanged:** six, all PENDING / UNVERIFIED; the identical-configuration gate (3) now also covers
     `tazzzo.admin.oidc.*` and `tazzzo.admin.users`. No new gate, collection, index or migration; `SchemaBootstrap` unchanged.
 
+## In review (NOT merged)
+
+- **Admin `/me` CMS bootstrap identity** (`GET /api/v1/admin/me`): **IN REVIEW**. **The backend exposes a safe authenticated
+  Admin bootstrap endpoint for the CMS; the CMS login flow is NOT complete (no `tazzzo-web` BFF exists). No login/callback/
+  logout, sessions, cookies, PKCE/nonce/CSRF, CORS, audit read API, sensitive Admin module or Payment.**
+  - **Endpoint:** INTERNAL surface (`SurfaceClassifier`), authenticated by the unchanged `ApiAuthFilter`; any authenticated
+    admin principal may call it (human or service account, reader or cms-writer: it is a GET). Missing/invalid credentials
+    are 401 and non-allowlisted/disabled humans 403 in the auth layer, before the controller. `AdminMeController` reads the
+    attached principal through `AdminPrincipalResolver`; it never re-authenticates or reads the token.
+  - **Response** (`ApiDtos.AdminMeResponse`, camelCase): `actorType`, `actorId` (`google:<sub>` / `service:<role>`), `email`
+    (HUMAN_ADMIN only: the allowlist's configured label; ABSENT for service accounts, never fabricated) and `roles` (from the
+    principal, sorted). No credential id, separate subject, token, claims, issuer, audience, `hd` or timestamps.
+  - **Email label:** `HumanAdminAllowlist` now retains each validated entry's email label, exposed only through
+    `AdminProfiles.emailLabel(principal)` in `admin.auth` (provider + subject lookup). It is display metadata: not in
+    `AdminPrincipal`, `Actor` or audit; never compared with the token's email; changing it changes only `/me`, never identity,
+    authorization or audit history. `AdminAuthConfig` now publishes the validated `HumanAdminSettings` as a bean shared by the
+    authenticator and the profile lookup (validation and startup failures unchanged).
+  - **Pure read:** no Mongo, event or audit write (tested by collection counts). No new collection, index or migration;
+    `SchemaBootstrap`, the committed public `docs/api/v1/openapi.yaml`, CORS, the verifier, authenticators and `ApiAuthFilter`
+    are unchanged. The endpoint appears in the generated, token-protected internal `/v3/api-docs` (tested).
+  - **Next (not started):** `tazzzo-web` CMS scaffold + BFF auth (same-origin, authorization code + state + nonce + PKCE,
+    opaque HttpOnly cookie, server-side session store, no browser token storage), pending framework/hosting ratification, the
+    session store, the Google web OAuth client and the CMS hostname. Humans are not yet off the shared `cms-writer` token.
+  - **Deployment gates unchanged:** six, all PENDING / UNVERIFIED.
+
+
 ## Follow-up debt (recorded)
 
 - **Non-Auth `tx.run` result-holder audit (PR-11D, no action taken):** `AttributeAuthoringService`
@@ -1309,7 +1335,7 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   `PublicServiceability`, pincode-keyed routing) is **COMPLETE** and unchanged; the
   customer-address BINDING to it (PR-12B) is **COMPLETE**.
   (Address ↔ Serviceability binding: COMPLETE.)
-- Cart (PR-12C): **COMPLETE** (PR #21). Auth transaction retry hardening (PR-11D): **COMPLETE** (PR #22). Checkout (PR-13A): **COMPLETE** (PR #23). Checkout provenance (PR-13B): **COMPLETE** (PR #24, squash `8b4fabb9b82e4e3502202ffaff1aadd35f9ba311`). Inventory Reservation lifecycle (PR-14A): **COMPLETE** (PR #25, squash `44438031022238334ecdf3995ba1096101e2e47f`). Order Foundation (PR-14B): **COMPLETE** (PR #26, squash `b620538e34afc35f7f080461750681b467ed4096`). Cart purchase-finalization seam (PR-15A-0): **COMPLETE** (PR #28, squash `611829c3649de3f5c37dec4ac5b375a1d8ef454e`). COD Order domain (PR-15A-1): **COMPLETE** (PR #29, squash `e8d4d45e88ad4935f7ad84a46ae65a671e50ba63`). Customer Order HTTP (PR-15A-2): **COMPLETE** (PR #30, squash `0cdcc97b8fcf5f7c079815b8cb276874635d15d6`; operational `orders`-count==0 deployment gate **PENDING**, not verified). Membership write foundation (PR-16A-1): **COMPLETE** (PR #31, squash `d32a23fb2e4b52fa8076de45a07bf3b60912b1e2`; Membership deployment gates **PENDING**, not verified). Membership entitlement read seam (PR-16A-2): **COMPLETE** (PR #32, squash `580633abbc8d162f45110443f503d4998f4caa48`). Membership termination (PR-16A-3): **COMPLETE** (PR #33, squash `99e2d1b7cc26982e0825bc4a9766b815aa6ae8e0`; cancel-at-period-end and immediate revoke; internal only). Benefits Foundation (order-level percentage + threshold evaluation seam; internal, no persistence): **COMPLETE** (PR #34, squash `cb2097f5979fe666d0d52de958b40db7058e3d16`; 0 production rules configured). Order Benefits snapshot (authoritative Benefits evaluation at COD placement; persisted snapshot, no public API change): **COMPLETE** (PR #35, squash `4486044e1c2f200ed05fe44abbb6525bf24a98f7`). Checkout Benefits evaluation snapshot (internal advisory preview persisted with the quote; no public API change): **COMPLETE** (PR #36, squash `30dea72482f71418048783b348647fdc0165a133`). Checkout Benefits preview public projection (additive nested `benefitPreview`, projection/API only): **COMPLETE** (PR #37, squash `48380964edb18f35eef501eb5aaf495da95d5c32`). Order money snapshot (authoritative V1 payable): **COMPLETE** (PR #38, squash `8051c45b7cf96dbc8d1374892d3b18281ff4a7b4`). Checkout advisory money snapshot + `moneyPreview`: **COMPLETE** (PR #39, squash `f98aafb67d946c04a7a7141f164e1d0998ab759b`). Benefits static config hardening: **COMPLETE** (PR #41, squash `22416e7a90aa36bc557d0926cc4b44dd7007a6b4`). PR-21 binding payable contract (PR #40, squash `3839f3d26e94f7d6cfed6e0da098ed900fd95a04`): merged without ratification; binding removed by the forward fix, public Order money kept. Advisory payable forward fix: **COMPLETE** (PR #42, squash `89fcf349c24d67dd610c28eafa34d2e70669195a`). Checkout/Order architecture boundary hardening: **COMPLETE** (PR #43, squash `0dd83b51d9fd74f17960c769648a227ed0ee89d0`). Admin principal + actor-attributed audit foundation: **COMPLETE** (PR #44, squash `2e8d87bd59bbb1d81c355b43b083694e6b928cc0`). Human Admin Google OIDC + config allowlist: **IN REVIEW**. Order money snapshot (authoritative V1 payable: merchandise subtotal minus Benefits discount; internal, no public API change): **IN REVIEW**. Payment: **NOT STARTED**. Real payment gateway: **NOT STARTED**.
+- Cart (PR-12C): **COMPLETE** (PR #21). Auth transaction retry hardening (PR-11D): **COMPLETE** (PR #22). Checkout (PR-13A): **COMPLETE** (PR #23). Checkout provenance (PR-13B): **COMPLETE** (PR #24, squash `8b4fabb9b82e4e3502202ffaff1aadd35f9ba311`). Inventory Reservation lifecycle (PR-14A): **COMPLETE** (PR #25, squash `44438031022238334ecdf3995ba1096101e2e47f`). Order Foundation (PR-14B): **COMPLETE** (PR #26, squash `b620538e34afc35f7f080461750681b467ed4096`). Cart purchase-finalization seam (PR-15A-0): **COMPLETE** (PR #28, squash `611829c3649de3f5c37dec4ac5b375a1d8ef454e`). COD Order domain (PR-15A-1): **COMPLETE** (PR #29, squash `e8d4d45e88ad4935f7ad84a46ae65a671e50ba63`). Customer Order HTTP (PR-15A-2): **COMPLETE** (PR #30, squash `0cdcc97b8fcf5f7c079815b8cb276874635d15d6`; operational `orders`-count==0 deployment gate **PENDING**, not verified). Membership write foundation (PR-16A-1): **COMPLETE** (PR #31, squash `d32a23fb2e4b52fa8076de45a07bf3b60912b1e2`; Membership deployment gates **PENDING**, not verified). Membership entitlement read seam (PR-16A-2): **COMPLETE** (PR #32, squash `580633abbc8d162f45110443f503d4998f4caa48`). Membership termination (PR-16A-3): **COMPLETE** (PR #33, squash `99e2d1b7cc26982e0825bc4a9766b815aa6ae8e0`; cancel-at-period-end and immediate revoke; internal only). Benefits Foundation (order-level percentage + threshold evaluation seam; internal, no persistence): **COMPLETE** (PR #34, squash `cb2097f5979fe666d0d52de958b40db7058e3d16`; 0 production rules configured). Order Benefits snapshot (authoritative Benefits evaluation at COD placement; persisted snapshot, no public API change): **COMPLETE** (PR #35, squash `4486044e1c2f200ed05fe44abbb6525bf24a98f7`). Checkout Benefits evaluation snapshot (internal advisory preview persisted with the quote; no public API change): **COMPLETE** (PR #36, squash `30dea72482f71418048783b348647fdc0165a133`). Checkout Benefits preview public projection (additive nested `benefitPreview`, projection/API only): **COMPLETE** (PR #37, squash `48380964edb18f35eef501eb5aaf495da95d5c32`). Order money snapshot (authoritative V1 payable): **COMPLETE** (PR #38, squash `8051c45b7cf96dbc8d1374892d3b18281ff4a7b4`). Checkout advisory money snapshot + `moneyPreview`: **COMPLETE** (PR #39, squash `f98aafb67d946c04a7a7141f164e1d0998ab759b`). Benefits static config hardening: **COMPLETE** (PR #41, squash `22416e7a90aa36bc557d0926cc4b44dd7007a6b4`). PR-21 binding payable contract (PR #40, squash `3839f3d26e94f7d6cfed6e0da098ed900fd95a04`): merged without ratification; binding removed by the forward fix, public Order money kept. Advisory payable forward fix: **COMPLETE** (PR #42, squash `89fcf349c24d67dd610c28eafa34d2e70669195a`). Checkout/Order architecture boundary hardening: **COMPLETE** (PR #43, squash `0dd83b51d9fd74f17960c769648a227ed0ee89d0`). Admin principal + actor-attributed audit foundation: **COMPLETE** (PR #44, squash `2e8d87bd59bbb1d81c355b43b083694e6b928cc0`). Human Admin Google OIDC + config allowlist: **COMPLETE** (PR #45, squash `d018cac373c0461fb0d4c7eaa56a425a883f7b3f`). Admin `/me` CMS bootstrap identity: **IN REVIEW**. Order money snapshot (authoritative V1 payable: merchandise subtotal minus Benefits discount; internal, no public API change): **IN REVIEW**. Payment: **NOT STARTED**. Real payment gateway: **NOT STARTED**.
 
 ## Next (ratified sequence)
 
@@ -1325,8 +1351,8 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
    hardening: plan cross-validation) complete (PR #41); PR #40 (binding payable, unratified) was merged and its binding is
    removed by the forward fix (complete, PR #42), which keeps the public authoritative Order money; the Checkout/Order
    architecture boundary hardening is complete (PR #43); the admin principal + actor-audit foundation is complete
-   (PR #44); human admin Google OIDC + config allowlist is in review (Admin `/me` + CMS BFF integration is next); Payment
-   comes last.
+   (PR #44); human admin Google OIDC + config allowlist is complete (PR #45); Admin `/me` is in review, then the
+   `tazzzo-web` CMS BFF login; Payment comes last.
 4. Payment domain, then the prepaid Order flow, then a real gateway.
 5. Admin/CMS expansion.
 

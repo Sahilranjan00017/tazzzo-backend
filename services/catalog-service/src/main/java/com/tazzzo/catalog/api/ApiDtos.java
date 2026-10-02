@@ -1,5 +1,7 @@
 package com.tazzzo.catalog.api;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+
 import java.util.List;
 import java.util.Map;
 
@@ -11,6 +13,16 @@ import java.util.Map;
 public final class ApiDtos {
 
     private ApiDtos() { }
+
+    // ---- admin bootstrap (GET /api/v1/admin/me)
+
+    /**
+     * The authenticated admin, for CMS bootstrap. {@code email} is the allowlist's display label of a HUMAN_ADMIN and is
+     * ABSENT (not null) for a service account; {@code roles} are sorted. Deliberately no credential id, raw subject, token
+     * or claim data.
+     */
+    public record AdminMeResponse(String actorType, String actorId,
+                                  @JsonInclude(JsonInclude.Include.NON_NULL) String email, List<String> roles) { }
 
     // ---- products
     public record GtinDto(String value, String market) { }

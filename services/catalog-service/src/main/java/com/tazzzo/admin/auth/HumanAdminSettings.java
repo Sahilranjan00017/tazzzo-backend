@@ -111,7 +111,7 @@ public record HumanAdminSettings(Optional<GoogleOidcSettings> oidc, HumanAdminAl
                 if (entries.containsKey(key)) {
                     problems.add(at + " duplicates an earlier provider+subject");
                 } else if (!roleSet.isEmpty()) {
-                    entries.put(key, new HumanAdminAllowlist.Entry(roleSet, u.isEnabled()));
+                    entries.put(key, new HumanAdminAllowlist.Entry(roleSet, u.isEnabled(), email));
                 }
             }
         }
