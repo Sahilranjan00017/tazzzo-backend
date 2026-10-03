@@ -33,7 +33,13 @@ final class TestMigration implements Migration {
     @Override public List<String> collections() { return List.of("synthetic"); }
     @Override public String definition() { return definition; }
     @Override public boolean enabledByDefault() { return enabledByDefault; }
-    @Override public Preflight preflight(MongoDatabase db) { return preflight; }
+    volatile RuntimeException preflightFailure;
+
+    @Override
+    public Preflight preflight(MongoDatabase db) {
+        if (preflightFailure != null) throw preflightFailure;
+        return preflight;
+    }
 
     @Override
     public ApplyResult apply(MongoDatabase db) {

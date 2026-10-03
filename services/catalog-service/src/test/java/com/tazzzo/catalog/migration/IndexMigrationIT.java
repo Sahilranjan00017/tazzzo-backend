@@ -684,4 +684,107 @@ class IndexMigrationIT extends AbstractMigrationIT {
         new ReplaceIndexMigration("T2", "relax", spec("u", true, "a", 1), spec("n", false, "a", 1), true);
         new ReplaceIndexMigration("T3", "same", spec("x", false, "a", 1), spec("y", false, "a", 1), true);
     }
+
+    // ---- round 4: destructive steps are guarded by the SAME checks as the preflight --------------
+
+    @Test
+    void any_drop_first_replacement_with_a_unique_target_must_carry_a_duplicate_check() {
+        // unique -> unique on narrower keys: dropping the source and failing to build the target would leave NO index
+        IndexSpec from = spec("n", true, "a", 1, "b", 1);
+        IndexSpec to = spec("n", true, "a", 1);
+        assertThatThrownBy(() -> new ReplaceIndexMigration("T1", "narrow", from, to, true))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("DuplicateCheck");
+        // same keys, unique -> unique with a sparse flag dropped (documents missing the field now collide as null)
+        IndexSpec sparseUnique = new IndexSpec("ren", "u_sparse", keys("a", 1), true, true, null, null);
+        IndexSpec plainUnique = new IndexSpec("ren", "u_plain", keys("a", 1), true, false, null, null);
+        assertThatThrownBy(() -> new ReplaceIndexMigration("T2", "unsparse", sparseUnique, plainUnique, true))
+                .isInstanceOf(IllegalArgumentException.class);
+        // a coexisting replacement creates BEFORE it drops, so a failed create keeps the source: no check required
+        new ReplaceIndexMigration("T3", "swap partial",
+                new IndexSpec("ren", "px", keys("k", 1), true, false, new Document("x", true), null),
+                new IndexSpec("ren", "py", keys("k", 1), true, false, new Document("y", true), null), true);
+    }
+
+    @Test
+    void a_narrower_unique_replacement_is_blocked_by_duplicates_and_the_source_is_never_dropped() {
+        MongoDatabase d = scratch();
+        IndexSpec from = spec("n", true, "a", 1, "b", 1);
+        IndexSpec to = spec("n", true, "a", 1);
+        from.create(d);
+        d.getCollection("ren").insertMany(List.of(new Document("a", 1).append("b", 1), new Document("a", 1).append("b", 2)));
+        ReplaceIndexMigration m = new ReplaceIndexMigration("T1", "narrow", from, to, true, DuplicateCheck.byFields("ren", null, "a"));
+
+        MigrationRunner.RunReport r = runner(d, List.of(m)).apply(target(d), MigrationRunner.Selection.all(), apply());
+
+        assertThat(r.outcome()).isEqualTo(MigrationRunner.Outcome.BLOCKED);
+        assertThat(from.inspect(d).state()).as("the source must still exist").isEqualTo(IndexSpec.State.EXACT);
+        assertThat(d.getCollection("ren").countDocuments()).isEqualTo(2);
+    }
+
+    @Test
+    void apply_rechecks_for_a_third_name_index_that_appears_after_the_preflight_and_drops_nothing() {
+        MongoDatabase d = scratch();
+        IndexSpec from = spec("idx", false, "a", 1);
+        IndexSpec to = spec("idx", false, "a", 1, "b", 1); // widen, keeping the name
+        from.create(d);
+        ReplaceIndexMigration m = new ReplaceIndexMigration("T1", "widen", from, to, true);
+        assertThat(m.preflight(d).status()).as("READY when the preflight ran").isEqualTo(Preflight.Status.READY);
+
+        // the state changes AFTER the preflight and BEFORE the apply
+        d.getCollection("ren").createIndex(new Document("a", 1).append("b", 1), new IndexOptions().name("idx_ab"));
+
+        assertThatThrownBy(() -> m.apply(d)).isInstanceOf(MigrationException.class)
+                .hasMessageContaining("state changed since the preflight").hasMessageContaining("idx_ab");
+        assertThat(from.inspect(d).state()).as("the source must NOT have been dropped").isEqualTo(IndexSpec.State.EXACT);
+    }
+
+    @Test
+    void apply_rechecks_for_duplicates_that_appear_after_the_preflight_and_drops_nothing() {
+        MongoDatabase d = scratch();
+        IndexSpec from = spec("idx", false, "a", 1);
+        IndexSpec to = spec("idx", true, "a", 1);
+        from.create(d);
+        d.getCollection("ren").insertOne(new Document("a", 1));
+        ReplaceIndexMigration m = new ReplaceIndexMigration("T1", "make unique", from, to, true, DuplicateCheck.byFields("ren", null, "a"));
+        assertThat(m.preflight(d).status()).isEqualTo(Preflight.Status.READY);
+
+        d.getCollection("ren").insertOne(new Document("a", 1)); // a duplicate arrives after the preflight
+
+        assertThatThrownBy(() -> m.apply(d)).isInstanceOf(MigrationException.class).hasMessageContaining("duplicates exist");
+        assertThat(from.inspect(d).state()).as("the non-unique source index is still there").isEqualTo(IndexSpec.State.EXACT);
+        assertThat(d.getCollection("ren").countDocuments()).isEqualTo(2);
+    }
+
+    @Test
+    void a_replacement_does_not_adopt_an_equivalent_index_under_another_name() {
+        MongoDatabase d = scratch();
+        IndexSpec from = spec("old", false, "a", 1);
+        IndexSpec to = spec("new", false, "a", 1, "b", 1);
+        from.create(d);
+        d.getCollection("ren").createIndex(new Document("a", 1).append("b", 1), new IndexOptions().name("third")); // equals the target
+        ReplaceIndexMigration m = new ReplaceIndexMigration("T1", "widen", from, to, true);
+        assertThat(from.canCoexistWith(to)).isTrue();
+
+        Preflight pf = m.preflight(d);
+
+        assertThat(pf.status()).as("a replacement must leave the reviewed name present; dropping the source here would not").isEqualTo(Preflight.Status.BLOCKED);
+        assertThat(pf.blockers().get(0)).contains("reviewed name").contains("third").contains("nothing is dropped");
+        assertThat(from.inspect(d).state()).isEqualTo(IndexSpec.State.EXACT);
+    }
+
+    // ---- baseline: duplicates BLOCK instead of failing part-way ---------------------------------
+
+    @Test
+    void the_baseline_blocks_on_duplicates_under_a_missing_unique_index_and_creates_nothing_else() {
+        MongoDatabase d = scratch();
+        d.getCollection("customers").insertMany(List.of(
+                new Document("phoneNormalized", "+919000000009"), new Document("phoneNormalized", "+919000000009")));
+        MigrationRunner.RunReport r = run(d, only(d, "V0001__baseline_schema"));
+
+        assertThat(r.outcome()).isEqualTo(MigrationRunner.Outcome.BLOCKED);
+        assertThat(r.steps().get(0).blockers()).anyMatch(b -> b.contains("duplicates exist") && b.contains("customer_one_per_phone"));
+        assertThat(d.getCollection("customers").countDocuments()).as("business data untouched").isEqualTo(2);
+        assertThat(collectionNames(d)).as("the baseline created no business collection").containsExactlyInAnyOrder(
+                "customers", MigrationHistory.COLLECTION, MigrationLock.COLLECTION);
+    }
 }

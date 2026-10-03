@@ -49,7 +49,20 @@ public final class BaselineSchemaMigration implements Migration {
         for (IndexSpec s : IndexCatalog.BASELINE) {
             IndexSpec.Inspection in = s.inspect(db);
             switch (in.state()) {
-                case ABSENT -> create++;
+                case ABSENT -> {
+                    create++;
+                    if (s.unique()) {
+                        // a unique baseline index about to be created over existing data: duplicates BLOCK here instead of
+                        // the apply failing part-way
+                        List<Document> dups = DuplicateCheck.byFields(s.collection(), s.partialFilter(),
+                                s.keys().keySet().toArray(String[]::new)).sample(db);
+                        if (!dups.isEmpty()) {
+                            blockers.add("cannot create unique index " + s.describe() + ": duplicates exist ("
+                                    + dups.size() + " duplicate group(s); sample " + dups.stream().limit(3).map(Document::toJson).toList()
+                                    + "); business data is never deleted or merged automatically");
+                        }
+                    }
+                }
                 case EXACT -> exact++;
                 case SAME_KEYS_OTHER_NAME -> { adopt++; notes.add("adopting " + in.existingName() + " for " + s.describe()); }
                 case CONFLICT -> blockers.add(s.describe() + " — " + in.detail());

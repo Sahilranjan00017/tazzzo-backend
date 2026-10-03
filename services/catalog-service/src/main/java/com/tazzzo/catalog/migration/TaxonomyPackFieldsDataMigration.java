@@ -56,7 +56,8 @@ public final class TaxonomyPackFieldsDataMigration implements Migration {
     public ApplyResult apply(MongoDatabase db) {
         List<String> seedIds = loader.seedSchemaIds();
         long modified = db.getCollection("attribute_schemas").updateMany(
-                Filters.and(Filters.in("schema_id", seedIds), Filters.eq("version", 1)),
+                Filters.and(Filters.in("schema_id", seedIds), Filters.eq("version", 1),
+                        Filters.type("fields", org.bson.BsonType.ARRAY)),
                 new Document("$set", new Document("fields.$[q].required", false)),
                 new UpdateOptions().arrayFilters(List.of(new Document("q.key",
                         new Document("$in", List.copyOf(TaxonomyLoader.PACK_FIELD_KEYS)))))).getModifiedCount();

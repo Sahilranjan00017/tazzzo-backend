@@ -38,10 +38,13 @@ public final class ReplaceIndexMigration implements Migration {
     public ReplaceIndexMigration(String id, String description, IndexSpec from, IndexSpec to, boolean enabledByDefault,
                                  DuplicateCheck duplicateCheck) {
         if (!from.collection().equals(to.collection())) throw new IllegalArgumentException("same collection required");
-        if (to.unique() && !from.unique() && duplicateCheck == null) {
-            // dropping the source and then failing to build the unique target on duplicates would leave the collection
-            // without the index; a replacement that makes an index unique must prove there are no duplicates first
-            throw new IllegalArgumentException("a replacement that makes an index unique must supply a DuplicateCheck");
+        boolean dropsFirst = from.effectiveName().equals(to.effectiveName()) || !from.canCoexistWith(to);
+        if (to.unique() && dropsFirst && duplicateCheck == null) {
+            // Dropping the source and then failing to build the unique target on duplicates would leave the collection
+            // without the index. That can happen whenever a unique target is built AFTER the source is dropped — not only
+            // when the source was non-unique (a narrower unique key, a wider partial filter, a dropped sparse flag all
+            // surface new collisions) — so every drop-first replacement with a unique target must prove there are none.
+            throw new IllegalArgumentException("a drop-first replacement with a unique target must supply a DuplicateCheck");
         }
         this.id = id;
         this.description = description;
@@ -160,7 +163,14 @@ public final class ReplaceIndexMigration implements Migration {
             return Preflight.blocked(List.of("index being replaced is not the exact reviewed definition: " + from.describe()
                     + " — " + oldIn.detail()));
         }
-        boolean newOk = newIn.state() == IndexSpec.State.EXACT || newIn.state() == IndexSpec.State.SAME_KEYS_OTHER_NAME;
+        if (newIn.state() == IndexSpec.State.SAME_KEYS_OTHER_NAME) {
+            // A replacement is an explicit decision about the index's NAME as well; unlike a plain create it does not adopt an
+            // equivalent index under another name (dropping the source would leave the reviewed name absent).
+            return Preflight.blocked(List.of("cannot replace " + from.effectiveName() + ": " + newIn.detail()
+                    + " (" + newIn.state() + "); the replacement must exist under the reviewed name " + to.effectiveName()
+                    + "; resolve it deliberately, nothing is dropped"));
+        }
+        boolean newOk = newIn.state() == IndexSpec.State.EXACT;
         if (newOk && oldIn.state() == IndexSpec.State.ABSENT) return Preflight.satisfied("replacement already in place");
         List<String> ops = new ArrayList<>();
         if (!newOk) {
@@ -174,6 +184,14 @@ public final class ReplaceIndexMigration implements Migration {
 
     @Override
     public ApplyResult apply(MongoDatabase db) {
+        // Re-run the preflight's guards immediately before any destructive step (single source of truth): state may have
+        // changed since the preflight (a third-name index, new duplicates). This narrows — it cannot remove — the window
+        // between the check and the drop; whatever remains is resumable and never silently wrong.
+        Preflight guard = preflight(db);
+        if (guard.status() == Preflight.Status.BLOCKED) {
+            throw new MigrationException(id + ": the state changed since the preflight; refusing to proceed: " + guard.blockers());
+        }
+        if (guard.status() == Preflight.Status.ALREADY_SATISFIED) return ApplyResult.of("already satisfied");
         List<String> done = new ArrayList<>();
         if (dropFirst()) {
             if (from.inspect(db).state() == IndexSpec.State.EXACT) {
@@ -208,9 +226,7 @@ public final class ReplaceIndexMigration implements Migration {
     public List<String> validate(MongoDatabase db) {
         List<String> problems = new ArrayList<>();
         IndexSpec.State ns = to.inspect(db).state();
-        boolean ok = dropFirst() ? ns == IndexSpec.State.EXACT
-                : ns == IndexSpec.State.EXACT || ns == IndexSpec.State.SAME_KEYS_OTHER_NAME;
-        if (!ok) problems.add("replacement missing: " + to.describe());
+        if (ns != IndexSpec.State.EXACT) problems.add("replacement missing: " + to.describe());
         if (!sameName() && from.namedIndexPresent(db)) problems.add("old index still present: " + from.describe());
         return problems;
     }

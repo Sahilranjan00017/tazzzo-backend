@@ -132,4 +132,25 @@ class MigrationTaxonomyIT extends AbstractMigrationIT {
                 .contains("pack_size").contains("pack_unit");
         assertThat(TaxonomyLoader.PACK_FIELD_KEYS).containsExactlyInAnyOrder("pack_size", "pack_unit");
     }
+
+    @Test
+    void the_data_migration_skips_a_seed_schema_whose_fields_are_not_an_array_instead_of_failing() {
+        MongoDatabase d = legacyDatabase();
+        taxonomyLoader.load(d);
+        List<String> ids = taxonomyLoader.seedSchemaIds();
+        String malformed = ids.get(0);
+        String good = ids.get(1);
+        // one seed schema is corrupt (no `fields`), another still requires the pack fields
+        d.getCollection("attribute_schemas").updateOne(Filters.and(Filters.eq("schema_id", malformed), Filters.eq("version", 1)),
+                new Document("$unset", new Document("fields", "")));
+        d.getCollection("attribute_schemas").updateOne(Filters.and(Filters.eq("schema_id", good), Filters.eq("version", 1)),
+                new Document("$set", new Document("fields.$[q].required", true)),
+                new UpdateOptions().arrayFilters(List.of(new Document("q.key", new Document("$in", List.of("pack_size", "pack_unit"))))));
+
+        MigrationRunner.RunReport r = only(d, DATA).apply(target(d), MigrationRunner.Selection.all().withApproved(Set.of(DATA)), apply());
+
+        assertThat(r.ok()).as(r.render()).isTrue();
+        assertThat(d.getCollection("attribute_schemas").find(Filters.and(Filters.eq("schema_id", malformed), Filters.eq("version", 1))).first()
+                .containsKey("fields")).as("the corrupt document is left alone, not 'repaired'").isFalse();
+    }
 }

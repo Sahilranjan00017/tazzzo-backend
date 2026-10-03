@@ -99,6 +99,9 @@ public final class ValidatorMigration implements Migration {
         long bad = db.getCollection(collection).countDocuments(nonConformingFilter(), new CountOptions().limit(scanLimit));
         List<String> notes = new ArrayList<>();
         notes.add("previous options are captured as rollback info");
+        if (currentOptions(db).get("validator") != null) {
+            notes.add("an EXISTING, different validator on " + collection + " will be replaced");
+        }
         if (bad > 0) {
             List<Object> sample = new ArrayList<>();
             db.getCollection(collection).find(nonConformingFilter()).projection(new Document("_id", 1))

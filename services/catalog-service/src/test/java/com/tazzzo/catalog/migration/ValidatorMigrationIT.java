@@ -145,4 +145,16 @@ class ValidatorMigrationIT extends AbstractMigrationIT {
         assertThat(r.outcome()).isEqualTo(MigrationRunner.Outcome.BLOCKED);
         assertThat(r.steps().get(0).blockers().get(0)).contains("does not exist");
     }
+
+    @Test
+    void a_preflight_says_when_an_existing_different_validator_would_be_replaced() {
+        MongoDatabase d = scratch();
+        d.createCollection("vcoll");
+        d.runCommand(new Document("collMod", "vcoll").append("validator",
+                new Document("$jsonSchema", Document.parse("{ bsonType: 'object', required: ['zzz'] }")))
+                .append("validationLevel", "moderate").append("validationAction", "warn"));
+        Preflight pf = migration(ValidationLevel.STRICT, ValidationAction.ERROR).preflight(d);
+        assertThat(pf.status()).isEqualTo(Preflight.Status.READY);
+        assertThat(pf.notes()).anyMatch(n -> n.contains("EXISTING, different validator") && n.contains("will be replaced"));
+    }
 }

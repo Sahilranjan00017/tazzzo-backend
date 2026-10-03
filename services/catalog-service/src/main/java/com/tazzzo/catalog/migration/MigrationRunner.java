@@ -170,7 +170,15 @@ public final class MigrationRunner {
                 }
                 continue;
             }
-            Preflight pf = m.preflight(db);
+            Preflight pf;
+            try {
+                pf = m.preflight(db);
+            } catch (RuntimeException e) {
+                steps.add(new Step(m.id(), StepStatus.FAILED, false, List.of(), List.of(), List.of(),
+                        "preflight failed: " + MigrationSanitizer.safeMessage(e)));
+                if (outcome == Outcome.OK) outcome = Outcome.FAILED;
+                continue;
+            }
             switch (pf.status()) {
                 case BLOCKED -> {
                     steps.add(new Step(m.id(), StepStatus.BLOCKED, false, List.of(), pf.blockers(), pf.notes(), null));
@@ -270,7 +278,17 @@ public final class MigrationRunner {
                     steps.add(new Step(m.id(), StepStatus.ALREADY_APPLIED, false, List.of(), List.of(), List.of(), null));
                     continue;
                 }
-                Preflight pf = m.preflight(db);
+                Preflight pf;
+                try {
+                    pf = m.preflight(db);
+                } catch (RuntimeException e) {
+                    String safe = "preflight failed: " + MigrationSanitizer.safeMessage(e);
+                    history.markFailed(m, run, now(), safe);
+                    steps.add(new Step(m.id(), StepStatus.FAILED, false, List.of(), List.of(), List.of(), safe));
+                    outcome = Outcome.FAILED;
+                    index++;
+                    break;
+                }
                 if (pf.status() == Preflight.Status.BLOCKED) {
                     history.markBlocked(m, run, now(), pf.blockers());
                     steps.add(new Step(m.id(), StepStatus.BLOCKED, false, List.of(), pf.blockers(), pf.notes(), null));

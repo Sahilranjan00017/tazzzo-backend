@@ -576,4 +576,41 @@ class MigrationFrameworkIT extends AbstractMigrationIT {
         assertThat(codes).containsExactly(0, 2, 3, 4, 5, 6, 7, 8);
         assertThat(codes).doesNotHaveDuplicates();
     }
+
+    // ---- a preflight that throws is reported, recorded and retryable — it never escapes the runner ----
+
+    @Test
+    void a_preflight_that_throws_fails_the_step_with_a_sanitized_record_and_stops_the_run() {
+        MongoDatabase d = scratch();
+        TestMigration broken = new TestMigration("T0001");
+        broken.preflightFailure = new IllegalStateException("aggregate timed out talking to mongodb://svc:topsecret@db.internal:27017/x");
+        TestMigration after = new TestMigration("T0002");
+        MigrationRunner runner = runner(d, List.of(broken, after));
+
+        MigrationRunner.RunReport r = runner.apply(target(d), MigrationRunner.Selection.all(), apply());
+
+        assertThat(r.outcome()).isEqualTo(MigrationRunner.Outcome.FAILED);
+        assertThat(r.exitCode()).isEqualTo(3);
+        assertThat(statuses(r)).containsEntry("T0001", MigrationRunner.StepStatus.FAILED)
+                .containsEntry("T0002", MigrationRunner.StepStatus.NOT_RUN);
+        assertThat(history(d, "T0001").getString("status")).isEqualTo("FAILED");
+        assertThat(history(d, "T0001").getString("error")).contains("preflight failed").doesNotContain("topsecret").doesNotContain("db.internal");
+        assertThat(r.render()).doesNotContain("topsecret");
+        assertThat(after.applies.get()).isZero();
+        assertThat(new MigrationLock(d).current().orElseThrow().get("ownerId")).as("the lock is released").isNull();
+
+        broken.preflightFailure = null; // the transient problem is gone: the same run now succeeds
+        assertThat(runner.apply(target(d), MigrationRunner.Selection.all(), apply()).ok()).isTrue();
+    }
+
+    @Test
+    void a_dry_run_reports_a_throwing_preflight_instead_of_escaping() {
+        MongoDatabase d = scratch();
+        TestMigration broken = new TestMigration("T0001");
+        broken.preflightFailure = new IllegalStateException("boom");
+        MigrationRunner.RunReport r = runner(d, List.of(broken)).dryRun(target(d), MigrationRunner.Selection.all());
+        assertThat(r.outcome()).isEqualTo(MigrationRunner.Outcome.FAILED);
+        assertThat(r.steps().get(0).message()).contains("preflight failed");
+        assertThat(collectionNames(d)).isEmpty();
+    }
 }
