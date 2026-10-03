@@ -102,6 +102,11 @@ public class ApiExceptionHandler {
                 "observedAt must be an ISO-8601 instant, e.g. 2026-08-26T10:00:00Z", req);
     }
 
+    @ExceptionHandler(AuditReadForbiddenException.class)
+    public ResponseEntity<?> auditForbidden(AuditReadForbiddenException ex, HttpServletRequest req) {
+        return envelope(HttpStatus.FORBIDDEN, "FORBIDDEN", ex.getMessage(), req);
+    }
+
     @ExceptionHandler({NotFoundException.class, com.tazzzo.catalog.tx.ProductNotFoundException.class,
             com.tazzzo.catalog.tx.EvidenceNotFoundException.class})
     public ResponseEntity<?> notFound(RuntimeException ex, HttpServletRequest req) {

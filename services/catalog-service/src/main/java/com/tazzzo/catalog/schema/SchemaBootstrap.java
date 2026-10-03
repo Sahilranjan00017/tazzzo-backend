@@ -247,6 +247,9 @@ public class SchemaBootstrap {
         db.getCollection("attribute_schemas").createIndex(
                 Indexes.ascending("schema_id", "version"), new IndexOptions().unique(true));
         db.getCollection("node_events").createIndex(Indexes.ascending("node_id", "at"));
+        for (String ledger : AUDIT_READ_LEDGERS) {
+            createAuditReadIndexes(db.getCollection(ledger));
+        }
         db.getCollection("consumer_projection_policy").createIndex(
                 Indexes.ascending("vertical_id"), new IndexOptions().unique(true));
         db.getCollection("taxonomy_snapshot_nodes").createIndex(
@@ -481,5 +484,32 @@ public class SchemaBootstrap {
                 "pack_of": {"bsonType":"null"} } } ] }
         """;
         return Document.parse(json);
+    }
+
+    /**
+     * Admin audit-read: the ledgers the audit-read API queries (kept in step with {@code admin.audit.AuditSource}; pinned
+     * by AdminAuditEventsIT). Each gets three PARTIAL indexes over attributed rows only ({@code actor} is a document, the
+     * exact predicate every audit-read query carries), designed from the supported queries:
+     * <ul>
+     *   <li>{@value #AUDIT_IDX_RECENT}: (at DESC, _id DESC), the default newest-first page and every filter without a
+     *       more selective index;</li>
+     *   <li>{@value #AUDIT_IDX_ACTOR}: (actor.id, at DESC, _id DESC), "what did this actor do", already in page order;</li>
+     *   <li>{@value #AUDIT_IDX_REQUEST}: (actor.request_id, at DESC, _id DESC), the exact request-id lookup.</li>
+     * </ul>
+     * Explicit names make the explain() evidence stable. Unattributed historical rows are not indexed (never returned).
+     */
+    static final List<String> AUDIT_READ_LEDGERS = List.of("product_events", "node_events", "domain_events");
+    public static final String AUDIT_IDX_RECENT = "audit_read_recent";
+    public static final String AUDIT_IDX_ACTOR = "audit_read_actor";
+    public static final String AUDIT_IDX_REQUEST = "audit_read_request";
+
+    private static void createAuditReadIndexes(MongoCollection<Document> ledger) {
+        Document attributed = new Document("actor", new Document("$type", "object"));
+        ledger.createIndex(new Document("at", -1).append("_id", -1),
+                new IndexOptions().name(AUDIT_IDX_RECENT).partialFilterExpression(attributed));
+        ledger.createIndex(new Document("actor.id", 1).append("at", -1).append("_id", -1),
+                new IndexOptions().name(AUDIT_IDX_ACTOR).partialFilterExpression(attributed));
+        ledger.createIndex(new Document("actor.request_id", 1).append("at", -1).append("_id", -1),
+                new IndexOptions().name(AUDIT_IDX_REQUEST).partialFilterExpression(attributed));
     }
 }
