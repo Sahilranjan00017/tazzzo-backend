@@ -278,6 +278,23 @@ Actual drops happen only through the disabled drop migrations after explicit app
 - Never edit an applied migration; add a new one.
 - Duplicate remediation, validator `strict` rollouts and any data change are explicit human decisions, not automatic.
 
-## 16. Not done in DB-3 (explicit)
+## 16. Interaction with PR #49 (audit-read) — action required when it merges
+
+PR #49 (open, not merged, head `9a8329f`) creates its nine `audit_read_*` partial indexes **inside
+`SchemaBootstrap.bootstrap()`**. Since DB-3 the application no longer calls `bootstrap()` at startup, and the
+migration baseline (`V0001`) is driven by `IndexCatalog`, not by `bootstrap()`. Verified in a scratch merge of
+DB-3 with PR #49 (not pushed): every index/framework suite passes (`IndexContractIT`, `AuditReadIndexIT`,
+`MigrationFrameworkIT`), **but a database built only by migrations has no `audit_read_*` index** on
+`product_events`, `node_events` or `domain_events`, while a bootstrap-built one has all nine.
+
+Therefore, when PR #49 merges, **a migration that creates those nine indexes must be added** (a
+`CreateIndexMigration` over the nine `IndexSpec`s, registered after the current ones, e.g. `V0007`), and
+`IndexCatalog`, `IndexContractIT` and the manifest must pin them exactly (today the drift tests only tolerate the
+`audit_read_` name prefix on those three ledgers). Without it the audit-read API would run unindexed in every
+environment that uses the migration job. This is deliberately **not** added speculatively here: PR #49 is not
+merged and its index definitions could still change. The audit-read endpoints themselves are bounded
+(5 s `maxTime`, 100 rows) but would scan.
+
+## 17. Not done in DB-3 (explicit)
 
 No migration was run against any staging or production database; no validator is enabled; no unused index is dropped; PR #49's nine `audit_read_*` indexes are not part of the catalog until it merges (the drift tests tolerate that prefix on the three ledgers, and the manifest/oracle must be updated when it merges); index build time on production-sized data and the live index set remain UNVERIFIED; separate migration/runtime database users and the deployment pipeline integration are DB-4 and the AWS track.
