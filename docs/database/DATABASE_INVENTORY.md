@@ -6,20 +6,19 @@
 |---|---|
 | Repository | `Sahilranjan00017/tazzzo-backend` (`https://github.com/Sahilranjan00017/tazzzo-backend.git`) |
 | Authoritative SHA | `f5b2cdd50d405e2554dfa0a9772b07c8569b9c2b` (`origin/main`, "Add admin me endpoint for CMS bootstrap (#46)") |
-| Source tree used | worktree `tazzzo-backend-pr22`, branch `main`, HEAD == `origin/main` (`rev-list --left-right --count HEAD...origin/main` = `0 0`), working tree clean before this file |
+| Source tree used | clean checkout of `origin/main` at `f5b2cdd` (`rev-list --left-right --count HEAD...origin/main` = `0 0`) |
 | Fetch | `git fetch --all --prune` run at audit start |
 | Service audited | `services/catalog-service` — the only Maven module with persistence |
-| Open PRs | none (`gh pr list --state open` → `[]`) |
+| Open PRs | none at audit time |
 | Audit date | 2026-10-03 |
 | Method | static source inspection only. No build, no test run, no Mongo connection, no data/config mutation, no application-code change |
-| Other local state noted | the primary checkout `tazzzo-backend` sits on **unpushed** branch `feature/db1-collection-contracts` (`3a0893a`, 1 commit ahead of `origin/main`). It already contains an older `docs/database/DATABASE_INVENTORY.md` and `DATABASE_COLLECTION_CONTRACTS.md` pinned to stale SHA `3839f3d` (pre-PR #42–#46). It was **not** used as a source. See §20 R18. |
-| Unmerged concurrent work (NOT audited) | At audit time another workflow had uncommitted edits in a separate worktree: admin-auth (`AdminPrincipal`, `HumanAdminSettings`, `ApiAuthFilter`), an admin audit-read API, and a `SchemaBootstrap.java` modification with an `AuditReadIndexIT`. None is on `origin/main`; this inventory describes only committed `f5b2cdd`. Any index or persistence change from that work must be re-inventoried when merged. |
+| Scope | Describes committed `f5b2cdd` only. Persistence changes merged after this SHA must be re-inventoried. |
 
 Path convention: `J` = `services/catalog-service/src/main/java/com/tazzzo`, `R` = `services/catalog-service/src/main/resources`, `T` = `services/catalog-service/src/test/java/com/tazzzo`. `SB` = `J/catalog/schema/SchemaBootstrap.java`. `ESD` = `docs/ENGINEERING_STATUS.md`.
 
 Status vocabulary: **VERIFIED** (read from source), **UNVERIFIED** (needs live evidence or not provable from repo), **CONFLICT — INVESTIGATION REQUIRED**.
 
-Evidence caveat: findings were gathered by three parallel read-only audits and the highest-impact claims (§20 R1–R5) were re-verified by direct source reads. Line ranges for the remainder come from those audits and should be re-checked when a phase acts on them.
+Evidence note: findings come from three parallel read-only audits; the highest-impact claims (§20 R1–R5) and the cited `SchemaBootstrap` index/TTL lines were re-checked directly against `f5b2cdd`. Other `path:line` cites are audit-derived and should be re-confirmed by the phase that acts on them. "VERIFIED" in tables means read from source at `f5b2cdd` by one of these passes.
 
 ---
 
@@ -122,7 +121,7 @@ Cross-cutting representations: money is int64 paise (BSON Long) under `*Paise` /
 No Spring Data repositories exist. All access is `MongoDatabase.getCollection`.
 
 - **Write rail:** `J/catalog/repo/WritePath` (every `insertWithEvent`, `casUpdateWithEvent`, `auxWrite`, `setCanonicalKeyOnce`), `ReleaseGate`, `ProjectionRebuildQueue`.
-- **Tx runner:** `J/catalog/tx/Tx` (32 production classes inject it; `CommerceProjectionScheduler:59` builds its own `new Tx(client)`).
+- **Tx runner:** `J/catalog/tx/Tx` (32 production classes inject it; `CommerceProjectionScheduler:58` builds its own `new Tx(client)`).
 - **Catalog tx services:** `MintService, BundleService, VariantPackService, ClassifyService, PublishService, GtinBindService, ProductUpdateService, ProductLifecycleService, MergeService, TaintService, EvidenceService, OffersService, RollupService, AttributeAuthoringService, TaxonomyChangeService, CanonicalKeyBackfillService, ProductQueryService`.
 - **Schema/seed:** `SchemaBootstrap, ValidatorGenerator, TaxonomyLoader, DiscriminatingAttributeRegistry, TaxonomyService, SnapshotTaxonomyReader, AttributeGovernanceService`.
 - **Domain:** `pricing/PricingService`, `inventory/InventoryService`, `inventory/InventoryReservationService` + `InventoryReservationRepository` + `InventoryReservationExpiryWorker`, `media/MediaService`, `serviceability/ServiceabilityService`.
@@ -160,7 +159,7 @@ No POJO/Codec-registry mapping exists; `WritePath.java:131` uses `MongoClientSet
 | `products` | `$jsonSchema` (`SB:390-455`) | STRICT / ERROR | **only at first creation** (`SB:152-158`) |
 | other 48 | none | — | — |
 
-`products` schema (VERIFIED `SB:390-455`): `additionalProperties:false`; required fields listed in §3.1; `_id` pattern `^TZP-`; `product_type` enum `single|variant_pack|bundle`; `lifecycle` enum `draft|active|merging|discontinued|archived|merged`; `identity.type` enum `gtin|internal`; `gtins` maxItems 12; `classification.status` enum `confirmed|provisional|review|scope_blocked`, `confidence` double 0..1, `evidence_refs` maxItems 20 pattern `^EV-`; `bundle_contents` maxItems 100 (qty int ≥1); `pack_of.qty` ≥2; `browse_verticals` maxItems 120; `version` int ≥1; `ext` `additionalProperties:false` (empty by default); `oneOf` by `product_type`. `supersedes` is mentioned in `ProductLifecycleService` comments but is **not** in the schema and would be rejected.
+`products` schema (VERIFIED `SB:390-455`): `additionalProperties:false`; required fields listed in §3.1; `_id` pattern `^TZP-`; `product_type` enum `single|variant_pack|bundle`; `lifecycle` enum `draft|active|merging|discontinued|archived|merged`; `identity.type` enum `gtin|internal`; `gtins` maxItems 12; `classification.status` enum `confirmed|provisional|review|scope_blocked`, `confidence` double|null 0..1, `evidence_refs` maxItems 20 pattern `^EV-`; `bundle_contents` maxItems 100 (qty int ≥1); `pack_of.qty` ≥2; `browse_verticals` maxItems 120; `version` int ≥1; `ext` `additionalProperties:false` (empty by default); `oneOf` by `product_type`. `supersedes` is mentioned in `ProductLifecycleService` comments but is **not** in the schema and would be rejected.
 
 `ValidatorGenerator.regenerate` (`J/catalog/schema/ValidatorGenerator.java:44-49`, `collMod`) has **no caller in main**; only `T/.../ValidatorRegenIT`. A pre-existing `products` collection never receives or refreshes a validator.
 
@@ -215,10 +214,10 @@ All unnamed indexes get Mongo's generated name (`<field>_<dir>_…`); the code n
 |---|---|---|---|---|---|---|---|---|
 | customer_otp_challenges | `otp_one_delivering_per_phone` | `phoneNormalized, purpose` | **yes** | `{delivering:true}` | — | :241-244 | insert race / `findDelivering` | no (behavioural `OtpServiceIT`) |
 | customer_otp_challenges | `otp_one_active_per_phone` | `phoneNormalized, purpose` | **yes** | `{active:true}` | — | :245-248 | `findActive` | no |
-| customer_otp_challenges | `expiresAt_1` | `expiresAt` | no | — | **0 s** | :255-256 | cleanup | **no** |
+| customer_otp_challenges | generated (expected `expiresAt_1`) | `expiresAt` | no | — | **0 s** | :255-256 | cleanup | **no** |
 | customer_otp_challenges | `otp_challenge_createdat_backstop_ttl` | `createdAt` | no | — | **1 day** | :260-262 | cleanup of null-`expiresAt` rows | **no** |
-| customer_otp_verified_grants | `expiresAt_1` | `expiresAt` | no | — | **0 s** | :265-266 | cleanup | **no** |
-| customer_otp_verified_grants | `challengeId_1` | `challengeId` | **yes** | — | — | :270-271 | `findByChallengeId` | behavioural `OtpServiceIT:835` |
+| customer_otp_verified_grants | generated (expected `expiresAt_1`) | `expiresAt` | no | — | **0 s** | :265-266 | cleanup | **no** |
+| customer_otp_verified_grants | generated (expected `challengeId_1`) | `challengeId` | **yes** | — | — | :270-271 | `findByChallengeId` | behavioural `OtpServiceIT:835` |
 | customers | `customer_one_per_phone` | `phoneNormalized` | **yes** | — | — | :275-276 | `resolveOrCreate` upsert | no |
 | customer_sessions | `session_by_customer` | `customerId` | no | — | — | :280-281 | no current query (comment :277-279) | no |
 | customer_sessions | `session_expiry_ttl` | `expiresAt` | no | — | **0 s** | :285-287 | cleanup | **no** |
@@ -337,7 +336,7 @@ Open question: `TaxonomyChangeService.nextVerticalId` swallows E11000 inside a T
 | Neutral audit | `domain_events` | audit for non-product aggregates | `{aggregate_type, aggregate_id, type, detail, at, actor?}` | `(aggregate_type, aggregate_id, at)` | optional; serviceability passes none | same Tx, before state; discipline not compiler-enforced | none ("insert-only" documented) | `DomainAudit` via `ServiceabilityService`; no reader |
 | **Price ledger** | `price_events` | paise ledger (`PricingService`) + legacy offer ledger (`OffersService`) | two shapes (§3.3) | `(product_id, ts)`, `(rolled, ts)` | optional on paise rows only | ledger row first, then state, same Tx | **rolled up and hard-deleted hourly by default** | `PricingService`, `OffersService`, `RollupService` (only reader) |
 
-Replay: none exists. Purge/rollup: **only** `price_events`. No code path deletes `product_events`, `node_events`, `domain_events`, `classification_history` or any `taxonomy_*` collection and no TTL exists on them. Customer domains write **no** `domain_events` and no actor audit (`MembershipTerminationService:28-29` states none is designed). `ActorDocuments.fromEvent` has no main caller.
+Replay: none exists. Ledger rollup/purge: **only** `price_events` (other physical deletes in main are not ledgers: `product_card_base` version-guarded `deleteOne` `ProductCardProjectionService:109`, `offers_current` `MergeService:121`, `customer_addresses` `AddressRepository:111`, `work_queue` `card_rebuild` rows). No code path deletes `product_events`, `node_events`, `domain_events`, `classification_history` or any `taxonomy_*` collection and no TTL exists on them. Customer domains write **no** `domain_events` and no actor audit (`MembershipTerminationService:28-29` states none is designed). `ActorDocuments.fromEvent` has no main caller.
 
 ---
 
@@ -438,7 +437,7 @@ All from checked-in config; **none proves live config**. No secrets were found i
 | Pool / timeouts / TLS / auth options | not set anywhere | VERIFIED absent |
 | Bootstrap flags | `tazzzo.schema.bootstrap-on-startup: true`, `load-taxonomy-seed: true`, hard-coded in yml, not env-overridable there | VERIFIED |
 | Scheduler | `enabled: ${TAZZZO_SCHEDULER_ENABLED:true}`; rollup 3,600,000 ms; `rollup-lag-seconds: 120` (dead); pool 4 | VERIFIED |
-| Profiles | none (no profile yml); `@Profile` only in admin auth | VERIFIED |
+| Profiles | none (no profile yml; no `@Profile` use in main) | VERIFIED |
 | Env example | `.env.local.example:11-12,15,38` | VERIFIED |
 | CI | `.github/workflows/backend-ci.yml`: OpenAPI validate + `./mvnw -B clean test` on Java 21; Mongo via Testcontainers (runner Docker); no deploy step, no DB gate checks | VERIFIED |
 | Tests' config | all contexts `bootstrap-on-startup=false`, `scheduler.enabled=false`; `load-taxonomy-seed` **not overridden** (stays true); each test `drop()` + manual `bootstrap` | VERIFIED |
@@ -449,7 +448,7 @@ Net default-prod effect: bootstrap + seed on every instance start; CatalogSchedu
 
 ## 18. Test coverage
 
-Harness: Testcontainers `new MongoDBContainer("mongo:7")` `getReplicaSetUrl()` (single-node RS, floating tag); one static container per JVM in `AbstractMongoIT`; separate containers in `AbstractApiIT`, `AbstractConsumerIT`, `SchedulerIT`, `CustomerAuthFilterIT`, `CrossSurfaceAuthIsolationIT`; Redis `redis:7-alpine`. ESD claims 2,366 tests (`ESD:1396-1398`) — **not re-run in DB-0**. ~44 test files reference Mongo types directly; ~70 classes run on a Mongo container.
+Harness: Testcontainers `new MongoDBContainer("mongo:7")` `getReplicaSetUrl()` (single-node RS, floating tag); one static container per JVM in `AbstractMongoIT`; separate containers in `AbstractApiIT`, `AbstractConsumerIT`, `SchedulerIT`, `CustomerAuthFilterIT`, `CrossSurfaceAuthIsolationIT`; Redis `redis:7-alpine`. ESD records 2,366 tests on merged `main` CI (`ESD:1193,1400,1402`; 2,382 on the then-open feature branch, `ESD:1395`) — **not re-run in DB-0**. Many test classes run on a Mongo container (not counted exactly).
 
 | Area | Evidence |
 |---|---|
@@ -518,7 +517,7 @@ Deployed `MONGODB_URI` (options, readPreference, retryWrites, w, readConcern); c
 | R5 | High | Bootstrap + seed run on **every instance at every start**, hard-coded on; no lock; `createCollection` race and `createIndex` option-conflict are uncaught and abort startup | `application.yml:14-15`, `SB:150-330` |
 | R6 | Med | Bootstrap performs a conditional `dropIndex` on `products`; not documented in ESD; gate 3 wording omits `dropIndex` privilege | `SB:168,350-388` |
 | R7 | High | All concern/pref/retry/pool/timeout settings implicit; gates 5–6 unverifiable from repo | §17 |
-| R8 | Med | Only `products` has a DB validator; "strict schema" for orders/memberships is application-side only; 11 customer/auth collections are posture C with raw-exception paths (e.g. OTP missing `maxAttempts` ⇒ unlimited attempts; missing session digest ⇒ NPE/500) | §14 |
+| R8 | Med | Only `products` has a DB validator; "strict schema" for orders/memberships is application-side only; 8 customer/auth collections are posture C (carts, customers, sessions, profiles, addresses, address_state, OTP challenges, OTP grants) with raw-exception paths (e.g. OTP missing `maxAttempts` ⇒ unlimited attempts; missing session digest ⇒ NPE/500) | §14 |
 | R9 | Low | `customer_address_state.decrement` has no floor; no reconciliation of `addressCount` vs addresses | `CustomerAddressStateRepository:81` |
 | R10 | Med | None of the four TTL indexes is test-asserted | §18 |
 | R11 | Low | Holder-pattern across `Tx.run` outside auth; guard test auth-only | §10 |
@@ -528,9 +527,8 @@ Deployed `MONGODB_URI` (options, readPreference, retryWrites, w, readConcern); c
 | R15 | Med | Fresh DB has no `catalogue_releases`/consumer pointer ⇒ consumer taxonomy `Unavailable` until an admin publishes | §11 |
 | R16 | Low | Projection rebuild/reconcile and reservation expiry are **off** by default; `product_card_base` freshness and stale-RESERVED cleanup depend on flags | §9 |
 | R17 | Med | Seven collections created with no reader/writer (`brands, variant_groups, marketplace_crosswalks, batches, campaigns, campaign_membership, rollup_state`); `batches`/`campaign_membership` carry unique indexes | §3.1 |
-| R18 | Process | Local branch `feature/db1-collection-contracts` (`3a0893a`, unpushed) already holds a `DATABASE_INVENTORY.md` + contracts doc pinned to stale SHA `3839f3d`. This DB-0 document supersedes it for SHA `f5b2cdd`; the two will collide on the same path if merged | git |
-| R19 | Low | `OrderRepository`/`Order` Javadoc contradicts legacy-null handling; `README.md` marks `/v1` "frozen — not implemented" and PR-07 "same-txn updates"; `ESD` header "Last updated 2026-09-28" predates its 2026-10-03 entries; `ESD` "no migration/no index" statements omit the `dropIndex` | §16, docs audit |
-| R20 | Med | Test harness: floating `mongo:7`, single node, simulated retry only, no prod-config context | §18 |
+| R18 | Low | `OrderRepository`/`Order` Javadoc contradicts legacy-null handling; `README.md` marks `/v1` "frozen — not implemented" and PR-07 "same-txn updates"; `ESD` header "Last updated 2026-09-28" predates its 2026-10-03 entries; `ESD` "no migration/no index" statements omit the `dropIndex` | §16, docs audit |
+| R19 | Med | Test harness: floating `mongo:7`, single node, simulated retry only, no prod-config context | §18 |
 
 ---
 
