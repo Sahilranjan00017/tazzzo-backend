@@ -35,9 +35,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * bootstrap idempotency, DB-level duplicate rejection, concurrent duplicate races, and the plan of
  * the one index added by DB-2.
  *
- * <p>The in-flight admin audit-read work adds {@code audit_read_*} indexes to the three event ledgers;
- * the closed-set check tolerates exactly that name prefix there (and nowhere else) so that work can
- * merge in either order without silently widening the contract.
+ * <p>The merged admin audit-read work (PR #49) adds nine {@code audit_read_*} indexes to the three event
+ * ledgers; they are pinned exactly in the manifest below (no name-prefix tolerance remains).
  */
 class IndexContractIT extends AbstractMongoIT {
 
@@ -73,6 +72,8 @@ class IndexContractIT extends AbstractMongoIT {
         return new Idx(coll, name, keys, unique, false, partial, ttl);
     }
 
+    private static final Document ATTRIBUTED = new Document("actor", new Document("$type", "object"));
+
     static final List<Idx> MANIFEST = List.of(
             // products (PAG-2 list index, DB-2 per-vertical cursor index, two sparse reference indexes)
             plain("products", k("classification.vertical_id", 1, "lifecycle", 1, "classification.status", 1, "_id", 1)),
@@ -85,6 +86,9 @@ class IndexContractIT extends AbstractMongoIT {
             plain("canonical_keys", k("product_id", 1)),
             plain("evidence_links", k("evidence_id", 1, "active", 1)),
             plain("evidence_links", k("product_id", 1, "link_type", 1)),
+            // migration-managed (V0005): DB-enforced one link per (evidence, product, link type)
+            named("evidence_links", "evidence_link_one_per_evidence_product_type",
+                    k("evidence_id", 1, "product_id", 1, "link_type", 1), true, null, null),
             plain("classification_history", k("product_id", 1, "decided_at", 1)),
             plain("product_events", k("product_id", 1, "at", 1)),
             plain("work_queue", k("status", 1, "type", 1)),
@@ -101,6 +105,9 @@ class IndexContractIT extends AbstractMongoIT {
             uniq("product_card_base", k("sku_id", 1)),
             plain("taxonomy_nodes", k("parent_id", 1)),
             plain("taxonomy_nodes", k("node_type", 1, "status", 1)),
+            // migration-managed (V0006): unique ACTIVE sibling names
+            named("taxonomy_nodes", "taxonomy_node_one_active_per_parent_name", k("parent_id", 1, "name", 1), true,
+                    new Document("status", "active"), null),
             uniq("attribute_definitions", k("key", 1, "version", 1)),
             uniq("attribute_schemas", k("schema_id", 1, "version", 1)),
             plain("node_events", k("node_id", 1, "at", 1)),
@@ -133,12 +140,18 @@ class IndexContractIT extends AbstractMongoIT {
             named("memberships", "membership_one_open_per_customer", k("customerId", 1), true,
                     new Document("openTerm", true), null),
             named("memberships", "membership_one_per_grant_reference", k("grantSource", 1, "grantRef", 1), true, null, null),
-            named("memberships", "membership_active_by_customer", k("customerId", 1, "status", 1), false, null, null)
+            named("memberships", "membership_active_by_customer", k("customerId", 1, "status", 1), false, null, null),
+            // admin audit-read (PR #49): independent restatement, three partial indexes on each of three ledgers
+            named("product_events", "audit_read_recent", k("at", -1, "_id", -1), false, ATTRIBUTED, null),
+            named("product_events", "audit_read_actor", k("actor.id", 1, "at", -1, "_id", -1), false, ATTRIBUTED, null),
+            named("product_events", "audit_read_request", k("actor.request_id", 1, "at", -1, "_id", -1), false, ATTRIBUTED, null),
+            named("node_events", "audit_read_recent", k("at", -1, "_id", -1), false, ATTRIBUTED, null),
+            named("node_events", "audit_read_actor", k("actor.id", 1, "at", -1, "_id", -1), false, ATTRIBUTED, null),
+            named("node_events", "audit_read_request", k("actor.request_id", 1, "at", -1, "_id", -1), false, ATTRIBUTED, null),
+            named("domain_events", "audit_read_recent", k("at", -1, "_id", -1), false, ATTRIBUTED, null),
+            named("domain_events", "audit_read_actor", k("actor.id", 1, "at", -1, "_id", -1), false, ATTRIBUTED, null),
+            named("domain_events", "audit_read_request", k("actor.request_id", 1, "at", -1, "_id", -1), false, ATTRIBUTED, null)
     );
-
-    /** The only collections that may carry the in-flight audit-read indexes (name prefix below). */
-    private static final Set<String> AUDIT_READ_LEDGERS = Set.of("product_events", "node_events", "domain_events");
-    private static final String AUDIT_READ_PREFIX = "audit_read_";
 
     // ---- helpers -----------------------------------------------------------------------------
 
@@ -257,9 +270,6 @@ class IndexContractIT extends AbstractMongoIT {
         for (String coll : db.listCollectionNames()) {
             Set<String> actual = new TreeSet<>(indexesOf(coll).keySet());
             actual.remove("_id_");
-            if (AUDIT_READ_LEDGERS.contains(coll)) {
-                actual.removeIf(n -> n.startsWith(AUDIT_READ_PREFIX)); // in-flight audit-read indexes, tolerated here only
-            }
             assertThat(actual).as("indexes on " + coll + " (besides _id_) must equal the manifest")
                     .isEqualTo(expected.getOrDefault(coll, new TreeSet<>()));
         }
@@ -335,6 +345,8 @@ class IndexContractIT extends AbstractMongoIT {
         assertUniqueRejects("price_rollups", () -> new Document("product_id", "P").append("seller", "x"));
         assertUniqueRejects("batches", () -> new Document("product_id", "P").append("lot_no", "L1"));
         assertUniqueRejects("campaign_membership", () -> new Document("campaign_id", "C").append("product_id", "P"));
+        assertUniqueRejects("evidence_links", () -> new Document("evidence_id", "EV-D").append("product_id", "P-D")
+                .append("link_type", "claim"));
     }
 
     @Test
@@ -376,6 +388,21 @@ class IndexContractIT extends AbstractMongoIT {
         } finally {
             mem.deleteMany(new Document("_id", new Document("$in", mids)));
         }
+        // taxonomy: unique ACTIVE sibling names; non-active duplicates are unlimited, a different parent is free
+        MongoCollection<Document> nodes = db.getCollection("taxonomy_nodes");
+        List<Object> nids = new ArrayList<>();
+        try {
+            Document n1 = new Document("_id", "TZX-IDX-1").append("parent_id", "TZC-IDX").append("name", "Dup").append("status", "active");
+            nodes.insertOne(n1); nids.add("TZX-IDX-1");
+            assertDuplicateKey(() -> nodes.insertOne(new Document("_id", "TZX-IDX-2").append("parent_id", "TZC-IDX")
+                    .append("name", "Dup").append("status", "active")));
+            nodes.insertOne(new Document("_id", "TZX-IDX-3").append("parent_id", "TZC-IDX").append("name", "Dup").append("status", "deprecated"));
+            nids.add("TZX-IDX-3");
+            nodes.insertOne(new Document("_id", "TZX-IDX-4").append("parent_id", "TZC-OTHER").append("name", "Dup").append("status", "active"));
+            nids.add("TZX-IDX-4");
+        } finally {
+            nodes.deleteMany(new Document("_id", new Document("$in", nids)));
+        }
         // release gate: one OPEN release; cleared gate (activated) rows are unlimited
         MongoCollection<Document> rel = db.getCollection("catalogue_releases");
         List<Object> rids = new ArrayList<>();
@@ -407,6 +434,10 @@ class IndexContractIT extends AbstractMongoIT {
         assertRaceOneWinner("customer_otp_challenges", () -> new Document("phoneNormalized", "+919000000004")
                 .append("purpose", "LOGIN").append("delivering", true));
         // distinct (grantSource, grantRef) per racer so ONLY the partial one-open-per-customer index can reject
+        assertRaceOneWinner("evidence_links", () -> new Document("evidence_id", "EV-RACE").append("product_id", "P-RACE")
+                .append("link_type", "claim"));
+        assertRaceOneWinner("taxonomy_nodes", () -> new Document("_id", new org.bson.types.ObjectId().toHexString())
+                .append("parent_id", "TZC-RACE").append("name", "Race").append("status", "active"));
         assertRaceOneWinner("memberships", () -> new Document("customerId", "CUS_race").append("openTerm", true)
                 .append("grantSource", "INTERNAL_GRANT").append("grantRef", "race-" + java.util.UUID.randomUUID()));
     }
@@ -463,6 +494,56 @@ class IndexContractIT extends AbstractMongoIT {
                     .doesNotContain("SORT ").doesNotContain("COLLSCAN").doesNotContain("IXSCAN[_id_]");
         } finally {
             products.deleteMany(new Document("_id", new Document("$regex", "^TZP-IDX")));
+        }
+    }
+
+    // ---- 7b. the executable catalog (main) cannot drift from this independent oracle or from bootstrap ----
+
+    private static com.tazzzo.catalog.migration.IndexSpec specOf(Idx e) {
+        return new com.tazzzo.catalog.migration.IndexSpec(e.coll(), e.name(), e.keys(), e.unique(), e.sparse(),
+                e.partial(), e.ttlSeconds());
+    }
+
+    @Test
+    void the_executable_index_catalog_equals_the_independent_manifest() {
+        Set<String> oracle = new TreeSet<>();
+        for (Idx e : MANIFEST) oracle.add(specOf(e).describe());
+        Set<String> catalog = new TreeSet<>();
+        for (com.tazzzo.catalog.migration.IndexSpec s : com.tazzzo.catalog.migration.IndexCatalog.all()) catalog.add(s.describe());
+        assertThat(catalog).as("IndexCatalog (main) must equal this oracle exactly").isEqualTo(oracle);
+    }
+
+    @Test
+    void bootstrap_creates_the_baseline_plus_only_the_audit_read_indexes_and_no_other_managed_index() {
+        com.mongodb.client.MongoDatabase scratch = client.getDatabase("db3_drift_" + java.util.UUID.randomUUID().toString().replace("-", ""));
+        try {
+            schemaBootstrap.bootstrap(scratch);
+            for (com.tazzzo.catalog.migration.IndexSpec s : com.tazzzo.catalog.migration.IndexCatalog.BASELINE) {
+                assertThat(s.inspect(scratch).state()).as("baseline spec created by bootstrap: " + s.describe())
+                        .isEqualTo(com.tazzzo.catalog.migration.IndexSpec.State.EXACT);
+            }
+            // the legacy bootstrap (test/dev only, never run by the migration path) also creates the audit-read indexes (PR #49);
+            // V0007 creates the same nine for migrated databases. Every OTHER managed index must stay migration-only.
+            for (com.tazzzo.catalog.migration.IndexSpec s : com.tazzzo.catalog.migration.IndexCatalog.MANAGED) {
+                boolean audit = com.tazzzo.catalog.migration.IndexCatalog.AUDIT_READ_SPECS.contains(s);
+                assertThat(s.inspect(scratch).state())
+                        .as((audit ? "audit-read index created by legacy bootstrap: " : "migration-managed index must NOT be created by bootstrap: ") + s.describe())
+                        .isEqualTo(audit ? com.tazzzo.catalog.migration.IndexSpec.State.EXACT : com.tazzzo.catalog.migration.IndexSpec.State.ABSENT);
+            }
+            Map<String, Set<String>> expected = new TreeMap<>();
+            java.util.List<com.tazzzo.catalog.migration.IndexSpec> bootstrapSet = new java.util.ArrayList<>(com.tazzzo.catalog.migration.IndexCatalog.BASELINE);
+            bootstrapSet.addAll(com.tazzzo.catalog.migration.IndexCatalog.AUDIT_READ_SPECS);
+            for (com.tazzzo.catalog.migration.IndexSpec s : bootstrapSet) {
+                expected.computeIfAbsent(s.collection(), x -> new TreeSet<>()).add(s.effectiveName());
+            }
+            for (String coll : scratch.listCollectionNames()) {
+                Set<String> actual = new TreeSet<>();
+                scratch.getCollection(coll).listIndexes().forEach(i -> actual.add(i.getString("name")));
+                actual.remove("_id_");
+                assertThat(actual).as("bootstrap indexes on " + coll).isEqualTo(expected.getOrDefault(coll, new TreeSet<>()));
+            }
+        } finally {
+            scratch.drop();
         }
     }
 

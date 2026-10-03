@@ -56,8 +56,12 @@ set -a; source .env.local; set +a
 
 ### First run against an empty database
 
-On startup the application bootstraps the schema and loads the frozen taxonomy seed (460 nodes,
-110 attribute definitions). It does **not** activate a taxonomy release, so every consumer route
+With `TAZZZO_MIGRATION_MODE=APPLY_ON_STARTUP` and `TAZZZO_MIGRATION_ENVIRONMENT=local` (both set in
+`.env.local.example`) the first start applies the database migrations — collections, indexes and the frozen
+taxonomy seed (460 nodes, 110 attribute definitions) — through the locked, recorded migration runner; later
+starts find them already recorded and change nothing. Without those two variables the application runs in its
+default `VERIFY` mode and refuses to start on an unmigrated database (see
+`docs/database/DATABASE_MIGRATION_RUNBOOK.md`). It does **not** activate a taxonomy release, so every consumer route
 answers a fail-closed `503 SERVICE_UNAVAILABLE` until one exists (TR2-CURRENT-1: "current" is an
 explicit pointer, never a guess). Activate the baseline once through the CMS API — it needs the CMS
 bearer token you set in `.env.local` (`TAZZZO_CMS_TOKEN`):

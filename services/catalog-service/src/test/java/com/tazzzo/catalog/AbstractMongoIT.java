@@ -2,6 +2,8 @@ package com.tazzzo.catalog;
 
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoDatabase;
+import com.tazzzo.catalog.migration.MigrationRunner;
+import com.tazzzo.catalog.migration.MigrationTarget;
 import com.tazzzo.catalog.schema.SchemaBootstrap;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.TestInstance;
@@ -10,6 +12,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.MongoDBContainer;
+
+import java.util.List;
 
 @SpringBootTest
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -37,10 +41,24 @@ public abstract class AbstractMongoIT {
     @Autowired protected MongoClient client;
     @Autowired protected MongoDatabase db;
     @Autowired protected SchemaBootstrap schemaBootstrap;
+    @Autowired protected MigrationRunner migrationRunner;
 
     @BeforeAll
     void resetDatabase() {
         db.drop();
         schemaBootstrap.bootstrap(db);
+        applySchemaMigrations();
+    }
+
+    /**
+     * The schema migrations a deployed database has (cursor index, unique-link indexes). Run through the real
+     * runner so every suite also exercises the framework. Seed and data migrations are NOT applied: suites that
+     * need taxonomy data load it explicitly, as before.
+     */
+    protected void applySchemaMigrations() {
+        MigrationRunner.RunReport r = migrationRunner.apply(
+                new MigrationTarget("test", db.getName(), List.of(), "tests", "test"),
+                MigrationRunner.Selection.schemaOnly(), MigrationRunner.ApplyOptions.forTests());
+        if (!r.ok()) throw new AssertionError("schema migrations failed in test setup: " + r.render());
     }
 }

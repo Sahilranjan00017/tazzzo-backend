@@ -1,5 +1,10 @@
 # DATABASE_INVENTORY — tazzzo-backend (DB-0, read-only discovery)
 
+> **Status note (DB-3).** This inventory describes `main` at `f5b2cdd` (DB-0). Statements here about startup bootstrap,
+> seeding and the `tazzzo.schema.*` flags (§6, §9, §17, §18) describe the behaviour **before DB-3**. Since DB-3 the
+> application defaults to a read-only `VERIFY` mode, `application.yml` no longer enables startup bootstrap or seeding,
+> and evolution is done by the versioned, locked migration job — see `DATABASE_MIGRATION_RUNBOOK.md`.
+
 ## 1. Audit metadata
 
 | Item | Value |
@@ -435,7 +440,7 @@ All from checked-in config; **none proves live config**. No secrets were found i
 | readPreference | not set anywhere except `MembershipRepository:64` primary pin (non-session reads only; session reads follow the Tx) | VERIFIED; deployed URI UNVERIFIED |
 | readConcern / writeConcern / retryWrites / retryReads / maxCommitTime / TransactionOptions | **not set** anywhere | VERIFIED absent |
 | Pool / timeouts / TLS / auth options | not set anywhere | VERIFIED absent |
-| Bootstrap flags | `tazzzo.schema.bootstrap-on-startup: true`, `load-taxonomy-seed: true`, hard-coded in yml, not env-overridable there | VERIFIED |
+| Bootstrap flags | `tazzzo.schema.bootstrap-on-startup: true`, `load-taxonomy-seed: true`, hard-coded in yml, not env-overridable there | VERIFIED at `f5b2cdd` (**historical — changed in DB-3: both now default to false and are honoured only in mode `LEGACY`**) |
 | Scheduler | `enabled: ${TAZZZO_SCHEDULER_ENABLED:true}`; rollup 3,600,000 ms; `rollup-lag-seconds: 120` (dead); pool 4 | VERIFIED |
 | Profiles | none (no profile yml; no `@Profile` use in main) | VERIFIED |
 | Env example | `.env.local.example:11-12,15,38` | VERIFIED |

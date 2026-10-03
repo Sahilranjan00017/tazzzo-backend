@@ -2,23 +2,93 @@ package com.tazzzo.catalog.schema;
 
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.Filters;
-import com.mongodb.client.model.ReplaceOptions;
 import com.mongodb.client.model.UpdateOptions;
 import org.bson.Document;
 import org.springframework.stereotype.Component;
 
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Loads the FROZEN taxonomy v0.9.0 release artifact (generated from the canonical master
  * CSV — the release pipeline in miniature) into taxonomy_nodes, aliases,
- * attribute_definitions and attribute_schemas. Idempotent: replaces by natural key, never
- * duplicates. This is the seed step of Implementation Contract §10.
+ * attribute_definitions and attribute_schemas. INSERT-IF-ABSENT only: it never replaces,
+ * rewrites or clobbers an existing document, so it is safe to run repeatedly (R3). This is the
+ * seed step of Implementation Contract §10. Evolution of already-persisted reference data is NOT
+ * done here; it is an explicit, versioned migration (see {@code catalog.migration}).
  */
 @Component
 public class TaxonomyLoader {
+
+    /** U-4-f: attribute keys that are never required to catalogue a SKU. */
+    public static final Set<String> PACK_FIELD_KEYS = Set.of("pack_size", "pack_unit");
+
+    /**
+     * U-4-f (RATIFIED 2026-09-01) applied to a SEED schema document: a stated commercial quantity is not
+     * required to catalogue a SKU, so {@code pack_size}/{@code pack_unit} are never required. Returns a
+     * copy; the frozen seed artifact and persisted documents are never touched. Used for fresh seeding
+     * (in memory, at insert time) and by the explicit data migration for databases seeded earlier.
+     */
+    public static Document withRatifiedPackRule(Document schema) {
+        Document copy = new Document(schema);
+        List<Document> fields = new ArrayList<>();
+        for (Document f : schema.getList("fields", Document.class)) {
+            Document fc = new Document(f);
+            if (PACK_FIELD_KEYS.contains(f.getString("key"))) fc.put("required", false);
+            fields.add(fc);
+        }
+        copy.put("fields", fields);
+        return copy;
+    }
+
+    /** The schema ids carried by the frozen seed artifact (all are seeded at version 1). */
+    public List<String> seedSchemaIds() {
+        List<String> ids = new ArrayList<>();
+        for (Document sc : readSeed().getList("attribute_schemas", Document.class)) {
+            ids.add(sc.getString("schema_id"));
+        }
+        return ids;
+    }
+
+    /** How much of the frozen seed is still absent (read-only; creates nothing). */
+    public record SeedStatus(int nodesMissing, int aliasesMissing, int definitionsMissing, int schemasMissing) {
+        public int totalMissing() {
+            return nodesMissing + aliasesMissing + definitionsMissing + schemasMissing;
+        }
+
+        public boolean complete() {
+            return totalMissing() == 0;
+        }
+    }
+
+    /** Counts seed documents that are not yet present, by natural key. Strictly read-only. */
+    public SeedStatus seedStatus(MongoDatabase db) {
+        Document seed = readSeed();
+        List<Document> nodes = seed.getList("nodes", Document.class);
+        List<String> ids = new ArrayList<>();
+        for (Document n : nodes) ids.add(n.getString("_id"));
+        long nodesPresent = db.getCollection("taxonomy_nodes").countDocuments(Filters.in("_id", ids));
+        int aliasesMissing = 0;
+        for (Document a : seed.getList("aliases", Document.class)) {
+            if (db.getCollection("aliases").countDocuments(Filters.and(
+                    Filters.eq("alias_norm", a.getString("alias_norm")), Filters.eq("lang", a.getString("lang")),
+                    Filters.eq("region", a.getString("region")))) == 0) aliasesMissing++;
+        }
+        int defsMissing = 0;
+        for (Document d : seed.getList("attribute_definitions", Document.class)) {
+            if (db.getCollection("attribute_definitions").countDocuments(Filters.and(
+                    Filters.eq("key", d.getString("key")), Filters.eq("version", d.getInteger("version")))) == 0) defsMissing++;
+        }
+        int schemasMissing = 0;
+        for (Document sc : seed.getList("attribute_schemas", Document.class)) {
+            if (db.getCollection("attribute_schemas").countDocuments(Filters.and(
+                    Filters.eq("schema_id", sc.getString("schema_id")), Filters.eq("version", sc.getInteger("version")))) == 0) schemasMissing++;
+        }
+        return new SeedStatus((int) (nodes.size() - nodesPresent), aliasesMissing, defsMissing, schemasMissing);
+    }
 
     public LoadResult load(MongoDatabase db) {
         Document seed = readSeed();
@@ -54,30 +124,15 @@ public class TaxonomyLoader {
             db.getCollection("attribute_schemas").updateOne(
                     Filters.and(Filters.eq("schema_id", sc.getString("schema_id")),
                             Filters.eq("version", sc.getInteger("version"))),
-                    new Document("$setOnInsert", new Document(sc).append("status", "active")),
+                    // R3: the ratified U-4-f shape is applied to the in-memory seed copy that is inserted
+                    // if absent. A persisted schema document is never rewritten by a load.
+                    new Document("$setOnInsert", withRatifiedPackRule(sc).append("status", "active")),
                     new UpdateOptions().upsert(true));
             schemas++;
         }
-        // U-4-f (RATIFIED 2026-09-01) — a stated commercial quantity is NOT required to catalogue
-        // a SKU. Missing quantity is a data-completeness and identity problem, never a
-        // product-creation failure: the product mints, no pack term is produced, canonical
-        // identity stays unresolved, and the gap is queued (attribute_incomplete).
-        //
-        // It lives HERE, at the end of load(), because load() is the only writer of
-        // attribute_schemas and uses $setOnInsert. Applied in SchemaBootstrap it ran BEFORE the
-        // schemas existed and silently did nothing on a fresh database; applied by editing
-        // taxonomy_v0_9_0_seed.json it would have done nothing on an EXISTING one. Running it
-        // after the write covers both, and leaves the frozen v0.9.0 artifact untouched.
-        //
-        // meat/fish/egg already required nothing — which is what made the 45-schema requirement
-        // an inconsistency rather than a catalogue rule. Narrowed to pack only: required-ness
-        // remains the right tool for data genuinely necessary to form a product record.
-        db.getCollection("attribute_schemas").updateMany(
-                com.mongodb.client.model.Filters.in("fields.key", "pack_size", "pack_unit"),
-                new Document("$set", new Document("fields.$[q].required", false)),
-                new com.mongodb.client.model.UpdateOptions().arrayFilters(java.util.List.of(
-                        new Document("q.key",
-                                new Document("$in", java.util.List.of("pack_size", "pack_unit"))))));
+        // R3: there is deliberately NO rewrite of persisted attribute schemas here. U-4-f is applied above to
+        // the seed copy at insert time (fresh databases). Databases seeded before that, if any, are corrected
+        // by the explicit, approval-gated, versioned data migration (V0004), never by a service restart.
 
         return new LoadResult(nodes, aliases, defs, schemas);
     }
