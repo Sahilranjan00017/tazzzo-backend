@@ -1299,6 +1299,14 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
     `requestId` (`req_[0-9a-f]{20}`), `from`/`to` (UTC instants, inclusive, `from` <= `to`). Anything else (unknown, repeated or
     empty parameter, operator, regex, JSON, sort, projection) is 400 `MALFORMED_REQUEST` with a fixed message that never echoes
     the value. A corrupt persisted row is a generic 500.
+  - **Raw query syntax (LOW-1 hardening):** the container silently drops a parameter it cannot decode (`actorType=%zz`) and an
+    empty-named component (`=x`), which would have turned a filter into an unfiltered query and a bad `cursor` into a restart.
+    `RawQuerySyntax` validates the RAW query string (after the 401/403 checks, before `AuditEventQuery.parse`) and answers 400
+    `query string is malformed`: empty components (`&&`, `&a`, `a&`), empty names, any `%` without two ASCII hex digits, percent
+    sequences that are not well-formed UTF-8, and any difference between the raw component count and the number of values the
+    container bound. It is syntax only: it never decodes twice, repairs or normalises, and allowlisting stays with `AuditEventQuery`.
+    Scoped to this endpoint; other surfaces are unchanged. Raw `[`/`]` and oversized queries are still refused earlier by the
+    container with its own 400.
   - **Response** (`AuditEventsResponse{items, nextCursor}`, allowlisted `AuditEventDto`): `id` (`pe_|ne_|de_` + ObjectId),
     `occurredAt`, `action`, `targetType`, `targetId`, `actorType`, `actorId`, `credentialId`, `requestId`. The ledger `detail`
     map is never read. `credentialId` is the persisted non-secret label or null (never manufactured); `requestId` is null only

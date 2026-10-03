@@ -584,6 +584,189 @@ class AdminAuditEventsIT extends AbstractApiIT {
         assertThat(audit(auditor(), "targetId", "TZP-1").getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
 
+    // ---------- raw query syntax (LOW-1): the container drops undecodable parameters; the endpoint must refuse them ----------
+
+    record Raw(int status, String body) {
+        JsonNode json() {
+            try {
+                return new com.fasterxml.jackson.databind.ObjectMapper().readTree(body);
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        }
+
+        String message() {
+            return json().path("error").path("message").asText();
+        }
+    }
+
+    /** A raw HTTP/1.1 GET over a socket, so a malformed query reaches the server byte-for-byte (java.net.URI would refuse it). */
+    Raw rawGet(String target, String token) {
+        try (java.net.Socket socket = new java.net.Socket("localhost", port)) {
+            socket.setSoTimeout(15000);
+            String request = "GET " + target + " HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n"
+                    + (token == null ? "" : "Authorization: Bearer " + token + "\r\n") + "\r\n";
+            socket.getOutputStream().write(request.getBytes(StandardCharsets.ISO_8859_1));
+            socket.getOutputStream().flush();
+            String all = new String(socket.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            int status = Integer.parseInt(all.substring(9, 12));
+            int split = all.indexOf("\r\n\r\n");
+            String head = all.substring(0, split).toLowerCase(java.util.Locale.ROOT);
+            String body = all.substring(split + 4);
+            if (head.contains("transfer-encoding: chunked")) {
+                StringBuilder out = new StringBuilder();
+                int i = 0;
+                while (i < body.length()) {
+                    int eol = body.indexOf("\r\n", i);
+                    int size = Integer.parseInt(body.substring(i, eol).trim(), 16);
+                    if (size == 0) {
+                        break;
+                    }
+                    out.append(body, eol + 2, eol + 2 + size);
+                    i = eol + 2 + size + 2;
+                }
+                body = out.toString();
+            }
+            return new Raw(status, body);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    Raw rawAudit(String query, String token) {
+        return rawGet(PATH + query, token);
+    }
+
+    static void assertRefusedAsMalformedSyntax(Raw res, String why) {
+        assertThat(res.status()).as(why).isEqualTo(400);
+        assertThat(res.json().path("error").path("code").asText()).as(why).isEqualTo("MALFORMED_REQUEST");
+        assertThat(res.message()).as(why).isEqualTo("query string is malformed");
+        assertThat(res.json().has("items")).as(why + ": no result data").isFalse();
+    }
+
+    @Test
+    void a_malformed_percent_sequence_is_400_for_every_shape() {
+        productEvent(T0, humanActor(1), "CREATED", "TZP-1");
+        double before = outcome("invalid");
+        List<String> shapes = List.of("?actorType=%zz", "?cursor=%zz", "?x=%", "?limit=%1", "?action=%GG", "?action=A%",
+                "?action=A%1", "?%zz=1", "?actorId=google%3A1&limit=%zz", "?limit=1&cursor=%");
+        for (String q : shapes) {
+            assertRefusedAsMalformedSyntax(rawAudit(q, auditor()), q);
+        }
+        assertThat(outcome("invalid") - before).as("each refusal is counted as invalid").isEqualTo((double) shapes.size());
+    }
+
+    @Test
+    void empty_names_and_bare_separators_are_400() {
+        productEvent(T0, humanActor(1), "CREATED", "TZP-1");
+        for (String q : List.of("?=foo", "?=", "?&&", "?&", "?foo=1&&bar=2", "?&foo=1", "?foo=1&", "?limit=1&", "?&limit=1",
+                "?action=CREATED&=x")) {
+            assertRefusedAsMalformedSyntax(rawAudit(q, auditor()), q);
+        }
+    }
+
+    @Test
+    void invalid_utf8_percent_sequences_are_400() {
+        for (String q : List.of("?action=%C3", "?action=%ff", "?action=%C3%28", "?actorId=%E2%82")) {
+            assertRefusedAsMalformedSyntax(rawAudit(q, auditor()), q);
+        }
+    }
+
+    @Test
+    void a_malformed_actor_type_can_never_become_an_unfiltered_query() {
+        String human = "pe_" + productEvent(T0.plusSeconds(2), humanActor(1), "CREATED", "TZP-1").toHexString();
+        String service = "pe_" + productEvent(T0.plusSeconds(1), serviceActor(2), "CREATED", "TZP-2").toHexString();
+
+        // control: the well-formed filter works and the unfiltered query returns both
+        assertThat(ids(rawAudit("?actorType=SERVICE_ACCOUNT", auditor()).json())).containsExactly(service);
+        assertThat(ids(rawAudit("", auditor()).json())).containsExactly(human, service);
+
+        for (String q : List.of("?actorType=%zz", "?actorType=SERVICE_ACCOUNT%", "?actorType=%SERVICE_ACCOUNT",
+                "?actorType=SERVICE%5FACCOUNT%zz")) {
+            Raw res = rawAudit(q, auditor());
+            assertRefusedAsMalformedSyntax(res, q);
+            assertThat(res.body()).as(q).doesNotContain(human).doesNotContain(service);
+        }
+    }
+
+    @Test
+    void a_malformed_cursor_can_never_restart_the_first_page() {
+        for (int i = 0; i < 4; i++) {
+            productEvent(T0.plusSeconds(i), humanActor(i), "CREATED", "TZP-" + i);
+        }
+        JsonNode page1 = rawAudit("?limit=1", auditor()).json();
+        String cursor = page1.path("nextCursor").asText();
+        JsonNode page2 = rawAudit("?limit=1&cursor=" + cursor, auditor()).json();
+        assertThat(ids(page2)).as("a real cursor advances").isNotEqualTo(ids(page1));
+
+        for (String q : List.of("?limit=1&cursor=%zz", "?limit=1&cursor=%", "?limit=1&cursor=%1", "?cursor=%GG&limit=1",
+                "?limit=1&cursor=" + cursor + "%zz", "?limit=1&cursor=" + cursor + "%")) {
+            Raw res = rawAudit(q, auditor());
+            assertRefusedAsMalformedSyntax(res, q);
+            assertThat(res.body()).as(q).doesNotContain(ids(page1).get(0));
+        }
+    }
+
+    @Test
+    void valid_percent_encoding_passes_syntax_and_continues_into_typed_validation() {
+        String match = "pe_" + productEvent(T0, humanActor(1), "CREATED", "TZP-1").toHexString();
+        productEvent(T0.plusSeconds(1), serviceActor(2), "CREATED", "TZP-2");
+
+        // %3A (an encoded colon) decodes once to the real actor id and filters normally
+        Raw colon = rawAudit("?actorId=google%3A" + GoogleIdTokens.WRITER, auditor());
+        assertThat(colon.status()).isEqualTo(200);
+        assertThat(ids(colon.json())).containsExactly(match);
+        assertThat(rawAudit("?actorId=google%3a" + GoogleIdTokens.WRITER, auditor()).status()).as("lower-case hex").isEqualTo(200);
+
+        // %20, %2F and UTF-8 are valid SYNTAX, so they reach typed validation, whose own message (not the syntax one) answers
+        for (String[] c : new String[][]{{"?action=A%20B", "action has an invalid format"},
+                {"?targetType=product&targetId=a%2Fb", "targetId has an invalid format"},
+                {"?action=%C3%A9", "action has an invalid format"},
+                {"?action=%E2%82%AC", "action has an invalid format"},
+                {"?action=%2524where", "action has an invalid format"},
+                {"?action=%25zz", "action has an invalid format"}}) {
+            Raw res = rawAudit(c[0], auditor());
+            assertThat(res.status()).as(c[0]).isEqualTo(400);
+            assertThat(res.message()).as(c[0]).isEqualTo(c[1]);
+        }
+        // an encoded value that is ALSO valid for its parameter is simply accepted
+        assertThat(rawAudit("?action=%43REATED", auditor()).status()).as("%43 is 'C'").isEqualTo(200);
+        assertThat(ids(rawAudit("?action=%43REATED&limit=%31%30", auditor()).json())).hasSize(2);
+    }
+
+    @Test
+    void existing_parameter_policies_are_unchanged_by_the_raw_syntax_layer() {
+        productEvent(T0, humanActor(1), "CREATED", "TZP-1");
+        assertThat(rawAudit("?unknown=1", auditor()).message()).isEqualTo("unsupported query parameter");
+        assertThat(rawAudit("?%24where=1", auditor()).message()).isEqualTo("unsupported query parameter");
+        assertThat(rawAudit("?sort=at", auditor()).message()).isEqualTo("unsupported query parameter");
+        assertThat(rawAudit("?limit=1&limit=2", auditor()).message()).isEqualTo("query parameter limit must appear exactly once");
+        assertThat(rawAudit("?action=", auditor()).message()).isEqualTo("query parameter action must not be empty");
+        assertThat(rawAudit("?limit=101", auditor()).message()).isEqualTo("limit must be between 1 and 100");
+        assertThat(rawAudit("?actorId=%7B%22%24ne%22%3Anull%7D", auditor()).message()).isEqualTo("actorId has an invalid format");
+    }
+
+    @Test
+    void authentication_and_authorization_still_precede_the_raw_syntax_check() {
+        productEvent(T0, humanActor(1), "CREATED", "TZP-1");
+        for (String q : List.of("?cursor=%zz", "?=x", "?&&", "?actorType=%zz")) {
+            Raw anon = rawAudit(q, null);
+            assertThat(anon.status()).as("unauthenticated " + q).isEqualTo(401);
+            assertThat(anon.json().path("error").path("code").asText()).isEqualTo("UNAUTHENTICATED");
+            assertThat(rawAudit(q, "not-a-token").status()).as("invalid token " + q).isEqualTo(401);
+
+            for (String denied : List.of(human(GoogleIdTokens.READER), human(GoogleIdTokens.WRITER), CMS_TOKEN, READ_TOKEN)) {
+                Raw res = rawAudit(q, denied);
+                assertThat(res.status()).as("no audit-read " + q).isEqualTo(403);
+                assertThat(res.message()).as("no parsing oracle for " + q).isNotEqualTo("query string is malformed");
+            }
+            assertThat(rawAudit(q, auditor()).status()).as("audit-reader " + q).isEqualTo(400);
+            assertThat(rawAudit(q, human(WRITER_AUDITOR)).status()).as("writer+audit-reader " + q).isEqualTo(400);
+        }
+        // an audit-reader-only human still has no catalogue access, malformed query or not
+        assertThat(rawGet("/api/v1/products?x=%zz", auditor()).status()).isEqualTo(403);
+    }
+
     // ---------- injection and abuse ----------
 
     @Test

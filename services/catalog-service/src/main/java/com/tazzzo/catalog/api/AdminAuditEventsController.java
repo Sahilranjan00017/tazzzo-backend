@@ -5,6 +5,7 @@ import com.tazzzo.admin.audit.AuditEventQuery;
 import com.tazzzo.admin.audit.AuditEventReader;
 import com.tazzzo.admin.audit.AuditQueryRejected;
 import com.tazzzo.admin.audit.AuditReadObservability;
+import com.tazzzo.admin.audit.RawQuerySyntax;
 import com.tazzzo.admin.auth.AdminPrincipal;
 import com.tazzzo.admin.auth.AdminPrincipalResolver;
 import com.tazzzo.catalog.api.ApiDtos.AuditEventDto;
@@ -51,6 +52,8 @@ public class AdminAuditEventsController {
         }
         AuditEventPage page;
         try {
+            // raw syntax first: the container silently drops an undecodable parameter, which must fail closed, not widen
+            RawQuerySyntax.requireWellFormed(request.getQueryString(), request.getParameterMap());
             page = reader.read(AuditEventQuery.parse(request.getParameterMap()));
         } catch (AuditQueryRejected e) {
             observability.record(AuditReadObservability.Outcome.INVALID);
