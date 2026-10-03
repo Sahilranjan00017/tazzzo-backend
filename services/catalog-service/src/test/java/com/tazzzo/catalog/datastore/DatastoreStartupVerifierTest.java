@@ -108,6 +108,15 @@ class DatastoreStartupVerifierTest {
     }
 
     @Test
+    void the_verifier_has_the_highest_startup_precedence_and_the_migration_runner_has_none() {
+        // Spring runs ApplicationRunners by order: the verifier must be first, the migration runner unordered (last)
+        assertThat(auto("staging", REMOTE_BAD).getOrder()).isEqualTo(org.springframework.core.Ordered.HIGHEST_PRECEDENCE);
+        assertThat(org.springframework.core.Ordered.class.isAssignableFrom(com.tazzzo.catalog.migration.MigrationStartupRunner.class)).isFalse();
+        assertThat(com.tazzzo.catalog.migration.MigrationStartupRunner.class
+                .isAnnotationPresent(org.springframework.core.annotation.Order.class)).isFalse();
+    }
+
+    @Test
     void the_privilege_profile_follows_the_migration_mode() {
         assertThat(DatastoreStartupVerifier.profileFor(MigrationMode.VERIFY)).isEqualTo(PrivilegeProfile.RUNTIME);
         assertThat(DatastoreStartupVerifier.profileFor(MigrationMode.DRY_RUN)).isEqualTo(PrivilegeProfile.MIGRATION_READ);
