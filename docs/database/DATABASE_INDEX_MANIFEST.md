@@ -13,7 +13,7 @@ Index, uniqueness and TTL contract derived from real query paths and business in
 | In-flight work | Admin audit-read (**PR #49, OPEN, not merged**, head `af89a46`, based on `52ab530`). Treated as **PROPOSED**, never as current state (§9) |
 | Database access | none beyond local Testcontainers. No Atlas/production connection. No data or live-schema mutation |
 
-Legend for the *Test coverage* column: **S** = exact spec asserted by `IndexContractIT` (name, key order/direction, unique, sparse, partial filter, TTL, no collation/hidden); **D** = DB-level duplicate rejection asserted; **R** = concurrent duplicate race (16 threads, exactly one winner) asserted; **E** = planner/`explain` evidence (existing test or this phase's measurement); **B** = behavioural service-level coverage (pre-existing); **ttl-set guard** = covered by the "only these four TTL indexes exist" assertion.
+Legend for the *Test coverage* column: **S** = exact spec asserted by `IndexContractIT` (name, key order/direction, unique, sparse, partial filter, TTL, no collation/hidden); **D** = DB-level duplicate rejection asserted; **R** = concurrent duplicate race (16 threads, exactly one winner) asserted; **E** = planner/`explain` evidence asserted by a **committed** test; **X** = observation from the **one-off, uncommitted** explain experiment (§3), **not reproduced by this PR** and not asserted by any test; **B** = behavioural service-level coverage (pre-existing); **ttl-set guard** = covered by the "only these four TTL indexes exist" assertion.
 
 ## 2. Rules applied
 
@@ -23,7 +23,7 @@ Legend for the *Test coverage* column: **S** = exact spec asserted by `IndexCont
 - **R1:** paise price-ledger history is immutable and must not become purgeable merely because `rolled == true`; unknown/legacy shapes default to retention. DB-2 analyses index/query needs only and does **not** change retention semantics.
 - **R5:** no destructive or mutating evolution is introduced. No index is dropped or renamed in this phase (rename = drop + create); those are DB-3 migration steps.
 
-## 3. Measured plan evidence (mongo:7, Testcontainers, synthetic data)
+## 3. One-off explain experiment (uncommitted; mongo:7, Testcontainers, synthetic data; not reproduced by this PR)
 
 Method: a **one-off, uncommitted** integration experiment seeded synthetic data, ran `explain` with `executionStats`, created candidate indexes and re-ran. **This PR does not reproduce those numbers**: the committed `IndexContractIT` uses different data (6,000 products, 30 verticals) and `queryPlanner` verbosity, so it pins the *plan shape* of the new index (uses it, no SORT, no COLLSCAN, no `_id` walk), not the 595/100/0 figures. Caveats: synthetic data, single node, one server version; plan choice can vary with data skew and version, so these are evidence for the decision, not a performance guarantee.
 
@@ -46,13 +46,13 @@ All indexes below are created by `SchemaBootstrap.bootstrap` on every start (ide
 
 | # | Collection | Exact name | Keys (order, direction) | Unique | Partial | Sparse | TTL | Owning query / invariant | Exists today | Bootstrap creates | Test coverage | Proposed action | Migration / preflight |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | `products` | `classification.vertical_id_1_lifecycle_1_classification.status_1__id_1` (generated) | vertical_id ↑, lifecycle ↑, status ↑, _id ↑ | N | — | N | — | Consumer/commerce list + `_id` keyset cursor (`ConsumerEligibility.within`, `ConsumerProductListService:145-153`, `CommerceListService:162-167`, `ConsumerVisibilityProbe:41`) | YES | YES | S, E (`ProductIndexMigrationIT` key order; `ScaleIT` explain; measured SORT_MERGE for 3 verticals) | KEEP | none (pre-existing) |
-| 2 | `products` | `product_vertical_id_cursor` | classification.vertical_id ↑, _id ↑ | N | — | N | — | Per-vertical `_id`-ordered scan: stamp worker `TaxonomyChangeService:477-484` (`_id`-only projection: covered), `CanonicalKeyBackfillService:79-85` (no projection: index-ordered fetch) | **NO** (added by DB-2) | **YES (after DB-2)** | S, E (`IndexContractIT`: plan = this index, no SORT, no `_id_` walk) | **IMPLEMENTED (DB-2)** | none (non-unique, additive). Live build time UNVERIFIED — measure on staging data size before production |
+| 1 | `products` | `classification.vertical_id_1_lifecycle_1_classification.status_1__id_1` (generated) | vertical_id ↑, lifecycle ↑, status ↑, _id ↑ | N | — | N | — | Consumer/commerce list + `_id` keyset cursor (`ConsumerEligibility.within`, `ConsumerProductListService:145-153`, `CommerceListService:162-167`, `ConsumerVisibilityProbe:41`) | YES | YES | S, E (`ProductIndexMigrationIT` key order; `ScaleIT` explain), X (SORT_MERGE for 3 verticals) | KEEP | none (pre-existing) |
+| 2 | `products` | `product_vertical_id_cursor` | classification.vertical_id ↑, _id ↑ | N | — | N | — | Per-vertical `_id`-ordered scan: stamp worker `TaxonomyChangeService:477-484` (`_id`-only projection: covered by reasoning and the one-off experiment X, not asserted by a test), `CanonicalKeyBackfillService:79-85` (no projection: index-ordered fetch) | **NO** (added by DB-2) | **YES (after DB-2)** | S, E (`IndexContractIT`, stamp-worker shape only: plan = this index, no SORT, no COLLSCAN, no `_id_` walk) | **IMPLEMENTED (DB-2)** | none (non-unique, additive). Live build time UNVERIFIED — measure on staging data size before production |
 | 3 | `products` | `bundle_contents.component_product_id_1` (generated) | bundle_contents.component_product_id ↑ | N | — | **Y** | — | `MergeService.repointBundles:131-132` | YES | YES | S | KEEP | none |
 | 4 | `products` | `variant_group_id_1` (generated) | variant_group_id ↑ | N | — | **Y** | — | none found in main (UNVERIFIED future need); `variant_groups` collection is unused | YES | YES | S | REVIEW-UNUSED (retain; decide with `variant_groups` in DB-3) | none |
 | 5 | `offers_current` | `product_id_1_source_1_seller_1_channel_1` (generated) | product_id ↑, source ↑, seller ↑, channel ↑ | **Y** | — | N | — | Invariant: one current offer per (product, source, seller, channel); `OffersService.upsertOffer`, `MergeService:112-117` | YES | YES | S, D | KEEP | none (already enforced at bootstrap) |
 | 6 | `canonical_keys` | `product_id_1` (generated) | product_id ↑ | N | — | N | — | none (reads are `_id`-keyed); `product_id` never queried | YES | YES | S | REVIEW-UNUSED (retain; candidate drop in DB-3) | none |
-| 7 | `evidence_links` | `evidence_id_1_active_1` (generated) | evidence_id ↑, active ↑ | N | — | N | — | `TaintService:103-108` (measured: used with a blocking SORT over that evidence's links) | YES | YES | S | KEEP | none |
+| 7 | `evidence_links` | `evidence_id_1_active_1` (generated) | evidence_id ↑, active ↑ | N | — | N | — | `TaintService:103-108` (one-off experiment X: used with a blocking SORT over that evidence's links) | YES | YES | S | KEEP | none |
 | 8 | `evidence_links` | `product_id_1_link_type_1` (generated) | product_id ↑, link_type ↑ | N | — | N | — | upsert filter prefix `ClassifyService:58`, `PublishService:64` | YES | YES | S | KEEP | none |
 | 9 | `classification_history` | `product_id_1_decided_at_1` (generated) | product_id ↑, decided_at ↑ | N | — | N | — | none: insert-only, no reader in main or PR #49 | YES | YES | S | REVIEW-UNUSED (retain; candidate drop in DB-3) | none |
 | 10 | `product_events` | `product_id_1_at_1` (generated) | product_id ↑, at ↑ | N | — | N | — | none in main; PR #49 uses `audit_read_*` instead. Highest-write ledger (one row per `WritePath` write) | YES | YES | S | REVIEW-UNUSED (retain pending PR #49 outcome) | none |
@@ -61,7 +61,7 @@ All indexes below are created by `SchemaBootstrap.bootstrap` on every start (ide
 | 13 | `campaign_membership` | `campaign_id_1_product_id_1` (generated) | campaign_id ↑, product_id ↑ | **Y** | — | N | — | collection unused in main | YES | YES | S, D | REVIEW-UNUSED (decide with collection retirement, DB-3) | none |
 | 14 | `aliases` | `alias_norm_1_lang_1_region_1` (generated) | alias_norm ↑, lang ↑, region ↑ | **Y** | — | N | — | Invariant: one alias per (norm, lang, region); seed upsert, `TaxonomyService.resolveAlias` | YES | YES | S, D | KEEP | none. Note: `aliases.node_id` (mergeNodes `updateMany`) has no index; 25 seeded rows — not proven, no action |
 | 15 | `price_events` | `product_id_1_ts_1` (generated) | product_id ↑, ts ↑ | N | — | N | — | none in main (paise rows set `product_id = sku_id` so a future per-SKU history read would use it) | YES | YES | S | RETAIN (R1: durable-ledger read path) | none |
-| 16 | `price_events` | `rolled_1_ts_1` (generated) | rolled ↑, ts ↑ | N | — | N | — | `RollupService:46-48` select (`rolled != true`, `ts <= now`) and `:68` purge (`rolled == true`). **Measured:** select = IXSCAN 5001 keys for 5000 rows; purge = BATCHED_DELETE via this index | YES | YES | S, E (measured, experiment) | KEEP (re-assess after R1 work package) | none |
+| 16 | `price_events` | `rolled_1_ts_1` (generated) | rolled ↑, ts ↑ | N | — | N | — | `RollupService:46-48` select (`rolled != true`, `ts <= now`) and `:68` purge (`rolled == true`). **One-off experiment (X, uncommitted):** select = IXSCAN 5001 keys for 5000 rows; purge = BATCHED_DELETE via this index | YES | YES | S, X | KEEP (re-assess after R1 work package) | none |
 | 17 | `price_current` | `sku_id_1_currency_1` (generated) | sku_id ↑, currency ↑ | **Y** | — | N | — | Invariant: one current price per (SKU, currency); point + batch `$in` read, CAS write, create-race guard | YES | YES | S, D, R | KEEP | none |
 | 18 | `price_rollups` | `product_id_1_seller_1` (generated) | product_id ↑, seller ↑ | **Y** | — | N | — | `RollupService` upsert key; write-only | YES | YES | S, D | KEEP (re-assess after R1) | none |
 | 19 | `inventory` | `sku_id_1_fulfillment_location_id_1` (generated) | sku_id ↑, fulfillment_location_id ↑ | **Y** | — | N | — | Invariant: one stock row per (SKU, location); all inventory access | YES | YES | S, D | KEEP | none |
@@ -100,7 +100,7 @@ The 15 other collections carry only `_id_`: `gtin_registry`, `identity_keys`, `d
 
 ## 5. Query-path coverage by domain
 
-No query on any in-scope collection lacks a suitable index **except** the items in §6. "SERVED" is index-shape reasoning verified by measurement where §3 says so.
+No query on any in-scope collection lacks a suitable index **except** the items in §6. "SERVED" is index-shape reasoning; §3 records where a one-off, uncommitted experiment (X) observed the plan. Only the committed `IndexContractIT` plan test, `ScaleIT`, `ProductIndexMigrationIT`, `SnapshotIndexIT` and `MembershipRepositoryIT` assert plans.
 
 | Domain | Query paths | Verdict |
 |---|---|---|
@@ -119,13 +119,13 @@ No query on any in-scope collection lacks a suitable index **except** the items 
 ### 6.1 Missing indexes
 | Gap | Evidence | Decision |
 |---|---|---|
-| Per-vertical `_id`-ordered scan | measured §3 | **IMPLEMENTED**: `product_vertical_id_cursor` |
-| `evidence_links` taint paging `{evidence_id, active, _id}` | measured §3: sort over ≤ 60 docs / `_id` walk | not proven → **not implemented** |
+| Per-vertical `_id`-ordered scan | one-off experiment §3 (X) | **IMPLEMENTED**: `product_vertical_id_cursor` |
+| `evidence_links` taint paging `{evidence_id, active, _id}` | one-off experiment §3 (X): sort over ≤ 60 docs / `_id` walk | not proven → **not implemented** |
 | `aliases.node_id` (mergeNodes `updateMany`, `TaxonomyChangeService:303`) | 25 seeded rows, admin-only, in-transaction | not proven → no action; revisit if aliases grow |
 | `catalogue_releases` `status=publishing` (`ReleaseGate:28-29`) | partial `gate` index unusable; tiny collection, runs per change transaction | no action |
 | `attribute_definitions` whole-set scan per consumer page (`ConsumerProjectionService:153-157`, `status=active OR absent`) | ~110 rows; an `OR`-with-absent predicate is not index-friendly | no index; caching is an application concern |
 | `attribute_schemas`/definitions `release_id,status` (`TaxonomyChangeService:143-150`), `TaxonomyLoader:75` | ~110/48 rows, rare | no action |
-| Reconciler whole-catalog sweep | measured §3 | re-check in DB-7 |
+| Reconciler whole-catalog sweep | one-off experiment §3 (X) | re-check in DB-7 |
 
 ### 6.2 Unnecessary / unused indexes (retained; dropping is a destructive migration)
 `session_by_customer`, `classification_history (product_id, decided_at)`, `canonical_keys (product_id)`, `products (variant_group_id)` sparse, `price_events (product_id, ts)` *(RETAIN under R1)*, `product_events (product_id, at)`, `node_events (node_id, at)`, `domain_events (aggregate_type, aggregate_id, at)` *(the last three pending PR #49)*, and the unique indexes on the unused collections `batches` and `campaign_membership`. **No index is dropped in DB-2.** Each is a recorded write-amplification cost with no reader in main; `product_events` is the highest-write ledger. Disposition belongs to the DB-3 migration framework (R5).
@@ -165,7 +165,7 @@ TTL is permitted only for temporary data. The repository has **exactly four** TT
 ## 9. R1 — pricing index impact (analysis only; retention semantics unchanged)
 
 - `price_events` writers are insert-only (`PricingService:139`, `OffersService:35`); the only update is rollup setting `rolled:true`; the only delete is purge (`RollupService:68`). Nothing in main reads it except `RollupService`.
-- **Measured:** `rolled_1_ts_1` serves both the select (`rolled != true`, 5,001 keys for 5,000 rows) and the purge. The index is not the problem; the unbounded in-memory read (`RollupService:46-48`) and the missing shape discriminator are (DB-1 §9). Current behaviour remains **non-compliant with R1**; DB-2 does not change it.
+- **One-off explain experiment (§3, X; uncommitted, not reproduced by this PR):** `rolled_1_ts_1` serves both the select (`rolled != true`, 5,001 keys for 5,000 rows) and the purge. The index is not the problem; the unbounded in-memory read (`RollupService:46-48`) and the missing shape discriminator are (DB-1 §9). Current behaviour remains **non-compliant with R1**; DB-2 does not change it.
 - `{rolled, ts}` has ~2 distinct leading values (absent/null vs true): a partition flag, not a selective key; every insert pays for it and every rollup moves the key.
 - `(product_id, ts)` has no reader; paise rows set `product_id = sku_id`, so it is the natural index for a future per-SKU history read → **RETAIN**.
 - **Future needs (not implemented):** once an explicit event discriminator exists, a rollup/purge that must exclude durable ledger rows needs only a residual filter on it (no new index), or `{kind, rolled, ts}` if fully index-served selection is wanted; a per-SKU ledger read wants `{kind, product_id, ts}`; a ledger integrity guard is the partial unique `(sku_id, version)` in §7.3. A partial index on `rolled:{$exists:false}` would **not** serve the current `rolled != true` predicate (the planner cannot prove implication).
