@@ -450,7 +450,8 @@ class IndexContractIT extends AbstractMongoIT {
         }
         if (!batch.isEmpty()) products.bulkWrite(batch);
         try {
-            // the stamp worker / canonical-key backfill shape: vertical equality, _id cursor, _id sort, id projection
+            // the stamp-worker shape: vertical equality, _id cursor, _id sort, _id-only projection
+            // (the canonical-key backfill has no projection and is not asserted here)
             Document explain = db.runCommand(new Document("explain", new Document("find", "products")
                     .append("filter", new Document("classification.vertical_id", "TZV-IDX7")
                             .append("_id", new Document("$gt", "TZP-IDX002000")))
