@@ -1,5 +1,11 @@
 # DATABASE_COLLECTION_CONTRACTS — tazzzo-backend (DB-1)
 
+> **Status note (DB-3).** Statements in §8 and §11 about `application.yml` hard-coding `bootstrap-on-startup: true` /
+> `load-taxonomy-seed: true` and about the validator being applied "by default at startup" describe `main` before DB-3.
+> Since DB-3 startup no longer mutates the database by default (mode `VERIFY`); bootstrap, seeding and any validator
+> application are explicit migrations — see `DATABASE_MIGRATION_RUNBOOK.md`. The `products` validator behaviour itself
+> (STRICT/ERROR, applied only when the collection is first created, now by migration `V0001`) is unchanged.
+
 Documentation / policy only. No validator, index, schema, configuration or application code is changed by DB-1.
 
 ## 1. Metadata and scope
@@ -320,7 +326,7 @@ Remaining collections are summarised in §7.
 - **`ValidatorGenerator.regenerate()`:** `J/catalog/schema/ValidatorGenerator.java:44-49` issues `collMod` on `products` with `validationLevel strict`, `validationAction error`, rebuilding the schema so `localized_titles` keys come from `system_config {config_type:"languages"}.values` (default `[en,hi]`) and `ext` keys from `attachment_registry {target:"products.ext"}`.
 - **Does production call it?** **No.** It has **no caller in `src/main`**; only `ValidatorRegenIT` calls it (verified by grep in DB-0).
 - **Deployment implications:**
-  1. A fresh environment gets the validator only if `bootstrap-on-startup` runs against an empty database first (it does by default, `application.yml:14`).
+  1. A fresh environment gets the validator only if the baseline runs against an empty database first (before DB-3: `bootstrap-on-startup`, true by default in `application.yml`; since DB-3: migration `V0001`).
   2. Any environment where `products` existed first has **no** guaranteed validator (live state UNVERIFIED).
   3. Registering a new language or `ext` attachment key changes the intended schema, but production has no mechanism to apply it; `ValidatorGenerator` would have to be run by a controlled migration (R5), not at startup.
   4. `STRICT` means any update to a pre-existing non-conforming `products` document fails; a stale or too-tight validator therefore can block catalogue writes.
@@ -389,7 +395,7 @@ Three distinct kinds of startup activity; DB-0 §9 shows today's `bootstrap()` m
 Specific implications (recorded; implementation is DB-3):
 - The conditional `dropIndex` on `products` (`SB:168,350-388`) is a Kind-B destructive step: must be an explicit migration step, document its privilege, keep the existing safety (create the superseding index first; exact-match whitelist) and be recorded as applied.
 - `createCollection` and `createIndex` option conflicts are currently uncaught and abort startup; in a migration they must be handled and reported (NamespaceExists benign; IndexOptionsConflict/KeySpecsConflict surfaced as migration failure with an operator decision, never auto-dropped).
-- Until then, `application.yml` hard-codes `bootstrap-on-startup: true` and `load-taxonomy-seed: true`. The target is that **production runs with Kind-B disabled and Kind-A enabled**, with Kind-B executed by the migration job; flag defaults must not silently re-enable it.
+- (Historical, before DB-3:) `application.yml` hard-coded `bootstrap-on-startup: true` and `load-taxonomy-seed: true`. The target is that **production runs with Kind-B disabled and Kind-A enabled**, with Kind-B executed by the migration job; flag defaults must not silently re-enable it.
 - Observability (target): a persisted migrations ledger (collection name to be decided in DB-3; **no new collection is created by DB-1**) and metrics/log lines per step.
 
 DB-1 does **not** redesign bootstrap. It records this as the contract constraint on DB-2 (indexes), DB-3 (migration framework) and DB-4 (separate privileged users).

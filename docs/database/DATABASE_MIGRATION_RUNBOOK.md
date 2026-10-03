@@ -14,7 +14,7 @@ application start ──► MigrationStartupRunner ──► mode?
                          VERIFY (default)      read-only: history says required migrations are APPLIED? else refuse to start
                          DRY_RUN / APPLY       job modes (one-shot process, exit code)
                          APPLY_ON_STARTUP      local/test/dev only
-                         LEGACY                pre-DB-3 flag behaviour; local/test/dev only (test suites)
+                         LEGACY                the flag-driven bootstrap/seed; local/test/dev only (test suites); it does not create the migration-owned indexes
 
 MigrationRunner ── TargetGuard ── MigrationLock ── MigrationHistory ── Migration[] (Migrations.defaults)
 ```
@@ -45,6 +45,8 @@ are created lazily by the runner on `APPLY`; they are not in `SchemaBootstrap.CO
 legacy flags `tazzzo.schema.bootstrap-on-startup` / `load-taxonomy-seed` default to `false` and are honoured
 only in mode `LEGACY` (local/test/dev; the test suites use it via `src/test/resources/application.properties`).
 
+> **What `VERIFY` checks:** it trusts the **history** (each required migration `APPLIED` with a matching checksum, none `FAILED`/`BLOCKED`/`APPLYING`); it does not re-inspect live indexes — drift detection is a later phase (DB-7). `V0005` and `V0006` are required migrations: a duplicate-blocked unique index leaves them unrecorded, so the application refuses to start until the duplicates are resolved and the migration has run. This is intended.
+>
 > **Deployment impact (action for the deployment pipeline owner):** an application deployed with the default
 > `VERIFY` mode **refuses to start** against a database that has not been migrated. The pipeline must run the
 > migration job (dry-run, review, apply) before rolling out the application. An existing database created by
@@ -63,7 +65,7 @@ Prefix `tazzzo.migration` (env vars in the second column). None of these values 
 | `operator` | `TAZZZO_MIGRATION_OPERATOR` | OS user | recorded in the history (use the deployment job id) |
 | `build-version` | `TAZZZO_BUILD_VERSION` | `unknown` | recorded in the history |
 | `lock-lease-seconds` | — | `300` | lease length; the runner renews it every third of the lease |
-| `lock-wait-seconds` | — | `0` | how long to wait for a held lock (`0` = fail fast, outcome `LOCK_HELD`) |
+| `lock-wait-seconds` | — | `0` | how long to wait for a held lock (`0` = fail fast, outcome `LOCK_HELD`). `APPLY_ON_STARTUP` always waits at least 120 s so several local instances starting together do not crash |
 | `exit-after-run` | `TAZZZO_MIGRATION_EXIT_AFTER_RUN` | `false` | job modes: exit the process with the run's exit code |
 | `verify-failure` | — | `FAIL` | `FAIL` (refuse to start) or `WARN` (log and continue) |
 | `approved-data-migrations` | — | *(none)* | ids of DATA migrations explicitly approved for this run |
@@ -116,7 +118,7 @@ Collection `schema_migration_lock`, one document `_id: "catalog-service-migratio
 - **Release** — always in `finally`; a crashed holder is superseded when its lease expires (default 5 minutes).
 - **Held by someone else** — wait `lock-wait-seconds`, else outcome `LOCK_HELD` (exit code 4); nothing is changed.
 
-Tests prove: 8 concurrent runners apply a migration exactly once; a second runner is refused while the lock is held; release after failure; expired-lease takeover with a higher fence; a live lease cannot be taken; losing the lock mid-run records nothing as applied; a stale writer cannot overwrite newer history. Mutation checks (lock always acquirable; unfenced history; a dry run that creates a collection) each failed the intended tests.
+Fencing protects a record a newer holder has already written; in addition a stalled holder detects the lost lease (heartbeat) and stops before it records success. Committed tests prove: 8 concurrent runners apply a migration exactly once; a second runner is refused while the lock is held; release after failure; expired-lease takeover with a higher fence; a live lease cannot be taken; losing the lock mid-run records nothing as applied; a stale writer cannot overwrite newer history. A **one-off, uncommitted, local** mutation check (lock always acquirable; unfenced history; a dry run that creates a collection) failed the intended tests; that check is not reproduced by committed tests.
 
 ## 7. History: `schema_migrations`
 
@@ -126,7 +128,7 @@ Errors and blockers pass through `MigrationSanitizer` before being stored or log
 
 ## 8. Dry run and environment safety
 
-**Dry run** (`mode=DRY_RUN`, or `MigrationRunner.dryRun`) is strictly read-only: no lock, no history collection, no collection of any kind is created. It reports, per migration: `ALREADY_APPLIED`, `WOULD_APPLY` (with the intended operations), `WOULD_ADOPT`, `BLOCKED` (with blockers), `PENDING_APPROVAL`, `CHECKSUM_MISMATCH`; plus the target (`environment`, `database`, `hosts`, `operator`, `build`) — never a connection string. Exit codes: `0` OK, `2` BLOCKED, `3` FAILED, `4` LOCK_HELD, `5` LOCK_LOST, `6` CHECKSUM_MISMATCH, `7` TARGET_REFUSED.
+**Dry run** (`mode=DRY_RUN`, or `MigrationRunner.dryRun`) is strictly read-only: no lock, no history collection, no collection of any kind is created. It reports, per migration: `ALREADY_APPLIED`, `WOULD_APPLY` (with the intended operations), `WOULD_ADOPT`, `BLOCKED` (with blockers), `PENDING_APPROVAL`, `CHECKSUM_MISMATCH`; plus the target (`environment`, `database`, `hosts`, `operator`, `build`) — never a connection string. Exit codes: `0` OK, `2` BLOCKED, `3` FAILED, `4` LOCK_HELD, `5` LOCK_LOST, `6` CHECKSUM_MISMATCH, `7` TARGET_REFUSED, `8` INVALID_SELECTION (an unknown id in `enabled-migrations`/`approved-data-migrations`: never silently ignored; nothing is run). A dry run evaluates **each migration independently against the current state** (it cannot simulate earlier migrations having run), whereas `apply` stops at the first problem; so a dry run can show `WOULD_APPLY` for a step that `apply` would report `NOT_RUN`. When several problems exist the dry-run outcome is `CHECKSUM_MISMATCH` over `BLOCKED`. A migration caught mid-flight by a lost lock is reported `INTERRUPTED` (left `APPLYING`).
 
 **Target guard** — before any mutation, in every mode:
 
@@ -150,7 +152,7 @@ Every index is described by an `IndexSpec` (collection, name, ordered keys with 
 | **C. SAME_KEYS_OTHER_NAME** | same keys and options under a different name | nothing; **adopted** (the need is met; the name is cosmetic; a rename is a separate explicit migration). MongoDB would throw `IndexOptionsConflict` if created by name — the migration never attempts it |
 | **D. CONFLICT** | the name exists with a different definition, **or** the same keys exist with different options | **BLOCKED**. Nothing is dropped, altered or created. An operator decides. |
 
-Two *different* partial filters on the same keys are two legitimate indexes (as for `otp_one_delivering_per_phone` / `otp_one_active_per_phone`), not a conflict.
+**Key order and direction are part of an index's identity**: `{a:1,b:1}` and `{b:1,a:1}` (or `{a:1}` and `{a:-1}`) are different indexes serving different queries, so a reversed index is never adopted and never satisfies validation (tested). Two *different* partial filters on the same keys are two legitimate indexes (as for `otp_one_delivering_per_phone` / `otp_one_active_per_phone`), not a conflict.
 
 ### 9.1 Deployment preflight for `products (classification.vertical_id, _id)` — **required before any rollout**
 
@@ -186,8 +188,11 @@ If duplicates exist the migration records `BLOCKED` with a sample of the keys, t
 ### 9.3 Drop and replace
 
 - `DropIndexMigration` drops **only** the exact reviewed definition: a same-keys index under another name, or any different definition, **blocks**. Roll-forward: re-create from the same spec (recorded in `rollbackInfo`).
-- `ReplaceIndexMigration`: a **redefinition** is create-before-drop (no window without coverage). A **pure rename** cannot be (MongoDB forbids two identical indexes under different names): it is drop-then-create with a short window without the index — schedule it in a quiet period under the lock.
-- Neither is used by a default migration; drop candidates are registered **disabled**.
+- `ReplaceIndexMigration` (a redefinition or a rename) chooses its order from one rule — **can the old and new definitions coexist?** MongoDB forbids two indexes with the same ordered keys and options under different names, but allows two partial indexes whose filters differ.
+  - **Can coexist** (a different key pattern, or two different partial filters): **create-before-drop**, so there is no window without coverage.
+  - **Cannot coexist** (the same ordered keys: a pure rename, or a change of options such as adding `unique`): **drop-then-create**, with a short window without the index — schedule it in a quiet period under the lock. It is **resumable**: if the run dies between the drop and the create, the retry sees the source gone and the target absent and just creates the target (it does not block forever).
+  - The old index is dropped only if it is exactly the reviewed definition. If the target is unique and the source was not, an optional duplicate preflight must be empty first; duplicates only ever block and are never repaired. An equivalent index under a third name blocks.
+- Neither drop nor replace is used by a default migration; drop candidates are registered **disabled**.
 
 ## 10. Failure handling
 
@@ -203,7 +208,7 @@ If duplicates exist the migration records `BLOCKED` with a sample of the keys, t
 
 ## 11. Validator, data and reference rules
 
-**Validator migrations** (`ValidatorMigration`, the mechanism only — **no validator is enabled by DB-3**): conformance scan of existing documents (`find({$nor:[{$jsonSchema:…}]})`, bounded); controlled `collMod`; post-validation by reading the options back; previous options captured as `rollbackInfo` and restorable with `ValidatorMigration.restore`. `strict + error` with non-conforming documents is **BLOCKED**; `moderate` or `warn` tolerates them and says so. Documents are never rewritten. The proposed validators from `DATABASE_COLLECTION_CONTRACTS.md` use this path, after their §12.1 preconditions hold.
+**Validator migrations** (`ValidatorMigration`, the mechanism only — **DB-3 enables no new validator**; `V0001` still creates a *new* `products` collection with the existing strict `$jsonSchema` validator exactly as the legacy bootstrap did, and never alters an existing collection): conformance scan of existing documents (`find({$nor:[{$jsonSchema:…}]})`, bounded); controlled `collMod`; post-validation by reading the options back; previous options captured as `rollbackInfo` and restorable with `ValidatorMigration.restore`. `strict + error` with non-conforming documents is **BLOCKED**; `moderate` or `warn` tolerates them and says so. Documents are never rewritten. The proposed validators from `DATABASE_COLLECTION_CONTRACTS.md` use this path, after their §12.1 preconditions hold.
 
 **Data migrations** (`kind = DATA`): never run without the id in `approved-data-migrations`; forward-only unless backed up; as narrow as possible. `V0004` changes only seed schema ids at `version: 1`; later authored versions and non-seed schemas are never touched (tested).
 
@@ -223,19 +228,19 @@ If duplicates exist the migration records `BLOCKED` with a sample of the keys, t
 ```bash
 # read-only report; no mutation, nothing created
 TAZZZO_MIGRATION_MODE=DRY_RUN TAZZZO_MIGRATION_ENVIRONMENT=staging TAZZZO_MIGRATION_EXIT_AFTER_RUN=true \
-TAZZZO_SCHEDULER_ENABLED=false MONGODB_URI=... MONGODB_DATABASE=... \
+TAZZZO_SCHEDULER_ENABLED=false TAZZZO_CONSUMER_RATE_LIMIT_MODE=DISABLED MONGODB_URI=... MONGODB_DATABASE=... \
 java -jar catalog-service.jar --spring.main.web-application-type=none
 
 # controlled apply (two-key confirmation outside local/test/dev)
 TAZZZO_MIGRATION_MODE=APPLY TAZZZO_MIGRATION_ENVIRONMENT=staging TAZZZO_MIGRATION_EXIT_AFTER_RUN=true \
 TAZZZO_MIGRATION_CONFIRM_DATABASE=<exact db name> TAZZZO_MIGRATION_CONFIRM_ENVIRONMENT=staging \
 TAZZZO_MIGRATION_OPERATOR=<deploy job id> TAZZZO_BUILD_VERSION=<build> TAZZZO_SCHEDULER_ENABLED=false \
-MONGODB_URI=... MONGODB_DATABASE=... \
+TAZZZO_CONSUMER_RATE_LIMIT_MODE=DISABLED MONGODB_URI=... MONGODB_DATABASE=... \
 java -jar catalog-service.jar --spring.main.web-application-type=none \
   --tazzzo.migration.approved-data-migrations=V0004__seed_schemas_pack_fields_not_required   # only when approved
 ```
 
-Credentials come from the secret store (`MONGODB_URI`), never from this repository or the command line history. The migration identity should hold only the privileges it needs (`createCollection`, `createIndex`, `dropIndex`, `collMod`, read/write on the bookkeeping collections and, for data migrations, update on the target); the runtime application identity needs none of them in `VERIFY` mode (separate users are a DB-4 task).
+**The job is the application, so it needs the same mandatory configuration as the service** — notably `TAZZZO_CONSUMER_RATE_LIMIT_MODE`, which has no default and makes startup fail if unset (`DISABLED` is the fail-closed value for a job that serves nothing) — plus any other mandatory property the service requires at startup. A committed test (`MigrationJobContextIT`) starts the real application in exactly this shape (non-web, `DRY_RUN`, `exit-after-run=true`, only the configuration listed above) and checks that it exits with code 0 and creates nothing. Credentials come from the secret store (`MONGODB_URI`), never from this repository or the command line history. The migration identity should hold only the privileges it needs (`createCollection`, `createIndex`, `dropIndex`, `collMod`, read/write on the bookkeeping collections and, for data migrations, update on the target); the runtime application identity needs none of them in `VERIFY` mode (separate users are a DB-4 task).
 
 ## 13. Rollback and roll-forward
 
@@ -283,7 +288,7 @@ Actual drops happen only through the disabled drop migrations after explicit app
 PR #49 (open, not merged, head `9a8329f`) creates its nine `audit_read_*` partial indexes **inside
 `SchemaBootstrap.bootstrap()`**. Since DB-3 the application no longer calls `bootstrap()` at startup, and the
 migration baseline (`V0001`) is driven by `IndexCatalog`, not by `bootstrap()`. Verified in a scratch merge of
-DB-3 with PR #49 (not pushed): every index/framework suite passes (`IndexContractIT`, `AuditReadIndexIT`,
+DB-3 with PR #49 (a **one-off, uncommitted** local check, not reproduced by committed tests): every index/framework suite passes (`IndexContractIT`, `AuditReadIndexIT`,
 `MigrationFrameworkIT`), **but a database built only by migrations has no `audit_read_*` index** on
 `product_events`, `node_events` or `domain_events`, while a bootstrap-built one has all nine.
 
