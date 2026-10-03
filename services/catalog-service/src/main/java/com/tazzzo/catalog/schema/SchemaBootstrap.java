@@ -149,7 +149,12 @@ public class SchemaBootstrap {
      */
     public static final List<String> SNAPSHOT_TRAVERSAL_INDEX_KEYS = List.of("release_id", "parent_id");
 
-    public void bootstrap(MongoDatabase db) {
+    /**
+     * Creates every collection in {@link #COLLECTIONS} that is absent (and only those). A NEW {@code products}
+     * collection gets the strict $jsonSchema validator; an existing collection is never altered. Idempotent.
+     * Shared by {@link #bootstrap} and the baseline migration.
+     */
+    public void ensureCollections(MongoDatabase db) {
         List<String> existing = db.listCollectionNames().into(new java.util.ArrayList<>());
 
         if (!existing.contains("products")) {
@@ -164,23 +169,32 @@ public class SchemaBootstrap {
                 db.createCollection(name);
             }
         }
+    }
+
+    /** True when the superseded pre-PAG-2 plain products index (exact legacy shape only) is present. */
+    public boolean hasSupersededProductsPrefixIndex(MongoDatabase db) {
+        if (!db.listCollectionNames().into(new java.util.ArrayList<>()).contains("products")) return false;
+        for (Document index : db.getCollection("products").listIndexes()) {
+            if (isHistoricalPlainPrefix(index, LEGACY_PRODUCT_INDEX_KEYS)) return true;
+        }
+        return false;
+    }
+
+    /** Drops ONLY the exact legacy-shaped prefix index; any lookalike is left alone. Idempotent. */
+    public void dropSupersededProductsPrefixIndex(MongoDatabase db) {
+        dropHistoricalPlainPrefixIndex(db.getCollection("products"), LEGACY_PRODUCT_INDEX_KEYS);
+    }
+
+    public void bootstrap(MongoDatabase db) {
+        ensureCollections(db);
 
         // PAG-2-SORT-1. Create the wider index FIRST, then drop the prefix it supersedes, so
         // there is never a window in which neither exists.
         db.getCollection("products").createIndex(Indexes.ascending(PAG2_PRODUCT_INDEX_KEYS));
         dropHistoricalPlainPrefixIndex(db.getCollection("products"), LEGACY_PRODUCT_INDEX_KEYS);
-        // DB-2: the per-vertical `_id`-ordered scan (taxonomy stamp worker, canonical-key backfill)
-        // filters `classification.vertical_id = V AND _id > checkpoint` and sorts by `_id`. PAG2 cannot
-        // order by `_id` after a vertical-only equality (lifecycle/status sit between), so the planner
-        // walks the whole `_id` index and filters. A one-off, UNCOMMITTED explain on mongo:7 (6 verticals,
-        // 60k products; not reproduced by the committed tests) showed 595 docs examined per 100 returned;
-        // with this index the scan is index-ordered (by reasoning, the stamp worker's `_id`-only
-        // projection is then covered; the backfill still fetches its page). The committed IndexContractIT
-        // asserts only the stamp-worker plan SHAPE, not these figures.
-        // ADDITIVE and non-destructive; PAG2 and the sparse indexes are untouched.
-        db.getCollection("products").createIndex(
-                new Document("classification.vertical_id", 1).append("_id", 1),
-                new IndexOptions().name(PRODUCT_VERTICAL_CURSOR_INDEX));
+        // The per-vertical `_id`-ordered scan index (product_vertical_id_cursor, DB-2) is NOT created here: it is
+        // owned by the explicit migration V0002, whose preflight handles an existing index under another name or
+        // with a conflicting definition instead of failing startup with IndexOptionsConflict (R5).
         db.getCollection("products").createIndex(
                 Indexes.ascending("bundle_contents.component_product_id"), new IndexOptions().sparse(true));
         db.getCollection("products").createIndex(

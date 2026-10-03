@@ -10,9 +10,24 @@ spring:
       uri: ${MONGODB_URI:mongodb://localhost:27017/tazzzo?replicaSet=rs0}
       database: ${MONGODB_DATABASE:tazzzo}
 tazzzo:
+  # R5 (DB-3): a normally started application NEVER mutates the database schema. Evolution is done by the
+  # explicit, locked, recorded migration job (docs/database/DATABASE_MIGRATION_RUNBOOK.md).
+  #   VERIFY (default)   read-only; refuses to start if required migrations are not recorded as applied
+  #   DRY_RUN / APPLY    migration job modes (set tazzzo.migration.exit-after-run=true for a one-shot job)
+  #   APPLY_ON_STARTUP   local/dev convenience only; refused for staging/production
+  #   LEGACY             pre-DB-3 flag behaviour below; local/test/dev only (used by the test suites)
+  migration:
+    mode: ${TAZZZO_MIGRATION_MODE:VERIFY}
+    environment: ${TAZZZO_MIGRATION_ENVIRONMENT:}           # local | test | dev | staging | production
+    confirm-database: ${TAZZZO_MIGRATION_CONFIRM_DATABASE:} # two-key confirmation for APPLY outside local/test/dev
+    confirm-environment: ${TAZZZO_MIGRATION_CONFIRM_ENVIRONMENT:}
+    operator: ${TAZZZO_MIGRATION_OPERATOR:}
+    build-version: ${TAZZZO_BUILD_VERSION:unknown}
+    exit-after-run: ${TAZZZO_MIGRATION_EXIT_AFTER_RUN:false}
   schema:
-    bootstrap-on-startup: true      # create collections, validators, indexes (idempotent)
-    load-taxonomy-seed: true        # load frozen taxonomy v0.9.0 (insert-only, idempotent)
+    # Honoured ONLY in mode LEGACY (local/test/dev). They are false by default: bootstrap/seed are migrations now.
+    bootstrap-on-startup: false
+    load-taxonomy-seed: false
   scheduler:
     enabled: ${TAZZZO_SCHEDULER_ENABLED:true}   # operational layer; workers are idempotent
     merge-finalizer-ms: 30000

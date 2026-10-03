@@ -54,6 +54,43 @@ public class TaxonomyLoader {
         return ids;
     }
 
+    /** How much of the frozen seed is still absent (read-only; creates nothing). */
+    public record SeedStatus(int nodesMissing, int aliasesMissing, int definitionsMissing, int schemasMissing) {
+        public int totalMissing() {
+            return nodesMissing + aliasesMissing + definitionsMissing + schemasMissing;
+        }
+
+        public boolean complete() {
+            return totalMissing() == 0;
+        }
+    }
+
+    /** Counts seed documents that are not yet present, by natural key. Strictly read-only. */
+    public SeedStatus seedStatus(MongoDatabase db) {
+        Document seed = readSeed();
+        List<Document> nodes = seed.getList("nodes", Document.class);
+        List<String> ids = new ArrayList<>();
+        for (Document n : nodes) ids.add(n.getString("_id"));
+        long nodesPresent = db.getCollection("taxonomy_nodes").countDocuments(Filters.in("_id", ids));
+        int aliasesMissing = 0;
+        for (Document a : seed.getList("aliases", Document.class)) {
+            if (db.getCollection("aliases").countDocuments(Filters.and(
+                    Filters.eq("alias_norm", a.getString("alias_norm")), Filters.eq("lang", a.getString("lang")),
+                    Filters.eq("region", a.getString("region")))) == 0) aliasesMissing++;
+        }
+        int defsMissing = 0;
+        for (Document d : seed.getList("attribute_definitions", Document.class)) {
+            if (db.getCollection("attribute_definitions").countDocuments(Filters.and(
+                    Filters.eq("key", d.getString("key")), Filters.eq("version", d.getInteger("version")))) == 0) defsMissing++;
+        }
+        int schemasMissing = 0;
+        for (Document sc : seed.getList("attribute_schemas", Document.class)) {
+            if (db.getCollection("attribute_schemas").countDocuments(Filters.and(
+                    Filters.eq("schema_id", sc.getString("schema_id")), Filters.eq("version", sc.getInteger("version")))) == 0) schemasMissing++;
+        }
+        return new SeedStatus((int) (nodes.size() - nodesPresent), aliasesMissing, defsMissing, schemasMissing);
+    }
+
     public LoadResult load(MongoDatabase db) {
         Document seed = readSeed();
         int nodes = 0, aliases = 0, defs = 0, schemas = 0;
