@@ -526,4 +526,89 @@ class IndexMigrationIT extends AbstractMigrationIT {
         assertThat(IndexCatalog.TAXONOMY_SIBLING_UNIQUE_SPEC.inspect(d).state()).isEqualTo(IndexSpec.State.ABSENT);
         assertThat(history(d, "V0006__taxonomy_nodes_unique_active_sibling_name")).isNull();
     }
+
+    // ---- same-NAME replacement (the most natural redefinition: keep the name, change the options) ----
+
+    @Test
+    void a_same_name_options_only_redefinition_applies_validates_and_is_idempotent() {
+        MongoDatabase d = scratch();
+        IndexSpec from = spec("idx_a", false, "a", 1);
+        IndexSpec to = spec("idx_a", true, "a", 1); // SAME name, now unique
+        from.create(d);
+        d.getCollection("ren").insertMany(List.of(new Document("a", 1), new Document("a", 2)));
+        ReplaceIndexMigration m = new ReplaceIndexMigration("T1", "make idx_a unique", from, to, true,
+                DuplicateCheck.byFields("ren", null, "a"));
+        assertThat(m.definition()).as("a shared name can never be create-before-drop").contains("drop-then-create");
+        assertThat(m.preflight(d).status()).isEqualTo(Preflight.Status.READY);
+
+        MigrationRunner.RunReport r = runner(d, List.of(m)).apply(target(d), MigrationRunner.Selection.all(), apply());
+
+        assertThat(r.ok()).as(r.render()).isTrue();
+        assertThat(r.steps().get(0).status()).as("not FAILED: the change worked and must validate").isEqualTo(MigrationRunner.StepStatus.APPLIED_NOW);
+        assertThat(to.inspect(d).state()).isEqualTo(IndexSpec.State.EXACT);
+        assertThat(m.validate(d)).isEmpty();
+        assertThat(history(d, "T1").getString("status")).isEqualTo("APPLIED");
+        // idempotent both through the history and when re-evaluated from the live state alone
+        assertThat(runner(d, List.of(m)).apply(target(d), MigrationRunner.Selection.all(), apply()).steps().get(0).status())
+                .isEqualTo(MigrationRunner.StepStatus.ALREADY_APPLIED);
+        assertThat(m.preflight(d).status()).as("no history needed: the live state already satisfies it").isEqualTo(Preflight.Status.ALREADY_SATISFIED);
+        assertThatThrownBy(() -> d.getCollection("ren").insertOne(new Document("a", 1))).isInstanceOf(MongoWriteException.class);
+    }
+
+    @Test
+    void a_same_name_redefinition_to_unique_is_blocked_by_duplicates_and_keeps_the_old_index() {
+        MongoDatabase d = scratch();
+        IndexSpec from = spec("idx_a", false, "a", 1);
+        IndexSpec to = spec("idx_a", true, "a", 1);
+        from.create(d);
+        d.getCollection("ren").insertMany(List.of(new Document("a", 7), new Document("a", 7)));
+        ReplaceIndexMigration m = new ReplaceIndexMigration("T1", "make idx_a unique", from, to, true,
+                DuplicateCheck.byFields("ren", null, "a"));
+
+        MigrationRunner.RunReport r = runner(d, List.of(m)).apply(target(d), MigrationRunner.Selection.all(), apply());
+
+        assertThat(r.outcome()).isEqualTo(MigrationRunner.Outcome.BLOCKED);
+        assertThat(from.inspect(d).state()).as("the old (non-unique) index is untouched").isEqualTo(IndexSpec.State.EXACT);
+        assertThat(d.getCollection("ren").countDocuments()).isEqualTo(2);
+    }
+
+    @Test
+    void a_same_name_redefinition_with_different_keys_is_drop_then_create() {
+        MongoDatabase d = scratch();
+        IndexSpec from = spec("idx", false, "a", 1);
+        IndexSpec to = spec("idx", false, "a", 1, "b", 1); // the keys change but the name is kept
+        from.create(d);
+        ReplaceIndexMigration m = new ReplaceIndexMigration("T1", "widen idx", from, to, true);
+        assertThat(from.canCoexistWith(to)).as("different keys could coexist, but the NAME cannot").isTrue();
+        assertThat(m.definition()).contains("drop-then-create");
+
+        assertThat(runner(d, List.of(m)).apply(target(d), MigrationRunner.Selection.all(), apply()).ok()).isTrue();
+        assertThat(to.inspect(d).state()).isEqualTo(IndexSpec.State.EXACT);
+    }
+
+    @Test
+    void an_interrupted_same_name_replacement_resumes() {
+        MongoDatabase d = scratch();
+        IndexSpec from = spec("idx_a", false, "a", 1);
+        IndexSpec to = spec("idx_a", true, "a", 1);
+        from.create(d);
+        ReplaceIndexMigration m = new ReplaceIndexMigration("T1", "make unique", from, to, true);
+        d.getCollection("ren").dropIndex("idx_a"); // a crash between the drop and the create
+        Preflight pf = m.preflight(d);
+        assertThat(pf.status()).isEqualTo(Preflight.Status.READY);
+        assertThat(pf.operations()).containsExactly("create index " + to.describe());
+        assertThat(runner(d, List.of(m)).apply(target(d), MigrationRunner.Selection.all(), apply()).ok()).isTrue();
+        assertThat(to.inspect(d).state()).isEqualTo(IndexSpec.State.EXACT);
+    }
+
+    @Test
+    void apply_rechecks_after_the_drop_and_never_proceeds_silently_if_an_equivalent_index_appeared() {
+        MongoDatabase d = scratch();
+        IndexSpec from = spec("old_name", false, "a", 1);
+        IndexSpec to = spec("new_name", false, "a", 1);
+        ReplaceIndexMigration m = new ReplaceIndexMigration("T1", "rename", from, to, true);
+        // the source is gone and an equivalent index now exists under a third name (a race since the preflight)
+        d.getCollection("ren").createIndex(new Document("a", 1), new IndexOptions().name("appeared_meanwhile"));
+        assertThatThrownBy(() -> m.apply(d)).isInstanceOf(MigrationException.class).hasMessageContaining("appeared_meanwhile");
+    }
 }

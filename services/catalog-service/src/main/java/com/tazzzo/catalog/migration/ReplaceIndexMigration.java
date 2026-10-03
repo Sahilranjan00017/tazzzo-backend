@@ -46,9 +46,17 @@ public final class ReplaceIndexMigration implements Migration {
         this.duplicateCheck = duplicateCheck;
     }
 
-    /** True when the old and new definitions cannot exist at the same time, so the old one must go first. */
+    private boolean sameName() {
+        return from.effectiveName().equals(to.effectiveName());
+    }
+
+    /**
+     * True when the old and new definitions cannot exist at the same time, so the old one must go first: the same
+     * NAME (an index name is unique per collection, whatever the keys), or the same ordered keys without two
+     * different partial filters.
+     */
     private boolean dropFirst() {
-        return !from.canCoexistWith(to);
+        return sameName() || !from.canCoexistWith(to);
     }
 
     @Override public String id() { return id; }
@@ -76,6 +84,30 @@ public final class ReplaceIndexMigration implements Migration {
 
     @Override
     public Preflight preflight(MongoDatabase db) {
+        if (sameName()) {
+            // The source and the target share one name, so "the index with that name" is judged by its definition.
+            IndexSpec.Inspection asTarget = to.inspect(db);
+            if (asTarget.state() == IndexSpec.State.EXACT) return Preflight.satisfied("replacement already in place: " + to.effectiveName());
+            IndexSpec.Inspection asSource = from.inspect(db);
+            if (asSource.state() == IndexSpec.State.EXACT) {
+                Preflight dup = blockedByDuplicates(db);
+                if (dup != null) return dup;
+                return Preflight.ready(List.of("drop index " + from.effectiveName(), "create index " + to.describe()),
+                        List.of("same name: drop-then-create, the index is absent between the two steps"));
+            }
+            if (from.namedIndexPresent(db)) {
+                return Preflight.blocked(List.of("the index " + from.effectiveName() + " is neither the exact reviewed source nor the target: "
+                        + asSource.detail() + "; nothing is dropped"));
+            }
+            if (asTarget.state() == IndexSpec.State.ABSENT) {
+                Preflight dup = blockedByDuplicates(db);
+                if (dup != null) return dup;
+                return Preflight.ready(List.of("create index " + to.describe()),
+                        List.of("the source is already gone (an interrupted earlier run, or already dropped): resuming with the create"));
+            }
+            return Preflight.blocked(List.of("an equivalent index exists under the name " + asTarget.existingName()
+                    + ", which is neither the source nor the target"));
+        }
         if (dropFirst()) {
             IndexSpec.Inspection newIn = to.inspect(db, from.effectiveName()); // the source is about to go; ignore it
             boolean fromPresent = from.namedIndexPresent(db);
@@ -136,8 +168,9 @@ public final class ReplaceIndexMigration implements Migration {
             if (in.state() == IndexSpec.State.ABSENT) {
                 to.create(db);
                 done.add("created " + to.effectiveName());
-            } else if (in.state() == IndexSpec.State.CONFLICT) {
-                throw new MigrationException(id + ": " + to.describe() + " conflicts — " + in.detail());
+            } else if (in.state() != IndexSpec.State.EXACT) {
+                // CONFLICT, or an equivalent index appeared under a third name since the preflight: never proceed silently
+                throw new MigrationException(id + ": " + to.describe() + " cannot be created — " + in.detail());
             }
         } else {
             IndexSpec.State ns = to.inspect(db).state();
@@ -159,8 +192,10 @@ public final class ReplaceIndexMigration implements Migration {
     public List<String> validate(MongoDatabase db) {
         List<String> problems = new ArrayList<>();
         IndexSpec.State ns = to.inspect(db).state();
-        if (ns != IndexSpec.State.EXACT && ns != IndexSpec.State.SAME_KEYS_OTHER_NAME) problems.add("replacement missing: " + to.describe());
-        if (from.namedIndexPresent(db)) problems.add("old index still present: " + from.describe());
+        boolean ok = dropFirst() ? ns == IndexSpec.State.EXACT
+                : ns == IndexSpec.State.EXACT || ns == IndexSpec.State.SAME_KEYS_OTHER_NAME;
+        if (!ok) problems.add("replacement missing: " + to.describe());
+        if (!sameName() && from.namedIndexPresent(db)) problems.add("old index still present: " + from.describe());
         return problems;
     }
 }

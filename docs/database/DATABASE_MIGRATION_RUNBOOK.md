@@ -66,7 +66,7 @@ Prefix `tazzzo.migration` (env vars in the second column). None of these values 
 | `build-version` | `TAZZZO_BUILD_VERSION` | `unknown` | recorded in the history |
 | `lock-lease-seconds` | — | `300` | lease length; the runner renews it every third of the lease |
 | `lock-wait-seconds` | — | `0` | how long to wait for a held lock (`0` = fail fast, outcome `LOCK_HELD`). `APPLY_ON_STARTUP` always waits at least 120 s so several local instances starting together do not crash |
-| `exit-after-run` | `TAZZZO_MIGRATION_EXIT_AFTER_RUN` | `false` | job modes: exit the process with the run's exit code |
+| `exit-after-run` | `TAZZZO_MIGRATION_EXIT_AFTER_RUN` | `false` | job modes: exit the process with the run's exit code. **Use `true` for a one-shot job.** With `false`, a *failed* job always stops the application, but a *successful* `DRY_RUN`/`APPLY` carries on as a normal serving application **without** a `VERIFY` check |
 | `verify-failure` | — | `FAIL` | `FAIL` (refuse to start) or `WARN` (log and continue) |
 | `approved-data-migrations` | — | *(none)* | ids of DATA migrations explicitly approved for this run |
 | `enabled-migrations` | — | *(none)* | ids of registered-but-disabled migrations to enable for this run |
@@ -190,7 +190,7 @@ If duplicates exist the migration records `BLOCKED` with a sample of the keys, t
 - `DropIndexMigration` drops **only** the exact reviewed definition: a same-keys index under another name, or any different definition, **blocks**. Roll-forward: re-create from the same spec (recorded in `rollbackInfo`).
 - `ReplaceIndexMigration` (a redefinition or a rename) chooses its order from one rule — **can the old and new definitions coexist?** MongoDB forbids two indexes with the same ordered keys and options under different names, but allows two partial indexes whose filters differ.
   - **Can coexist** (a different key pattern, or two different partial filters): **create-before-drop**, so there is no window without coverage.
-  - **Cannot coexist** (the same ordered keys: a pure rename, or a change of options such as adding `unique`): **drop-then-create**, with a short window without the index — schedule it in a quiet period under the lock. It is **resumable**: if the run dies between the drop and the create, the retry sees the source gone and the target absent and just creates the target (it does not block forever).
+  - **Cannot coexist** (the same ordered keys: a pure rename, or a change of options such as adding `unique`; or simply the **same index name**, which a collection can hold only once even for different keys): **drop-then-create**, with a short window without the index — schedule it in a quiet period under the lock. It is **resumable**: if the run dies between the drop and the create, the retry sees the source gone and the target absent and just creates the target (it does not block forever).
   - The old index is dropped only if it is exactly the reviewed definition. If the target is unique and the source was not, an optional duplicate preflight must be empty first; duplicates only ever block and are never repaired. An equivalent index under a third name blocks.
 - Neither drop nor replace is used by a default migration; drop candidates are registered **disabled**.
 
@@ -204,6 +204,7 @@ If duplicates exist the migration records `BLOCKED` with a sample of the keys, t
 | `LOCK_HELD` | another run holds the lease | wait, or raise `lock-wait-seconds`; never delete the lock document by hand while a run may be active |
 | `LOCK_LOST` | the lease was lost mid-run; the interrupted migration is left `APPLYING` and **not** recorded applied | re-run; preflight/apply re-evaluate the live state |
 | `TARGET_REFUSED` | ambiguous or disallowed target | set the environment (and the two confirmations outside local/test/dev) |
+| `INVALID_SELECTION` | an id in `enabled-migrations` / `approved-data-migrations` is not in the registry (usually a typo); nothing was run, nothing created | correct the id and re-run (exit code 8) |
 | stuck `APPLYING` | a crashed run | re-run after the lease expires |
 
 ## 11. Validator, data and reference rules
