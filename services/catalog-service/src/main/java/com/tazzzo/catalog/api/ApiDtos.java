@@ -24,6 +24,17 @@ public final class ApiDtos {
     public record AdminMeResponse(String actorType, String actorId,
                                   @JsonInclude(JsonInclude.Include.NON_NULL) String email, List<String> roles) { }
 
+    /**
+     * One audit event (ALLOWLISTED projection, field order fixed). Never a token, header, session, claim, email, stack or
+     * the ledger's free-form detail. {@code credentialId} is the persisted non-secret label or null (never manufactured);
+     * {@code requestId} is null only for SYSTEM actors. {@code occurredAt} is a UTC ISO-8601 instant.
+     */
+    public record AuditEventDto(String id, String occurredAt, String action, String targetType, String targetId,
+                                String actorType, String actorId, String credentialId, String requestId) { }
+
+    /** Newest first; {@code nextCursor} is an opaque token, null on the last page. */
+    public record AuditEventsResponse(List<AuditEventDto> items, String nextCursor) { }
+
     // ---- products
     public record GtinDto(String value, String market) { }
 
