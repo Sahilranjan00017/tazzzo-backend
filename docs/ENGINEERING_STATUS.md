@@ -3,7 +3,7 @@
 Single source of truth for what is actually built and verified in `tazzzo-backend`.
 Reflects **current reality only** — nothing is marked complete unless verified from existing code.
 
-Last updated: 2026-09-28
+Last updated: 2026-10-04
 
 ---
 
@@ -1254,6 +1254,24 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
 
 ## In review (NOT merged)
 
+- **Database foundation (MongoDB, DB-0 … DB-4)** — authoritative documents in [`docs/database/`](database/):
+  - **DB-0** database inventory: **COMPLETE** (PR #47, `52ab530`). **DB-1** collection contracts + validator policy: **COMPLETE** (PR #48, `e3a0db6`).
+    **DB-2** index manifest, per-vertical cursor index, `IndexContractIT`: **COMPLETE** (PR #50, `f99c1fe`). **DB-3** versioned, locked migration
+    framework (V0001–V0007, including the nine audit-read indexes), dry run, target guard, safe startup modes (R3, R5): **COMPLETE** (PR #51, `d9c440f`).
+  - **DB-4** staging requirements + users/security: **IN REVIEW** (branch `feature/db4-datastore-contract-and-privileges`). It adds the
+    explicit connection contract for staging/production (TLS, retry, `w=majority`, read concern, timeouts, pool: closes risk R7), a fail-fast datastore verifier
+    that runs before the migration runner, three least-privilege identities (runtime / migrator / read-only dry run) generated from one model
+    and proven against a real authenticated replica set, the shipped role files (`docs/database/roles/`), the staging runbook, and a retention matrix + PII map
+    for all 49 collections. The runtime identity holds no schema authority and cannot write the migration history; a migrator connecting as the runtime is refused.
+  - **Honest state:** Atlas staging is **PARTIAL** (design decisions only: no cluster, users, URI or connectivity); a staging dry run is **blocked on infrastructure**, not on code;
+    nothing was run against Atlas, AWS or production. DB-5 (ingestion), DB-6 (backup/restore/retention), DB-7 (query/load verification) and DB-8 (readiness gate) are not started.
+    The six deployment gates stay **PENDING / UNVERIFIED**. **The production datastore is NOT READY.**
+  - **OPEN CONFLICT — R1:** price history is ratified as retained, but `CatalogSchedulers.priceRollup()` runs hourly by default and `RollupService.purge()` hard-deletes rolled
+    `price_events` rows. Recorded by DB-0/DB-1, not fixed by DB-3 or DB-4 (needs an owner-designed durable discriminator). Until the R1 work package lands, staging must run
+    with `TAZZZO_SCHEDULER_ENABLED=false`. No price writer exists in `main` today.
+  - **PRE-EXISTING DEFECT — OUTSIDE THE DATABASE FOUNDATION:** `GET /api/v1/products` without `canonicalKey` answers a generic 500 (the route's request-parameter condition is
+    unsatisfied and is mapped to `INTERNAL`). Reproduced at an older head, unrelated to the audit-read API; to be fixed separately, not in any DB PR.
+
 - **Admin `/me` CMS bootstrap identity** (`GET /api/v1/admin/me`): **COMPLETE** (PR #46, merged `f5b2cdd`, CI run 37081156657, 2382 tests, ModuleBoundaryTest 73/73). **The backend exposes a safe authenticated
   Admin bootstrap endpoint for the CMS; the CMS login flow is NOT complete (no `tazzzo-web` BFF exists). No login/callback/
   logout, sessions, cookies, PKCE/nonce/CSRF, CORS, audit read API, sensitive Admin module or Payment.**
@@ -1279,7 +1297,7 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
     session store, the Google web OAuth client and the CMS hostname. Humans are not yet off the shared `cms-writer` token.
   - **Deployment gates unchanged:** six, all PENDING / UNVERIFIED.
 
-- **Admin audit-read API** (`GET /api/v1/admin/audit-events`): **IN REVIEW** (branch `feature/admin-audit-read`; not merged).
+- **Admin audit-read API** (`GET /api/v1/admin/audit-events`): **COMPLETE** (PR #49, squash `822728694cb5dd80a5b68c4587c6c79911222adc`, merged-`main` CI run `37138053909`, 2457 tests, `IndexContractIT` 10/10, `ModuleBoundaryTest` 73/73). Ready **in code**; the real CMS → real backend → persisted `HUMAN_ADMIN` audit round trip is NOT yet verified, and nothing here is production-ready.
   **A read-only, paginated, filterable view of the EXISTING persisted audit ledgers for per-person human admins holding the new
   narrow `audit-reader` role. Nothing is written; no second audit model; existing audit writes are unchanged.**
   - **Sources (no central audit collection exists, by design):** `product_events`, `node_events`, `domain_events`, attributed
@@ -1396,8 +1414,8 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
    hardening: plan cross-validation) complete (PR #41); PR #40 (binding payable, unratified) was merged and its binding is
    removed by the forward fix (complete, PR #42), which keeps the public authoritative Order money; the Checkout/Order
    architecture boundary hardening is complete (PR #43); the admin principal + actor-audit foundation is complete
-   (PR #44); human admin Google OIDC + config allowlist is complete (PR #45); Admin `/me` is in review, then the
-   `tazzzo-web` CMS BFF login; Payment comes last.
+   (PR #44); human admin Google OIDC + config allowlist is complete (PR #45); Admin `/me` is complete (PR #46); the admin audit-read API is
+   complete (PR #49); then the `tazzzo-web` CMS BFF login; Payment comes last.
 4. Payment domain, then the prepaid Order flow, then a real gateway.
 5. Admin/CMS expansion.
 

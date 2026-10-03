@@ -191,6 +191,8 @@ Requirements/recommendations for PR #49 (not changed by DB-2): (1) either add pe
 
 **DB-0/DB-1 statements that become stale when PR #49 merges:** "no reader" for `product_events`, `node_events`, `domain_events` (DB-0 §8, §12, R14; DB-1 §7.2 notes); `classification_history` stays unread. Nothing in PR #49 changes `price_events`, rollup/purge or R1. These documents should be refreshed (affected facts only) when it merges.
 
+**Evidence added in DB-4 for the unindexed audit filters (one-off, uncommitted local measurement on a real MongoDB 7 container; 40,000 attributed rows per ledger; not staging evidence):** a filter that matches nothing (`action=<unknown>`, `actorType=SYSTEM`) walks `audit_read_recent` and examines all 40,000 keys and 40,000 documents per ledger (127 ms for the three ledgers); `targetType=product&targetId=…` uses the legacy `product_id_1_at_1` index plus an in-memory sort of that product's events (80 keys for 51 returned), `taxonomy_node` likewise via `node_id_1_at_1` (800 keys). The cost of a selective unindexed filter is therefore linear in ledger size, bounded by the 5 s `maxTime`; `TZP-SYSTEM` is an unbounded pseudo-target. **Decision state: PENDING STAGING EVIDENCE** (keep / add an index / map the timeout to a controlled 503) — `DATABASE_STAGING_RUNBOOK.md` §9.2. No index is added speculatively.
+
 ## 11. Migration / preflight requirements (summary)
 
 | Item | Requirement | Phase |
@@ -217,10 +219,10 @@ Remaining gaps (DB-7): explain assertions for the other query paths (consumer li
 - DB-2: `product_vertical_id_cursor` on `products` `{classification.vertical_id:1, _id:1}`; `IndexContractIT`; this manifest.
 - DB-3: the cursor index moved from startup bootstrap to migration `V0002`; unique indexes `V0005` (`evidence_links`) and `V0006` (`taxonomy_nodes`, partial) as preflight-gated migrations; disabled drop migrations `V0101`/`V0102`; the migration framework (`docs/database/DATABASE_MIGRATION_RUNBOOK.md`).
 
-**Not implemented, by policy:** index drops (disabled, need approval), any TTL change, any R1 retention change, audit-read indexes (PR #49), the `evidence_links` paging index (not proven), the paise-ledger `(sku_id, version)` unique index (needs the R1 discriminator).
+**Not implemented, by policy:** index drops (disabled, need approval), any TTL change, any R1 retention change, the `evidence_links` paging index (not proven), the paise-ledger `(sku_id, version)` unique index (needs the R1 discriminator). (The nine audit-read indexes of PR #49 are implemented: migration `V0007`, pinned exactly in `IndexContractIT`, §10.)
 
 ## 14. Live-environment unknowns
 
-Whether any live collection violates a proposed unique key; live `products` size and index build time; actual live index set and names (drift); effective privileges for `createIndex`/`dropIndex`; plan behaviour on the production MongoDB version and data skew; whether PR #49 merges as proposed.
+Whether any live collection violates a proposed unique key; live `products` size and index build time; actual live index set and names (drift); effective privileges for `createIndex`/`dropIndex`; plan behaviour on the production MongoDB version and data skew. (PR #49 merged as `8227286`.)
 
 *DB-2 changes no data and makes no connection to any live MongoDB.*

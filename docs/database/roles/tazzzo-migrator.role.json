@@ -1,0 +1,81 @@
+{
+  "createRole": "tazzzo_migrator",
+  "privileges": [
+    {
+      "resource": {
+        "db": "tazzzo_staging",
+        "collection": ""
+      },
+      "actions": [
+        "collMod",
+        "createCollection",
+        "createIndex",
+        "dropIndex",
+        "find",
+        "listCollections",
+        "listIndexes"
+      ]
+    },
+    {
+      "resource": {
+        "db": "tazzzo_staging",
+        "collection": "schema_migrations"
+      },
+      "actions": [
+        "insert",
+        "update"
+      ]
+    },
+    {
+      "resource": {
+        "db": "tazzzo_staging",
+        "collection": "schema_migration_lock"
+      },
+      "actions": [
+        "insert",
+        "update"
+      ]
+    },
+    {
+      "resource": {
+        "db": "tazzzo_staging",
+        "collection": "aliases"
+      },
+      "actions": [
+        "insert",
+        "update"
+      ]
+    },
+    {
+      "resource": {
+        "db": "tazzzo_staging",
+        "collection": "attribute_definitions"
+      },
+      "actions": [
+        "insert",
+        "update"
+      ]
+    },
+    {
+      "resource": {
+        "db": "tazzzo_staging",
+        "collection": "attribute_schemas"
+      },
+      "actions": [
+        "insert",
+        "update"
+      ]
+    },
+    {
+      "resource": {
+        "db": "tazzzo_staging",
+        "collection": "taxonomy_nodes"
+      },
+      "actions": [
+        "insert",
+        "update"
+      ]
+    }
+  ],
+  "roles": []
+}

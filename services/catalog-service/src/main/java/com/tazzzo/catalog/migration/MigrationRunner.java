@@ -125,11 +125,30 @@ public final class MigrationRunner {
     private final Clock clock;
 
     public MigrationRunner(MongoDatabase db, List<Migration> registry, MigrationHistory history, MigrationLock lock, Clock clock) {
+        requireValidRegistry(registry);
         this.db = db;
         this.registry = registry.stream().sorted(java.util.Comparator.comparing(Migration::id)).toList();
         this.history = history;
         this.lock = lock;
         this.clock = clock;
+    }
+
+    /**
+     * Fail fast on an invalid registry. A migration id is its immutable version and the history document's {@code _id}: two
+     * migrations sharing an id would overwrite each other's record and make "applied" ambiguous, so a duplicate (or blank) id
+     * stops the application from starting rather than reaching a database.
+     */
+    private static void requireValidRegistry(List<Migration> registry) {
+        Set<String> seen = new java.util.HashSet<>();
+        for (Migration m : registry) {
+            String id = m.id();
+            if (id == null || id.isBlank()) {
+                throw new IllegalArgumentException("invalid migration registry: a migration has a blank id");
+            }
+            if (!seen.add(id)) {
+                throw new IllegalArgumentException("invalid migration registry: duplicate migration id '" + id + "'");
+            }
+        }
     }
 
     /** A typo in enabled/approved ids must never be silently ignored (it could silently skip an intended approval). */
