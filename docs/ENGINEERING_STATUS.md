@@ -1254,7 +1254,7 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
 
 ## In review (NOT merged)
 
-- **Admin `/me` CMS bootstrap identity** (`GET /api/v1/admin/me`): **IN REVIEW**. **The backend exposes a safe authenticated
+- **Admin `/me` CMS bootstrap identity** (`GET /api/v1/admin/me`): **COMPLETE** (PR #46, merged `f5b2cdd`, CI run 37081156657, 2382 tests, ModuleBoundaryTest 73/73). **The backend exposes a safe authenticated
   Admin bootstrap endpoint for the CMS; the CMS login flow is NOT complete (no `tazzzo-web` BFF exists). No login/callback/
   logout, sessions, cookies, PKCE/nonce/CSRF, CORS, audit read API, sensitive Admin module or Payment.**
   - **Endpoint:** INTERNAL surface (`SurfaceClassifier`), authenticated by the unchanged `ApiAuthFilter`; any authenticated
@@ -1278,6 +1278,49 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
     opaque HttpOnly cookie, server-side session store, no browser token storage), pending framework/hosting ratification, the
     session store, the Google web OAuth client and the CMS hostname. Humans are not yet off the shared `cms-writer` token.
   - **Deployment gates unchanged:** six, all PENDING / UNVERIFIED.
+
+- **Admin audit-read API** (`GET /api/v1/admin/audit-events`): **IN REVIEW** (branch `feature/admin-audit-read`; not merged).
+  **A read-only, paginated, filterable view of the EXISTING persisted audit ledgers for per-person human admins holding the new
+  narrow `audit-reader` role. Nothing is written; no second audit model; existing audit writes are unchanged.**
+  - **Sources (no central audit collection exists, by design):** `product_events`, `node_events`, `domain_events`, attributed
+    rows only (`actor` is a document). `price_events` is NOT a source: rows are purged after rollup, and an attributed price
+    change is already a `PRICE_UPDATED` product event. Unattributed historical rows are never returned.
+  - **Permission:** `audit-reader` (new `HumanAdminSettings.KNOWN_ROLES` entry, allowlist only; no OIDC validation change).
+    `AdminPrincipal.canReadAudit()` = HUMAN_ADMIN AND `audit-reader`. Missing/invalid credential 401; any other principal
+    (reader, cms-writer, both shared service tokens) 403 `FORBIDDEN`, checked before any parameter is read. Service accounts are
+    never granted audit-read. `ApiAuthFilter` no longer lets a principal with neither `reader` nor `cms-writer` (i.e.
+    audit-reader alone) read the general INTERNAL GET surface: it may GET exactly `/api/v1/admin/me` and
+    `/api/v1/admin/audit-events` (exact URI match). Existing readers/writers keep every read.
+  - **Surface:** GET only. POST/PUT/PATCH/DELETE: 403 for a non-writer, 405 for a writer; nothing can mutate an audit row.
+  - **Query:** newest first by (`at` DESC, source rank, `_id` DESC), a total order, so identical timestamps neither duplicate nor
+    skip rows. Keyset (cursor) paging, default limit 50, range 1..100. The cursor is opaque base64url, bound to its filters
+    (replay under other filters is 400), strictly decoded (malformed 400). New events (newer `at`) sort before the cursor and
+    never shift later pages. Filters, all exact, ANDed: `actorType`, `actorId`, `action`, `targetType` (+`targetId`),
+    `requestId` (`req_[0-9a-f]{20}`), `from`/`to` (UTC instants, inclusive, `from` <= `to`). Anything else (unknown, repeated or
+    empty parameter, operator, regex, JSON, sort, projection) is 400 `MALFORMED_REQUEST` with a fixed message that never echoes
+    the value. A corrupt persisted row is a generic 500.
+  - **Raw query syntax (LOW-1 hardening):** the container silently drops a parameter it cannot decode (`actorType=%zz`) and an
+    empty-named component (`=x`), which would have turned a filter into an unfiltered query and a bad `cursor` into a restart.
+    `RawQuerySyntax` validates the RAW query string (after the 401/403 checks, before `AuditEventQuery.parse`) and answers 400
+    `query string is malformed`: empty components (`&&`, `&a`, `a&`), empty names, any `%` without two ASCII hex digits, percent
+    sequences that are not well-formed UTF-8, and any difference between the raw component count and the number of values the
+    container bound. It is syntax only: it never decodes twice, repairs or normalises, and allowlisting stays with `AuditEventQuery`.
+    Scoped to this endpoint; other surfaces are unchanged. Raw `[`/`]` and oversized queries are still refused earlier by the
+    container with its own 400.
+  - **Response** (`AuditEventsResponse{items, nextCursor}`, allowlisted `AuditEventDto`): `id` (`pe_|ne_|de_` + ObjectId),
+    `occurredAt`, `action`, `targetType`, `targetId`, `actorType`, `actorId`, `credentialId`, `requestId`. The ledger `detail`
+    map is never read. `credentialId` is the persisted non-secret label or null (never manufactured); `requestId` is null only
+    for SYSTEM actors. No token, header, session, claim, email, stack.
+  - **Indexes** (`SchemaBootstrap`, partial on `actor` being a document, no TTL), per ledger: `audit_read_recent` (at -1, _id -1),
+    `audit_read_actor` (actor.id, at -1, _id -1), `audit_read_request` (actor.request_id, at -1, _id -1). `AuditReadIndexIT`
+    explains the executed queries: IXSCAN, no COLLSCAN, no blocking SORT, keys/docs examined = rows returned (default page and
+    cursor page on `audit_read_recent`, request-id lookup on `audit_read_request`, actor lookup on `audit_read_actor`).
+  - **Retention:** none. The event ledgers have no TTL and nothing purges them (only `price_events` is purged). Retention policy is
+    a deployment/compliance decision, not made here.
+  - **Read auditing:** none exists in this backend and none is invented. Reads are counted by a bounded metric
+    `admin_audit_read{outcome=served|forbidden|invalid}` and logged with request id and result size only (no actor id, filter,
+    cursor or token).
+  - **Deployment gates unchanged:** six, all PENDING / UNVERIFIED. New collection: none. Index change is additive via `SchemaBootstrap`.
 
 
 ## Follow-up debt (recorded)

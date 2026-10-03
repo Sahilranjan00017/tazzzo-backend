@@ -37,10 +37,11 @@ public final class GoogleIdTokens {
     public static final String WRITER = "110000000000000000001";
     public static final String READER = "110000000000000000002";
     public static final String DISABLED = "110000000000000000003";
+    public static final String AUDITOR = "110000000000000000005";
     public static final String STRANGER = "110000000000000000099";
     public static final String WRITER_EMAIL_LABEL = "writer@tazzzo.test";
 
-    /** The complete OIDC configuration with the three allowlist entries above. */
+    /** The complete OIDC configuration with the four allowlist entries above (the auditor holds only audit-reader). */
     public static AdminAuthProperties properties() {
         AdminAuthProperties p = new AdminAuthProperties();
         p.getOidc().setIssuer(HumanAdminSettings.GOOGLE_ISSUER);
@@ -50,7 +51,8 @@ public final class GoogleIdTokens {
         p.setUsers(List.of(
                 user(WRITER, WRITER_EMAIL_LABEL, List.of("cms-writer"), true),
                 user(READER, "reader@tazzzo.test", List.of("reader"), true),
-                user(DISABLED, "gone@tazzzo.test", List.of("cms-writer"), false)));
+                user(DISABLED, "gone@tazzzo.test", List.of("cms-writer"), false),
+                user(AUDITOR, "auditor@tazzzo.test", List.of("audit-reader"), true)));
         return p;
     }
 

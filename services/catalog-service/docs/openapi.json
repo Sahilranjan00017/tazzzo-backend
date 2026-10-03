@@ -1989,6 +1989,24 @@
           }
         }
       }
+    },
+    "/api/v1/admin/audit-events" : {
+      "get" : {
+        "tags" : [ "admin-audit-events-controller" ],
+        "operationId" : "list_1",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AuditEventsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components" : {
@@ -3514,6 +3532,52 @@
             "items" : {
               "type" : "string"
             }
+          }
+        }
+      },
+      "AuditEventDto" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string"
+          },
+          "occurredAt" : {
+            "type" : "string"
+          },
+          "action" : {
+            "type" : "string"
+          },
+          "targetType" : {
+            "type" : "string"
+          },
+          "targetId" : {
+            "type" : "string"
+          },
+          "actorType" : {
+            "type" : "string"
+          },
+          "actorId" : {
+            "type" : "string"
+          },
+          "credentialId" : {
+            "type" : "string"
+          },
+          "requestId" : {
+            "type" : "string"
+          }
+        }
+      },
+      "AuditEventsResponse" : {
+        "type" : "object",
+        "properties" : {
+          "items" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/AuditEventDto"
+            }
+          },
+          "nextCursor" : {
+            "type" : "string"
           }
         }
       }

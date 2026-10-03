@@ -38,6 +38,26 @@ class AdminPrincipalTest {
     }
 
     @Test
+    void audit_read_is_only_for_a_human_holding_audit_reader_and_grants_nothing_else() {
+        AdminPrincipal auditor = new AdminPrincipal(ActorType.HUMAN_ADMIN, "google:1", "oidc:google:cms",
+                Set.of(AdminPrincipal.AUDIT_READER));
+        assertThat(auditor.canReadAudit()).isTrue();
+        assertThat(auditor.canReadCatalog()).as("audit-reader is not a catalogue reader").isFalse();
+        assertThat(auditor.canWrite()).isFalse();
+
+        for (String role : new String[]{AdminPrincipal.READER, AdminPrincipal.CMS_WRITER}) {
+            AdminPrincipal human = new AdminPrincipal(ActorType.HUMAN_ADMIN, "google:2", "oidc:google:cms", Set.of(role));
+            assertThat(human.canReadAudit()).as(role).isFalse();
+            assertThat(human.canReadCatalog()).as(role).isTrue();
+            assertThat(AdminPrincipal.sharedToken(role).canReadAudit()).as("shared " + role).isFalse();
+        }
+        for (ActorType type : new ActorType[]{ActorType.SERVICE_ACCOUNT, ActorType.SYSTEM}) {
+            assertThat(new AdminPrincipal(type, "service:x", null, Set.of(AdminPrincipal.AUDIT_READER)).canReadAudit())
+                    .as("never a non-human, even if it somehow held the role: " + type).isFalse();
+        }
+    }
+
+    @Test
     void a_principal_never_holds_an_empty_identity_or_role_set() {
         assertThatThrownBy(() -> new AdminPrincipal(null, "service:x", null, Set.of("reader")))
                 .isInstanceOf(IllegalArgumentException.class);

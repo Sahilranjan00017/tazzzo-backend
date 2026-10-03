@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Admin authentication + operation-class authorization (spec Part 16), applied to the INTERNAL surface as classified by
@@ -29,7 +30,9 @@ import java.util.Optional;
  * <ol>
  *   <li><b>authentication</b>: the bearer credential goes to {@link AdminAuthenticatorChain} (exact shared service token
  *       first, then Google OIDC for human admins), which yields an {@code AdminPrincipal} or a bounded refusal;</li>
- *   <li><b>authorization</b>: writes require cms-writer, reads accept any known role, whatever the credential family.</li>
+ *   <li><b>authorization</b>: writes require cms-writer; reads require reader or cms-writer, whatever the credential
+ *       family. A principal holding ONLY the narrow audit-reader role may GET exactly {@link #NARROW_READ_PATHS} (exact
+ *       URI match, so any encoded or decorated variant fails closed); the audit endpoint itself enforces audit-reader.</li>
  * </ol>
  * The same typed principal is attached for {@link AdminActors} either way. The PUBLIC consumer namespace bypasses this
  * filter by decision (Q4-a/b); an UNKNOWN surface is refused by default (Q4-f). Deliberately small and auditable.
@@ -37,6 +40,10 @@ import java.util.Optional;
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 1)
 public class ApiAuthFilter extends OncePerRequestFilter {
+
+    /** The only routes a principal without reader/cms-writer (i.e. audit-reader alone) may reach. */
+    static final Set<String> NARROW_READ_PATHS =
+            Set.of("/api/v1/admin/me", "/api/v1/admin/audit-events");
 
     private static final Logger log = LoggerFactory.getLogger(ApiAuthFilter.class);
     private static final String UNAUTHENTICATED_MESSAGE = "missing or unknown bearer token";
@@ -104,6 +111,13 @@ public class ApiAuthFilter extends OncePerRequestFilter {
             log.warn("admin_auth_rejected reason=forbidden actor_type={} request_id={}", principal.actorType(),
                     req.getAttribute(RequestIdFilter.REQUEST_ID));
             reject(req, res, 403, "FORBIDDEN", "role may not perform writes: " + AdminPrincipal.READER);
+            return;
+        }
+        if (!principal.canReadCatalog() && !NARROW_READ_PATHS.contains(req.getRequestURI())) {
+            observability.rejected(AdminAuthObservability.Reason.FORBIDDEN);
+            log.warn("admin_auth_rejected reason=forbidden actor_type={} request_id={}", principal.actorType(),
+                    req.getAttribute(RequestIdFilter.REQUEST_ID));
+            reject(req, res, 403, "FORBIDDEN", "role may not read this resource");
             return;
         }
         AdminPrincipalResolver.attach(req, principal);

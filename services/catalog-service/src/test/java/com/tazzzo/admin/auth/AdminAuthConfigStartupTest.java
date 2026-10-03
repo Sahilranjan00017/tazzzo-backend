@@ -174,9 +174,18 @@ class AdminAuthConfigStartupTest {
 
     @Test
     void an_unknown_role_fails() {
-        for (String role : new String[]{"super_admin", "pricing_write", "admin", "CMS-WRITER"}) {
+        for (String role : new String[]{"super_admin", "pricing_write", "admin", "CMS-WRITER", "AUDIT-READER",
+                "audit_reader", "auditor", "audit-read", "audit"}) {
             runner.withPropertyValues(props(oidc(), user(0, "google", SUBJECT, EMAIL, "reader," + role)))
                     .run(ctx -> assertFailsMentioning(ctx, "unknown role"));
+        }
+    }
+
+    @Test
+    void audit_reader_is_a_known_role_alone_or_combined() {
+        for (String roles : new String[]{"audit-reader", "reader,audit-reader", "cms-writer,audit-reader"}) {
+            runner.withPropertyValues(props(oidc(), user(0, "google", SUBJECT, EMAIL, roles)))
+                    .run(ctx -> assertThat(ctx).as(roles).hasNotFailed());
         }
     }
 

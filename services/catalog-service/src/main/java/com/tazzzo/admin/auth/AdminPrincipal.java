@@ -18,11 +18,14 @@ import java.util.Set;
  * credential; token material and email are never stored here.
  *
  * <p>Roles keep the existing coarse semantics: {@value #READER} may read (GET only), {@value #CMS_WRITER} may read and write.
+ * {@value #AUDIT_READER} is NARROW: it grants only the admin audit-read API (and {@code /me}), only to a
+ * {@link ActorType#HUMAN_ADMIN}, and confers no catalogue read and no write. Shared service tokens never carry it.
  */
 public record AdminPrincipal(ActorType actorType, String actorId, String credentialId, Set<String> roles) {
 
     public static final String READER = "reader";
     public static final String CMS_WRITER = "cms-writer";
+    public static final String AUDIT_READER = "audit-reader";
 
     public AdminPrincipal {
         if (actorType == null || actorId == null || actorId.isBlank()) {
@@ -49,6 +52,16 @@ public record AdminPrincipal(ActorType actorType, String actorId, String credent
     /** May this principal perform a state-changing (non-GET) request? */
     public boolean canWrite() {
         return hasRole(CMS_WRITER);
+    }
+
+    /** May this principal read the general INTERNAL GET surface? {@value #AUDIT_READER} alone does not grant it. */
+    public boolean canReadCatalog() {
+        return hasRole(READER) || hasRole(CMS_WRITER);
+    }
+
+    /** May this principal read the admin audit ledger? Only a per-person human admin holding {@value #AUDIT_READER}. */
+    public boolean canReadAudit() {
+        return actorType == ActorType.HUMAN_ADMIN && hasRole(AUDIT_READER);
     }
 
     /** The audit actor of one request: this principal plus the server-generated request id. */

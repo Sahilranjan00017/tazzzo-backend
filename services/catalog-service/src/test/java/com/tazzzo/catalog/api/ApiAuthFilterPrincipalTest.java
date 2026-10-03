@@ -44,7 +44,11 @@ class ApiAuthFilterPrincipalTest {
     private record Outcome(MockHttpServletRequest request, MockHttpServletResponse response, boolean passed) { }
 
     private Outcome call(ApiAuthFilter f, String method, String token) throws Exception {
-        MockHttpServletRequest req = new MockHttpServletRequest(method, "/api/v1/products");
+        return call(f, method, "/api/v1/products", token);
+    }
+
+    private Outcome call(ApiAuthFilter f, String method, String path, String token) throws Exception {
+        MockHttpServletRequest req = new MockHttpServletRequest(method, path);
         req.setAttribute(RequestIdFilter.REQUEST_ID, "req_unit_0000000000001");
         if (token != null) {
             req.addHeader("Authorization", "Bearer " + token);
@@ -194,6 +198,43 @@ class ApiAuthFilterPrincipalTest {
         assertThat(call(humanFilter(), "POST", READ).response().getStatus()).isEqualTo(403);
         assertThat(call(humanFilter(), "GET", null).response().getStatus()).isEqualTo(401);
         assertThat(rejected("unauthenticated")).isEqualTo(1.0);
+    }
+
+    @Test
+    void an_audit_reader_only_human_reaches_exactly_the_narrow_paths_and_nothing_else() throws Exception {
+        String token = TOKENS.token(GoogleIdTokens.AUDITOR, NOW);
+        for (String path : new String[]{"/api/v1/admin/audit-events", "/api/v1/admin/me"}) {
+            Outcome o = call(humanFilter(), "GET", path, token);
+            assertThat(o.passed()).as(path).isTrue();
+            assertThat(AdminPrincipalResolver.require(o.request()).canReadAudit()).isTrue();
+        }
+        for (String path : new String[]{"/api/v1/products", "/api/v1/products/TZP-1", "/api/v1/taxonomy/nodes",
+                "/api/v1/admin/audit-events/", "/api/v1/admin/audit-events;x=1", "/api/v1/admin/AUDIT-EVENTS",
+                "/api", "/v3/api-docs"}) {
+            Outcome o = call(humanFilter(), "GET", path, token);
+            assertThat(o.passed()).as(path).isFalse();
+            assertThat(o.response().getStatus()).as(path).isEqualTo(403);
+            assertThat(o.response().getContentAsString()).contains("FORBIDDEN");
+            assertThat(AdminPrincipalResolver.current(o.request())).isEmpty();
+        }
+        // a dot-segment variant is not even INTERNAL: refused as an unknown surface before credentials are read
+        Outcome traversal = call(humanFilter(), "GET", "/api/v1/admin/audit-events/../products", token);
+        assertThat(traversal.passed()).isFalse();
+        assertThat(traversal.response().getStatus()).isEqualTo(404);
+        Outcome write = call(humanFilter(), "POST", "/api/v1/admin/audit-events", token);
+        assertThat(write.response().getStatus()).isEqualTo(403);
+        assertThat(rejected("forbidden")).isEqualTo(9.0);
+    }
+
+    @Test
+    void existing_readers_and_writers_keep_every_read() throws Exception {
+        for (String path : new String[]{"/api/v1/products", "/api/v1/admin/audit-events", "/api/v1/admin/me"}) {
+            assertThat(call(humanFilter(), "GET", path, TOKENS.token(GoogleIdTokens.READER, NOW)).passed()).isTrue();
+            assertThat(call(humanFilter(), "GET", path, TOKENS.token(GoogleIdTokens.WRITER, NOW)).passed()).isTrue();
+            assertThat(call(humanFilter(), "GET", path, READ).passed()).isTrue();
+            assertThat(call(humanFilter(), "GET", path, CMS).passed()).isTrue();
+        }
+        assertThat(rejected("forbidden")).isZero();
     }
 
     @Test
