@@ -55,9 +55,27 @@ public record IndexSpec(String collection, String name, LinkedHashMap<String, In
         db.getCollection(collection).createIndex(keyDocument(), options());
     }
 
-    /** Same keys and options, ignoring only the name (a pure rename). */
+    /**
+     * Key patterns are ORDER-SENSITIVE: {@code {a:1,b:1}} and {@code {b:1,a:1}} are different indexes (they serve
+     * different queries). {@code LinkedHashMap.equals} ignores order, so compare the entry LISTS.
+     */
+    static boolean sameKeyPattern(LinkedHashMap<String, Integer> a, LinkedHashMap<String, Integer> b) {
+        return new java.util.ArrayList<>(a.entrySet()).equals(new java.util.ArrayList<>(b.entrySet()));
+    }
+
+    /**
+     * Two index definitions can coexist on one collection only if their key patterns differ, or both are partial
+     * with DIFFERENT filters (as {@code otp_one_delivering_per_phone} and {@code otp_one_active_per_phone}).
+     * MongoDB forbids two indexes with the same keys and options under different names.
+     */
+    public boolean canCoexistWith(IndexSpec other) {
+        if (!sameKeyPattern(keys, other.keys)) return true;
+        return partialFilter != null && other.partialFilter != null && !Objects.equals(partialFilter, other.partialFilter);
+    }
+
+    /** Same keys (in order) and options, ignoring only the name (a pure rename). */
     public boolean sameDefinitionIgnoringName(IndexSpec other) {
-        return collection.equals(other.collection) && keys.equals(other.keys) && unique == other.unique
+        return collection.equals(other.collection) && sameKeyPattern(keys, other.keys) && unique == other.unique
                 && sparse == other.sparse && Objects.equals(partialFilter, other.partialFilter)
                 && Objects.equals(ttlSeconds, other.ttlSeconds);
     }
@@ -88,6 +106,11 @@ public record IndexSpec(String collection, String name, LinkedHashMap<String, In
     }
 
     public Inspection inspect(MongoDatabase db) {
+        return inspect(db, null);
+    }
+
+    /** As {@link #inspect(MongoDatabase)} but pretends the index named {@code ignoreName} does not exist. */
+    public Inspection inspect(MongoDatabase db, String ignoreName) {
         boolean exists = false;
         for (String c : db.listCollectionNames()) {
             if (c.equals(collection)) { exists = true; break; }
@@ -97,7 +120,8 @@ public record IndexSpec(String collection, String name, LinkedHashMap<String, In
         Inspection sameKeys = null;
         for (Document actual : db.getCollection(collection).listIndexes()) {
             String actualName = actual.getString("name");
-            boolean keysEqual = keysOf(actual).equals(keys);
+            if (ignoreName != null && ignoreName.equals(actualName)) continue;
+            boolean keysEqual = sameKeyPattern(keysOf(actual), keys);
             if (actualName.equals(wanted)) {
                 return keysEqual && optionsEqual(actual)
                         ? new Inspection(State.EXACT, actualName, "exact definition present")
@@ -108,7 +132,8 @@ public record IndexSpec(String collection, String name, LinkedHashMap<String, In
                 if (optionsEqual(actual)) {
                     sameKeys = new Inspection(State.SAME_KEYS_OTHER_NAME, actualName,
                             "same keys and options exist under the name " + actualName);
-                } else if (!(actual.get("partialFilterExpression") != null && partialFilter != null)) {
+                } else if (!(actual.get("partialFilterExpression") != null && partialFilter != null
+                        && !Objects.equals(actual.get("partialFilterExpression"), partialFilter))) {
                     // differing options on the same key pattern cannot coexist; two DIFFERENT partial filters can
                     return new Inspection(State.CONFLICT, actualName,
                             "an index with the same keys but different options exists under the name " + actualName);

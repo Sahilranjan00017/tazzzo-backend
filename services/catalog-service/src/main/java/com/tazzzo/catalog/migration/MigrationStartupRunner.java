@@ -75,9 +75,14 @@ public class MigrationStartupRunner implements ApplicationRunner {
                 .withApproved(new HashSet<>(props.getApprovedDataMigrations()));
     }
 
+    /** Several local instances may start at once under APPLY_ON_STARTUP: they wait for the lock rather than crash. */
+    private static final long STARTUP_MIN_LOCK_WAIT_SECONDS = 120;
+
     private MigrationRunner.ApplyOptions applyOptions(MigrationMode mode) {
+        long wait = props.getLockWaitSeconds();
+        if (mode == MigrationMode.APPLY_ON_STARTUP) wait = Math.max(wait, STARTUP_MIN_LOCK_WAIT_SECONDS);
         return new MigrationRunner.ApplyOptions(mode, props.getConfirmDatabase(), props.getConfirmEnvironment(),
-                Duration.ofSeconds(props.getLockLeaseSeconds()), Duration.ofSeconds(props.getLockWaitSeconds()));
+                Duration.ofSeconds(props.getLockLeaseSeconds()), Duration.ofSeconds(wait));
     }
 
     @Override
@@ -102,7 +107,7 @@ public class MigrationStartupRunner implements ApplicationRunner {
                 MigrationRunner.RunReport r = runner.dryRun(target, selection());
                 log.info("{}", r.render());
                 finishJob(r.exitCode());
-                return;
+                if (props.isExitAfterRun()) return; // a job that exits ends here; otherwise startup continues normally
             }
             case APPLY -> {
                 MigrationRunner.RunReport r = runner.apply(target, selection(), applyOptions(MigrationMode.APPLY));

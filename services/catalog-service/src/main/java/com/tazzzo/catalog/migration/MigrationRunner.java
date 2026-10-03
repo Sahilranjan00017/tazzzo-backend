@@ -68,9 +68,11 @@ public final class MigrationRunner {
     }
 
     public enum StepStatus { APPLIED_NOW, ADOPTED, ALREADY_APPLIED, WOULD_APPLY, WOULD_ADOPT, BLOCKED, FAILED,
-        PENDING_APPROVAL, CHECKSUM_MISMATCH, NOT_RUN }
+        PENDING_APPROVAL, CHECKSUM_MISMATCH, NOT_RUN,
+        /** The migration was in flight when the lock was lost: possibly partly applied, left APPLYING, re-run to resume. */
+        INTERRUPTED }
 
-    public enum Outcome { OK, BLOCKED, FAILED, LOCK_HELD, LOCK_LOST, CHECKSUM_MISMATCH, TARGET_REFUSED }
+    public enum Outcome { OK, BLOCKED, FAILED, LOCK_HELD, LOCK_LOST, CHECKSUM_MISMATCH, TARGET_REFUSED, INVALID_SELECTION }
 
     public record Step(String id, StepStatus status, boolean wouldMutate, List<String> operations,
                        List<String> blockers, List<String> notes, String message) { }
@@ -89,6 +91,7 @@ public final class MigrationRunner {
                 case LOCK_LOST -> 5;
                 case CHECKSUM_MISMATCH -> 6;
                 case TARGET_REFUSED -> 7;
+                case INVALID_SELECTION -> 8;
             };
         }
 
@@ -129,6 +132,17 @@ public final class MigrationRunner {
         this.clock = clock;
     }
 
+    /** A typo in enabled/approved ids must never be silently ignored (it could silently skip an intended approval). */
+    private String selectionProblem(Selection sel) {
+        Set<String> known = new java.util.HashSet<>();
+        registry.forEach(m -> known.add(m.id()));
+        List<String> unknown = new ArrayList<>();
+        sel.enabledIds().stream().filter(i -> !known.contains(i)).sorted().forEach(i -> unknown.add("enabled:" + i));
+        sel.approvedIds().stream().filter(i -> !known.contains(i)).sorted().forEach(i -> unknown.add("approved:" + i));
+        return unknown.isEmpty() ? null : "unknown migration id(s) in the selection " + unknown + "; known ids: "
+                + registry.stream().map(Migration::id).toList() + ". Nothing was run.";
+    }
+
     private List<Migration> selected(Selection sel) {
         return registry.stream().filter(sel::includes).toList();
     }
@@ -140,6 +154,8 @@ public final class MigrationRunner {
     // ---- dry run -----------------------------------------------------------------------------
 
     public RunReport dryRun(MigrationTarget target, Selection sel) {
+        String bad = selectionProblem(sel);
+        if (bad != null) return new RunReport(Outcome.INVALID_SELECTION, true, target.describe(), List.of(), bad);
         List<Step> steps = new ArrayList<>();
         Outcome outcome = Outcome.OK;
         for (Migration m : selected(sel)) {
@@ -216,6 +232,8 @@ public final class MigrationRunner {
     }
 
     public RunReport apply(MigrationTarget target, Selection sel, ApplyOptions opts) {
+        String bad = selectionProblem(sel);
+        if (bad != null) return new RunReport(Outcome.INVALID_SELECTION, false, target.describe(), List.of(), bad);
         try {
             TargetGuard.requireMutationAllowed(opts.mode(), target, opts.confirmDatabase(), opts.confirmEnvironment());
         } catch (TargetRefusedException e) {
@@ -233,6 +251,7 @@ public final class MigrationRunner {
         int index = 0;
         Outcome outcome = Outcome.OK;
         String message = null;
+        Migration inFlight = null;
         try (Lease lease = new Lease(lock, held.get(), opts.lease())) {
             history.ensureExists();
             MigrationHistory.RunInfo run = new MigrationHistory.RunInfo(runId, held.get().fence(), target);
@@ -273,6 +292,7 @@ public final class MigrationRunner {
                     continue;
                 }
                 history.markApplying(m, run, now());
+                inFlight = m;
                 try {
                     ApplyResult result = m.apply(db);
                     List<String> problems = m.validate(db);
@@ -281,6 +301,7 @@ public final class MigrationRunner {
                         history.markFailed(m, run, now(), "post-validation failed: " + problems);
                         steps.add(new Step(m.id(), StepStatus.FAILED, false, pf.operations(), List.of(), pf.notes(),
                                 "post-validation failed: " + problems));
+                        inFlight = null;
                         outcome = Outcome.FAILED;
                         index++;
                         break;
@@ -288,12 +309,14 @@ public final class MigrationRunner {
                     history.markApplied(m, run, now(), result.note(), result.rollbackInfo(),
                             TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started), false);
                     steps.add(new Step(m.id(), StepStatus.APPLIED_NOW, true, pf.operations(), List.of(), pf.notes(), result.note()));
+                    inFlight = null;
                 } catch (LockLostException e) {
                     throw e;
                 } catch (RuntimeException e) {
                     String safe = MigrationSanitizer.safeMessage(e);
                     history.markFailed(m, run, now(), safe);
                     steps.add(new Step(m.id(), StepStatus.FAILED, false, pf.operations(), List.of(), pf.notes(), safe));
+                    inFlight = null;
                     outcome = Outcome.FAILED;
                     index++;
                     break;
@@ -302,6 +325,10 @@ public final class MigrationRunner {
         } catch (LockLostException e) {
             outcome = Outcome.LOCK_LOST;
             message = e.getMessage();
+            if (inFlight != null) {
+                steps.add(new Step(inFlight.id(), StepStatus.INTERRUPTED, false, List.of(), List.of(), List.of(),
+                        "the lock was lost while this migration was being applied; it may be partly applied and is left APPLYING — re-run to resume"));
+            }
         }
         for (Migration m : todo) {
             final String id = m.id();

@@ -26,14 +26,20 @@ public class MigrationConfiguration {
                 new MigrationLock(db), Clock.systemUTC());
     }
 
+    /** Production exit: terminate the JVM with the job's exit code. Tests supply a recording {@code @Primary} bean. */
+    @Bean
+    public MigrationExitHandler migrationExitHandler(ConfigurableApplicationContext context) {
+        return code -> System.exit(SpringApplication.exit(context, () -> code));
+    }
+
     @Bean
     public ApplicationRunner schemaBootstrapRunner(MigrationRunner runner, MigrationProperties props, MongoClient client,
                                                    MongoDatabase db, SchemaBootstrap bootstrap, TaxonomyLoader loader,
                                                    DiscriminatingAttributeRegistry discriminators,
-                                                   ConfigurableApplicationContext context,
+                                                   MigrationExitHandler exitHandler,
                                                    @Value("${tazzzo.schema.bootstrap-on-startup:false}") boolean legacyBootstrap,
                                                    @Value("${tazzzo.schema.load-taxonomy-seed:false}") boolean legacyLoadSeed) {
         return new MigrationStartupRunner(runner, props, client, db, bootstrap, loader, discriminators,
-                legacyBootstrap, legacyLoadSeed, code -> System.exit(SpringApplication.exit(context, () -> code)));
+                legacyBootstrap, legacyLoadSeed, exitHandler::exit);
     }
 }
