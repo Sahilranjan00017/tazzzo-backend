@@ -17,8 +17,26 @@ class MigrationStartupRunnerIT extends AbstractMigrationIT {
 
     private final int[] exitCode = {-1};
 
+    private int ratificationLoads = 0;
+
+    /** The test instance is shared across tests (PER_CLASS), so observations must be reset for each test. */
+    @org.junit.jupiter.api.BeforeEach
+    void resetObservations() {
+        ratificationLoads = 0;
+        exitCode[0] = -1;
+    }
+
+    /** Counts how often startup proceeds to its (unconditional) ratification load. */
+    private final DiscriminatingAttributeRegistry countingDiscriminators = new DiscriminatingAttributeRegistry() {
+        @Override
+        public int load(MongoDatabase db) {
+            ratificationLoads++;
+            return 0;
+        }
+    };
+
     private MigrationStartupRunner startup(MongoDatabase d, MigrationProperties props, boolean legacyBootstrap, boolean legacySeed) {
-        return new MigrationStartupRunner(realRunner(d), props, client, d, schemaBootstrap, taxonomyLoader, discriminators,
+        return new MigrationStartupRunner(realRunner(d), props, client, d, schemaBootstrap, taxonomyLoader, countingDiscriminators,
                 legacyBootstrap, legacySeed, code -> exitCode[0] = code);
     }
 
@@ -142,5 +160,47 @@ class MigrationStartupRunnerIT extends AbstractMigrationIT {
         MigrationTarget t = startup(d, props(MigrationMode.VERIFY, "test"), false, false).target();
         assertThat(t.hosts()).isNotEmpty();
         assertThat(t.describe()).doesNotContain("mongodb://").doesNotContain("@");
+    }
+
+    @Test
+    void a_successful_job_that_does_not_exit_continues_normal_startup() {
+        MongoDatabase d = scratch();
+        MigrationProperties p = props(MigrationMode.DRY_RUN, "staging"); // exit-after-run=false
+        startup(d, p, false, false).run(null);
+        assertThat(ratificationLoads).as("startup must go on to load the identity ratifications, not return early").isEqualTo(1);
+        assertThat(exitCode[0]).isEqualTo(-1);
+        assertThat(collectionNames(d)).isEmpty();
+    }
+
+    @Test
+    void a_job_that_exits_does_not_continue_startup() {
+        MongoDatabase d = scratch();
+        MigrationProperties p = props(MigrationMode.DRY_RUN, "staging");
+        p.setExitAfterRun(true);
+        startup(d, p, false, false).run(null);
+        assertThat(ratificationLoads).isZero();
+        assertThat(exitCode[0]).isZero();
+    }
+
+    @Test
+    void concurrent_local_instances_wait_for_the_lock_instead_of_crashing() throws Exception {
+        MongoDatabase d = scratch();
+        MigrationLock lock = new MigrationLock(d);
+        MigrationLock.Held held = lock.tryAcquire("other-instance", "r", java.time.Duration.ofSeconds(60)).orElseThrow();
+        Thread releaser = new Thread(() -> {
+            try {
+                Thread.sleep(1500);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            lock.release(held);
+        });
+        releaser.start();
+        long t0 = System.nanoTime();
+        MigrationProperties p = props(MigrationMode.APPLY_ON_STARTUP, "local"); // lock-wait-seconds is 0 (the default)
+        startup(d, p, false, false).run(null);
+        releaser.join();
+        assertThat(java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - t0)).as("it waited for the other instance").isGreaterThanOrEqualTo(1000);
+        assertThat(history(d, "V0001__baseline_schema").getString("status")).isEqualTo("APPLIED");
     }
 }

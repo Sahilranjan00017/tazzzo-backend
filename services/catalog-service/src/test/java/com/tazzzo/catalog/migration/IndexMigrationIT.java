@@ -35,8 +35,12 @@ class IndexMigrationIT extends AbstractMigrationIT {
     }
 
     private MigrationRunner.RunReport run(MongoDatabase d, MigrationRunner r) {
-        return r.apply(target(d), MigrationRunner.Selection.all().withEnabled(Set.of("V0101__drop_unused_session_by_customer_index",
-                "V0102__drop_unused_canonical_keys_product_id_index")), apply());
+        return r.apply(target(d), MigrationRunner.Selection.all(), apply());
+    }
+
+    /** Enables ONLY the named disabled migrations (an unknown id would be rejected as INVALID_SELECTION). */
+    private MigrationRunner.RunReport runEnabling(MongoDatabase d, MigrationRunner r, String... enabledIds) {
+        return r.apply(target(d), MigrationRunner.Selection.all().withEnabled(Set.of(enabledIds)), apply());
     }
 
     private static LinkedHashMap<String, Integer> keys(Object... kv) {
@@ -243,7 +247,7 @@ class IndexMigrationIT extends AbstractMigrationIT {
     }
 
     @Test
-    void a_unique_index_that_already_exists_is_adopted_even_if_duplicates_could_otherwise_block_it() {
+    void a_unique_index_that_already_exists_is_adopted() {
         MongoDatabase d = legacyDatabase();
         IndexCatalog.EVIDENCE_LINK_UNIQUE_SPEC.create(d);
         MigrationRunner.RunReport r = run(d, only(d, "V0005__evidence_links_unique_link"));
@@ -266,12 +270,12 @@ class IndexMigrationIT extends AbstractMigrationIT {
     void an_enabled_drop_removes_exactly_the_reviewed_index_and_records_how_to_restore_it() {
         MongoDatabase d = legacyDatabase();
         String v = "V0101__drop_unused_session_by_customer_index";
-        MigrationRunner.RunReport r = run(d, only(d, v));
+        MigrationRunner.RunReport r = runEnabling(d, only(d, v), v);
         assertThat(r.ok()).as(r.render()).isTrue();
         assertThat(IndexCatalog.SESSION_BY_CUSTOMER_SPEC.namedIndexPresent(d)).isFalse();
         assertThat(IndexCatalog.CANONICAL_KEYS_PRODUCT_SPEC.inspect(d).state()).as("other indexes untouched").isEqualTo(IndexSpec.State.EXACT);
         assertThat(history(d, v).get("rollbackInfo", Document.class).getString("recreate")).contains("session_by_customer");
-        assertThat(run(d, only(d, v)).steps().get(0).status()).isEqualTo(MigrationRunner.StepStatus.ALREADY_APPLIED);
+        assertThat(runEnabling(d, only(d, v), v).steps().get(0).status()).isEqualTo(MigrationRunner.StepStatus.ALREADY_APPLIED);
     }
 
     @Test
@@ -281,7 +285,7 @@ class IndexMigrationIT extends AbstractMigrationIT {
         d.getCollection("customer_sessions").createIndex(new Document("customerId", 1), new IndexOptions().name("by_cust"));
         String before = indexSnapshot(d);
 
-        MigrationRunner.RunReport r = run(d, only(d, "V0101__drop_unused_session_by_customer_index"));
+        MigrationRunner.RunReport r = runEnabling(d, only(d, "V0101__drop_unused_session_by_customer_index"), "V0101__drop_unused_session_by_customer_index");
 
         assertThat(r.outcome()).isEqualTo(MigrationRunner.Outcome.BLOCKED);
         assertThat(r.steps().get(0).blockers().get(0)).contains("by_cust").contains("not the exact reviewed definition");
@@ -292,7 +296,7 @@ class IndexMigrationIT extends AbstractMigrationIT {
     void dropping_an_index_that_is_already_gone_is_adopted() {
         MongoDatabase d = legacyDatabase();
         d.getCollection("canonical_keys").dropIndex("product_id_1");
-        MigrationRunner.RunReport r = run(d, only(d, "V0102__drop_unused_canonical_keys_product_id_index"));
+        MigrationRunner.RunReport r = runEnabling(d, only(d, "V0102__drop_unused_canonical_keys_product_id_index"), "V0102__drop_unused_canonical_keys_product_id_index");
         assertThat(r.steps().get(0).status()).isEqualTo(MigrationRunner.StepStatus.ADOPTED);
     }
 
@@ -358,5 +362,168 @@ class IndexMigrationIT extends AbstractMigrationIT {
         b.create(d);
         assertThat(a.inspect(d).state()).isEqualTo(IndexSpec.State.EXACT);
         assertThat(b.inspect(d).state()).isEqualTo(IndexSpec.State.EXACT);
+    }
+
+    // ---- key ORDER is part of an index's identity ----------------------------------------------
+
+    @Test
+    void key_order_is_significant_in_index_inspection() {
+        MongoDatabase d = scratch();
+        IndexSpec ab = new IndexSpec("ord", "ab", keys("a", 1, "b", 1), false, false, null, null);
+        d.getCollection("ord").createIndex(new Document("b", 1).append("a", 1), new IndexOptions().name("ba"));
+
+        assertThat(ab.inspect(d).state()).as("{b,a} is a DIFFERENT index from {a,b}, not an equivalent one")
+                .isEqualTo(IndexSpec.State.ABSENT);
+
+        // same NAME, reversed keys: the name is taken by a different definition
+        IndexSpec sameNameReversed = new IndexSpec("ord", "ba", keys("a", 1, "b", 1), false, false, null, null);
+        assertThat(sameNameReversed.inspect(d).state()).isEqualTo(IndexSpec.State.CONFLICT);
+
+        // direction is part of the identity too
+        IndexSpec descending = new IndexSpec("ord", "b_desc_a", keys("b", -1, "a", 1), false, false, null, null);
+        assertThat(descending.inspect(d).state()).isEqualTo(IndexSpec.State.ABSENT);
+
+        IndexSpec.State before = ab.inspect(d).state();
+        ab.create(d);
+        assertThat(ab.inspect(d).state()).isEqualTo(IndexSpec.State.EXACT);
+        assertThat(before).isEqualTo(IndexSpec.State.ABSENT);
+        assertThat(ab.canCoexistWith(new IndexSpec("ord", "ba2", keys("b", 1, "a", 1), false, false, null, null))).isTrue();
+    }
+
+    @Test
+    void a_create_migration_does_not_adopt_a_reversed_key_index_and_creates_the_right_one() {
+        MongoDatabase d = scratch();
+        d.getCollection("evidence_links").createIndex(new Document("link_type", 1).append("product_id", 1).append("evidence_id", 1),
+                new IndexOptions().name("reversed_triple").unique(true)); // same fields, REVERSED order
+        MigrationRunner.RunReport r = run(d, only(d, "V0005__evidence_links_unique_link"));
+
+        assertThat(r.ok()).as(r.render()).isTrue();
+        assertThat(r.steps().get(0).status()).as("a reversed-order index must NOT be adopted").isEqualTo(MigrationRunner.StepStatus.APPLIED_NOW);
+        assertThat(IndexCatalog.EVIDENCE_LINK_UNIQUE_SPEC.inspect(d).state()).isEqualTo(IndexSpec.State.EXACT);
+        assertThat(d.getCollection("evidence_links").listIndexes().into(new java.util.ArrayList<>()).stream()
+                .map(i -> i.getString("name"))).contains("reversed_triple", IndexCatalog.EVIDENCE_LINK_UNIQUE);
+    }
+
+    @Test
+    void validation_fails_when_only_a_reversed_key_index_exists() {
+        MongoDatabase d = scratch();
+        d.getCollection("evidence_links").createIndex(new Document("link_type", 1).append("product_id", 1).append("evidence_id", 1),
+                new IndexOptions().name("reversed_triple").unique(true));
+        CreateIndexMigration m = new CreateIndexMigration("T", "t", List.of(IndexCatalog.EVIDENCE_LINK_UNIQUE_SPEC), null);
+        assertThat(m.validate(d)).as("a missing index must not be recorded as applied because a reversed one exists").isNotEmpty();
+    }
+
+    @Test
+    void the_baseline_creates_a_missing_index_even_when_a_reversed_one_exists() {
+        MongoDatabase d = scratch();
+        d.getCollection("evidence_links").createIndex(new Document("active", 1).append("evidence_id", 1), new IndexOptions().name("rev_ev_active"));
+        IndexSpec wanted = IndexCatalog.BASELINE.stream().filter(s -> s.collection().equals("evidence_links")
+                && s.keys().keySet().iterator().next().equals("evidence_id")).findFirst().orElseThrow();
+        assertThat(wanted.inspect(d).state()).isEqualTo(IndexSpec.State.ABSENT);
+        assertThat(run(d, only(d, "V0001__baseline_schema")).ok()).isTrue();
+        assertThat(wanted.inspect(d).state()).isEqualTo(IndexSpec.State.EXACT);
+    }
+
+    // ---- replace / rename: resumable, and options-only redefinitions --------------------------
+
+    @Test
+    void an_interrupted_rename_resumes_instead_of_blocking_forever() {
+        MongoDatabase d = scratch();
+        IndexSpec from = spec("old_name", false, "a", 1);
+        IndexSpec to = spec("new_name", false, "a", 1);
+        from.create(d);
+        ReplaceIndexMigration m = new ReplaceIndexMigration("T1", "rename", from, to, true);
+        // a crash between the drop and the create leaves neither index
+        d.getCollection("ren").dropIndex("old_name");
+        assertThat(from.namedIndexPresent(d)).isFalse();
+        assertThat(to.namedIndexPresent(d)).isFalse();
+
+        Preflight pf = m.preflight(d);
+        assertThat(pf.status()).isEqualTo(Preflight.Status.READY);
+        assertThat(pf.operations()).containsExactly("create index " + to.describe());
+        assertThat(pf.notes()).anyMatch(n -> n.contains("interrupted"));
+
+        MigrationRunner.RunReport r = runner(d, List.of(m)).apply(target(d), MigrationRunner.Selection.all(), apply());
+        assertThat(r.ok()).as(r.render()).isTrue();
+        assertThat(to.inspect(d).state()).isEqualTo(IndexSpec.State.EXACT);
+        assertThat(from.namedIndexPresent(d)).isFalse();
+    }
+
+    @Test
+    void a_rename_is_blocked_when_an_equivalent_index_exists_under_a_third_name() {
+        MongoDatabase d = scratch();
+        IndexSpec from = spec("old_name", false, "a", 1);
+        IndexSpec to = spec("new_name", false, "a", 1);
+        d.getCollection("ren").createIndex(new Document("a", 1), new IndexOptions().name("somebody_elses"));
+        Preflight pf = new ReplaceIndexMigration("T1", "rename", from, to, true).preflight(d);
+        assertThat(pf.status()).isEqualTo(Preflight.Status.BLOCKED);
+        assertThat(pf.blockers().get(0)).contains("somebody_elses").contains("neither the source");
+    }
+
+    @Test
+    void changing_only_the_options_of_an_index_is_drop_then_create_not_an_unreachable_conflict() {
+        MongoDatabase d = scratch();
+        IndexSpec from = spec("idx_a", false, "a", 1);
+        IndexSpec to = spec("idx_a_unique", true, "a", 1);
+        from.create(d);
+        d.getCollection("ren").insertMany(List.of(new Document("a", 1), new Document("a", 2)));
+        ReplaceIndexMigration m = new ReplaceIndexMigration("T1", "make unique", from, to, true,
+                DuplicateCheck.byFields("ren", null, "a"));
+
+        assertThat(m.definition()).contains("drop-then-create");
+        Preflight pf = m.preflight(d);
+        assertThat(pf.status()).as("same keys, different options cannot coexist, so this is a legitimate drop-then-create").isEqualTo(Preflight.Status.READY);
+        assertThat(pf.operations()).containsExactly("drop index idx_a", "create index " + to.describe());
+
+        assertThat(runner(d, List.of(m)).apply(target(d), MigrationRunner.Selection.all(), apply()).ok()).isTrue();
+        assertThat(to.inspect(d).state()).isEqualTo(IndexSpec.State.EXACT);
+        assertThat(from.namedIndexPresent(d)).isFalse();
+    }
+
+    @Test
+    void making_an_index_unique_is_blocked_by_duplicates_and_the_old_index_is_kept() {
+        MongoDatabase d = scratch();
+        IndexSpec from = spec("idx_a", false, "a", 1);
+        IndexSpec to = spec("idx_a_unique", true, "a", 1);
+        from.create(d);
+        d.getCollection("ren").insertMany(List.of(new Document("a", 1), new Document("a", 1)));
+        ReplaceIndexMigration m = new ReplaceIndexMigration("T1", "make unique", from, to, true,
+                DuplicateCheck.byFields("ren", null, "a"));
+
+        MigrationRunner.RunReport r = runner(d, List.of(m)).apply(target(d), MigrationRunner.Selection.all(), apply());
+
+        assertThat(r.outcome()).isEqualTo(MigrationRunner.Outcome.BLOCKED);
+        assertThat(r.steps().get(0).blockers().get(0)).contains("duplicates exist").contains("never deleted or merged");
+        assertThat(from.namedIndexPresent(d)).as("the old index is untouched").isTrue();
+        assertThat(d.getCollection("ren").countDocuments()).as("no business data touched").isEqualTo(2);
+    }
+
+    @Test
+    void two_different_partial_filters_on_the_same_keys_replace_create_before_drop() {
+        MongoDatabase d = scratch();
+        IndexSpec from = new IndexSpec("ren", "only_x", keys("k", 1), true, false, new Document("x", true), null);
+        IndexSpec to = new IndexSpec("ren", "only_y", keys("k", 1), true, false, new Document("y", true), null);
+        from.create(d);
+        ReplaceIndexMigration m = new ReplaceIndexMigration("T1", "swap partial", from, to, true);
+        assertThat(from.canCoexistWith(to)).isTrue();
+        assertThat(m.definition()).contains("create-before-drop");
+        assertThat(m.preflight(d).operations()).containsExactly("create index " + to.describe(), "drop index only_x");
+        assertThat(runner(d, List.of(m)).apply(target(d), MigrationRunner.Selection.all(), apply()).ok()).isTrue();
+    }
+
+    @Test
+    void a_blocked_real_migration_stops_the_run_and_the_next_one_is_not_run() {
+        MongoDatabase d = legacyDatabase();
+        d.getCollection("evidence_links").insertMany(List.of(
+                new Document("evidence_id", "EV-1").append("product_id", "P-1").append("link_type", "claim"),
+                new Document("evidence_id", "EV-1").append("product_id", "P-1").append("link_type", "claim")));
+        MigrationRunner.RunReport r = run(d, only(d, "V0005__evidence_links_unique_link", "V0006__taxonomy_nodes_unique_active_sibling_name"));
+
+        assertThat(r.outcome()).isEqualTo(MigrationRunner.Outcome.BLOCKED);
+        assertThat(r.steps().get(0).status()).isEqualTo(MigrationRunner.StepStatus.BLOCKED);
+        assertThat(r.steps().get(1).id()).isEqualTo("V0006__taxonomy_nodes_unique_active_sibling_name");
+        assertThat(r.steps().get(1).status()).as("a real migration after a blocked one is NOT_RUN").isEqualTo(MigrationRunner.StepStatus.NOT_RUN);
+        assertThat(IndexCatalog.TAXONOMY_SIBLING_UNIQUE_SPEC.inspect(d).state()).isEqualTo(IndexSpec.State.ABSENT);
+        assertThat(history(d, "V0006__taxonomy_nodes_unique_active_sibling_name")).isNull();
     }
 }

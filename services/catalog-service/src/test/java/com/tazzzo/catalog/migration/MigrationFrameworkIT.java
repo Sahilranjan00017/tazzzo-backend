@@ -407,6 +407,9 @@ class MigrationFrameworkIT extends AbstractMigrationIT {
                 apply(Duration.ofMillis(300), Duration.ZERO));
 
         assertThat(r.outcome()).isEqualTo(MigrationRunner.Outcome.LOCK_LOST);
+        assertThat(statuses(r)).as("the in-flight migration is reported INTERRUPTED, not NOT_RUN")
+                .containsEntry("T0001", MigrationRunner.StepStatus.INTERRUPTED)
+                .containsEntry("T0002", MigrationRunner.StepStatus.NOT_RUN);
         assertThat(history(d, "T0001").getString("status")).as("never recorded as APPLIED after losing the lock").isEqualTo("APPLYING");
         assertThat(after.applies.get()).isZero();
         assertThat(new MigrationLock(d).current().orElseThrow().getString("ownerId")).as("the new holder keeps its lock").isEqualTo("thief");
@@ -538,5 +541,39 @@ class MigrationFrameworkIT extends AbstractMigrationIT {
         assertThat(safe).doesNotContain("p%40ss").doesNotContain("svc:").doesNotContain("cluster0").doesNotContain("abc123")
                 .doesNotContain("XYZ").doesNotContain("shh");
         assertThat(MigrationSanitizer.sanitize("x".repeat(2000)).length()).isLessThanOrEqualTo(501);
+    }
+
+    // ---- typo-safe selection --------------------------------------------------------------------
+
+    @Test
+    void an_unknown_id_in_the_selection_is_an_error_not_a_silent_no_op() {
+        MongoDatabase d = scratch();
+        TestMigration m = new TestMigration("T0001", MigrationKind.DATA);
+        MigrationRunner runner = runner(d, List.of(m));
+
+        MigrationRunner.RunReport typoApproval = runner.apply(target(d),
+                MigrationRunner.Selection.all().withApproved(Set.of("T0001_TYPO")), apply());
+        MigrationRunner.RunReport typoEnable = runner.apply(target(d),
+                MigrationRunner.Selection.all().withEnabled(Set.of("V0101__drop_unused_session_by_customer_indx")), apply());
+        MigrationRunner.RunReport typoDry = runner.dryRun(target(d), MigrationRunner.Selection.all().withApproved(Set.of("nope")));
+
+        for (MigrationRunner.RunReport r : List.of(typoApproval, typoEnable, typoDry)) {
+            assertThat(r.outcome()).isEqualTo(MigrationRunner.Outcome.INVALID_SELECTION);
+            assertThat(r.exitCode()).isEqualTo(8);
+            assertThat(r.message()).contains("unknown migration id").contains("Nothing was run");
+            assertThat(r.steps()).isEmpty();
+        }
+        assertThat(m.applies.get()).isZero();
+        assertThat(collectionNames(d)).as("an invalid selection creates nothing").isEmpty();
+    }
+
+    @Test
+    void the_exit_codes_are_distinct_and_documented() {
+        List<Integer> codes = new java.util.ArrayList<>();
+        for (MigrationRunner.Outcome o : MigrationRunner.Outcome.values()) {
+            codes.add(new MigrationRunner.RunReport(o, false, "t", List.of(), null).exitCode());
+        }
+        assertThat(codes).containsExactly(0, 2, 3, 4, 5, 6, 7, 8);
+        assertThat(codes).doesNotHaveDuplicates();
     }
 }

@@ -117,8 +117,11 @@ class ValidatorMigrationIT extends AbstractMigrationIT {
         MongoDatabase d = scratch();
         d.createCollection("vcoll");
         run(d, migration(ValidationLevel.STRICT, ValidationAction.ERROR));
+        assertThatThrownBy(() -> d.getCollection("vcoll").insertOne(new Document("a", 123)))
+                .as("the validator is ACTIVE before the restore").isInstanceOf(MongoWriteException.class);
         ValidatorMigration.restore(d, history(d, "T-VAL").get("rollbackInfo", Document.class));
         d.getCollection("vcoll").insertOne(new Document("a", 123)); // accepted again
+        assertThat(d.getCollection("vcoll").countDocuments()).isEqualTo(1);
     }
 
     @Test
