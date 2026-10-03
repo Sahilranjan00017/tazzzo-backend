@@ -35,9 +35,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * bootstrap idempotency, DB-level duplicate rejection, concurrent duplicate races, and the plan of
  * the one index added by DB-2.
  *
- * <p>The in-flight admin audit-read work adds {@code audit_read_*} indexes to the three event ledgers;
- * the closed-set check tolerates exactly that name prefix there (and nowhere else) so that work can
- * merge in either order without silently widening the contract.
+ * <p>The merged admin audit-read work (PR #49) adds nine {@code audit_read_*} indexes to the three event
+ * ledgers; they are pinned exactly in the manifest below (no name-prefix tolerance remains).
  */
 class IndexContractIT extends AbstractMongoIT {
 
@@ -153,8 +152,6 @@ class IndexContractIT extends AbstractMongoIT {
             named("domain_events", "audit_read_actor", k("actor.id", 1, "at", -1, "_id", -1), false, ATTRIBUTED, null),
             named("domain_events", "audit_read_request", k("actor.request_id", 1, "at", -1, "_id", -1), false, ATTRIBUTED, null)
     );
-
-    /** The only collections that may carry the in-flight audit-read indexes (name prefix below). */
 
     // ---- helpers -----------------------------------------------------------------------------
 

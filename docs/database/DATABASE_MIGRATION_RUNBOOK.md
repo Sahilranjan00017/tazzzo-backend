@@ -270,9 +270,9 @@ Usage re-verified against current `main` source by direct search (this phase). P
 | `canonical_keys (product_id)` | the only read is `_id`-keyed (`ProductQueryService.findByCanonicalKey`); `product_id` is never queried | **DROP-CANDIDATE** | `V0102` (disabled), same |
 | `classification_history (product_id, decided_at)` | insert-only (`MintService`, `ClassifyService`), no reader; not an audit source in PR #49 | **WAIT** | keep until the owner decides whether a per-product history read is planned |
 | `products.variant_group_id` (sparse) | no reader or writer; `variant_groups` is an unused collection | **WAIT** | decide together with retiring `variant_groups` |
-| `product_events (product_id, at)` | insert-only in `WritePath`; highest-write ledger; PR #49 uses `audit_read_*`, and a `targetId` filter could use this index only for equality (it cannot supply the `(at,_id)` sort) | **WAIT for PR #49** | re-evaluate after PR #49 merges; likely the first drop candidate (write amplification) |
-| `node_events (node_id, at)` | insert-only (`TaxonomyChangeService`); PR #49 uses `audit_read_*` | **WAIT for PR #49** | same |
-| `domain_events (aggregate_type, aggregate_id, at)` | insert-only (`DomainAudit`); PR #49's `targetType`+`targetId` queries can use the equality | **WAIT for PR #49** | same |
+| `product_events (product_id, at)` | insert-only in `WritePath`; highest-write ledger; PR #49 uses `audit_read_*`, and a `targetId` filter could use this index only for equality (it cannot supply the `(at,_id)` sort) | **WAIT** (PR #49 merged; re-evaluate drops with production write data) | re-evaluate after PR #49 merges; likely the first drop candidate (write amplification) |
+| `node_events (node_id, at)` | insert-only (`TaxonomyChangeService`); PR #49 uses `audit_read_*` | **WAIT** (PR #49 merged; re-evaluate drops with production write data) | same |
+| `domain_events (aggregate_type, aggregate_id, at)` | insert-only (`DomainAudit`); PR #49's `targetType`+`targetId` queries can use the equality | **WAIT** (PR #49 merged; re-evaluate drops with production write data) | same |
 | `batches (product_id, lot_no)` unique | collection unused in main | **WAIT** | decide with collection retirement |
 | `campaign_membership (campaign_id, product_id)` unique | collection unused in main | **WAIT** | decide with collection retirement |
 
