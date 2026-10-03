@@ -67,8 +67,12 @@ class NoBypassArchitectureIT {
         // mutating product/price/media state; it is event-free by design (a rebuild request is not
         // a product_events audit row). Allowlisting it here does not weaken the product-state
         // guarantee, exactly as the work_queue lease-claim pattern is already exempt below.
+        // DB-3: the migration framework is DDL/bookkeeping, not product state. MigrationHistory and MigrationLock only
+        // write their own two bookkeeping collections; TaxonomyPackFieldsDataMigration is the explicit, approval-gated,
+        // version-1-only data migration that replaced the restart-time rewrite in TaxonomyLoader (R3).
         List<String> allowed = List.of("WritePath.java", "SchemaBootstrap.java",
-                "ValidatorGenerator.java", "TaxonomyLoader.java", "ProjectionRebuildQueue.java");
+                "ValidatorGenerator.java", "TaxonomyLoader.java", "ProjectionRebuildQueue.java",
+                "MigrationHistory.java", "MigrationLock.java", "TaxonomyPackFieldsDataMigration.java");
         List<String> violations = new ArrayList<>();
         for (Path f : javaFiles(MAIN)) {
             String name = f.getFileName().toString();
