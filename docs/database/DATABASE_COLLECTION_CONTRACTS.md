@@ -9,7 +9,7 @@ Documentation / policy only. No validator, index, schema, configuration or appli
 | Repository | `Sahilranjan00017/tazzzo-backend` |
 | Base | `origin/main` `52ab530ec80c8ae5488a7b537590cfaa81165298` (DB-0 merged, PR #47) |
 | Audited source | service `services/catalog-service`; source facts are those of `f5b2cdd` (DB-0 audit SHA). The only commit between `f5b2cdd` and the base is the DB-0 document. |
-| Source of truth | `docs/database/DATABASE_INVENTORY.md` (DB-0), with writer-side BSON types re-verified directly for `orders`, `checkout_quotes`, `memberships`, `inventory`, `price_current`, `price_events` (§4.6 notes the checks) |
+| Source of truth | `docs/database/DATABASE_INVENTORY.md` (DB-0), with writer-side BSON types re-verified directly for `orders`, `checkout_quotes`, `memberships`, `inventory`, `price_current`, `price_events` (see the "Verification note" under §4) |
 | Output | this file. It does not overwrite the DB-0 inventory. |
 | Mongo access | none. No connection to any MongoDB. |
 | Status vocabulary | **VERIFIED** (read from source), **UNVERIFIED** (needs live/Atlas evidence or not provable), **PROPOSED** (policy, not yet implemented), **DEFERRED** |
@@ -31,12 +31,12 @@ These rulings were approved by the database owner after DB-0 and bind DB-1 throu
 
 | Class | Meaning | Rule used here |
 |---|---|---|
-| **A STRICT** | Reconstruction rejects missing/null/wrong-type/unknown-enum/invariant violations with no silent default | A collection is A only if **no** silent default exists on its read path |
-| **B LEGACY-COMPATIBLE STRICT** | As A, plus explicitly enumerated historical shapes are accepted and **preserved** (never synthesized) | Each accepted legacy shape is listed in §6 |
-| **C PERMISSIVE** | Some fields defaulted, tolerated or unchecked; failures surface as raw exceptions or are invisible | Every silent fallback is listed per collection |
+| **A STRICT** | Reconstruction rejects missing required fields, explicit null, non-numeric wrong types, unknown enums and invariant violations; **no value is defaulted or invented** | A only if **no** silent default exists on its read path. The only tolerance allowed is *numeric-width tolerance* (an integer field read via `get(x, Number.class).longValue()/intValue()` accepts any BSON numeric type and truncates a Double/Decimal128), and it must be **listed** per collection |
+| **B LEGACY-COMPATIBLE STRICT** | As A, plus explicitly enumerated historical shapes are accepted and **preserved** (never synthesized). Listed *absent≡null* quirks and listed numeric-width tolerance are permitted because they do not default or invent a business value | Each accepted legacy shape, quirk and tolerance is listed in §6 |
+| **C PERMISSIVE** | Any value silently defaulted (`missing → false/0/null/empty/unlimited`), fields tolerated or unchecked, or failures surfacing as raw exceptions or invisible | Every silent fallback is listed per collection. **A collection with any read-path default is C even if its write path is strict** |
 | **D OPERATIONAL/TEMPORARY** | Short-lived or work-coordination state; correctness is by filters/CAS, not full reconstruction | Retention/TTL stated |
 
-"Strict" is never claimed for a collection that silently defaults any value.
+"Strict" is never claimed for a collection that silently defaults any value. Classes were re-derived under this rule after independent review (see §5 note); the earlier draft classed `products`, `product_card_base` and `domain_events` more favourably than the rule allows.
 
 ### 3.2 Validator decision vocabulary
 
@@ -63,13 +63,13 @@ Every YES/DEFER is **PROPOSED**. DB-1 implements **no** validator.
 | Currency | string `"INR"` only (`Currency` enum has one value). In quotes/orders it is a top-level field; there is **no** currency inside `money`/`benefits` sub-documents; memberships store it as `planCurrency` | DB-0 §16 |
 | Timestamps | BSON Date. OTP/grant/session/customer repositories write `java.time.Instant`, the rest write `Date.from(...)`; reads use `getDate`. Raw BSON type of the `Instant` writers is **UNVERIFIED** by test | DB-0 §3 |
 | Versions/CAS | `version` is `Long` in customer, order, membership, price, inventory, media and service-area documents, `Int32` in `products` and `taxonomy_nodes`. CAS is by filter on `version` with `$inc` | DB-0 §3 |
-| Counts/quantities | `Int32` for line `quantity` and `itemCount`; `Long` for stock counters | verified writer types |
+| Counts/quantities | `Int32` for `orders.lines.quantity`, `checkout_quotes.items.quantity`, and `itemCount`; **`Long` for `inventory_reservations.items[].quantity`** (`InventoryReservationItem(String skuId, long quantity)`, written `InventoryReservationRepository:83`) and for stock counters; `media_refs` `width`/`height` are nullable `Int32` | verified writer types |
 | Naming | camelCase in customer/membership/order/inventory-reservation collections; snake_case in catalogue, pricing, inventory, media, serviceability and event collections | DB-0 §3 |
 | Ids | opaque prefixed ids: `OTP_`, `GRANT_`, `CUS_`, `SES_`, `ADDR_`, `CHKQ_`, `ORD_`, `MBR_` (patterns in DB-0/`Opaque*Id` classes); catalogue ids `TZP-`, `EV-`, `TZS-/TZC-/TZB-/TZV-` | DB-0 §3 |
 | Unknown fields | ignored on read in every customer/membership repository; rejected on write only for `products` (`additionalProperties:false`). Strict key-set checks exist only inside nested benefit/money snapshots and `actor` | DB-0 §14 |
 | Absent vs null | optional facts are written **absent**, not null, for `memberships` (`cancelRequestedAt`, `revokedAt`, `openTerm`), `orders`/`checkout_quotes` (`benefits`, `money`, `confirmed*`). Exceptions that write explicit null: OTP challenge activation fields, `customer_address_state.defaultAddressId`, address optional text/coordinates, `price_current`/`price_events` `effective_from`/`effective_to` | verified writers |
 
-Verification note (§1): `Order` record: `long version`, `long addressVersion`, `int itemCount`, `long subtotalPaise`; `OrderLine`: `int quantity`, `long unitPricePaise`, `long lineTotalPaise`; `CheckoutQuote`: `long cartVersion`, `long addressVersion`, `int itemCount`, `long subtotalPaise`; `Membership`: `long version`, `int planVersion`, `int planPeriodMonths`, `long periodCount`; `InventoryRecord`: `long onHand/reserved/lowStockThreshold`; inventory insert writes `reserved` as `0L`; `price_current` writes `selling_price_paise`/`mrp_paise` as long, `version` long. Exact types of `inventory.max_purchasable` and `inventory.low_stock_threshold` as stored are taken from the command/record types and are not re-checked at the BSON level: **UNVERIFIED**.
+Verification note (§1): `Order` record: `long version`, `long addressVersion`, `int itemCount`, `long subtotalPaise`; `OrderLine`: `int quantity`, `long unitPricePaise`, `long lineTotalPaise`; `CheckoutQuote`: `long cartVersion`, `long addressVersion`, `int itemCount`, `long subtotalPaise`; `Membership`: `long version`, `int planVersion`, `int planPeriodMonths`, `long periodCount`; `InventoryRecord`: `long onHand/reserved/lowStockThreshold`; `InventoryReservationItem`: `long quantity`; inventory insert writes `reserved` as `0L`; `price_current` writes `selling_price_paise`/`mrp_paise` as long, `version` long. `inventory.low_stock_threshold` and `inventory.max_purchasable` are `long` (`SetInventoryCommand:19-20`) and are written via `append`/`Updates.set` of a long. Numeric-width tolerance on reads is recorded per collection in §6.
 
 ---
 
@@ -79,7 +79,7 @@ All 49 collections of `SchemaBootstrap.COLLECTIONS` (`SB:26-114`). "Unused" = cr
 
 | # | Collection | Owner | Class | Strictness | Validator | Retention |
 |---|---|---|---|---|---|---|
-| 1 | `products` | catalog | authoritative | **A** (write side; read-path exception noted §7.1) | **EXISTS** (create-time only) | none |
+| 1 | `products` | catalog | authoritative | C (read-path defaults; DB validator exists on the write side, §7.1/§8) | **EXISTS** (create-time only) | none |
 | 2 | `gtin_registry` | catalog | authoritative | C | DEFER | none |
 | 3 | `identity_keys` | catalog | authoritative | C | DEFER | none |
 | 4 | `canonical_keys` | catalog | authoritative | C | DEFER | none |
@@ -106,16 +106,16 @@ All 49 collections of `SchemaBootstrap.COLLECTIONS` (`SB:26-114`). "Unused" = cr
 | 25 | `attribute_schemas` | catalog | authoritative (versioned) | C | DEFER | none |
 | 26 | `id_sequences` | catalog | operational (counter) | **D** | NO | none |
 | 27 | `price_current` | pricing | authoritative | C | **YES (PROPOSED)** | none |
-| 28 | `price_events` | pricing/catalog | event (two shapes) | C | **DEFER** (R1 discriminator first) | **retain** (R1) |
+| 28 | `price_events` | pricing/catalog | event (two shapes) | C | **DEFER** (R1 discriminator first) | **TARGET: retain (R1). CURRENT: rolled rows hard-deleted hourly (non-compliant)** |
 | 29 | `price_rollups` | catalog | derived | C | NO | none |
 | 30 | `inventory` | inventory | authoritative | C | **YES (PROPOSED)** | none |
 | 31 | `inventory_reservations` | inventory | authoritative | **A** | **YES (PROPOSED)** | none (never deleted) |
 | 32 | `media_refs` | media | authoritative | C | DEFER | none |
 | 33 | `service_areas` | serviceability | authoritative | C | DEFER | none |
-| 34 | `product_card_base` | commerce read | derived (rebuildable) | **A** | NO | none (rebuildable) |
+| 34 | `product_card_base` | commerce read | derived (rebuildable) | C (partial fail-fast; §7.4) | NO | none (rebuildable) |
 | 35 | `consumer_projection_policy` | catalog consumer | authoritative (config) | **A** | NO | none |
 | 36 | `node_events` | catalog (taxonomy) | event | C | DEFER | none |
-| 37 | `domain_events` | common/audit | event | **B** (actor) | DEFER | none |
+| 37 | `domain_events` | common/audit | event | C (no reader/reconstruction path in main; actor codec is strict but unused) | DEFER | none |
 | 38 | `rollup_state` | — (unused) | — | C | NO | none |
 | 39 | `customer_otp_challenges` | auth.otp | operational | **D** | NO | TTL (two indexes) |
 | 40 | `customer_otp_verified_grants` | auth.otp/session | operational | **D** | NO | TTL |
@@ -129,9 +129,9 @@ All 49 collections of `SchemaBootstrap.COLLECTIONS` (`SB:26-114`). "Unused" = cr
 | 48 | `orders` | customer.order | authoritative + snapshot | **B** | **YES (PROPOSED)** | none (forever) |
 | 49 | `memberships` | membership | authoritative | **B** | **YES (PROPOSED)** | none (by design) |
 
-**Tallies (49):** A = 4 (`products`, `inventory_reservations`, `product_card_base`, `consumer_projection_policy`); B = 4 (`domain_events`, `checkout_quotes`, `orders`, `memberships`); D = 4 (`work_queue`, `id_sequences`, `customer_otp_challenges`, `customer_otp_verified_grants`); C = 37 (of which 7 are unused collections). Validators: 1 exists (`products`); **YES (proposed) 6**; **DEFER 24**; **NO 18** (7 of the NOs are the unused collections); 1 + 6 + 24 + 18 = 49.
+**Tallies (49):** A = 2 (`inventory_reservations`, `consumer_projection_policy`); B = 3 (`orders`, `checkout_quotes`, `memberships`); D = 4 (`work_queue`, `id_sequences`, `customer_otp_challenges`, `customer_otp_verified_grants`); C = 40 (of which 7 are unused collections). 2 + 3 + 40 + 4 = 49. Validators: 1 exists (`products`); **YES (proposed) 6**; **DEFER 24**; **NO 18** (7 of the NOs are the unused collections); 1 + 6 + 24 + 18 = 49.
 
-Why `products` is A yet has a read-path exception: the write contract is enforced by a server-side validator plus `WritePath`; however `CatalogCardReader` silently defaults a missing `version` to 0 and a missing classification to a null vertical (DB-0 §14). That read path is C and is listed in §7.1; it is a known exception, not a claim of strict reads.
+**Reclassification note (post-review):** an earlier draft classed `products`, `product_card_base` and `domain_events` as A/B. Under the §3.1 rule they are C: `products` has read-path defaults (`CatalogCardReader` missing `version`→0 and missing classification→null vertical; `ProductController.toResponse` stringifies nulls as `"null"`); `product_card_base.fromDocument` validates only `source_versions`, `catalog_version`, `projection_version` and `price_status` and silently reads a missing `price_version`/`media_version` as null; `domain_events` has no reader in main and `ActorDocuments.fromEvent` has no caller, so no reconstruction path exists to be strict. Their *write-side* contracts (the `products` validator, the strict `ActorDocuments` codec) remain as documented.
 
 ---
 
@@ -152,7 +152,7 @@ For each: required fields and BSON types as written by code; optional; enums; re
   - `money` `{merchandiseSubtotalPaise, benefitDiscountPaise, payablePaise}` all long; **no currency subfield**; `payable = merchandiseSubtotal − benefitDiscount` re-derived and compared on read.
 - **Cross-field invariants (application-enforced in `Order` constructor/codecs, not expressible in `$jsonSchema`):** `lineTotal = unit × qty`; no duplicate `skuId`; `itemCount = Σ quantity`; `subtotal = Σ lineTotal`; `benefits.eligibleSubtotal = subtotal`; `money` requires `benefits`; `money.merchandiseSubtotal = subtotal`; `money.benefitDiscount` = benefits discount (0 if NO_BENEFIT); `createdAt ≤ updatedAt`; CREATED ⇒ version 1 and no `confirmed*`; CONFIRMED ⇒ version 2, `paymentMethod=COD`, `COD_DUE`, `confirmedAt ≥ createdAt`, `updatedAt ≥ confirmedAt`.
 - **Not re-verified on read:** the `floor(subtotal × bps / 10000)` discount formula (`BenefitEvaluator` only at placement).
-- **Strictness / fallbacks:** `status`, `paymentMethod`, `version`, `lines`, `addressSnapshot`, numerics, dates are required with no default (missing → exception). Wrong type → `ClassCastException`; bad enum → IAE. **Silent leniency (documented):** explicit-null `confirmedPaymentCondition`/`confirmedAt` is treated as absent (`OrderRepository.toOrder` `:118,133,135`), although the constructor still rejects inconsistent combinations. Explicit-null `benefits`/`money` is **not** lenient (throws).
+- **Strictness / fallbacks:** `status`, `paymentMethod`, `version`, `lines`, `addressSnapshot`, numerics, dates are required with no default (missing → exception). String fields of the wrong type → `ClassCastException`; bad enum → IAE. **Numeric-width tolerance (listed):** `lines[].quantity`, `unitPricePaise`, `lineTotalPaise`, `itemCount`, `subtotalPaise` are read with `get(x, Number.class).intValue()/longValue()` and `version`/`addressVersion` via `requireLong` (`instanceof Number`), so a stored Double or Decimal128 is accepted and truncated (`OrderRepository:109-110,129-131,155-161`). The benefit/money sub-document codecs do reject non-integral values (`requireIntegral`). **Silent leniency (documented):** explicit-null `confirmedPaymentCondition`/`confirmedAt` is treated as absent (`OrderRepository.toOrder` `:118,133,135`), although the constructor still rejects inconsistent combinations. Explicit-null `benefits`/`money` is **not** lenient (throws).
 - **Legacy shapes accepted:** `benefits` absent ⇒ null (never "no benefit"); `money` absent ⇒ null (never a zero payable; DTO omits `money`). **Not accepted:** rows lacking `version`/`paymentMethod` (pre-PR-15A-1): deployment is gated on `orders` count == 0 (ESD:541-579, **UNVERIFIED** live).
 - **Unknown top-level fields:** ignored on read; stored as-is if present.
 - **Retention:** forever. No TTL (by design, `SB:104-109`). Contains PII (`addressSnapshot`).
@@ -171,7 +171,7 @@ For each: required fields and BSON types as written by code; optional; enums; re
 - **Required:** `customerId` string; `idempotencyKeyDigest` string (lowercase hex SHA-256 of the raw key — **the raw `Idempotency-Key` is never stored**); `fingerprint` string (hex SHA-256 of `"v1|"+cartVersion+"|"+addressId`); `cartVersion` long; `addressId` string; `addressVersion` long; `items` array of `{skuId, quantity int, unitPricePaise long, lineTotalPaise long}`; `itemCount` int; `subtotalPaise` long; `currency` `"INR"`; `createdAt` Date; `expiresAt` Date.
 - **Optional (absent, never null):** `benefits` (NO_BENEFIT or APPLIED **without** membership/plan identity), `money` (as in orders).
 - **Invariants:** as orders for lines/subtotal/itemCount; `createdAt < expiresAt`; `benefits.eligibleSubtotal = subtotal`; `money` requires `benefits`; `payable` re-derived on read.
-- **Strictness / fallbacks:** `addressVersion` absent ⇒ IAE → 500 (no default). `benefits`/`money` present-but-invalid (explicit null, wrong type, foreign/missing keys via `Set.equals`, bad enum) ⇒ IAE → 500. **Silent leniency:** a missing `fingerprint` compares unequal and surfaces as 409 IDEMPOTENCY_CONFLICT rather than a corruption error. Required with no default: `items`, `cartVersion`, `itemCount`, `subtotalPaise`, `createdAt`, `expiresAt`, `currency` (must equal INR).
+- **Strictness / fallbacks:** `addressVersion` absent ⇒ IAE → 500 (no default). `benefits`/`money` present-but-invalid (explicit null, wrong type, foreign/missing keys via `Set.equals`, bad enum) ⇒ IAE → 500. **Silent leniency:** a missing `fingerprint` compares unequal and surfaces as 409 IDEMPOTENCY_CONFLICT rather than a corruption error. Required with no default: `items`, `cartVersion`, `itemCount`, `subtotalPaise`, `createdAt`, `expiresAt`, `currency` (must equal INR). **Numeric-width tolerance (listed):** item `quantity`/`unitPricePaise`/`lineTotalPaise` are read via `get(x, Number.class)` (`CheckoutQuoteRepository:101-103,117-119`), so a Double/Decimal128 is accepted and truncated; `benefits`/`money` sub-documents reject non-integral values.
 - **Legacy shapes accepted:** `benefits` absent (pre-Benefits quote) and `money` absent ⇒ null, HTTP omits previews, a legacy quote still places an Order normally (Order never reads quote money).
 - **Unknown top-level fields:** ignored.
 - **Retention:** forever (no TTL). **Transactions:** written only by `CheckoutService.persist` (Tx); reads for replay; Benefits are evaluated **outside** the Tx and stored as advisory.
@@ -182,7 +182,7 @@ For each: required fields and BSON types as written by code; optional; enums; re
 
 - **Owner / class:** `membership`; authoritative; one document per term with an embedded plan **snapshot**.
 - **`_id`:** `MBR_*`. **Identity:** unique `(grantSource, grantRef)`; at most one open term per customer via partial unique `{customerId}` where `openTerm:true`.
-- **Required:** `customerId` string; `status` ∈ {`ACTIVE`,`EXPIRED`,`REVOKED`}; `version` long ≥1; `grantSource` ∈ {`INTERNAL_GRANT`}; `grantRef` string `^[A-Za-z0-9._:-]{1,128}$`; `planId` string `^[A-Z][A-Z0-9_]{2,63}$`; `planVersion` int; `planPricePaise` long; `planCurrency` `"INR"`; `planPeriodMonths` int 1..120; `billingZoneId` string `"Asia/Kolkata"`; `periodCount` long; `validFrom`, `validUntil`, `createdAt`, `updatedAt` Date.
+- **Required:** `customerId` string; `status` ∈ {`ACTIVE`,`EXPIRED`,`REVOKED`}; `version` long ≥1; `grantSource` ∈ {`INTERNAL_GRANT`}; `grantRef` string `^[A-Za-z0-9._:-]{1,128}$`; `planId` string `^[A-Z][A-Z0-9_]{2,63}$`; `planVersion` int; `planPricePaise` long **> 0** (`Membership:51` rejects ≤0 and non-INR); `planCurrency` `"INR"`; `planPeriodMonths` int 1..120; `billingZoneId` string `"Asia/Kolkata"`; `periodCount` long; `validFrom`, `validUntil`, `createdAt`, `updatedAt` Date.
 - **Optional (absent, never null):** `openTerm` boolean **only `true`** (written only while ACTIVE; `$unset` on EXPIRED/REVOKED, never `false`/null); `cancelRequestedAt` Date; `revokedAt` Date.
 - **Invariants (application-enforced):** `createdAt = validFrom`; `validUntil = MembershipBillingCalendar.validUntil(validFrom, periodCount, planPeriodMonths)` (Asia/Kolkata calendar-month anchor); ms precision; `revokedAt` present iff REVOKED; `cancelRequestedAt`/`revokedAt` ∈ `[validFrom, validUntil)`; REVOKED ⇒ `updatedAt = revokedAt`, version ≥2; ACTIVE with cancel request ⇒ version ≥2, `updatedAt = cancelRequestedAt`; EXPIRED ⇒ version ≥2, `updatedAt ≥ validUntil`; ACTIVE ⇒ `openTerm:true`, terminal ⇒ no `openTerm`.
 - **Strictness / fallbacks:** all strict, **no defaults**, Integer/Long only (`requireIntegral`); any `RuntimeException` → `MembershipFailure(INTEGRITY_FAILURE)`. No silent default found. Plan fields are **not** cross-checked against current config (the term snapshot is authoritative).
@@ -195,34 +195,34 @@ For each: required fields and BSON types as written by code; optional; enums; re
 ### 6.4 `inventory` — C PERMISSIVE
 
 - **Owner / class:** `inventory`; authoritative. **Identity:** unique `(sku_id, fulfillment_location_id)`. **`_id`:** ObjectId.
-- **Required (as written, `InventoryService.setInventory`):** `sku_id` string; `fulfillment_location_id` string; `on_hand` long ≥0; `reserved` long ≥0 (insert writes `0L`); `low_stock_threshold` (number); `max_purchasable` (number); `version` long ≥1; `active` boolean (true on create; **no code ever changes it**); `source` string; `created_at`, `updated_at` Date.
+- **Required (as written, `InventoryService.setInventory`):** `sku_id` string; `fulfillment_location_id` string; `on_hand` long ≥0; `reserved` long ≥0 (insert writes `0L`); `low_stock_threshold` long; `max_purchasable` long; `version` long ≥1; `active` boolean (true on create; **no code ever changes it**); `source` string **or explicit null** (`SetInventoryCommand.source` is never validated and is written unconditionally, `InventoryService:111,125`); `created_at`, `updated_at` Date.
 - **Invariants:** `reserved ≤ on_hand`; `on_hand ≤ 1,000,000`. Reserve filter `active=true AND (on_hand − reserved) ≥ qty` (`$expr`); consume needs `reserved ≥ qty AND on_hand ≥ qty`.
 - **Strictness / fallbacks:** counters and `version` required (NPE if missing); `InventoryRecord` constructor throws on negative values / `reserved > onHand` / `version < 1`. **Silent default:** `active` missing ⇒ false (INACTIVE). Hence class **C**.
 - **Legacy shapes:** none documented. **Unknown fields:** ignored. **Retention:** none. **Sensitive:** none.
 - **Transactions:** `setInventory` (CAS on `version` with `reserved ≤ newOnHand`); reserve/release/consume primitives run inside the caller's Tx with a `product_events` row first. **Patterns:** point lookup by `(sku_id, fulfillment_location_id)` (unique index); CAS writes.
-- **Validator: YES (PROPOSED).** Contract: required fields/types above; `on_hand`,`reserved` `{bsonType:long, minimum:0}`; `version` long ≥1; `active` bool; `$expr: {$lte:["$reserved","$on_hand"]}` is a candidate (simple comparison; `reserved ≤ on_hand` is a hard invariant), but because the reserve/consume paths update `on_hand` and `reserved` in one `$inc` pair, the `$expr` rule must be proven against every update before adoption. **Level** `strict` is acceptable only after a conformance scan; default recommendation `moderate`. **Unverified:** BSON type of `low_stock_threshold`/`max_purchasable` (§4). **Rollout:** conformance scan + test of every inventory write path against the validator in a Testcontainers run (new tests, DB-7).
+- **Validator: YES (PROPOSED).** Contract: required fields/types above; `on_hand`,`reserved` `{bsonType:long, minimum:0}`; `version` long ≥1; `active` bool; `$expr: {$lte:["$reserved","$on_hand"]}` is a candidate (simple comparison; `reserved ≤ on_hand` is a hard invariant), and it is compatible with every current write path (verified by source reading): reserve increments only `reserved` behind `(on_hand − reserved) ≥ qty` (`InventoryService:237-239`); release decrements only `reserved` behind `reserved ≥ qty` (`:259-260`); consume decrements both behind `reserved ≥ qty AND on_hand ≥ qty` (`:279-281`); `setInventory` requires `reserved ≤ newOnHand` (`:119`). It must still be proven by a Testcontainers run before adoption. The validator must allow `source` as `["string","null"]` (or the command must first reject a null source). **Level** `strict` is acceptable only after a conformance scan; default recommendation `moderate`. **Rollout:** conformance scan + test of every inventory write path against the validator in a Testcontainers run (new tests, DB-7).
 
 ### 6.5 `inventory_reservations` — A STRICT
 
 - **Owner / class:** `inventory`; authoritative; **`_id`** opaque `InventoryReservationId`.
-- **Required:** `orderId` string (unique index `inventory_reservation_one_per_order`); `fulfillmentLocationId` string; `items` array of `{skuId string, quantity int}` (≥1, sorted by skuId on reserve); `status` ∈ {`RESERVED`,`RELEASED`,`CONSUMED`}; `createdAt`, `expiresAt`, `updatedAt` Date; `fingerprint` string (SHA-256 of `v1|orderId|location|sorted items`).
+- **Required:** `orderId` string (unique index `inventory_reservation_one_per_order`); `fulfillmentLocationId` string; `items` array of `{skuId string, quantity` **`long`**`}` (≥1, sorted by skuId on reserve) — **not int**; `status` ∈ {`RESERVED`,`RELEASED`,`CONSUMED`}; `createdAt`, `expiresAt`, `updatedAt` Date; `fingerprint` string (SHA-256 of `v1|orderId|location|sorted items`).
 - **Version/CAS:** none; transitions are CAS on `status` only (RESERVED→RELEASED, RESERVED→CONSUMED).
-- **Strictness:** `toReservation` has no fallback and fails loud (NPE on missing `items`, IAE on bad enum, record invariants). No silent default found ⇒ **A**.
+- **Strictness:** `toReservation` has no value fallback and fails loud (NPE on missing `items`, IAE on bad enum, record invariants) ⇒ **A with two listed tolerances:** (1) **numeric-width tolerance** — `items[].quantity` is read via `get("quantity", Number.class).longValue()` (`InventoryReservationRepository:101`), so a Double/Decimal128 is accepted and truncated; (2) a **missing `fingerprint`** reads as null and the idempotent re-reserve comparison `fingerprint.equals(existing.getString("fingerprint"))` is false, surfacing as `ALREADY_RESERVED_DIFFERENT_INPUT` rather than a corruption error (`InventoryReservationService:176-181`) — the same class of leniency as `checkout_quotes`.
 - **Retention:** none; never deleted (`SB:99-103`). Expiry worker (`InventoryReservationExpiryWorker`, 30 s) is **disabled by default** (flag absent in `application.yml`).
 - **Transactions:** header insert is the **last** write of the reserve Tx; idempotent by `orderId`+fingerprint (`ALREADY_RESERVED_DIFFERENT_INPUT` on mismatch); duplicate-key race resolved by `resolveDuplicateWinner`.
 - **Patterns:** `findByOrderId`; `findExpiredBatch` (`status=RESERVED`, `expiresAt ≤ now`, sort `expiresAt`) served by `inventory_reservation_expiry`.
-- **Validator: YES (PROPOSED).** Contract: required fields/types; `status` enum; `items.minItems 1`; `additionalProperties:true`; `moderate`/`error`. Low live-data risk (header written whole by one code path), but live existence is **UNVERIFIED**.
+- **Validator: YES (PROPOSED).** Contract: required fields/types; `status` enum; `items.minItems 1`; `additionalProperties:true`; `moderate`/`error`. Low live-data risk (the header is inserted whole by one code path, then only `status`/`updatedAt` change by CAS `transitionStatus`, `InventoryReservationRepository:72-78`), but live existence is **UNVERIFIED**. The validator must use `long` for `items.quantity`.
 
 ### 6.6 `price_current` — C PERMISSIVE
 
 - **Owner / class:** `pricing`; authoritative; `_id` ObjectId; **identity** unique `(sku_id, currency)`.
-- **Required (as written, `PricingService.currentDoc`):** `sku_id` string; `currency` string `"INR"`; `selling_price_paise` **long** ≥0; `mrp_paise` **long** ≥ `selling_price_paise`; `version` **long** ≥1; `active` boolean (written true; **never set false by any code**); `source` string; `created_at`, `updated_at` Date.
+- **Required (as written, `PricingService.currentDoc`):** `sku_id` string; `currency` string `"INR"`; `selling_price_paise` **long** ≥0; `mrp_paise` **long** ≥ `selling_price_paise`; `version` **long** ≥1; `active` boolean (written true; **never set false by any code**); `source` string **or explicit null** (`UpsertPriceCommand.source` is never validated, `PricingService:315-343`; written unconditionally `:159,356,372`); `created_at`, `updated_at` Date.
 - **Written explicit-null:** `effective_from` Date|**null**, `effective_to` Date|**null** (stored as null when absent — not absent).
 - **Bounds in code:** `MAX_AMOUNT_PAISE = 1_000_000_000`; `effectiveFrom ≤ now`; `effectiveTo > now`; from inclusive, to exclusive.
 - **Strictness / fallbacks:** missing paise/`version` ⇒ NPE (`asLong` `requireNonNull`); invalid `Price` (mrp < selling) ⇒ IAE. **Silent defaults:** `active` missing ⇒ false (INACTIVE); missing `effective_*` ⇒ null; read currency filter hard-wired to INR. Hence **C**.
 - **Legacy shapes:** none. **Retention:** none. **Transactions:** `PricingService.upsertPrice` (ledger row first, then CAS/insert, optional `work_queue` rebuild); CAS miss or duplicate create rolls back the ledger row. No production caller exists in main today (DB-0 §13).
 - **Patterns:** point and batch `$in` read by `(sku_id, currency)`; CAS update by `(sku_id, currency, version)`.
-- **Validator: YES (PROPOSED).** Contract: types above; `effective_from`/`effective_to` `["date","null"]`; `currency` enum [`INR`]; `$expr {$gte:["$mrp_paise","$selling_price_paise"]}`; `selling_price_paise` min 0 max 1,000,000,000. **Level** `moderate`, **action** `error`. **Live-data risk:** low (no production writer today, so live data likely empty — **UNVERIFIED**). **Rollout:** best done before any production caller exists (cheapest moment).
+- **Validator: YES (PROPOSED).** Contract: types above; `effective_from`/`effective_to` `["date","null"]`; `source` `["string","null"]`; `currency` enum [`INR`]; `$expr {$gte:["$mrp_paise","$selling_price_paise"]}`; `selling_price_paise` min 0 max 1,000,000,000. **Level** `moderate`, **action** `error`. **Live-data risk:** low (no production writer today, so live data likely empty — **UNVERIFIED**). **Rollout:** best done before any production caller exists (cheapest moment).
 
 ### 6.7 `price_events` — C PERMISSIVE, two row shapes (R1)
 
@@ -246,7 +246,7 @@ See §9 for the retention contract. Row shapes (VERIFIED):
 | `customer_sessions` | `_id` `SES_*`; `customerId`; `createdAt`,`expiresAt` Date; `revokedAt` Date|null (null at create); `refreshTokenDigest` base64 HMAC (**sensitive**); `refreshGeneration` int; `lastRotatedAt`. TTL `session_expiry_ttl` (cleanup only; app-level expiry authoritative). | `revokedAt:null` also matches missing; non-date `expiresAt` ⇒ inactive; missing digest ⇒ NPE ⇒ 500 (C, fail-closed) | **NO** — ephemeral, TTL-managed, auth-critical write latency; correctness is by CAS filters |
 | `customer_otp_challenges` | `_id` `OTP_*`; `phoneNormalized`,`purpose=LOGIN`, `otpVerifier` (**sensitive** HMAC), `createdAt`,`deliveryDeadline`, nullable `expiresAt`/`resendAvailableAt`/`verifiedAt`/`grantId`/`lastSentAt` (explicit null at insert), `attemptCount` int, `maxAttempts` int, `status` (7 values), marker booleans `delivering`/`active` (partial-unique). Two TTL indexes. | **missing `maxAttempts` ⇒ `Integer.MAX_VALUE` (unlimited attempts)**; missing `attemptCount` ⇒ 0; bad `status`/dates ⇒ raw exception ⇒ 500 (D/C) | **NO** — D; but the `maxAttempts` default is a recorded **risk** (DB-0 R8) |
 | `customer_otp_verified_grants` | `_id` `GRANT_*`; `challengeId` (unique), `phoneNormalized`, `purpose`, `createdAt`,`expiresAt`, `consumedAt` null|Date. TTL. | missing `consumedAt` matches `== null` ⇒ consumable (D) | **NO** |
-| `domain_events` | `{aggregate_type, aggregate_id, type, detail, at, actor?}`; strings non-blank ≤200; `actor` `{type ∈ HUMAN_ADMIN/SERVICE_ACCOUNT/SYSTEM, id, credential_id?, request_id?}` exact key-set; insert-only. No reader in main. | absent `actor` ⇒ Optional.empty (historical/unattributed, never guessed); present must be exact (B) | **DEFER** — good candidate once a reader/audit-read contract settles (note: an admin audit-read feature was observed in progress outside `main`; re-inventory when merged) |
+| `domain_events` | `{aggregate_type, aggregate_id, type, detail, at, actor?}`; strings non-blank ≤200; `actor` `{type ∈ HUMAN_ADMIN/SERVICE_ACCOUNT/SYSTEM, id, credential_id?, request_id?}` exact key-set; insert-only. No reader in main. | absent `actor` ⇒ Optional.empty (historical/unattributed, never guessed); present must be exact — but **no reader in main**, so this strictness is never exercised (C) | **DEFER** — good candidate once a reader/audit-read contract exists (none in main today) |
 
 Remaining collections are summarised in §7.
 
@@ -301,9 +301,9 @@ Remaining collections are summarised in §7.
 | Collection | Contract | Silent fallbacks |
 |---|---|---|
 | `price_rollups` | `(product_id, seller)` unique; `min_price`,`max_price`,`count` (legacy int unit) | write-only, no reader; paise rows would key `{product_id=sku, seller=null}` (DB-0 §13) |
-| `media_refs` | `(owner_type ∈ PRODUCT|SKU, owner_id)` unique; `version` long; `assets[{asset_id, asset_key, role ∈ PRIMARY|GALLERY, sort_order, alt_text, width, height, content_type ∈ image/jpeg|png|webp}]` (≤50; unique ids/keys/sort_order; one PRIMARY at 0); `active`; whole-set replacement | unknown role ⇒ exception; `width`/`height` stored as Long ⇒ `ClassCastException`; missing `assets` ⇒ empty; missing `active` ⇒ false |
+| `media_refs` | `(owner_type ∈ PRODUCT|SKU, owner_id)` unique; `version` long; `assets[{asset_id, asset_key, role ∈ PRIMARY|GALLERY, sort_order, alt_text, width, height, content_type ∈ image/jpeg|png|webp}]` (≤50; unique ids/keys/sort_order; one PRIMARY at 0); `active`; whole-set replacement | unknown role ⇒ exception; `width`/`height` are nullable `Integer` (`MediaAsset:28-29`), written as explicit null when absent, read via `getInteger` so a stored Long ⇒ `ClassCastException`; missing `assets` ⇒ empty; missing `active` ⇒ false |
 | `service_areas` | `pincode` unique; `service_area_id` (non-unique label); `routes[{fulfillment_location_id, priority, active}]` (≤20; unique location and priority); `version` long; `active` | missing `priority`/`version` ⇒ NPE; missing `active` ⇒ false; missing `routes` ⇒ empty |
-| `product_card_base` | `sku_id` unique; `price_status` enum name; `selling_price_paise`,`mrp_paise` set only when price ACTIVE; `source_versions{catalog_version, price_version, media_version}`; `projection_version` long CAS | **A** fail-fast; disposable/rebuildable; rebuild is flag-gated (off by default) |
+| `product_card_base` | `sku_id` unique; `price_status` enum name; `selling_price_paise`,`mrp_paise` set only when price ACTIVE; `source_versions{catalog_version, price_version, media_version}`; `projection_version` long CAS | **C**: fail-fast only for `source_versions`, `catalog_version`, `projection_version`, `price_status`; a missing `price_version`/`media_version` or other nullable fields read as null silently (`ProductCardProjectionService:302-318`). Disposable/rebuildable; rebuild is flag-gated (off by default) |
 
 ### 7.5 Unused collections
 
@@ -335,6 +335,8 @@ Remaining collections are summarised in §7.
 
 `CatalogSchedulers.priceRollup()` (hourly, default on) calls `RollupService.rollup()` then `purge()`. `rollup` selects every `price_events` row with `ts ≤ now AND rolled != true` with **no shape/type filter**, aggregates `price`/`seller` into `price_rollups`, marks `rolled:true`; `purge` runs `deleteMany({rolled:true})`. Paise-ledger rows (Shape P) satisfy the filter. Nothing in main currently writes Shape P, so the hazard is latent. Three Javadocs claim the history is immutable.
 
+**Current behaviour is NOT compliant with R1.** The hourly job deletes every rolled `price_events` row **by default** (`CatalogSchedulers:88-94`, `application.yml:17`, `RollupService:64-70`). This applies to legacy Shape L rows that may exist live today (not only the latent Shape P hazard), and existing tests pin the purge as intended (`RollupStallIT`, `SchedulerIT:176`; DB-0 §13). The statements below describe the **required target contract**, not current behaviour; moving to it needs the later work package and test changes.
+
 ### 9.2 Categories
 
 | Category | Definition (today) | Class | Rollup eligible | Purge eligible |
@@ -348,7 +350,7 @@ Remaining collections are summarised in §7.
 
 A type becomes purge-eligible only when **all** hold: (1) rows carry an **explicit durable discriminator** written by code (e.g. an event-kind field), not inferred by field absence; (2) the owner confirms in writing that raw rows of that kind are not durable commercial/audit history; (3) the aggregate that survives is sufficient for every documented consumer; (4) the purge filter names the discriminator **and** `rolled:true`; (5) tests prove Category P and U rows survive a rollup+purge cycle.
 
-Until (1)–(5) are met: **no `price_events` row is deleted.** The conservative production posture is rollup/purge disabled or restricted to nothing. Because no purge-eligible type is currently proven, the recommended interim contract is "retain everything".
+Until (1)–(5) are met, the **required** posture is that no `price_events` row is deleted (target; currently violated, see above). The conservative production posture is rollup/purge disabled or restricted to nothing. Because no purge-eligible type is currently proven, the recommended interim contract is "retain everything".
 
 ### 9.4 Contract requirements for the later work package
 
@@ -366,9 +368,9 @@ This is a **contract/ruling record only**; the implementation belongs to a later
 
 - **Principle:** `attribute_definitions`, `attribute_schemas`, `taxonomy_nodes`, `aliases`, `taxonomy_snapshot_nodes`, `catalogue_releases` and `system_config` are **versioned durable state**. Their documents are not regenerated or overwritten by application restarts.
 - **Allowed at startup:** insert-if-absent initial reference data (`$setOnInsert` upserts keyed on `(key,version)`, `(schema_id,version)`, `_id`, `(alias_norm,lang,region)`), exactly as `TaxonomyLoader` does for its four upserts.
-- **Not allowed as the target contract:** an unconditional `updateMany` that rewrites persisted attribute schemas on every start. The current `TaxonomyLoader:75-80` (`fields.$[q].required=false` for `pack_size`/`pack_unit`, all versions, every start) is a **recorded deviation** (DB-0 R3), contradicts "never clobbers" (`TaxonomyLoader:27,157`) and "version documents are immutable" (`AttributeAuthoringService:28-29`), and is not the desired future contract. It does not hold the version-immutability invariant.
+- **Not allowed as the target contract:** an unconditional `updateMany` that rewrites persisted attribute schemas on every start. The current `TaxonomyLoader:75-80` (`fields.$[q].required=false` for `pack_size`/`pack_unit`, all versions, every start) is a **recorded deviation** (DB-0 R3), contradicts "never clobbers" (`TaxonomyLoader:27`) and "version documents are immutable" (`AttributeAuthoringService:28-29`), and is not the desired future contract. It does not hold the version-immutability invariant.
 - **Evolution:** any change to existing reference contracts is a **named, versioned, repeatable migration** (§11): carries an id, preconditions, a dry-run/measure step, an idempotent apply, a recorded outcome, and never silently touches a version document that is `active` or `superseded` — a changed contract is a **new version** (consistent with the existing release workflow: `AttributeAuthoringService`/`TaxonomyChangeService` write new pending versions and activate them at release).
-- **Seed source:** the v0.9.0 seed (`taxonomy_v0_9_0_seed.json`: 460 nodes, 25 aliases, 110 definitions, 48 schemas) is the initial reference set; its later required-ness change is expressed as a **migration over the seed's schema versions**, not as a restart-time loop.
+- **Seed source:** the v0.9.0 seed (`taxonomy_v0_9_0_seed.json`: 460 nodes, 25 aliases, 110 definitions, 48 schemas) is the initial reference set; its later required-ness change is expressed as a **new schema version created by a versioned migration**, or — only if the owner explicitly approves it — a **one-time, recorded correction** of the already-`active` seed versions (the loader inserts them with `status:"active"`, `TaxonomyLoader:53-58`, so any in-place edit rewrites an active version). An in-place rewrite is never the default mechanism and never a restart-time loop.
 - **Fresh-DB baseline:** `catalogue_releases` and the `consumer_taxonomy_release` pointer have no baseline path in code today (`recordBaseline` has no caller). The initialization path (who seeds, when) is a DB-5 reference-data decision under the same versioned-migration contract.
 - **Validators:** DEFER for taxonomy/attribute collections until the versioned migration mechanism exists (otherwise a validator would freeze the very fields R3 says must evolve through migrations).
 
@@ -409,7 +411,7 @@ These conditions are **not** satisfied for any new validator today, so **no vali
 
 ### 12.2 Recommended staged rollout (for DB-3/DB-7)
 
-`collMod` order: `validationAction: warn` + `moderate` in staging → review logs → `error`/`moderate` → optional `strict`. Never combine a validator rollout with an index or data migration in one step. Start with the lowest-risk, insert-only collections (`inventory_reservations`, `price_current` before any production caller exists), then `checkout_quotes`/`orders`/`memberships` after gates 1–2.
+`collMod` order: `validationAction: warn` + `moderate` in staging → review logs → `error`/`moderate` → optional `strict`. Never combine a validator rollout with an index or data migration in one step. Start with the lowest-risk collections (`inventory_reservations` and `price_current` — both are inserted whole and then only CAS-updated, not insert-only; `price_current` before any production caller exists), then `checkout_quotes`/`orders`/`memberships` after gates 1–2.
 
 ### 12.3 Migration implications (summary)
 
