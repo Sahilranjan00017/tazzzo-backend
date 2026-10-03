@@ -73,6 +73,8 @@ class IndexContractIT extends AbstractMongoIT {
         return new Idx(coll, name, keys, unique, false, partial, ttl);
     }
 
+    private static final Document ATTRIBUTED = new Document("actor", new Document("$type", "object"));
+
     static final List<Idx> MANIFEST = List.of(
             // products (PAG-2 list index, DB-2 per-vertical cursor index, two sparse reference indexes)
             plain("products", k("classification.vertical_id", 1, "lifecycle", 1, "classification.status", 1, "_id", 1)),
@@ -139,12 +141,20 @@ class IndexContractIT extends AbstractMongoIT {
             named("memberships", "membership_one_open_per_customer", k("customerId", 1), true,
                     new Document("openTerm", true), null),
             named("memberships", "membership_one_per_grant_reference", k("grantSource", 1, "grantRef", 1), true, null, null),
-            named("memberships", "membership_active_by_customer", k("customerId", 1, "status", 1), false, null, null)
+            named("memberships", "membership_active_by_customer", k("customerId", 1, "status", 1), false, null, null),
+            // admin audit-read (PR #49): independent restatement, three partial indexes on each of three ledgers
+            named("product_events", "audit_read_recent", k("at", -1, "_id", -1), false, ATTRIBUTED, null),
+            named("product_events", "audit_read_actor", k("actor.id", 1, "at", -1, "_id", -1), false, ATTRIBUTED, null),
+            named("product_events", "audit_read_request", k("actor.request_id", 1, "at", -1, "_id", -1), false, ATTRIBUTED, null),
+            named("node_events", "audit_read_recent", k("at", -1, "_id", -1), false, ATTRIBUTED, null),
+            named("node_events", "audit_read_actor", k("actor.id", 1, "at", -1, "_id", -1), false, ATTRIBUTED, null),
+            named("node_events", "audit_read_request", k("actor.request_id", 1, "at", -1, "_id", -1), false, ATTRIBUTED, null),
+            named("domain_events", "audit_read_recent", k("at", -1, "_id", -1), false, ATTRIBUTED, null),
+            named("domain_events", "audit_read_actor", k("actor.id", 1, "at", -1, "_id", -1), false, ATTRIBUTED, null),
+            named("domain_events", "audit_read_request", k("actor.request_id", 1, "at", -1, "_id", -1), false, ATTRIBUTED, null)
     );
 
     /** The only collections that may carry the in-flight audit-read indexes (name prefix below). */
-    private static final Set<String> AUDIT_READ_LEDGERS = Set.of("product_events", "node_events", "domain_events");
-    private static final String AUDIT_READ_PREFIX = "audit_read_";
 
     // ---- helpers -----------------------------------------------------------------------------
 
@@ -263,9 +273,6 @@ class IndexContractIT extends AbstractMongoIT {
         for (String coll : db.listCollectionNames()) {
             Set<String> actual = new TreeSet<>(indexesOf(coll).keySet());
             actual.remove("_id_");
-            if (AUDIT_READ_LEDGERS.contains(coll)) {
-                actual.removeIf(n -> n.startsWith(AUDIT_READ_PREFIX)); // in-flight audit-read indexes, tolerated here only
-            }
             assertThat(actual).as("indexes on " + coll + " (besides _id_) must equal the manifest")
                     .isEqualTo(expected.getOrDefault(coll, new TreeSet<>()));
         }
@@ -510,7 +517,7 @@ class IndexContractIT extends AbstractMongoIT {
     }
 
     @Test
-    void bootstrap_creates_exactly_the_catalog_baseline_and_nothing_managed() {
+    void bootstrap_creates_the_baseline_plus_only_the_audit_read_indexes_and_no_other_managed_index() {
         com.mongodb.client.MongoDatabase scratch = client.getDatabase("db3_drift_" + java.util.UUID.randomUUID().toString().replace("-", ""));
         try {
             schemaBootstrap.bootstrap(scratch);
@@ -518,19 +525,24 @@ class IndexContractIT extends AbstractMongoIT {
                 assertThat(s.inspect(scratch).state()).as("baseline spec created by bootstrap: " + s.describe())
                         .isEqualTo(com.tazzzo.catalog.migration.IndexSpec.State.EXACT);
             }
+            // the legacy bootstrap (test/dev only, never run by the migration path) also creates the audit-read indexes (PR #49);
+            // V0007 creates the same nine for migrated databases. Every OTHER managed index must stay migration-only.
             for (com.tazzzo.catalog.migration.IndexSpec s : com.tazzzo.catalog.migration.IndexCatalog.MANAGED) {
-                assertThat(s.inspect(scratch).state()).as("migration-managed index must NOT be created by bootstrap: " + s.describe())
-                        .isEqualTo(com.tazzzo.catalog.migration.IndexSpec.State.ABSENT);
+                boolean audit = com.tazzzo.catalog.migration.IndexCatalog.AUDIT_READ_SPECS.contains(s);
+                assertThat(s.inspect(scratch).state())
+                        .as((audit ? "audit-read index created by legacy bootstrap: " : "migration-managed index must NOT be created by bootstrap: ") + s.describe())
+                        .isEqualTo(audit ? com.tazzzo.catalog.migration.IndexSpec.State.EXACT : com.tazzzo.catalog.migration.IndexSpec.State.ABSENT);
             }
             Map<String, Set<String>> expected = new TreeMap<>();
-            for (com.tazzzo.catalog.migration.IndexSpec s : com.tazzzo.catalog.migration.IndexCatalog.BASELINE) {
+            java.util.List<com.tazzzo.catalog.migration.IndexSpec> bootstrapSet = new java.util.ArrayList<>(com.tazzzo.catalog.migration.IndexCatalog.BASELINE);
+            bootstrapSet.addAll(com.tazzzo.catalog.migration.IndexCatalog.AUDIT_READ_SPECS);
+            for (com.tazzzo.catalog.migration.IndexSpec s : bootstrapSet) {
                 expected.computeIfAbsent(s.collection(), x -> new TreeSet<>()).add(s.effectiveName());
             }
             for (String coll : scratch.listCollectionNames()) {
                 Set<String> actual = new TreeSet<>();
                 scratch.getCollection(coll).listIndexes().forEach(i -> actual.add(i.getString("name")));
                 actual.remove("_id_");
-                if (AUDIT_READ_LEDGERS.contains(coll)) actual.removeIf(n -> n.startsWith(AUDIT_READ_PREFIX));
                 assertThat(actual).as("bootstrap indexes on " + coll).isEqualTo(expected.getOrDefault(coll, new TreeSet<>()));
             }
         } finally {

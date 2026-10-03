@@ -54,7 +54,10 @@ class MigrationFrameworkIT extends AbstractMigrationIT {
                 // WITHOUT needing approval
                 .containsEntry("V0004__seed_schemas_pack_fields_not_required", MigrationRunner.StepStatus.ADOPTED)
                 .containsEntry("V0005__evidence_links_unique_link", MigrationRunner.StepStatus.APPLIED_NOW)
-                .containsEntry("V0006__taxonomy_nodes_unique_active_sibling_name", MigrationRunner.StepStatus.APPLIED_NOW);
+                .containsEntry("V0006__taxonomy_nodes_unique_active_sibling_name", MigrationRunner.StepStatus.APPLIED_NOW)
+                // PR #49: a migrations-only database must carry the nine audit-read indexes, not just a bootstrap()-built one
+                .containsEntry("V0007__audit_read_partial_indexes", MigrationRunner.StepStatus.APPLIED_NOW);
+        assertThat(IndexCatalog.AUDIT_READ_SPECS).hasSize(9);
         assertThat(st.keySet()).as("disabled drop candidates are registered but never run by default")
                 .noneMatch(id -> id.startsWith("V01"));
         assertThat(List.copyOf(st.keySet())).isSorted();

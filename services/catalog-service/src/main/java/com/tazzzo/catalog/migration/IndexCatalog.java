@@ -54,9 +54,36 @@ public final class IndexCatalog {
 
     public static final IndexSpec CANONICAL_KEYS_PRODUCT_SPEC = plain("canonical_keys", k("product_id", 1));
 
-    /** Indexes created only by explicit migrations (never by {@code SchemaBootstrap.bootstrap}). */
-    public static final List<IndexSpec> MANAGED = List.of(
-            PRODUCT_VERTICAL_CURSOR_SPEC, EVIDENCE_LINK_UNIQUE_SPEC, TAXONOMY_SIBLING_UNIQUE_SPEC);
+    /**
+     * Admin audit-read (PR #49): three partial indexes on each of three ledgers, over attributed rows only. Names and
+     * shapes mirror {@code SchemaBootstrap.createAuditReadIndexes}; the legacy bootstrap still creates them for
+     * non-migrated (test/dev) databases, and V0007 creates them for migrated ones. Pinned equal by IndexContractIT.
+     */
+    public static final List<IndexSpec> AUDIT_READ_SPECS;
+
+    static {
+        Document attributed = new Document("actor", new Document("$type", "object"));
+        List<IndexSpec> a = new ArrayList<>();
+        for (String ledger : com.tazzzo.catalog.schema.SchemaBootstrap.AUDIT_READ_LEDGERS) {
+            a.add(named(ledger, com.tazzzo.catalog.schema.SchemaBootstrap.AUDIT_IDX_RECENT,
+                    k("at", -1, "_id", -1), false, attributed, null));
+            a.add(named(ledger, com.tazzzo.catalog.schema.SchemaBootstrap.AUDIT_IDX_ACTOR,
+                    k("actor.id", 1, "at", -1, "_id", -1), false, attributed, null));
+            a.add(named(ledger, com.tazzzo.catalog.schema.SchemaBootstrap.AUDIT_IDX_REQUEST,
+                    k("actor.request_id", 1, "at", -1, "_id", -1), false, attributed, null));
+        }
+        AUDIT_READ_SPECS = List.copyOf(a);
+    }
+
+    /** Indexes created only by explicit migrations (never by the baseline migration). */
+    public static final List<IndexSpec> MANAGED;
+
+    static {
+        List<IndexSpec> m = new ArrayList<>(List.of(
+                PRODUCT_VERTICAL_CURSOR_SPEC, EVIDENCE_LINK_UNIQUE_SPEC, TAXONOMY_SIBLING_UNIQUE_SPEC));
+        m.addAll(AUDIT_READ_SPECS);
+        MANAGED = List.copyOf(m);
+    }
 
     /** The 48 indexes {@code SchemaBootstrap.bootstrap} creates. */
     public static final List<IndexSpec> BASELINE;

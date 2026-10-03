@@ -101,6 +101,7 @@ applied migration is detected, never silently ignored.
 | `V0004__seed_schemas_pack_fields_not_required` | DATA | on, **needs approval to change data** | `pack_size`/`pack_unit` `required=false` on seed schemas, **version 1 only** | never; adopted when nothing to change |
 | `V0005__evidence_links_unique_link` | SCHEMA | on | unique `evidence_links (evidence_id, product_id, link_type)` | duplicates exist (§10), or conflicting definition |
 | `V0006__taxonomy_nodes_unique_active_sibling_name` | SCHEMA | on | partial unique `taxonomy_nodes (parent_id, name)` where `status=active` | active-sibling duplicates exist, or conflicting definition |
+| `V0007__audit_read_partial_indexes` | SCHEMA | on | nine partial indexes `audit_read_recent`/`_actor`/`_request` on `product_events`, `node_events`, `domain_events` (predicate `actor` is an object) for the admin audit-read API (PR #49) | conflicting definition on the same keys; none are unique, so no duplicate preflight |
 | `V0101__drop_unused_session_by_customer_index` | SCHEMA | **off** | drops `customer_sessions.session_by_customer` | live index is not the exact reviewed definition |
 | `V0102__drop_unused_canonical_keys_product_id_index` | SCHEMA | **off** | drops `canonical_keys (product_id)` | same |
 
@@ -222,7 +223,7 @@ If duplicates exist the migration records `BLOCKED` with a sample of the keys, t
 
 ### 12.1 Existing database created by the legacy bootstrap (adoption)
 
-1. `DRY_RUN` and review: `V0001` should report `WOULD_ADOPT`; `V0002`/`V0005`/`V0006` report what they would create or block.
+1. `DRY_RUN` and review: `V0001` should report `WOULD_ADOPT`; `V0002`/`V0005`/`V0006`/`V0007` report what they would create or block.
 2. Run the §9.1 and §9.2 preflight queries.
 3. `APPLY` (with approvals/enables if intended). Adopted migrations are recorded without changing data.
 4. Start the application in `VERIFY` mode.
@@ -261,7 +262,7 @@ History records are never deleted; a corrective migration is a new one.
 
 ## 14. Unused-index decisions (DB-2 §6.2)
 
-Usage re-verified against current `main` source by direct search (this phase). PR #49 (audit-read, **open, not merged**, head `9a8329f`) is accounted for: it adds nine `audit_read_*` partial indexes on `product_events`/`node_events`/`domain_events` and does **not** use the legacy ledger indexes for its default, actor, request-id, cursor or time-range queries.
+Usage re-verified against current `main` source by direct search (this phase). PR #49 (audit-read, **merged** as `8227286`) is accounted for: it adds nine `audit_read_*` partial indexes on `product_events`/`node_events`/`domain_events` and does **not** use the legacy ledger indexes for its default, actor, request-id, cursor or time-range queries.
 
 | Index | Evidence on `main` | Decision | Preflight / rollout |
 |---|---|---|---|
@@ -287,23 +288,20 @@ Actual drops happen only through the disabled drop migrations after explicit app
 - Never edit an applied migration; add a new one.
 - Duplicate remediation, validator `strict` rollouts and any data change are explicit human decisions, not automatic.
 
-## 16. Interaction with PR #49 (audit-read) — action required when it merges
+## 16. Interaction with PR #49 (audit-read) — resolved by `V0007`
 
-PR #49 (open, not merged, head `9a8329f`) creates its nine `audit_read_*` partial indexes **inside
-`SchemaBootstrap.bootstrap()`**. Since DB-3 the application no longer calls `bootstrap()` at startup, and the
-migration baseline (`V0001`) is driven by `IndexCatalog`, not by `bootstrap()`. Verified in a scratch merge of
-DB-3 with PR #49 (a **one-off, uncommitted** local check, not reproduced by committed tests): every index/framework suite passes (`IndexContractIT`, `AuditReadIndexIT`,
-`MigrationFrameworkIT`), **but a database built only by migrations has no `audit_read_*` index** on
-`product_events`, `node_events` or `domain_events`, while a bootstrap-built one has all nine.
+PR #49 merged to `main` (`8227286`) and creates its nine `audit_read_*` partial indexes **inside
+`SchemaBootstrap.bootstrap()`**. Since DB-3 the application no longer calls `bootstrap()` at startup and the
+migration baseline (`V0001`) is driven by `IndexCatalog`, so a database built only by migrations would have lacked
+them (the audit-read API would have run unindexed, bounded only by its 5 s `maxTime` and 100-row limit).
 
-Therefore, when PR #49 merges, **a migration that creates those nine indexes must be added** (a
-`CreateIndexMigration` over the nine `IndexSpec`s, registered after the current ones, e.g. `V0007`), and
-`IndexCatalog`, `IndexContractIT` and the manifest must pin them exactly (today the drift tests only tolerate the
-`audit_read_` name prefix on those three ledgers). Without it the audit-read API would run unindexed in every
-environment that uses the migration job. This is deliberately **not** added speculatively here: PR #49 is not
-merged and its index definitions could still change. The audit-read endpoints themselves are bounded
-(5 s `maxTime`, 100 rows) but would scan.
+Resolution (merged into the DB-3 branch after PR #49 landed): `IndexCatalog.AUDIT_READ_SPECS` pins the nine
+definitions, migration **`V0007__audit_read_partial_indexes`** creates them (adopting an identical existing index,
+BLOCKING on a conflicting one, never `IndexOptionsConflict`), and `IndexContractIT` carries them in its independent
+oracle (the earlier `audit_read_` name-prefix tolerance is removed). `MigrationFrameworkIT` asserts a migrations-only
+database ends with all nine. The legacy `bootstrap()` (test/dev only) still creates the same nine; a drift test
+pins that this is the only managed index it creates.
 
 ## 17. Not done in DB-3 (explicit)
 
-No migration was run against any staging or production database; no validator is enabled; no unused index is dropped; PR #49's nine `audit_read_*` indexes are not part of the catalog until it merges (the drift tests tolerate that prefix on the three ledgers, and the manifest/oracle must be updated when it merges); index build time on production-sized data and the live index set remain UNVERIFIED; separate migration/runtime database users and the deployment pipeline integration are DB-4 and the AWS track.
+No migration was run against any staging or production database; no validator is enabled; no unused index is dropped; PR #49's nine `audit_read_*` indexes are now part of the catalog and created by `V0007`; index build time on production-sized data and the live index set remain UNVERIFIED; separate migration/runtime database users and the deployment pipeline integration are DB-4 and the AWS track.

@@ -498,7 +498,7 @@ public class SchemaBootstrap {
      * </ul>
      * Explicit names make the explain() evidence stable. Unattributed historical rows are not indexed (never returned).
      */
-    static final List<String> AUDIT_READ_LEDGERS = List.of("product_events", "node_events", "domain_events");
+    public static final List<String> AUDIT_READ_LEDGERS = List.of("product_events", "node_events", "domain_events");
     public static final String AUDIT_IDX_RECENT = "audit_read_recent";
     public static final String AUDIT_IDX_ACTOR = "audit_read_actor";
     public static final String AUDIT_IDX_REQUEST = "audit_read_request";
