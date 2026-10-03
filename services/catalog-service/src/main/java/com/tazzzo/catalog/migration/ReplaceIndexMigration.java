@@ -38,6 +38,11 @@ public final class ReplaceIndexMigration implements Migration {
     public ReplaceIndexMigration(String id, String description, IndexSpec from, IndexSpec to, boolean enabledByDefault,
                                  DuplicateCheck duplicateCheck) {
         if (!from.collection().equals(to.collection())) throw new IllegalArgumentException("same collection required");
+        if (to.unique() && !from.unique() && duplicateCheck == null) {
+            // dropping the source and then failing to build the unique target on duplicates would leave the collection
+            // without the index; a replacement that makes an index unique must prove there are no duplicates first
+            throw new IllegalArgumentException("a replacement that makes an index unique must supply a DuplicateCheck");
+        }
         this.id = id;
         this.description = description;
         this.from = from;
@@ -90,6 +95,13 @@ public final class ReplaceIndexMigration implements Migration {
             if (asTarget.state() == IndexSpec.State.EXACT) return Preflight.satisfied("replacement already in place: " + to.effectiveName());
             IndexSpec.Inspection asSource = from.inspect(db);
             if (asSource.state() == IndexSpec.State.EXACT) {
+                // Check the target as if the source were already gone: otherwise an equivalent or conflicting index under
+                // a THIRD name is hidden behind the same-named source, and apply would drop the source and then fail.
+                IndexSpec.Inspection withoutSource = to.inspect(db, from.effectiveName());
+                if (withoutSource.state() != IndexSpec.State.ABSENT) {
+                    return Preflight.blocked(List.of("cannot replace " + from.effectiveName() + ": " + withoutSource.detail()
+                            + " (" + withoutSource.state() + "); nothing is dropped"));
+                }
                 Preflight dup = blockedByDuplicates(db);
                 if (dup != null) return dup;
                 return Preflight.ready(List.of("drop index " + from.effectiveName(), "create index " + to.describe()),
@@ -105,8 +117,8 @@ public final class ReplaceIndexMigration implements Migration {
                 return Preflight.ready(List.of("create index " + to.describe()),
                         List.of("the source is already gone (an interrupted earlier run, or already dropped): resuming with the create"));
             }
-            return Preflight.blocked(List.of("an equivalent index exists under the name " + asTarget.existingName()
-                    + ", which is neither the source nor the target"));
+            return Preflight.blocked(List.of("cannot create " + to.effectiveName() + ": " + asTarget.detail() + " ("
+                    + asTarget.state() + "); resolve it deliberately, nothing is created"));
         }
         if (dropFirst()) {
             IndexSpec.Inspection newIn = to.inspect(db, from.effectiveName()); // the source is about to go; ignore it
@@ -120,6 +132,10 @@ public final class ReplaceIndexMigration implements Migration {
                 if (oldIn.state() != IndexSpec.State.EXACT) {
                     return Preflight.blocked(List.of("the index to replace is not the exact reviewed definition: " + from.describe()
                             + " — " + oldIn.detail()));
+                }
+                if (newIn.state() != IndexSpec.State.ABSENT) {
+                    return Preflight.blocked(List.of("cannot replace " + from.effectiveName() + ": " + newIn.detail()
+                            + " (" + newIn.state() + "); nothing is dropped"));
                 }
                 Preflight dup = blockedByDuplicates(db);
                 if (dup != null) return dup;

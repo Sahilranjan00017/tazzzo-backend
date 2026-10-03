@@ -592,7 +592,8 @@ class IndexMigrationIT extends AbstractMigrationIT {
         IndexSpec from = spec("idx_a", false, "a", 1);
         IndexSpec to = spec("idx_a", true, "a", 1);
         from.create(d);
-        ReplaceIndexMigration m = new ReplaceIndexMigration("T1", "make unique", from, to, true);
+        ReplaceIndexMigration m = new ReplaceIndexMigration("T1", "make unique", from, to, true,
+                DuplicateCheck.byFields("ren", null, "a"));
         d.getCollection("ren").dropIndex("idx_a"); // a crash between the drop and the create
         Preflight pf = m.preflight(d);
         assertThat(pf.status()).isEqualTo(Preflight.Status.READY);
@@ -610,5 +611,77 @@ class IndexMigrationIT extends AbstractMigrationIT {
         // the source is gone and an equivalent index now exists under a third name (a race since the preflight)
         d.getCollection("ren").createIndex(new Document("a", 1), new IndexOptions().name("appeared_meanwhile"));
         assertThatThrownBy(() -> m.apply(d)).isInstanceOf(MigrationException.class).hasMessageContaining("appeared_meanwhile");
+    }
+
+    // ---- the state-matrix cases a sampling review missed -------------------------------------
+
+    @Test
+    void a_same_name_replacement_is_blocked_before_any_drop_when_an_equivalent_index_exists_under_a_third_name() {
+        MongoDatabase d = scratch();
+        IndexSpec from = spec("idx", false, "a", 1);
+        IndexSpec to = spec("idx", false, "a", 1, "b", 1); // widen, keeping the name
+        from.create(d);
+        d.getCollection("ren").createIndex(new Document("a", 1).append("b", 1), new IndexOptions().name("idx_ab")); // already equivalent
+        String before = indexSnapshot(d);
+        ReplaceIndexMigration m = new ReplaceIndexMigration("T1", "widen idx", from, to, true);
+
+        Preflight pf = m.preflight(d);
+        assertThat(pf.status()).as("must NOT say READY and then drop the source and fail").isEqualTo(Preflight.Status.BLOCKED);
+        assertThat(pf.blockers().get(0)).contains("idx_ab").contains("nothing is dropped");
+
+        MigrationRunner.RunReport r = runner(d, List.of(m)).apply(target(d), MigrationRunner.Selection.all(), apply());
+        assertThat(r.outcome()).isEqualTo(MigrationRunner.Outcome.BLOCKED);
+        assertThat(from.inspect(d).state()).as("the source was never dropped").isEqualTo(IndexSpec.State.EXACT);
+        assertThat(indexSnapshot(d)).isEqualTo(before);
+    }
+
+    @Test
+    void a_same_name_replacement_is_blocked_when_a_conflicting_index_exists_under_a_third_name() {
+        MongoDatabase d = scratch();
+        IndexSpec from = spec("idx", false, "a", 1);
+        IndexSpec to = spec("idx", false, "a", 1, "b", 1);
+        from.create(d);
+        // same keys as the target but DIFFERENT options, under another name
+        d.getCollection("ren").createIndex(new Document("a", 1).append("b", 1), new IndexOptions().name("idx_ab_unique").unique(true));
+        Preflight pf = new ReplaceIndexMigration("T1", "widen idx", from, to, true).preflight(d);
+        assertThat(pf.status()).isEqualTo(Preflight.Status.BLOCKED);
+        assertThat(pf.blockers().get(0)).contains("different options").contains("idx_ab_unique");
+        assertThat(from.inspect(d).state()).isEqualTo(IndexSpec.State.EXACT);
+    }
+
+    @Test
+    void a_same_name_replacement_is_blocked_when_the_live_index_is_neither_the_source_nor_the_target() {
+        MongoDatabase d = scratch();
+        IndexSpec from = spec("idx", false, "a", 1);
+        IndexSpec to = spec("idx", true, "a", 1);
+        d.getCollection("ren").createIndex(new Document("z", 1), new IndexOptions().name("idx")); // the name is held by something else
+        Preflight pf = new ReplaceIndexMigration("T1", "make unique", from, to, true, DuplicateCheck.byFields("ren", null, "a")).preflight(d);
+        assertThat(pf.status()).isEqualTo(Preflight.Status.BLOCKED);
+        assertThat(pf.blockers().get(0)).contains("neither the exact reviewed source nor the target");
+        assertThat(d.getCollection("ren").listIndexes().into(new java.util.ArrayList<>()).stream().map(i -> i.getString("name")))
+                .contains("idx");
+    }
+
+    @Test
+    void a_blocked_same_name_resume_reports_the_real_reason() {
+        MongoDatabase d = scratch();
+        IndexSpec from = spec("idx", false, "a", 1);
+        IndexSpec to = spec("idx", true, "a", 1);
+        // the source is already gone; an index with the target's keys but different options exists under another name
+        d.getCollection("ren").createIndex(new Document("a", 1), new IndexOptions().name("a_sparse").sparse(true));
+        Preflight pf = new ReplaceIndexMigration("T1", "make unique", from, to, true, DuplicateCheck.byFields("ren", null, "a")).preflight(d);
+        assertThat(pf.status()).isEqualTo(Preflight.Status.BLOCKED);
+        assertThat(pf.blockers().get(0)).as("not the misleading 'an equivalent index exists'").contains("different options").contains("a_sparse");
+    }
+
+    @Test
+    void a_replacement_that_makes_an_index_unique_must_carry_a_duplicate_check() {
+        IndexSpec from = spec("idx_a", false, "a", 1);
+        IndexSpec to = spec("idx_a_unique", true, "a", 1);
+        assertThatThrownBy(() -> new ReplaceIndexMigration("T1", "make unique", from, to, true))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("DuplicateCheck");
+        // making an index non-unique, or leaving uniqueness unchanged, needs none
+        new ReplaceIndexMigration("T2", "relax", spec("u", true, "a", 1), spec("n", false, "a", 1), true);
+        new ReplaceIndexMigration("T3", "same", spec("x", false, "a", 1), spec("y", false, "a", 1), true);
     }
 }
