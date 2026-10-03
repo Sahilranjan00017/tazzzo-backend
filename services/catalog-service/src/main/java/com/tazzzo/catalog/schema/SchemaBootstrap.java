@@ -121,6 +121,9 @@ public class SchemaBootstrap {
     public static final List<String> PAG2_PRODUCT_INDEX_KEYS = List.of(
             "classification.vertical_id", "lifecycle", "classification.status", "_id");
 
+    /** DB-2: explicit name of the {@code (classification.vertical_id, _id)} per-vertical scan index. */
+    public static final String PRODUCT_VERTICAL_CURSOR_INDEX = "product_vertical_id_cursor";
+
     /**
      * The pre-PAG-2 index. It is an exact PREFIX of the above, so a compound index on
      * PAG2_PRODUCT_INDEX_KEYS serves every query this one served — it is redundant once the wider
@@ -166,6 +169,18 @@ public class SchemaBootstrap {
         // there is never a window in which neither exists.
         db.getCollection("products").createIndex(Indexes.ascending(PAG2_PRODUCT_INDEX_KEYS));
         dropHistoricalPlainPrefixIndex(db.getCollection("products"), LEGACY_PRODUCT_INDEX_KEYS);
+        // DB-2: the per-vertical `_id`-ordered scan (taxonomy stamp worker, canonical-key backfill)
+        // filters `classification.vertical_id = V AND _id > checkpoint` and sorts by `_id`. PAG2 cannot
+        // order by `_id` after a vertical-only equality (lifecycle/status sit between), so the planner
+        // walks the whole `_id` index and filters. A one-off, UNCOMMITTED explain on mongo:7 (6 verticals,
+        // 60k products; not reproduced by the committed tests) showed 595 docs examined per 100 returned;
+        // with this index the scan is index-ordered (by reasoning, the stamp worker's `_id`-only
+        // projection is then covered; the backfill still fetches its page). The committed IndexContractIT
+        // asserts only the stamp-worker plan SHAPE, not these figures.
+        // ADDITIVE and non-destructive; PAG2 and the sparse indexes are untouched.
+        db.getCollection("products").createIndex(
+                new Document("classification.vertical_id", 1).append("_id", 1),
+                new IndexOptions().name(PRODUCT_VERTICAL_CURSOR_INDEX));
         db.getCollection("products").createIndex(
                 Indexes.ascending("bundle_contents.component_product_id"), new IndexOptions().sparse(true));
         db.getCollection("products").createIndex(
