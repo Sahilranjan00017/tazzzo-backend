@@ -172,9 +172,10 @@ public class SchemaBootstrap {
         // DB-2: the per-vertical `_id`-ordered scan (taxonomy stamp worker, canonical-key backfill)
         // filters `classification.vertical_id = V AND _id > checkpoint` and sorts by `_id`. PAG2 cannot
         // order by `_id` after a vertical-only equality (lifecycle/status sit between), so the planner
-        // walks the whole `_id` index and filters; measured on mongo:7 (6 verticals, 60k products):
-        // 595 docs examined per 100 returned, versus a covered 100-key scan with this index. ADDITIVE
-        // and non-destructive; PAG2 and the sparse indexes are untouched.
+        // walks the whole `_id` index and filters. A one-off explain on mongo:7 (6 verticals, 60k
+        // products) showed 595 docs examined per 100 returned; with this index the scan is index-ordered
+        // (the stamp worker's `_id` projection is fully covered; the backfill still fetches its page).
+        // ADDITIVE and non-destructive; PAG2 and the sparse indexes are untouched.
         db.getCollection("products").createIndex(
                 new Document("classification.vertical_id", 1).append("_id", 1),
                 new IndexOptions().name(PRODUCT_VERTICAL_CURSOR_INDEX));

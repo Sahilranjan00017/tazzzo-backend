@@ -178,11 +178,13 @@ class IndexContractIT extends AbstractMongoIT {
     private void assertUniqueRejects(String coll, Supplier<Document> sameKeyDoc) {
         MongoCollection<Document> c = db.getCollection(coll);
         Document first = sameKeyDoc.get();
+        Document second = sameKeyDoc.get();
         c.insertOne(first);
         try {
-            assertDuplicateKey(() -> c.insertOne(sameKeyDoc.get()));
+            assertDuplicateKey(() -> c.insertOne(second));
         } finally {
-            c.deleteOne(new Document("_id", first.get("_id")));
+            // delete both ids: if the index were missing the second insert would have succeeded
+            c.deleteMany(new Document("_id", new Document("$in", List.of(first.get("_id"), second.get("_id")))));
         }
     }
 
@@ -214,13 +216,14 @@ class IndexContractIT extends AbstractMongoIT {
                 return null;
             }));
         }
-        go.countDown();
-        for (Future<?> f : fs) f.get();
-        pool.shutdown();
         try {
+            go.countDown();
+            for (Future<?> f : fs) f.get();
             assertThat(ok.get()).as(coll + " concurrent winners").isEqualTo(1);
             assertThat(dup.get()).as(coll + " concurrent duplicate-key rejections").isEqualTo(threads - 1);
         } finally {
+            go.countDown();
+            pool.shutdownNow();
             for (Object id : ids) c.deleteOne(new Document("_id", id));
         }
     }
@@ -355,6 +358,24 @@ class IndexContractIT extends AbstractMongoIT {
         } finally {
             otp.deleteMany(new Document("_id", new Document("$in", ids)));
         }
+        // memberships: at most one open term per customer even with DIFFERENT grant references; terminal rows
+        // (openTerm absent) are unlimited
+        MongoCollection<Document> mem = db.getCollection("memberships");
+        List<Object> mids = new ArrayList<>();
+        try {
+            Document m1 = new Document("customerId", "CUS_open").append("openTerm", true)
+                    .append("grantSource", "INTERNAL_GRANT").append("grantRef", "open-1");
+            mem.insertOne(m1); mids.add(m1.get("_id"));
+            assertDuplicateKey(() -> mem.insertOne(new Document("customerId", "CUS_open").append("openTerm", true)
+                    .append("grantSource", "INTERNAL_GRANT").append("grantRef", "open-2")));
+            for (int i = 0; i < 3; i++) { // terminal history rows: no openTerm marker
+                Document t = new Document("customerId", "CUS_open").append("status", "EXPIRED")
+                        .append("grantSource", "INTERNAL_GRANT").append("grantRef", "hist-" + i);
+                mem.insertOne(t); mids.add(t.get("_id"));
+            }
+        } finally {
+            mem.deleteMany(new Document("_id", new Document("$in", mids)));
+        }
         // release gate: one OPEN release; cleared gate (activated) rows are unlimited
         MongoCollection<Document> rel = db.getCollection("catalogue_releases");
         List<Object> rids = new ArrayList<>();
@@ -385,7 +406,9 @@ class IndexContractIT extends AbstractMongoIT {
                 .append("gate", "OPEN"));
         assertRaceOneWinner("customer_otp_challenges", () -> new Document("phoneNormalized", "+919000000004")
                 .append("purpose", "LOGIN").append("delivering", true));
-        assertRaceOneWinner("memberships", () -> new Document("customerId", "CUS_race").append("openTerm", true));
+        // distinct (grantSource, grantRef) per racer so ONLY the partial one-open-per-customer index can reject
+        assertRaceOneWinner("memberships", () -> new Document("customerId", "CUS_race").append("openTerm", true)
+                .append("grantSource", "INTERNAL_GRANT").append("grantRef", "race-" + java.util.UUID.randomUUID()));
     }
 
     // ---- 7. the one index DB-2 adds is the one the per-vertical scan actually uses -----------
@@ -442,10 +465,11 @@ class IndexContractIT extends AbstractMongoIT {
         }
     }
 
-    // ---- 8. documentation drift guard ---------------------------------------------------------
+    // ---- 8. the in-test manifest itself is well-formed ----------------------------------------
+    // (This does NOT tie the markdown manifest to the test; the markdown is maintained by hand.)
 
     @Test
-    void manifest_names_are_unique_per_collection() {
+    void test_manifest_has_no_duplicate_entries() {
         Set<String> seen = new LinkedHashSet<>();
         for (Idx e : MANIFEST) {
             assertThat(seen.add(e.coll() + "." + e.effectiveName())).as("duplicate manifest entry " + e).isTrue();
