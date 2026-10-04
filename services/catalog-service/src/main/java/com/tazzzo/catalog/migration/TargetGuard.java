@@ -1,5 +1,7 @@
 package com.tazzzo.catalog.migration;
 
+import com.tazzzo.catalog.datastore.ConnectionContract;
+
 import java.util.Set;
 
 /**
@@ -11,6 +13,11 @@ import java.util.Set;
  *   <li>{@code APPLY} outside local/test/dev needs a two-key confirmation: the confirmed database AND environment
  *       must equal the actual target (a typed confirmation, so a mis-pointed URI cannot be migrated by accident).</li>
  * </ul>
+ * The environment label is metadata, not a boundary: the self-serve treatment of local/test/dev (startup mutation,
+ * APPLY without confirmation) applies only when every target host is a loopback literal. A remote, private-network
+ * or unknown target under a self-serve label is treated like staging/production: no startup/legacy mutation, and
+ * APPLY needs the two-key confirmation. (The datastore verifier independently enforces the connection contract and
+ * the privilege profile for such a target.)
  */
 public final class TargetGuard {
 
@@ -18,6 +25,12 @@ public final class TargetGuard {
     public static final Set<String> SELF_SERVE_ENVIRONMENTS = Set.of("local", "test", "dev");
 
     private TargetGuard() { }
+
+    /** Every host is a loopback literal (an empty or unknown host list is NOT local: fail closed). */
+    static boolean isLocalTarget(MigrationTarget target) {
+        return target.hosts() != null && !target.hosts().isEmpty()
+                && target.hosts().stream().allMatch(ConnectionContract::isLoopback);
+    }
 
     public static void requireMutationAllowed(MigrationMode mode, MigrationTarget target,
                                               String confirmDatabase, String confirmEnvironment) {
@@ -33,11 +46,11 @@ public final class TargetGuard {
         if (target.database() == null || target.database().isBlank()) {
             throw new TargetRefusedException("refusing to mutate: the target database is not identified");
         }
-        boolean selfServe = SELF_SERVE_ENVIRONMENTS.contains(env);
+        boolean selfServe = SELF_SERVE_ENVIRONMENTS.contains(env) && isLocalTarget(target);
         if ((mode == MigrationMode.APPLY_ON_STARTUP || mode == MigrationMode.LEGACY) && !selfServe) {
             throw new TargetRefusedException("refusing to mutate at application startup in environment '" + env
-                    + "': startup mutation is only allowed in " + SELF_SERVE_ENVIRONMENTS
-                    + "; run the controlled migration job (mode=APPLY) instead");
+                    + "' or against a non-loopback datastore: startup mutation is only allowed in " + SELF_SERVE_ENVIRONMENTS
+                    + " on a loopback server; run the controlled migration job (mode=APPLY) instead");
         }
         if (mode == MigrationMode.APPLY && !selfServe) {
             if (!target.database().equals(confirmDatabase) || !env.equals(confirmEnvironment)) {

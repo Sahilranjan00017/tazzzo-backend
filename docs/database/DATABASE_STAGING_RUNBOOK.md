@@ -71,7 +71,7 @@ compromised application forge "migrated" and defeat `VERIFY`) or the lock.
 
 ### 4.2 Enforced at startup, not just documented
 
-`DatastoreStartupVerifier` (runs before the migration startup runner) compares what the connected identity **actually holds** (`connectionStatus` with `showPrivileges`) to the profile for the current mode:
+`DatastoreStartupVerifier` (runs before the migration startup runner and every other `ApplicationRunner`; scheduled workers are held back separately, §6.1) compares what the connected identity **actually holds** (`connectionStatus` with `showPrivileges`) to the profile for the current mode:
 
 | Mode | Profile | Refused when |
 |---|---|---|
@@ -129,6 +129,17 @@ For `staging` and `production` the application **refuses to start** unless the c
 | `socketTimeoutMS` | optional; `0` or ≥ 60000 | a tight socket timeout aborts an in-flight transaction with an ambiguous outcome | `SOCKET_TIMEOUT_TOO_LOW` |
 | `waitQueueTimeoutMS` | optional; ≤ 30000 | bounded pool wait | `WAIT_QUEUE_TIMEOUT_OUT_OF_RANGE` |
 | `maxPoolSize` | explicit, 1–100 (and `minPoolSize` ≤ it) | explicit capacity (M0 allows 500 connections in total) | `POOL_SIZE_REQUIRED`, `POOL_MIN_ABOVE_MAX` |
+| `journal` | not `false` (unset or `true`) | `j:false` lets a `w=majority` write be acknowledged before it reaches the on-disk journal | `JOURNAL_DISABLED_FORBIDDEN` |
+| `wtimeoutMS` | optional; `0` (no limit) or ≥ 1000 | a tiny value makes majority acknowledgement fail spuriously | `WTIMEOUT_TOO_LOW` |
+| `replicaSet` | not blank | a blank name is not a replica set | `REPLICA_SET_REQUIRED` |
+| revocation checking | `tlsDisableOCSPEndpointCheck` / `tlsDisableCertificateRevocationCheck` not `true` | revoked certificates must be refused | `TLS_REVOCATION_CHECK_DISABLED` |
+| proxy | no `proxyHost` / `proxyPort` / `proxyUsername` / `proxyPassword` | a proxy changes the network route, so the target cannot be classified from the host list | `PROXY_FORBIDDEN` |
+
+**PROPOSED — OWNER RATIFICATION REQUIRED.** Every *numeric* limit in this table (`connectTimeoutMS` ≤ 15000, `serverSelectionTimeoutMS` ≤ 30000, `socketTimeoutMS` ≥ 60000,
+`waitQueueTimeoutMS` ≤ 30000, `maxPoolSize` ≤ 100, `wtimeoutMS` ≥ 1000) was chosen by the DB-4 implementation as a conservative starting point. **No owner has approved
+them**; they are validation thresholds, not ratified requirements, and the pool cap in particular may need to change once production sizing is known. The non-numeric rules
+(TLS, credentials, replica set, retries, `w=majority`, `readConcernLevel=majority`, `readPreference=primary`) follow the ratified intent of risk R7. The `journal` and `wtimeoutMS`
+rules close review findings: Atlas/driver documentation was not consulted for a tier-specific default, so they state only what the connection string says.
 
 Not a contract item, but a requirement: **transactions**. `Tx` calls `withTransaction` with no `TransactionOptions`, so
 transactions inherit the client's concerns — the explicit `w=majority` / `readConcernLevel=majority` above therefore
@@ -146,18 +157,19 @@ Configuration reference (no value here is a secret):
 |---|---|---|---|
 | `MONGODB_URI` | `spring.data.mongodb.uri` | localhost (**refused** for staging/production) | the connection string — secret |
 | `MONGODB_DATABASE` | `spring.data.mongodb.database` | `tazzzo` | `tazzzo_staging` for staging |
-| `TAZZZO_MIGRATION_ENVIRONMENT` | `tazzzo.migration.environment` | unset | `local`/`test`/`dev`/`staging`/`production`; **drives enforcement** |
+| `TAZZZO_MIGRATION_ENVIRONMENT` | `tazzzo.migration.environment` | unset | `local`/`test`/`dev`/`staging`/`production`. **A label, not a boundary:** enforcement is also decided by the connection string (§6.2) |
 | `TAZZZO_MIGRATION_MODE` | `tazzzo.migration.mode` | `VERIFY` | `VERIFY` (service), `DRY_RUN` / `APPLY` (job) |
 | `TAZZZO_DATASTORE_PRIVILEGE_VERIFICATION` | `tazzzo.datastore.privilege-verification` | `AUTO` | `AUTO` enforces for staging/production; `ENFORCE` enforces everywhere. **There is no setting that turns enforcement off for staging or production.** |
-| `TAZZZO_SCHEDULER_ENABLED` | `tazzzo.scheduler.enabled` | `true` | **`false` for staging until R1 is resolved** |
+| `TAZZZO_SCHEDULER_ENABLED` | `tazzzo.scheduler.enabled` | `true` | **`false` for staging until R1 is resolved** (the startup gate in §6.1 does not make the workers safe once running: R1 is still open) |
 
 ## 6. Startup behaviour (fail-fast)
 
-The verifier runs before anything touches the database and stops at the first failing stage. It never mutates and never "fixes" the schema to make startup pass.
+The verifier runs before the migration startup runner and every other `ApplicationRunner`, and stops at the first failing stage. It never mutates and never "fixes" the schema to make startup pass.
+What its ordering does **not** do is hold back `@Scheduled` workers, which start at context refresh, before any runner: that is closed off by the readiness gate (§6.1), not by ordering.
 
 | Condition | Result (finding code) |
 |---|---|
-| `staging`/`production`, URI missing or violating the contract | refuse, no connection attempted (`URI_MISSING`, `URI_INVALID`, and the §5 codes) |
+| `staging`/`production`, **or any label with a non-local target (§6.2)**, URI missing or violating the contract | refuse, no connection attempted by the verifier (`URI_MISSING`, `URI_INVALID`, and the §5 codes) |
 | environment unset **and** a non-loopback server | refuse (`ENVIRONMENT_NOT_IDENTIFIED`) — the environment cannot be trusted |
 | environment not one of the five known names | refuse (`ENVIRONMENT_UNKNOWN`) |
 | server unreachable within `serverSelectionTimeoutMS` | refuse (`DATASTORE_UNAVAILABLE`) |
@@ -168,9 +180,58 @@ The verifier runs before anything touches the database and stops at the first fa
 | standalone server / no sessions / older than MongoDB 7.0 | refuse (`TRANSACTIONS_UNSUPPORTED_TOPOLOGY`, `SESSIONS_UNSUPPORTED`, `SERVER_VERSION_TOO_OLD`) |
 | identity not authenticated, missing a required privilege, holding an excess privilege, or holding any privilege outside the application database | refuse (`NOT_AUTHENTICATED`, `MISSING_PRIVILEGE`, `EXCESS_PRIVILEGE`, `OUT_OF_SCOPE_PRIVILEGE`) |
 | migrations not applied (VERIFY) | refuse — existing behaviour of the migration runner (`database schema verification failed`) |
-| `local`/`test`/`dev` | advisory only: the findings are logged on one INFO line, the database is not touched by the verifier |
+| `local`/`test`/`dev` **and a loopback-only, non-SRV target** | advisory only: the findings are logged on one INFO line, the database is not touched by the verifier |
 
-`DatastoreWiringIT` proves the ordering: a fully authorized `APPLY` job in `staging` (migrator credentials, both confirmations correct) is refused for an out-of-contract URI **before it creates anything**; `production` with no `MONGODB_URI` fails in well under 20 s instead of falling back to localhost.
+`DatastoreWiringIT` proves the runner ordering: a fully authorized `APPLY` job in `staging` (migrator credentials, both confirmations correct) is refused for an out-of-contract URI **before the migration runner mutates anything**; `production` with no `MONGODB_URI` fails in well under 20 s instead of falling back to localhost. Those tests run with the scheduler disabled; the scheduled-worker guarantee has its own proof (§6.1).
+
+### 6.1 Scheduled workers and the readiness gate
+
+`@Scheduled` methods start at context refresh, **before** any `ApplicationRunner`. Before this hardening a refused startup (and a migration job) could therefore already have run the
+price rollup and purge, the merge/taint/stamp/backfill workers and the projection and reservation workers (observed: `PRICE_ROLLUP`/`PRICE_PURGE` events written and `price_events` rows deleted
+by a process the verifier then refused). The invariant now enforced **in code** is:
+
+> No scheduled business worker acts until the datastore verification has succeeded **and** startup has finished in a serving mode.
+
+How: the application's only `TaskScheduler` is `GatedTaskScheduler`; every `@Scheduled` method is registered through it, so each tick first asks `DatastoreReadiness.workersPermitted()` and returns
+without touching anything if the answer is no. The gate is closed at the first instant and opens once, at the end of a successful startup:
+
+| State | Entered when | Workers |
+|---|---|---|
+| `PENDING` | process start | blocked |
+| `VERIFIED` | `DatastoreStartupVerifier` succeeded (enforced and passed, or advisory) | blocked (startup is not finished) |
+| `OPEN` | `MigrationStartupRunner` completed in `VERIFY` / `APPLY_ON_STARTUP` / `LEGACY` after a verified datastore | **run** (first tick one period after opening) |
+| `REFUSED` | the verifier refused startup | blocked, terminal |
+| `JOB` | mode `DRY_RUN` or `APPLY` | blocked, terminal: a migration job runs no business workers whatever `TAZZZO_SCHEDULER_ENABLED` says |
+
+This does **not** depend on `TAZZZO_SCHEDULER_ENABLED=false`, on runner order or on timing. All eight `@Scheduled` methods (`CatalogSchedulers` ×5, `CommerceProjectionScheduler` ×2, `InventoryReservationScheduler` ×1) are covered, and
+`ScheduledWorkerGateTest` fails if a ninth appears without being inventoried, if a second scheduler or timer is introduced, or if a scheduling entry point of the gated scheduler is not wrapped.
+`StartupSchedulerGateIT` proves it against a real MongoDB with the scheduler **enabled** and periods of 10 ms: a verifier refusal, a later migration-runner refusal and a `DRY_RUN` job each leave the price ledger and the
+whole database untouched; a healthy start opens the gate.
+
+**What it does not do.** (a) It does not fix **R1**: once a serving process is verified and OPEN, the hourly `priceRollup` still purges rolled `price_events`; keep `TAZZZO_SCHEDULER_ENABLED=false` until R1 is resolved (§7 step 9).
+(b) Beans created during context refresh may open lazy connections; none writes. (c) Business workers are held until the migration runner finishes, which for `APPLY_ON_STARTUP` (local/dev only) also keeps them from racing the migration.
+
+### 6.2 The environment label is metadata, not a boundary
+
+An environment name says what the operator *intends*; it cannot make a remote database safe. The relaxed `local`/`test`/`dev` treatment (advisory verification, startup mutation, `APPLY` without a confirmation) is therefore granted **only to a demonstrably
+local target**: a plain (non-SRV) connection string whose every host is a loopback literal. Otherwise the target is enforced exactly like production:
+
+| Label | Target | Verifier | `TargetGuard` |
+|---|---|---|---|
+| `staging` / `production` | any | enforced | no startup/legacy mutation; `APPLY` needs the two-key confirmation |
+| `dev` / `test` / `local` | loopback only (`localhost`, `localhost.`, `127.0.0.0/8` in any spelling, `::1`, `::ffff:127.0.0.1`, `0.0.0.0`) | advisory | unchanged: startup/legacy mutation and `APPLY` allowed |
+| `dev` / `test` / `local` | an SRV name, a remote hostname, a public or private-network IP, a mix of loopback and remote hosts, or an unparseable string | **enforced** | startup/legacy mutation refused; `APPLY` needs the two-key confirmation |
+| unset | non-local | enforced (`ENVIRONMENT_NOT_IDENTIFIED`) | refused |
+| unset | loopback | advisory | refused to mutate (environment not identified) |
+
+No DNS lookup is ever made to decide this: only literals count, a name other than `localhost` is never trusted to resolve to loopback, a private-network address (`10.x`, `172.16/12`, `192.168.x`) is **not** treated as local,
+and a hostname that merely starts with `127.` is not loopback. There is no developer opt-in flag to bypass it. (`tazzzo.datastore.privilege-verification=ENFORCE` still enforces everywhere.)
+
+### 6.3 Driver logging
+
+The MongoDB Java driver itself logs one INFO line (logger `org.mongodb.driver.client`) when a client is created, showing the effective settings — useful evidence for deployment gates 5 and 6 — and it includes the **database user name** and
+host names (never the password). That is driver behaviour, not application code, and the driver is not patched. Decision: keep INFO for the first staging runs so the line can be attached as evidence (redact the user name when attaching it to a
+ticket), then set `logging.level.org.mongodb.driver.client=WARN` for steady-state staging and production if user names should not be in logs. No logging configuration is changed by this PR.
 
 ## 7. Staging procedure
 
@@ -186,7 +247,7 @@ Preconditions (infrastructure track): an Atlas cluster, the runtime and migrator
 | 6 | **Second dry run** | repeat step 2 | |
 | 7 | **Zero pending** | read the report | every step `ALREADY_APPLIED` (also shown below) |
 | 8 | **Restart-safe / idempotency** | repeat step 4 once more, then start the **service** with the **runtime** URI in the default `VERIFY` mode | the re-apply changes nothing (`attempts` and `appliedAt` unchanged); the service starts and logs `datastore verified: … profile=RUNTIME … privileges=ok` |
-| 9 | **Guard** | the service runs with `TAZZZO_SCHEDULER_ENABLED=false` | until R1 is resolved (§1.1) |
+| 9 | **Guard** | the service runs with `TAZZZO_SCHEDULER_ENABLED=false` | until R1 is resolved (§1.1). The startup gate (§6.1) protects a refused or job process, **not** a running one |
 
 Real output on an empty database, captured from `DatastorePrivilegeIT` (read-only identity, real authenticated MongoDB 7):
 

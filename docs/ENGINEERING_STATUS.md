@@ -1259,8 +1259,9 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
     **DB-2** index manifest, per-vertical cursor index, `IndexContractIT`: **COMPLETE** (PR #50, `f99c1fe`). **DB-3** versioned, locked migration
     framework (V0001–V0007, including the nine audit-read indexes), dry run, target guard, safe startup modes (R3, R5): **COMPLETE** (PR #51, `d9c440f`).
   - **DB-4** staging requirements + users/security: **IN REVIEW** (branch `feature/db4-datastore-contract-and-privileges`). It adds the
-    explicit connection contract for staging/production (TLS, retry, `w=majority`, read concern, timeouts, pool: closes risk R7), a fail-fast datastore verifier
-    that runs before the migration runner, three least-privilege identities (runtime / migrator / read-only dry run) generated from one model
+    explicit connection contract for staging/production (TLS, retry, `w=majority`, read concern, timeouts, pool: closes risk R7; the numeric limits are **PROPOSED — owner ratification required**), a fail-fast datastore verifier
+    that runs before the migration runner, a readiness gate so no `@Scheduled` worker acts until the datastore is verified and startup has finished (a refused process or a migration job runs none), an environment label that is metadata rather than a boundary
+    (a remote target is enforced whatever it is called), V0001's checksum input frozen so future schema cannot change a released migration, three least-privilege identities (runtime / migrator / read-only dry run) generated from one model
     and proven against a real authenticated replica set, the shipped role files (`docs/database/roles/`), the staging runbook, and a retention matrix + PII map
     for all 49 collections. The runtime identity holds no schema authority and cannot write the migration history; a migrator connecting as the runtime is refused.
   - **Honest state:** Atlas staging is **PARTIAL** (design decisions only: no cluster, users, URI or connectivity); a staging dry run is **blocked on infrastructure**, not on code;
@@ -1452,6 +1453,12 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-10-04** — DB-4 focused hardening (PR #52 review: M1 scheduled workers ran before the verifier, M2 environment label trusted, M3 V0001 checksum coupled to live constants):
+  `./mvnw clean test` on Java 21 + Docker: **BUILD SUCCESS**, 2796 tests (1221 unit, 1575 integration), 0 failures / 0 errors / 0 skipped (+123 over the reviewed 2673);
+  `ModuleBoundaryTest` 73/73, `IndexContractIT` 12/12. Mutations, each killed: DB4-H1 worker ignores the gate, H2a/b/c/d gate opened early or job mode unmarked, H3/H4/H5 remote target labelled dev/test/local
+  bypasses, H5b TargetGuard trusts the label, H6a/b V0001 reads the live collections, H7 V0001 reads the live index catalog (H6a is killed only by the source scan: live and frozen are equal today), H8a/b `URI_INVALID` echoes the
+  URI or driver message; contract C1 journal, C2 wtimeout, C3 OCSP, C4 proxy, C5 blank replicaSet, L1–L5 loopback normalisation; prior DB-M1..M8 and DB4-M1..M10 rerun (DB-M7c, which had silently stopped being killed, is now pinned by `MigrationDefaultsTest`).
+  V0001's stored checksum is unchanged (`3b703e4a…`). Not fixed here and still open: R1 (price purge), customer erasure, Atlas capability verification. Nothing was run against Atlas, AWS or production.
 - **2026-10-04** — `./mvnw clean test` on Java 21 + Docker on `feature/db4-datastore-contract-and-privileges` (based on `main`
   `d9c440f3c1f4cddeb6c3578edbaee4c4d098c7c8`, whose push CI run `37145966422` had 2570 tests): **BUILD SUCCESS**, 2673 tests,
   0 failures / 0 errors / 0 skipped (+103: 83 unit, 20 integration — 14 `DatastorePrivilegeIT` + 4 `DatastoreWiringIT` + 2

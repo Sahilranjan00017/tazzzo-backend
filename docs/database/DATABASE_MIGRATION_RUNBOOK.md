@@ -25,9 +25,16 @@ MigrationRunner ── TargetGuard ── MigrationLock ── MigrationHistory 
 | `MigrationRunner` | `dryRun` (read-only), `apply` (locked, recorded), `verify` (read-only, used at startup) |
 | `MigrationHistory` | collection `schema_migrations`, one document per migration id, fenced writes |
 | `MigrationLock` | collection `schema_migration_lock`, single-runner lease with fencing token |
-| `TargetGuard` | refuses ambiguous or disallowed targets before anything is mutated |
+| `TargetGuard` | refuses ambiguous or disallowed targets before anything is mutated; the self-serve `local`/`test`/`dev` treatment applies only to a loopback-only datastore (staging runbook §6.2) |
+| `BaselineV0001Contract` | the FROZEN collections and indexes of released V0001: its checksum input never follows the live `SchemaBootstrap`/`IndexCatalog`; new schema is a new migration (V0008+) |
 | `IndexSpec` / `IndexCatalog` | declarative index definitions; classify live state as ABSENT / EXACT / SAME_KEYS_OTHER_NAME / CONFLICT |
 | Generic migrations | `CreateIndexMigration`, `DropIndexMigration`, `ReplaceIndexMigration`, `ValidatorMigration` |
+
+**Known limit — seed contents are not part of V0003's checksum (NOTE, future hardening).** V0003's recorded definition names the seed file and its counts
+(460 nodes, 25 aliases, 110 definitions, 48 schemas) but not a hash of the file's contents, so an edit to `taxonomy_v0_9_0_seed.json` that keeps the counts would not change the checksum.
+The only other guards are the count assertions in `TaxonomyFoundationIT` and the frozen-release discipline of taxonomy v0.9.0. Hashing the content would change the identity of an already-applied
+migration, so it is deliberately NOT done here; a content hash belongs in a new seed migration (or the seed pack's own versioning) when the seed is next evolved. V0001, by contrast, now has an immutable
+checksum input (`BaselineV0001Contract`, pinned by `BaselineFrozenContractTest`).
 
 Code: `services/catalog-service/src/main/java/com/tazzzo/catalog/migration/`. The two bookkeeping collections
 are created lazily by the runner on `APPLY`; they are not in `SchemaBootstrap.COLLECTIONS`, and `VERIFY`,

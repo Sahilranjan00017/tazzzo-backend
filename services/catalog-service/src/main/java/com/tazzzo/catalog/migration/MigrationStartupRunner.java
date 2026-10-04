@@ -3,6 +3,7 @@ package com.tazzzo.catalog.migration;
 import com.mongodb.ServerAddress;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoDatabase;
+import com.tazzzo.catalog.datastore.DatastoreReadiness;
 import com.tazzzo.catalog.schema.DiscriminatingAttributeRegistry;
 import com.tazzzo.catalog.schema.SchemaBootstrap;
 import com.tazzzo.catalog.schema.TaxonomyLoader;
@@ -43,11 +44,21 @@ public class MigrationStartupRunner implements ApplicationRunner {
     private final boolean legacyBootstrap;
     private final boolean legacyLoadSeed;
     private final IntConsumer exit;
+    private final DatastoreReadiness readiness;
 
     public MigrationStartupRunner(MigrationRunner runner, MigrationProperties props, MongoClient client, MongoDatabase db,
                                   SchemaBootstrap bootstrap, TaxonomyLoader taxonomyLoader,
                                   DiscriminatingAttributeRegistry discriminators, boolean legacyBootstrap,
                                   boolean legacyLoadSeed, IntConsumer exit) {
+        this(runner, props, client, db, bootstrap, taxonomyLoader, discriminators, legacyBootstrap, legacyLoadSeed, exit,
+                new DatastoreReadiness());
+    }
+
+    public MigrationStartupRunner(MigrationRunner runner, MigrationProperties props, MongoClient client, MongoDatabase db,
+                                  SchemaBootstrap bootstrap, TaxonomyLoader taxonomyLoader,
+                                  DiscriminatingAttributeRegistry discriminators, boolean legacyBootstrap,
+                                  boolean legacyLoadSeed, IntConsumer exit, DatastoreReadiness readiness) {
+        this.readiness = readiness;
         this.runner = runner;
         this.props = props;
         this.client = client;
@@ -88,6 +99,9 @@ public class MigrationStartupRunner implements ApplicationRunner {
     @Override
     public void run(ApplicationArguments args) {
         MigrationMode mode = props.getMode();
+        if (mode == MigrationMode.DRY_RUN || mode == MigrationMode.APPLY) {
+            readiness.markJob(); // a migration job never opens the business-worker gate
+        }
         MigrationTarget target = target();
         log.info("database evolution mode={} target[{}]", mode, target.describe());
         switch (mode) {
@@ -123,6 +137,9 @@ public class MigrationStartupRunner implements ApplicationRunner {
             log.info("taxonomy seed (insert-if-absent): {} nodes, {} aliases, {} definitions, {} schemas",
                     r.nodes(), r.aliases(), r.definitions(), r.schemas());
         }
+        // Startup is complete and, in a serving mode, the datastore was verified: scheduled workers may now act.
+        // (No-op if the datastore verifier did not verify, and never reached by a refused or job process.)
+        readiness.openWorkers();
     }
 
     private void verify() {

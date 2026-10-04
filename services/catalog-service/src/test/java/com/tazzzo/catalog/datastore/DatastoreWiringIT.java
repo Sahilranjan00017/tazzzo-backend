@@ -17,8 +17,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * The verifier is wired and ordered BEFORE the migration startup runner: a staging or production process whose connection
- * string violates the contract is refused before it can touch the database, even when it holds credentials that could
- * apply a migration and every two-key confirmation is correct.
+ * string violates the contract is refused before the migration runner (or any other ApplicationRunner) can mutate the
+ * database, even when it holds credentials that could apply a migration and every two-key confirmation is correct.
+ *
+ * <p>Scope of that claim: ordering alone does NOT hold back {@code @Scheduled} workers, which start at context refresh.
+ * These tests run with the scheduler disabled; the scheduled-worker guarantee is the readiness gate
+ * ({@code DatastoreReadiness} / {@code GatedTaskScheduler}) and is proven, with the scheduler ENABLED, by
+ * {@code StartupSchedulerGateIT} and {@code ScheduledWorkerGateTest}.
  */
 class DatastoreWiringIT {
 
@@ -39,7 +44,7 @@ class DatastoreWiringIT {
     }
 
     @Test
-    void a_fully_authorized_staging_apply_with_a_non_compliant_uri_is_refused_before_anything_is_mutated() {
+    void a_fully_authorized_staging_apply_with_a_non_compliant_uri_is_refused_before_the_migration_runner_mutates_anything() {
         AuthenticatedReplicaSet.resetDatabase();
         String uri = AuthenticatedReplicaSet.uri(MIGRATOR_USER, USER_PASSWORD, DB); // directConnection, no TLS, loopback, no explicit options
         assertThatThrownBy(() -> new SpringApplicationBuilder(CatalogApplication.class).web(WebApplicationType.NONE).run(args(uri,
@@ -83,5 +88,20 @@ class DatastoreWiringIT {
                 "--tazzzo.migration.mode=VERIFY", "--tazzzo.migration.environment="))
                 .isInstanceOf(DatastoreContractException.class)
                 .hasMessageContaining("ENVIRONMENT_NOT_IDENTIFIED");
+    }
+
+    @Test
+    void a_remote_target_labelled_dev_test_or_local_is_refused_exactly_like_production() {
+        for (String env : new String[]{"dev", "test", "local"}) {
+            long start = System.nanoTime();
+            // the label is metadata: a remote cluster that states none of the contract is refused whatever it is called
+            assertThatThrownBy(() -> new SpringApplicationBuilder(CatalogApplication.class).web(WebApplicationType.NONE).run(
+                    "--spring.data.mongodb.uri=mongodb+srv://appuser:pw@cluster0.abcde.mongodb.net/tazzzo",
+                    "--tazzzo.schema.load-taxonomy-seed=false", "--tazzzo.scheduler.enabled=false", "--tazzzo.consumer-rate-limit.mode=DISABLED",
+                    "--tazzzo.migration.mode=APPLY_ON_STARTUP", "--tazzzo.migration.environment=" + env))
+                    .as(env).isInstanceOf(DatastoreContractException.class)
+                    .hasMessageContaining("RETRY_WRITES_REQUIRED").hasMessageContaining("WRITE_CONCERN_MAJORITY_REQUIRED");
+            assertThat((System.nanoTime() - start) / 1_000_000_000L).as(env + ": refused before any connection").isLessThan(20);
+        }
     }
 }

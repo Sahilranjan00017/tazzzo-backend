@@ -2,6 +2,7 @@ package com.tazzzo.catalog.migration;
 
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoDatabase;
+import com.tazzzo.catalog.datastore.DatastoreReadiness;
 import com.tazzzo.catalog.schema.DiscriminatingAttributeRegistry;
 import com.tazzzo.catalog.schema.SchemaBootstrap;
 import com.tazzzo.catalog.schema.TaxonomyLoader;
@@ -36,10 +37,10 @@ public class MigrationConfiguration {
     public ApplicationRunner schemaBootstrapRunner(MigrationRunner runner, MigrationProperties props, MongoClient client,
                                                    MongoDatabase db, SchemaBootstrap bootstrap, TaxonomyLoader loader,
                                                    DiscriminatingAttributeRegistry discriminators,
-                                                   MigrationExitHandler exitHandler,
+                                                   MigrationExitHandler exitHandler, DatastoreReadiness readiness,
                                                    @Value("${tazzzo.schema.bootstrap-on-startup:false}") boolean legacyBootstrap,
                                                    @Value("${tazzzo.schema.load-taxonomy-seed:false}") boolean legacyLoadSeed) {
         return new MigrationStartupRunner(runner, props, client, db, bootstrap, loader, discriminators,
-                legacyBootstrap, legacyLoadSeed, exitHandler::exit);
+                legacyBootstrap, legacyLoadSeed, exitHandler::exit, readiness);
     }
 }

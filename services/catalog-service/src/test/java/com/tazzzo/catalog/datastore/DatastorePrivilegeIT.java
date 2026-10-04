@@ -154,7 +154,7 @@ class DatastorePrivilegeIT {
         // second dry run, as the READ-ONLY identity: zero pending
         ConfigurableApplicationContext reader = job(READER_USER, MigrationMode.DRY_RUN);
         MigrationRunner.RunReport report = reader.getBean(MigrationRunner.class).dryRun(
-                new MigrationTarget("dev", DB, List.of("it-host:27017"), "it", "it"),
+                new MigrationTarget("dev", DB, List.of("localhost:27017"), "it", "it"),
                 MigrationRunner.Selection.all().withApproved(Set.of(V0004)));
         assertThat(report.outcome()).isEqualTo(MigrationRunner.Outcome.OK);
         assertThat(report.steps()).isNotEmpty().allSatisfy(s -> assertThat(s.status()).as(s.id()).isEqualTo(StepStatus.ALREADY_APPLIED));

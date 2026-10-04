@@ -24,9 +24,18 @@ import java.util.List;
  * must hold no schema authority and must be connected the way the contract says; if it is not, the process refuses
  * to serve rather than limping on (and never "fixes" the schema to make startup pass).
  *
- * <p><b>Enforced</b> for {@code staging} and {@code production} (and for an unidentified environment that points at a
- * non-loopback server, or an unknown environment name), or everywhere when {@code tazzzo.datastore.privilege-verification=ENFORCE}.
- * Otherwise the contract findings are only logged as advisories and the database is not touched.
+ * <p><b>What the ordering guarantees.</b> This runner precedes the migration startup runner and every other
+ * {@code ApplicationRunner}. It does NOT precede {@code @Scheduled} work, which starts at context refresh; that is
+ * closed off by {@link DatastoreReadiness} and {@link GatedTaskScheduler}: no scheduled worker acts until this
+ * verification has succeeded and startup has completed (a refused process runs none, a migration job runs none).
+ * Beans created during context refresh may still open (lazy) connections; they never write.
+ *
+ * <p><b>Enforced</b> for {@code staging} and {@code production}; for any environment label whose connection string is
+ * NOT a loopback-only, non-SRV target (an environment name is metadata, not a security boundary: {@code dev}/{@code test}/
+ * {@code local} pointing at a remote cluster are enforced like production); for an unidentified environment that points
+ * at a non-loopback server; for an unknown environment name; and everywhere when
+ * {@code tazzzo.datastore.privilege-verification=ENFORCE}. Only a loopback-only target under {@code local}/{@code test}/
+ * {@code dev} (or no environment at all) is advisory: findings are logged and the database is not touched.
  *
  * <p>When enforced it checks, in order, and stops at the first failing stage: (1) the connection-string
  * {@link ConnectionContract} (no connection is made if it fails); (2) reachability and authentication
@@ -53,9 +62,17 @@ public class DatastoreStartupVerifier implements ApplicationRunner, Ordered {
     private final DatastoreProperties properties;
     private final String uri;
     private final Collection<String> businessCollections;
+    private final DatastoreReadiness readiness;
 
     public DatastoreStartupVerifier(MongoClient client, String database, MigrationProperties migration,
                                     DatastoreProperties properties, String uri, Collection<String> businessCollections) {
+        this(client, database, migration, properties, uri, businessCollections, new DatastoreReadiness());
+    }
+
+    public DatastoreStartupVerifier(MongoClient client, String database, MigrationProperties migration,
+                                    DatastoreProperties properties, String uri, Collection<String> businessCollections,
+                                    DatastoreReadiness readiness) {
+        this.readiness = readiness;
         this.client = client;
         this.database = database;
         this.migration = migration;
@@ -84,7 +101,7 @@ public class DatastoreStartupVerifier implements ApplicationRunner, Ordered {
 
         Enforcement enforcement = enforcementFor(env, findings);
         if (enforcement == Enforcement.ADVISORY) {
-            return new Result(enforcement, env, profile, findings, "not enforced for environment '" + (env.isBlank() ? "(unset)" : env) + "'");
+            return new Result(enforcement, env, profile, findings, "not enforced for environment '" + (env.isBlank() ? "(unset)" : env) + "' (loopback target)");
         }
         if (!findings.isEmpty()) {
             return new Result(enforcement, env, profile, findings, "connection string violates the contract");
@@ -122,7 +139,7 @@ public class DatastoreStartupVerifier implements ApplicationRunner, Ordered {
             return Enforcement.ENFORCED;
         }
         if (env.isBlank()) {
-            if (!uri.isBlank() && !ConnectionContract.anyLoopbackHost(uri)) {
+            if (!uri.isBlank() && !ConnectionContract.isLocalTarget(uri)) {
                 findings.add(new Violation("ENVIRONMENT_NOT_IDENTIFIED", "the environment is not identified (tazzzo.migration.environment) "
                         + "but the connection string points at a non-loopback server; set it to one of " + TargetGuard.KNOWN_ENVIRONMENTS));
                 return Enforcement.ENFORCED;
@@ -131,6 +148,11 @@ public class DatastoreStartupVerifier implements ApplicationRunner, Ordered {
         }
         if (!TargetGuard.KNOWN_ENVIRONMENTS.contains(env)) {
             findings.add(new Violation("ENVIRONMENT_UNKNOWN", "the environment name is not one of " + TargetGuard.KNOWN_ENVIRONMENTS));
+            return Enforcement.ENFORCED;
+        }
+        // local / test / dev: relaxed ONLY for a demonstrably local target. A remote, SRV, mixed or unparseable target
+        // is enforced whatever the label says (the label is metadata, not a boundary).
+        if (!uri.isBlank() && !ConnectionContract.isLocalTarget(uri)) {
             return Enforcement.ENFORCED;
         }
         return Enforcement.ADVISORY;
@@ -165,15 +187,27 @@ public class DatastoreStartupVerifier implements ApplicationRunner, Ordered {
 
     @Override
     public void run(ApplicationArguments args) {
-        Result r = verify();
+        if (migration.getMode() == MigrationMode.DRY_RUN || migration.getMode() == MigrationMode.APPLY) {
+            readiness.markJob(); // a migration job runs no business workers, whatever the scheduler flag says
+        }
+        Result r;
+        try {
+            r = verify();
+        } catch (RuntimeException e) {
+            readiness.markRefused();
+            throw e;
+        }
         String context = "environment=" + (r.environment().isBlank() ? "(unset)" : r.environment()) + ", profile=" + r.profile();
         if (r.enforcement() == Enforcement.ENFORCED) {
             if (!r.ok()) {
+                readiness.markRefused();
                 throw new DatastoreContractException(context, r.violations());
             }
             log.info("datastore verified: {}", r.summary());
+            readiness.markVerified();
             return;
         }
+        readiness.markVerified();
         if (r.ok()) {
             log.info("datastore contract advisory: satisfied ({})", r.summary());
         } else {
