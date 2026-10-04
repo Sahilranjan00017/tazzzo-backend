@@ -1452,6 +1452,16 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-10-04** — `./mvnw clean test` on Java 21 + Docker on `feature/db4-datastore-contract-and-privileges` (based on `main`
+  `d9c440f3c1f4cddeb6c3578edbaee4c4d098c7c8`, whose push CI run `37145966422` had 2570 tests): **BUILD SUCCESS**, 2673 tests,
+  0 failures / 0 errors / 0 skipped (+103: 83 unit, 20 integration — 14 `DatastorePrivilegeIT` + 4 `DatastoreWiringIT` + 2
+  `RuntimeIdentityEndToEndIT` against a real authenticated MongoDB 7 replica set); `ModuleBoundaryTest` 73/73, `IndexContractIT` 12/12.
+  Mutations, each killed: DB-M1 lock removed, DB-M2 duplicate migration id allowed, DB-M3 dry run writes, DB-M4 unique preflight removed, DB-M5 audit
+  index key order, DB-M6 TTL on an audit ledger, DB-M7a/b/c runtime auto-migration (default mode, production guard, yml default), DB-M8 history not written;
+  DB4-M1 verifier no longer first, M2 any write concern, M3 no TLS requirement, M4 excess privileges ignored, M5 standalone accepted, M6 runtime writes the
+  history, M7 production not enforced, M8 driver message leaked, M9 VERIFY checked as the migrator, M10 database-wide runtime read. Nothing was run against Atlas, AWS or production.
+- **2026-10-03** — merged-`main` verification of PR #49 (squash `822728694cb5dd80a5b68c4587c6c79911222adc`, push CI run `37138053909` on Java 21):
+  **BUILD SUCCESS**, 2457 tests, 0 failures / 0 errors / 0 skipped; `ModuleBoundaryTest` 73/73, `IndexContractIT` 10/10.
 - **2026-10-03** — `./mvnw clean test` on Java 21 + Docker on `feature/pr26-admin-me` (based on `main`
   `d018cac373c0461fb0d4c7eaa56a425a883f7b3f`): **BUILD SUCCESS**, 2382 tests, 0 failures / 0 errors / 0 skipped (2366 + 12
   `AdminMeIT` + 4 `AdminProfilesTest`); `ModuleBoundaryTest` 73/73. Mutations, each killed: `credentialId` exposed, raw subject
