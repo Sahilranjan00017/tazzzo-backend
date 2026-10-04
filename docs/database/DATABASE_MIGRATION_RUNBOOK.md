@@ -109,6 +109,7 @@ applied migration is detected, never silently ignored.
 | `V0005__evidence_links_unique_link` | SCHEMA | on | unique `evidence_links (evidence_id, product_id, link_type)` | duplicates exist (§10), or conflicting definition |
 | `V0006__taxonomy_nodes_unique_active_sibling_name` | SCHEMA | on | partial unique `taxonomy_nodes (parent_id, name)` where `status=active` | active-sibling duplicates exist, or conflicting definition |
 | `V0007__audit_read_partial_indexes` | SCHEMA | on | nine partial indexes `audit_read_recent`/`_actor`/`_request` on `product_events`, `node_events`, `domain_events` (predicate `actor` is an object) for the admin audit-read API (PR #49) | conflicting definition on the same keys; none are unique, so no duplicate preflight |
+| `V0009__product_card_search_tokens_index` | SCHEMA | on | `product_card_base (search_tokens, sku_id)` multikey index for the public product search `GET /v1/search` (PR-G); the projector writes `search_tokens` and backfills older rows on their next rebuild | conflicting definition on the same keys; not unique, so no duplicate preflight |
 | `V0101__drop_unused_session_by_customer_index` | SCHEMA | **off** | drops `customer_sessions.session_by_customer` | live index is not the exact reviewed definition |
 | `V0102__drop_unused_canonical_keys_product_id_index` | SCHEMA | **off** | drops `canonical_keys (product_id)` | same |
 
@@ -230,7 +231,7 @@ If duplicates exist the migration records `BLOCKED` with a sample of the keys, t
 
 ### 12.1 Existing database created by the legacy bootstrap (adoption)
 
-1. `DRY_RUN` and review: `V0001` should report `WOULD_ADOPT`; `V0002`/`V0005`/`V0006`/`V0007` report what they would create or block.
+1. `DRY_RUN` and review: `V0001` should report `WOULD_ADOPT`; `V0002`/`V0005`/`V0006`/`V0007`/`V0009` report what they would create or block.
 2. Run the §9.1 and §9.2 preflight queries.
 3. `APPLY` (with approvals/enables if intended). Adopted migrations are recorded without changing data.
 4. Start the application in `VERIFY` mode.

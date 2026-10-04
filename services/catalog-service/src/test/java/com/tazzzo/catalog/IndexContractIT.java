@@ -150,7 +150,9 @@ class IndexContractIT extends AbstractMongoIT {
             named("node_events", "audit_read_request", k("actor.request_id", 1, "at", -1, "_id", -1), false, ATTRIBUTED, null),
             named("domain_events", "audit_read_recent", k("at", -1, "_id", -1), false, ATTRIBUTED, null),
             named("domain_events", "audit_read_actor", k("actor.id", 1, "at", -1, "_id", -1), false, ATTRIBUTED, null),
-            named("domain_events", "audit_read_request", k("actor.request_id", 1, "at", -1, "_id", -1), false, ATTRIBUTED, null)
+            named("domain_events", "audit_read_request", k("actor.request_id", 1, "at", -1, "_id", -1), false, ATTRIBUTED, null),
+            // public search (PR-G, V0009): multikey prefix matches over a card's tokens, keyset by sku
+            named("product_card_base", "card_search_tokens", k("search_tokens", 1, "sku_id", 1), false, null, null)
     );
 
     // ---- helpers -----------------------------------------------------------------------------

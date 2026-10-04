@@ -1453,6 +1453,12 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-10-05** — Consumer product search (backend completion PR-G; base `main` `484d42c`): `GET /v1/search?q=&pin=&page_size=&cursor=` on the PUBLIC commerce surface. Query → lower-cased tokens (shared
+  `SearchTokens` normalisation, ≤64 chars, ≤5 tokens, ≥2 chars each); candidates from `product_card_base.search_tokens` (anchored-prefix `$all`, served by the new multikey index `card_search_tokens`, migration `V0009`)
+  restricted to the release's reachable verticals; every candidate is then re-checked against `products` with `ConsumerEligibility.within` (a stale projection row can hide a product, never show an ineligible one);
+  the page is enriched through the same composer/enricher as the category list (price, stock, serviceability), keyset-paged by sku with the same signed commerce cursor (query bound as a keyed fingerprint;
+  location bound as before). Admission charged `1 + page_size` on the new bounded route `commerce_search`. The projector writes tokens and backfills older rows on their next rebuild (explicit exception to the
+  content-NOOP rule). **Not built (product decision):** relevance ranking / synonyms / typo tolerance — results are deterministic sku order; a ranking choice (Atlas Search vs in-house scoring) needs a product ruling.
 - **2026-10-04** — DB-4 final proxy-detector fix (narrow re-review of `4e19e5e`: the MongoDB driver accepts `;` as well as `&` between URI options, and the raw text scan only split on `&`, so `?w=majority;proxyHost=evil.example.net` kept a loopback target "local" and bypassed `PROXY_FORBIDDEN`):
   proxy use now comes from the driver's own parse (effective `ProxySettings`), not a second text parser; the dead raw-scan helper was removed. Mutations, each killed: DB4-P1 detector sees only `&`, P2 `isLocalTarget` ignores proxies, P3 contract does not reject the proxy,
   P4 `MigrationTarget` loses the proxy decision, P5 detector fails open on an unparseable string, P6 detector blind. `./mvnw clean test` on Java 21 + Docker: **BUILD SUCCESS**, 2850 tests (1274 unit, 1576 integration), 0 failures / 0 errors / 0 skipped (+7); `ModuleBoundaryTest` 73/73, `IndexContractIT` 12/12. V0001 checksum unchanged (`3b703e4a…`); R1 unchanged and open.

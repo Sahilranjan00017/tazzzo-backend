@@ -34,6 +34,9 @@ public final class Migrations {
                 new CreateIndexMigration("V0007__audit_read_partial_indexes",
                         "product_events/node_events/domain_events: nine partial audit-read indexes (recent, actor, request) for GET /api/v1/admin/audit-events (PR #49)",
                         IndexCatalog.AUDIT_READ_SPECS, null),
+                new CreateIndexMigration("V0009__product_card_search_tokens_index",
+                        "product_card_base (search_tokens, sku_id): multikey index for the public product search (PR-G)",
+                        List.of(IndexCatalog.PRODUCT_CARD_SEARCH_SPEC), null),
                 // DROP-CANDIDATES: registered but DISABLED. They run only when named in tazzzo.migration.enabled-migrations
                 // after the owner approves (docs/database/DATABASE_MIGRATION_RUNBOOK.md, unused-index decisions).
                 new DropIndexMigration("V0101__drop_unused_session_by_customer_index",

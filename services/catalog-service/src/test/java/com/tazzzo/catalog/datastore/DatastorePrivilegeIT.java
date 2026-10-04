@@ -146,7 +146,7 @@ class DatastorePrivilegeIT {
         Set<String> applied = new TreeSet<>();
         root().getCollection(MigrationHistory.COLLECTION).find(new Document("status", "APPLIED"))
                 .forEach(d -> applied.add(d.getString("_id")));
-        assertThat(applied).hasSize(7).allMatch(id -> id.startsWith("V000"));
+        assertThat(applied).hasSize(8).allMatch(id -> id.startsWith("V000"));
         Set<String> expected = new TreeSet<>(SchemaBootstrap.COLLECTIONS);
         expected.addAll(BOOKKEEPING);
         assertThat(new TreeSet<>(root().listCollectionNames().into(new ArrayList<>()))).isEqualTo(expected);

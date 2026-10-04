@@ -75,6 +75,13 @@ public final class IndexCatalog {
         AUDIT_READ_SPECS = List.copyOf(a);
     }
 
+    /**
+     * Public search (PR-G): the multikey index that serves the anchored-prefix {@code $all} over a card's
+     * {@code search_tokens}, with {@code sku_id} for the keyset order. Migration-only (V0009).
+     */
+    public static final IndexSpec PRODUCT_CARD_SEARCH_SPEC = named("product_card_base", "card_search_tokens",
+            k("search_tokens", 1, "sku_id", 1), false, null, null);
+
     /** Indexes created only by explicit migrations (never by the baseline migration). */
     public static final List<IndexSpec> MANAGED;
 
@@ -82,6 +89,7 @@ public final class IndexCatalog {
         List<IndexSpec> m = new ArrayList<>(List.of(
                 PRODUCT_VERTICAL_CURSOR_SPEC, EVIDENCE_LINK_UNIQUE_SPEC, TAXONOMY_SIBLING_UNIQUE_SPEC));
         m.addAll(AUDIT_READ_SPECS);
+        m.add(PRODUCT_CARD_SEARCH_SPEC);
         MANAGED = List.copyOf(m);
     }
 
