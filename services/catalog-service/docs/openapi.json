@@ -118,6 +118,140 @@
         }
       }
     },
+    "/api/v1/admin/prices/{skuId}" : {
+      "get" : {
+        "tags" : [ "price-admin-controller" ],
+        "operationId" : "get_5",
+        "parameters" : [ {
+          "name" : "skuId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/PriceResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put" : {
+        "tags" : [ "price-admin-controller" ],
+        "operationId" : "put",
+        "parameters" : [ {
+          "name" : "skuId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/PriceRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/PriceResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/inventory/{skuId}/{locationId}" : {
+      "get" : {
+        "tags" : [ "inventory-admin-controller" ],
+        "operationId" : "get_6",
+        "parameters" : [ {
+          "name" : "skuId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "locationId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/StockResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put" : {
+        "tags" : [ "inventory-admin-controller" ],
+        "operationId" : "put_1",
+        "parameters" : [ {
+          "name" : "skuId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "locationId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/StockRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/StockResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/customer/orders" : {
       "post" : {
         "tags" : [ "order-controller" ],
@@ -1131,6 +1265,92 @@
               "*/*" : {
                 "schema" : {
                   "$ref" : "#/components/schemas/IdResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/inventory/{skuId}/{locationId}/deactivate" : {
+      "post" : {
+        "tags" : [ "inventory-admin-controller" ],
+        "operationId" : "deactivate",
+        "parameters" : [ {
+          "name" : "skuId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "locationId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/VersionRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/StockResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/inventory/{skuId}/{locationId}/activate" : {
+      "post" : {
+        "tags" : [ "inventory-admin-controller" ],
+        "operationId" : "activate_1",
+        "parameters" : [ {
+          "name" : "skuId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "locationId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/VersionRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/StockResponse"
                 }
               }
             }
@@ -2197,6 +2417,114 @@
           }
         }
       },
+      "PriceRequest" : {
+        "type" : "object",
+        "properties" : {
+          "sellingPricePaise" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "mrpPaise" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "currency" : {
+            "type" : "string"
+          },
+          "expectedVersion" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }
+      },
+      "PriceResponse" : {
+        "type" : "object",
+        "properties" : {
+          "skuId" : {
+            "type" : "string"
+          },
+          "currency" : {
+            "type" : "string"
+          },
+          "sellingPricePaise" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "mrpPaise" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "version" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "active" : {
+            "type" : "boolean"
+          },
+          "status" : {
+            "type" : "string"
+          }
+        }
+      },
+      "StockRequest" : {
+        "type" : "object",
+        "properties" : {
+          "onHand" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "lowStockThreshold" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "maxPurchasable" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "expectedVersion" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }
+      },
+      "StockResponse" : {
+        "type" : "object",
+        "properties" : {
+          "skuId" : {
+            "type" : "string"
+          },
+          "fulfillmentLocationId" : {
+            "type" : "string"
+          },
+          "onHand" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "reserved" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "available" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "lowStockThreshold" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "maxPurchasable" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "version" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "active" : {
+            "type" : "boolean"
+          }
+        }
+      },
       "CustomerOrderDto" : {
         "type" : "object",
         "properties" : {
@@ -2991,6 +3319,15 @@
           },
           "allowBreaking" : {
             "type" : "boolean"
+          }
+        }
+      },
+      "VersionRequest" : {
+        "type" : "object",
+        "properties" : {
+          "expectedVersion" : {
+            "type" : "integer",
+            "format" : "int64"
           }
         }
       },
