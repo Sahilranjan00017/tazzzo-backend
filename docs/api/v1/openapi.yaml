@@ -353,7 +353,7 @@ paths:
                   status: { type: string, enum: [DELETED] }
                   request_id: { type: string }
         '400': { description: Missing or wrong confirmation (INVALID_REQUEST) }
-        '401': { description: Missing, invalid or revoked customer token }
+        '401': { description: "Missing, invalid or revoked customer token" }
         '503': { description: Dependency unavailable or identity integrity failure (SERVICE_UNAVAILABLE) }
   /v1/customer/profile:
     get:
