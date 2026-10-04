@@ -51,7 +51,7 @@ unresolved policy `TBD — PRODUCTION POLICY`. No retention period, legal basis 
 | `attribute_schemas` | catalog | authoritative (versioned) | durable | none | retain (versioned reference data); no deletion path | none known | n/a (no personal data) | n/a (reference/catalogue data) | included |
 | `id_sequences` | catalog | operational (counter) | durable (counters) | none | retain: counters must never be reset | none known | n/a (no personal data) | n/a (reference/catalogue data) | included |
 | `price_current` | pricing | authoritative | durable | none | retain (current commercial state); no deletion path | none known | n/a (no personal data) | n/a (reference/catalogue data) | included |
-| `price_events` | pricing/catalog | event (two shapes) | durable (two row shapes) | none | TARGET: retain (R1). **CURRENT: rolled rows are hard-deleted hourly by default — NON-COMPLIANT with R1** | none known | n/a (no personal data) | TBD — PRODUCTION POLICY | included |
+| `price_events` | pricing/catalog | event (two shapes) | durable (two row shapes) | none | **RETAINED (R1 fixed in code):** append-only; the roll-up flags legacy offer events `rolled=true` and never deletes; paise rows are never touched; no TTL | none known | n/a (no personal data) | TBD — PRODUCTION POLICY | included |
 | `price_rollups` | catalog | derived | derived (rebuildable) | none | no retention need: rebuildable | none known | n/a (no personal data) | n/a | included but rebuildable; a restore may omit it and rebuild |
 | `inventory` | inventory | authoritative | durable | none | retain (current commercial state); no deletion path | none known | n/a (no personal data) | n/a (reference/catalogue data) | included |
 | `inventory_reservations` | inventory | authoritative | durable | none | TBD — PRODUCTION POLICY | none known | n/a (no personal data) | TBD — PRODUCTION POLICY | included |
@@ -88,7 +88,7 @@ Rules that hold today (verified against the code):
 
 - No password, token, API key or connection string is stored as an ordinary field. Secrets live outside the database (SSM, §`DATABASE_STAGING_RUNBOOK.md`).
 - Raw OTP codes, refresh tokens and `Idempotency-Key` values are **never persisted**; only keyed digests are.
-- **There is no erasure or anonymisation path** for a customer anywhere in the backend. The only delete paths in `main` are: offer merge (`MergeService`), the price rollup purge (`RollupService`, R1), derived-projection and rebuild-queue clean-up, and a customer deleting their **own address**. An erasure/retention design (including backups and the audit ledgers) is `TBD — PRODUCTION POLICY`.
+- **There is no erasure or anonymisation path** for a customer anywhere in the backend. The only delete paths in `main` are: offer merge (`MergeService`), derived-projection and rebuild-queue clean-up, and a customer deleting their **own address**. An erasure/retention design (including backups and the audit ledgers) is `TBD — PRODUCTION POLICY`.
 - The `detail` map of an audit event is free-form and is not constrained by any schema; the audit-read API never reads it.
 
 ## 4. Migration bookkeeping collections

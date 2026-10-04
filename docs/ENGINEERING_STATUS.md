@@ -1258,7 +1258,7 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   - **DB-0** database inventory: **COMPLETE** (PR #47, `52ab530`). **DB-1** collection contracts + validator policy: **COMPLETE** (PR #48, `e3a0db6`).
     **DB-2** index manifest, per-vertical cursor index, `IndexContractIT`: **COMPLETE** (PR #50, `f99c1fe`). **DB-3** versioned, locked migration
     framework (V0001–V0007, including the nine audit-read indexes), dry run, target guard, safe startup modes (R3, R5): **COMPLETE** (PR #51, `d9c440f`).
-  - **DB-4** staging requirements + users/security: **IN REVIEW** (branch `feature/db4-datastore-contract-and-privileges`). It adds the
+  - **DB-4** staging requirements + users/security: **COMPLETE IN CODE** (PR #52, squash `4b27f32`; Atlas staging is NOT yet connected or verified). It adds the
     explicit connection contract for staging/production (TLS, retry, `w=majority`, read concern, timeouts, pool: closes risk R7; the numeric limits are **PROPOSED — owner ratification required**), a fail-fast datastore verifier
     that runs before the migration runner, a readiness gate so no `@Scheduled` worker acts until the datastore is verified and startup has finished (a refused process or a migration job runs none), an environment label that is metadata rather than a boundary
     (a remote, proxied, wildcard or ambiguously spelled target is enforced whatever it is called; one strict classifier drives the verifier and `TargetGuard`), V0001's checksum input frozen so future schema cannot change a released migration, three least-privilege identities (runtime / migrator / read-only dry run) generated from one model
@@ -1267,9 +1267,11 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   - **Honest state:** Atlas staging is **PARTIAL** (design decisions only: no cluster, users, URI or connectivity); a staging dry run is **blocked on infrastructure**, not on code;
     nothing was run against Atlas, AWS or production. DB-5 (ingestion), DB-6 (backup/restore/retention), DB-7 (query/load verification) and DB-8 (readiness gate) are not started.
     The six deployment gates stay **PENDING / UNVERIFIED**. **The production datastore is NOT READY.**
-  - **OPEN CONFLICT — R1:** price history is ratified as retained, but `CatalogSchedulers.priceRollup()` runs hourly by default and `RollupService.purge()` hard-deletes rolled
-    `price_events` rows. Recorded by DB-0/DB-1, not fixed by DB-3 or DB-4 (needs an owner-designed durable discriminator). Until the R1 work package lands, staging must run
-    with `TAZZZO_SCHEDULER_ENABLED=false`. No price writer exists in `main` today.
+  - **R1 — FIXED IN CODE** (price-history retention PR): `price_events` is append-only history. `RollupService.purge()` and its hourly call are deleted; nothing in `main` deletes or expires a ledger row
+    (pinned by `PriceHistoryRetentionSourceTest`; no TTL index). The roll-up now aggregates ONLY legacy offer events (string `product_id` and `seller`, int32 `price`) into `price_rollups`, claims each with a conditional
+    `rolled=true` flag in the same transaction (exactly-once, restart-safe, safe under overlapping runs) and never reads or writes a paise ledger row, so the old null/invalid aggregate for paise rows is gone. No migration.
+    `TAZZZO_SCHEDULER_ENABLED=false` is **no longer required because of R1**; other scheduler blockers (projection/freshness/reservation-expiry flags, real-Atlas proof) are separate. Still to verify on a real staging database.
+    No price WRITER is exposed over HTTP yet (a downstream pricing-admin PR); `PricingService.upsertPrice(cmd)` (unattributed overload) still exists, has no caller outside tests, and is a carried LOW.
   - **PRE-EXISTING DEFECT — OUTSIDE THE DATABASE FOUNDATION:** `GET /api/v1/products` without `canonicalKey` answers a generic 500 (the route's request-parameter condition is
     unsatisfied and is mapped to `INTERNAL`). Reproduced at an older head, unrelated to the audit-read API; to be fixed separately, not in any DB PR.
 
@@ -1302,7 +1304,7 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   **A read-only, paginated, filterable view of the EXISTING persisted audit ledgers for per-person human admins holding the new
   narrow `audit-reader` role. Nothing is written; no second audit model; existing audit writes are unchanged.**
   - **Sources (no central audit collection exists, by design):** `product_events`, `node_events`, `domain_events`, attributed
-    rows only (`actor` is a document). `price_events` is NOT a source: rows are purged after rollup, and an attributed price
+    rows only (`actor` is a document). `price_events` is NOT a source: it is the retained, mixed-shape price ledger (not an actor-attributed audit ledger), and an attributed price
     change is already a `PRICE_UPDATED` product event. Unattributed historical rows are never returned.
   - **Permission:** `audit-reader` (new `HumanAdminSettings.KNOWN_ROLES` entry, allowlist only; no OIDC validation change).
     `AdminPrincipal.canReadAudit()` = HUMAN_ADMIN AND `audit-reader`. Missing/invalid credential 401; any other principal
@@ -1334,7 +1336,7 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
     `audit_read_actor` (actor.id, at -1, _id -1), `audit_read_request` (actor.request_id, at -1, _id -1). `AuditReadIndexIT`
     explains the executed queries: IXSCAN, no COLLSCAN, no blocking SORT, keys/docs examined = rows returned (default page and
     cursor page on `audit_read_recent`, request-id lookup on `audit_read_request`, actor lookup on `audit_read_actor`).
-  - **Retention:** none. The event ledgers have no TTL and nothing purges them (only `price_events` is purged). Retention policy is
+  - **Retention:** none. The event ledgers have no TTL and nothing purges them (`price_events` too, since R1 was fixed). Retention policy is
     a deployment/compliance decision, not made here.
   - **Read auditing:** none exists in this backend and none is invented. Reads are counted by a bounded metric
     `admin_audit_read{outcome=served|forbidden|invalid}` and logged with request id and result size only (no actor id, filter,
@@ -1345,7 +1347,7 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
 ## Follow-up debt (recorded)
 
 - **Non-Auth `tx.run` result-holder audit (PR-11D, no action taken):** `AttributeAuthoringService`
-  (`version[]`, two sites), `EvidenceService` (`outcome[]`), `RollupService.purge` (`deleted[]`) and
+  (`version[]`, two sites), `EvidenceService` (`outcome[]`), `RollupService.purge` (`deleted[]`, removed by R1) and
   `TaintService.processBatch` (`last[]`) share the same STRUCTURE (a one-element array written in the
   callback and read after `tx.run`) but are NOT retry bugs today: every non-throwing path of every
   attempt overwrites the holder, so the value read is always the last attempt's. They are structurally
@@ -1453,6 +1455,12 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-10-05** — R1 price-history retention (backend completion PR #1; base `main` `4b27f32`): `./mvnw clean test` on Java 21 + Docker: **BUILD SUCCESS**, 2864 tests (1277 unit, 1587 integration), 0 failures / 0 errors / 0 skipped (+14 over 2850:
+  `PriceHistoryRetentionIT` 13, `PriceHistoryRetentionSourceTest` 3, minus the 2 `RollupStallIT` tests that pinned the purge); `ModuleBoundaryTest` 73/73, `IndexContractIT` 12/12. Evidence (real MongoDB 7, real writers): a paise ledger written by
+  `PricingService` survives the roll-up byte-identical and is never aggregated; legacy offer events are all retained and flagged once; second run, new event, out-of-order older event, restart and four overlapping runs never double-count; a failed projection
+  leaves the whole history unflagged and intact and the retry succeeds; `price_current`, customer price reads and version CAS are unchanged; no TTL on `price_events`. Mutations, each killed: R1-M1 purge restored, M2 claim step consumes the event,
+  M3 already-processed filtering removed, M4a/b shape filter removed (paise row reaches the aggregate, null aggregate), M5 destructive cleanup after a projection failure. No migration; V0001–V0007 checksums unchanged. R1 is fixed in code and still to be
+  confirmed on a real staging database. Carried LOW: `PricingService.upsertPrice(cmd)` (unattributed overload) still exists, unused outside tests; the roll-up select scans non-legacy ledger rows' index entries each run (a typed partial index would remove that; it needs a migration and is deliberately not done here).
 - **2026-10-04** — DB-4 final proxy-detector fix (narrow re-review of `4e19e5e`: the MongoDB driver accepts `;` as well as `&` between URI options, and the raw text scan only split on `&`, so `?w=majority;proxyHost=evil.example.net` kept a loopback target "local" and bypassed `PROXY_FORBIDDEN`):
   proxy use now comes from the driver's own parse (effective `ProxySettings`), not a second text parser; the dead raw-scan helper was removed. Mutations, each killed: DB4-P1 detector sees only `&`, P2 `isLocalTarget` ignores proxies, P3 contract does not reject the proxy,
   P4 `MigrationTarget` loses the proxy decision, P5 detector fails open on an unparseable string, P6 detector blind. `./mvnw clean test` on Java 21 + Docker: **BUILD SUCCESS**, 2850 tests (1274 unit, 1576 integration), 0 failures / 0 errors / 0 skipped (+7); `ModuleBoundaryTest` 73/73, `IndexContractIT` 12/12. V0001 checksum unchanged (`3b703e4a…`); R1 unchanged and open.
