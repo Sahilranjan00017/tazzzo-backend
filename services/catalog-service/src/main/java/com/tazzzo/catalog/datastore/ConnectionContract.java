@@ -104,12 +104,11 @@ public final class ConnectionContract {
             v.add(new Violation("TLS_REVOCATION_CHECK_DISABLED",
                     "certificate revocation checking must not be disabled (tlsDisableOCSPEndpointCheck / tlsDisableCertificateRevocationCheck)"));
         }
-        if (rawOptionPresent(uri, "proxyhost") || rawOptionPresent(uri, "proxyport")
-                || rawOptionPresent(uri, "proxyusername") || rawOptionPresent(uri, "proxypassword")) {
+        if (hasProxyOption(uri)) {
             v.add(new Violation("PROXY_FORBIDDEN",
                     "a proxy changes the network route to the datastore and is not allowed (proxyHost / proxyPort / proxyUsername / proxyPassword)"));
         }
-        if (cs.getHosts().stream().anyMatch(ConnectionContract::isLoopback)) {
+        if (cs.getHosts().stream().anyMatch(ConnectionContract::mayBeLoopback)) {
             v.add(new Violation("LOOPBACK_HOST_FORBIDDEN",
                     "a loopback host is not allowed here (this is the default when MONGODB_URI was never set)"));
         }
@@ -173,16 +172,18 @@ public final class ConnectionContract {
     /** True when any host is a loopback / wildcard address. */
     public static boolean anyLoopbackHost(String uri) {
         try {
-            return new ConnectionString(uri).getHosts().stream().anyMatch(ConnectionContract::isLoopback);
+            return new ConnectionString(uri).getHosts().stream().anyMatch(ConnectionContract::mayBeLoopback);
         } catch (RuntimeException e) {
             return false;
         }
     }
 
     /**
-     * True only for a demonstrably local target: a plain (non-SRV) connection string with at least one host, EVERY
-     * host a loopback / wildcard literal. A remote, private-network, SRV, mixed, blank or unparseable target is NOT
-     * local. No DNS lookup is ever made: a name other than {@code localhost} is never trusted to resolve to loopback.
+     * THE authoritative local-target decision (used by the startup verifier and, through {@code MigrationTarget}, by DB-3's
+     * {@code TargetGuard}): true only for a demonstrably local target: a plain (non-SRV) connection string with at least one
+     * host, EVERY host a provable loopback (see {@link #isLoopback}), and NO proxy option (a proxy changes the effective
+     * network destination, so a loopback host behind a proxy is not proven local). A remote, private-network, wildcard,
+     * ambiguously spelled, SRV, mixed, proxied, blank or unparseable target is NOT local. No DNS lookup is ever made.
      */
     public static boolean isLocalTarget(String uri) {
         if (uri == null || uri.isBlank()) {
@@ -190,14 +191,110 @@ public final class ConnectionContract {
         }
         try {
             ConnectionString cs = new ConnectionString(uri);
-            return !cs.isSrvProtocol() && !cs.getHosts().isEmpty() && cs.getHosts().stream().allMatch(ConnectionContract::isLoopback);
+            return !cs.isSrvProtocol() && !hasProxyOption(uri) && !cs.getHosts().isEmpty()
+                    && cs.getHosts().stream().allMatch(ConnectionContract::isLoopback);
         } catch (RuntimeException e) {
             return false;
         }
     }
 
-    /** True when {@code hostAndPort} ({@code host}, {@code host:port} or {@code [v6]:port}) is a loopback literal. */
+    /**
+     * STRICT: true only when the host unambiguously IS loopback, in a spelling the JDK (and so the MongoDB driver) resolves
+     * exactly as written. Accepted: {@code localhost} / {@code localhost.}; a standard dotted-quad decimal address in
+     * 127.0.0.0/8 (no leading zeros); a single decimal integer inside 127.0.0.0/8 (confirmed against the JDK's own parse);
+     * an IPv6 literal the JDK resolves to loopback ({@code ::1}, IPv4-mapped 127/8). Everything else is NOT local, on
+     * purpose: octal/hex/short/leading-zero IPv4 spellings (the JDK reads {@code 0177.0.0.1} as 177.0.0.1), the wildcard
+     * {@code 0.0.0.0} / {@code ::} (not a destination), trailing-dot or scoped IP literals, private-network addresses, and
+     * every other hostname. No DNS lookup is made: only strictly shaped numeric literals ever reach the JDK parser.
+     */
     public static boolean isLoopback(String hostAndPort) {
+        if (hostAndPort == null) {
+            return false;
+        }
+        String h = hostAndPort.trim().toLowerCase(Locale.ROOT);
+        if (h.startsWith("[")) {
+            int end = h.indexOf(']');
+            if (end < 0 || !(end == h.length() - 1 || h.substring(end + 1).matches(":[0-9]{1,5}"))) {
+                return false;
+            }
+            return isLoopbackIpv6Literal(h.substring(1, end));
+        }
+        int firstColon = h.indexOf(':');
+        if (firstColon >= 0) {
+            if (firstColon != h.lastIndexOf(':')) {
+                return isLoopbackIpv6Literal(h); // an unbracketed IPv6 literal such as ::1
+            }
+            if (!h.substring(firstColon + 1).matches("[0-9]{1,5}")) {
+                return false;
+            }
+            h = h.substring(0, firstColon);
+        }
+        if (h.equals("localhost") || h.equals("localhost.")) {
+            return true;
+        }
+        return isStrictLoopbackIpv4(h);
+    }
+
+    private static boolean isStrictLoopbackIpv4(String h) {
+        byte[] expected;
+        if (h.matches("[0-9]{1,3}(\\.[0-9]{1,3}){3}")) {
+            String[] parts = h.split("\\.");
+            expected = new byte[4];
+            for (int i = 0; i < 4; i++) {
+                if (parts[i].length() > 1 && parts[i].startsWith("0")) {
+                    return false; // a leading zero is octal to some parsers and decimal to others: ambiguous
+                }
+                int v = Integer.parseInt(parts[i]);
+                if (v > 255) {
+                    return false;
+                }
+                expected[i] = (byte) v;
+            }
+        } else if (h.matches("[1-9][0-9]{0,9}")) {
+            long v = Long.parseLong(h);
+            if (v > 0xFFFFFFFFL) {
+                return false;
+            }
+            expected = new byte[]{(byte) (v >>> 24), (byte) (v >>> 16), (byte) (v >>> 8), (byte) v};
+        } else {
+            return false;
+        }
+        if ((expected[0] & 0xFF) != 127) {
+            return false;
+        }
+        try {
+            // a strictly shaped numeric literal is parsed, never looked up; require the JDK to read it exactly as intended
+            InetAddress a = InetAddress.getByName(h);
+            return a.isLoopbackAddress() && java.util.Arrays.equals(a.getAddress(), expected);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** An IPv6 literal (never resolved over DNS) that the JDK reads as loopback; scoped or oddly shaped literals are not local. */
+    private static boolean isLoopbackIpv6Literal(String h) {
+        if (h.indexOf(':') < 0 || !h.matches("[0-9a-f:.]+")) {
+            return false;
+        }
+        try {
+            return InetAddress.getByName("[" + h + "]").isLoopbackAddress();
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** True when any MongoDB proxy option is present at all (the driver honours proxyHost/Port/Username/Password; names are case-insensitive). */
+    static boolean hasProxyOption(String uri) {
+        return rawOptionPresent(uri, "proxyhost") || rawOptionPresent(uri, "proxyport")
+                || rawOptionPresent(uri, "proxyusername") || rawOptionPresent(uri, "proxypassword");
+    }
+
+    /**
+     * BROAD, deliberately over-inclusive: true when the host MIGHT be loopback in any historic spelling (octal, hex, short,
+     * leading-zero, wildcard, scoped, unicode digits...). Used only to FORBID a loopback host in staging/production (fail
+     * closed), never to relax anything: relaxing uses {@link #isLoopback}.
+     */
+    static boolean mayBeLoopback(String hostAndPort) {
         if (hostAndPort == null) {
             return false;
         }
@@ -222,14 +319,17 @@ public final class ConnectionContract {
             return true;
         }
         if (h.indexOf(':') >= 0) {
-            return isLoopbackIpv6Literal(h);
+            return mayBeLoopbackIpv6Literal(h);
         }
         long v4 = parseInetAtonV4(h);
         return v4 >= 0 && ((v4 >>> 24) == 127 || v4 == 0L);
     }
 
     /** An IPv6 literal (never resolved over DNS): ::1 in any spelling, and IPv4-mapped / compatible 127/8 addresses. */
-    private static boolean isLoopbackIpv6Literal(String h) {
+    private static boolean mayBeLoopbackIpv6Literal(String h) {
+        if (!h.matches("[0-9a-f:.]+")) {
+            return false; // only a strictly shaped literal may reach the JDK parser (anything else could fall through to a lookup)
+        }
         try {
             InetAddress a = InetAddress.getByName("[" + h + "]"); // a literal: no name lookup is performed
             return a.isLoopbackAddress() || a.isAnyLocalAddress();

@@ -176,6 +176,27 @@ class StartupSchedulerGateIT {
     }
 
     @Test
+    void an_apply_job_never_opens_the_serving_gate_and_no_scheduled_task_runs() throws Exception {
+        MongoDatabase d = seeded("tazzzo_gate_apply");
+        // a real APPLY on a loopback dev target that stays alive (exit-after-run=false): a migration job is not a serving process
+        try (ConfigurableApplicationContext ctx = app().run(args("tazzzo_gate_apply", "--tazzzo.migration.mode=APPLY",
+                "--tazzzo.migration.environment=dev", "--tazzzo.migration.exit-after-run=false"))) {
+            DatastoreReadiness readiness = ctx.getBean(DatastoreReadiness.class);
+            assertThat(readiness.state()).as("final gate state, asserted directly").isEqualTo(DatastoreReadiness.State.JOB);
+            assertThat(readiness.workersPermitted()).isFalse();
+            // a task handed to the application's real scheduler is awaited (not slept on) and is held back by the gate
+            org.springframework.scheduling.TaskScheduler scheduler = ctx.getBean(org.springframework.scheduling.TaskScheduler.class);
+            assertThat(scheduler).isInstanceOf(GatedTaskScheduler.class);
+            java.util.concurrent.atomic.AtomicBoolean ran = new java.util.concurrent.atomic.AtomicBoolean();
+            scheduler.schedule(() -> ran.set(true), java.time.Instant.now()).get();
+            assertThat(ran.get()).isFalse();
+            assertThat(PROBE_RUNS.get()).isZero();
+            assertThat(d.getCollection("price_events").countDocuments()).as("the ledger is untouched by an APPLY job").isEqualTo(2);
+            assertThat(d.getCollection("price_events").countDocuments(new Document("rolled", true))).isZero();
+        }
+    }
+
+    @Test
     void a_healthy_serving_start_opens_the_gate_and_workers_then_run() throws Exception {
         client.getDatabase("tazzzo_gate_serving").drop();
         try (ConfigurableApplicationContext ctx = app().run(args("tazzzo_gate_serving", "--tazzzo.migration.mode=APPLY_ON_STARTUP",

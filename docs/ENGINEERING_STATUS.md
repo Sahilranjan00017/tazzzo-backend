@@ -1261,7 +1261,7 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   - **DB-4** staging requirements + users/security: **IN REVIEW** (branch `feature/db4-datastore-contract-and-privileges`). It adds the
     explicit connection contract for staging/production (TLS, retry, `w=majority`, read concern, timeouts, pool: closes risk R7; the numeric limits are **PROPOSED — owner ratification required**), a fail-fast datastore verifier
     that runs before the migration runner, a readiness gate so no `@Scheduled` worker acts until the datastore is verified and startup has finished (a refused process or a migration job runs none), an environment label that is metadata rather than a boundary
-    (a remote target is enforced whatever it is called), V0001's checksum input frozen so future schema cannot change a released migration, three least-privilege identities (runtime / migrator / read-only dry run) generated from one model
+    (a remote, proxied, wildcard or ambiguously spelled target is enforced whatever it is called; one strict classifier drives the verifier and `TargetGuard`), V0001's checksum input frozen so future schema cannot change a released migration, three least-privilege identities (runtime / migrator / read-only dry run) generated from one model
     and proven against a real authenticated replica set, the shipped role files (`docs/database/roles/`), the staging runbook, and a retention matrix + PII map
     for all 49 collections. The runtime identity holds no schema authority and cannot write the migration history; a migrator connecting as the runtime is refused.
   - **Honest state:** Atlas staging is **PARTIAL** (design decisions only: no cluster, users, URI or connectivity); a staging dry run is **blocked on infrastructure**, not on code;
@@ -1453,6 +1453,12 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-10-04** — DB-4 final classifier / gate hardening (focused re-review of `010d0b9`: M2 octal-looking `0177.0.0.1` and proxy options kept a loopback target "local"; two gate states had no deterministic test):
+  `./mvnw clean test` on Java 21 + Docker: **BUILD SUCCESS**, 2843 tests (1267 unit, 1576 integration), 0 failures / 0 errors / 0 skipped (+47 over 2796); `ModuleBoundaryTest` 73/73, `IndexContractIT` 12/12. One earlier full run
+  had 22 integration classes error with `MongoSocketOpenException` to the shared Testcontainers server (an environment failure, no assertion failed); the rerun is clean. One strict classifier (`ConnectionContract.isLocalTarget`) now drives the verifier and `TargetGuard`
+  (`MigrationTarget.local`): only `localhost`, a standard dotted-quad in `127/8`, a decimal integer in that range (confirmed against the JDK), `::1` and IPv4-mapped loopback, with no proxy option, are local; octal/hex/short spellings, `0.0.0.0`, proxies, SRV and mixed lists are enforced.
+  Mutations, each killed: DB4-F1/F2 `0177`/`00177` local, F1b octal parser, F3 proxyHost ignored, F4 other proxy options ignored (equivalent at the URI level because the driver rejects them without `proxyHost`; pinned by a direct detector test), F5a/b mixed hosts local, F6 APPLY opens the gate, F7a/b runner refusal opens the gate,
+  F8 `0.0.0.0` local, F9 runner ignores the URI, F10 TargetGuard ignores the decision, F11 SRV local, F12 verifier ignores the decision. V0001 checksum unchanged (`3b703e4a…`); R1 unchanged and open.
 - **2026-10-04** — DB-4 focused hardening (PR #52 review: M1 scheduled workers ran before the verifier, M2 environment label trusted, M3 V0001 checksum coupled to live constants):
   `./mvnw clean test` on Java 21 + Docker: **BUILD SUCCESS**, 2796 tests (1221 unit, 1575 integration), 0 failures / 0 errors / 0 skipped (+123 over the reviewed 2673);
   `ModuleBoundaryTest` 73/73, `IndexContractIT` 12/12. Mutations, each killed: DB4-H1 worker ignores the gate, H2a/b/c/d gate opened early or job mode unmarked, H3/H4/H5 remote target labelled dev/test/local

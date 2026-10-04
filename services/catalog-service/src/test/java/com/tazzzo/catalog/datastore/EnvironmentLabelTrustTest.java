@@ -96,19 +96,29 @@ class EnvironmentLabelTrustTest {
 
     @ParameterizedTest(name = "{0} is loopback")
     @ValueSource(strings = {"localhost", "LOCALHOST", "localhost.", "localhost:27017", "localhost.:27017", "127.0.0.1", "127.0.0.1:27017",
-            "127.1.2.3", "127.1", "127.0.1", "2130706433", "0x7f000001", "0x7f.1", "0177.0.0.1", "0.0.0.0", "[::1]", "[::1]:27017",
-            "[0:0:0:0:0:0:0:1]", "[::ffff:127.0.0.1]:27017", "[::ffff:7f00:1]", "[0000::1]", "[::]", "[::1%lo0]"})
-    void loopback_spellings_are_recognised_without_dns(String host) {
+            "127.1.2.3", "127.255.255.254", "2130706433", "2147483647", "[::1]", "[::1]:27017", "[0:0:0:0:0:0:0:1]",
+            "[::ffff:127.0.0.1]:27017", "[::ffff:7f00:1]", "[0000::1]", "::1"})
+    void provable_loopback_spellings_are_recognised_without_dns(String host) {
         assertThat(ConnectionContract.isLoopback(host)).isTrue();
     }
 
     @ParameterizedTest(name = "{0} is NOT loopback")
     @ValueSource(strings = {"db.example.net", "db.example.net:27017", "127.evil.example.net", "127.0.0.1.example.net", "127.example.net:27017",
             "10.0.0.1", "192.168.0.10", "172.16.0.5", "172.17.0.2", "169.254.1.1", "8.8.8.8", "203.0.113.25", "1.2.3.4:27017",
-            "foo.localhost", "localhost.example.net", "notlocalhost", "128.0.0.1", "126.255.255.255", "2147483648", "4294967297",
-            "[2001:db8::1]", "[fe80::1]", "[::ffff:10.0.0.1]", "[::2]", "0x80000001", "0377.0.0.1", "256.0.0.1", "", "   "})
+            "foo.localhost", "localhost.example.net", "localhost.evil.example.net", "notlocalhost", "128.0.0.1", "126.255.255.255",
+            "2147483648", "4294967297", "4294967296", "[2001:db8::1]", "[fe80::1]", "[::ffff:10.0.0.1]", "[::2]", "0x80000001",
+            "0377.0.0.1", "256.0.0.1", "", "   ",
+            // ambiguous or non-standard spellings: the JDK reads 0177.0.0.1 as 177.0.0.1, so none of these may relax anything
+            "0177.0.0.1", "00177.0.0.1", "0177.0.0.01", "127.0.0.01", "127.00.0.1", "0x7f000001", "0x7F.1", "0x7f.0.0.1", "0177.1", "017700000001",
+            "127.1", "127.0.1", "127", "0.0.0.0", "0", "[::]", "[::ffff:0.0.0.0]", "[::1%lo0]", "::1%lo0", "127.0.0.1.", "127.0.0.1..",
+            "１２７.0.0.1", "+127.0.0.1", "-127.0.0.1", "127.0.0.1 ", "127.0.0.1:99999999", "localhost:abc", "[::1]x", "[::1", "::127.0.0.1",
+            "[::ffff:0177.0.0.1]"})
     void everything_else_is_never_assumed_local_even_if_it_looks_internal(String host) {
-        assertThat(ConnectionContract.isLoopback(host)).isFalse();
+        if (host.equals("127.0.0.1 ")) { // surrounding whitespace is trimmed, so this IS loopback
+            assertThat(ConnectionContract.isLoopback(host)).isTrue();
+            return;
+        }
+        assertThat(ConnectionContract.isLoopback(host)).as(host).isFalse();
     }
 
     @Test

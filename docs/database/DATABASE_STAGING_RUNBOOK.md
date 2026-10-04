@@ -214,18 +214,24 @@ whole database untouched; a healthy start opens the gate.
 ### 6.2 The environment label is metadata, not a boundary
 
 An environment name says what the operator *intends*; it cannot make a remote database safe. The relaxed `local`/`test`/`dev` treatment (advisory verification, startup mutation, `APPLY` without a confirmation) is therefore granted **only to a demonstrably
-local target**: a plain (non-SRV) connection string whose every host is a loopback literal. Otherwise the target is enforced exactly like production:
+local target**: a plain (non-SRV) connection string, with **no proxy option**, whose every host is a *provable* loopback (below). Otherwise the target is enforced exactly like production. The decision is made once (`ConnectionContract.isLocalTarget`) and drives both the startup verifier and DB-3's `TargetGuard` (through `MigrationTarget.local`):
 
 | Label | Target | Verifier | `TargetGuard` |
 |---|---|---|---|
 | `staging` / `production` | any | enforced | no startup/legacy mutation; `APPLY` needs the two-key confirmation |
-| `dev` / `test` / `local` | loopback only (`localhost`, `localhost.`, `127.0.0.0/8` in any spelling, `::1`, `::ffff:127.0.0.1`, `0.0.0.0`) | advisory | unchanged: startup/legacy mutation and `APPLY` allowed |
-| `dev` / `test` / `local` | an SRV name, a remote hostname, a public or private-network IP, a mix of loopback and remote hosts, or an unparseable string | **enforced** | startup/legacy mutation refused; `APPLY` needs the two-key confirmation |
+| `dev` / `test` / `local` | provable loopback only, no proxy (`localhost`, `localhost.`, a standard dotted-quad in `127.0.0.0/8`, a single decimal integer in that range such as `2130706433`, `::1`, IPv4-mapped `::ffff:127.x.x.x`) | advisory | unchanged: startup/legacy mutation and `APPLY` allowed |
+| `dev` / `test` / `local` | an SRV name, a remote hostname, a public or private-network IP, an ambiguous IPv4 spelling (`0177.0.0.1`, `0x7f000001`, `127.1`), the wildcard `0.0.0.0`, **any `proxyHost`/`proxyPort`/`proxyUsername`/`proxyPassword`**, a mix of loopback and any other host, or an unparseable string | **enforced** | startup/legacy mutation refused; `APPLY` needs the two-key confirmation |
 | unset | non-local | enforced (`ENVIRONMENT_NOT_IDENTIFIED`) | refused |
 | unset | loopback | advisory | refused to mutate (environment not identified) |
 
-No DNS lookup is ever made to decide this: only literals count, a name other than `localhost` is never trusted to resolve to loopback, a private-network address (`10.x`, `172.16/12`, `192.168.x`) is **not** treated as local,
-and a hostname that merely starts with `127.` is not loopback. There is no developer opt-in flag to bypass it. (`tazzzo.datastore.privilege-verification=ENFORCE` still enforces everywhere.)
+No DNS lookup is ever made to decide this: only strictly shaped literals ever reach the JDK parser, a name other than `localhost` is never trusted to resolve to loopback, a private-network address (`10.x`, `172.16/12`, `192.168.x`) is **not** treated as
+local, and a hostname that merely starts with `127.` is not loopback. The classifier is built around what the JDK/driver actually connects to: the JDK reads a leading-zero quad such as `0177.0.0.1` as **decimal** `177.0.0.1`
+(a different, routable address) and does not resolve `0x7f000001` at all, so every legacy `inet_aton` spelling (octal, hex, leading zeros, short forms such as `127.1`) is *not local*; `0.0.0.0` / `::` are bind wildcards, not destinations, and are not local either.
+A proxy changes the effective network destination, so a loopback host behind any proxy option is not proven local. In the other direction the "no loopback host" contract rule for staging/production stays deliberately over-inclusive
+(it still refuses `127.1`, `0177.0.0.1`, `0.0.0.0` and the rest), so no spelling can slip through either rule. There is no developer opt-in flag. (`tazzzo.datastore.privilege-verification=ENFORCE` still enforces everywhere.)
+
+**Residual limit.** A loopback address does not prove the data is local: an SSH or `kubectl` port-forward to a remote cluster, or replica-set discovery that advertises remote member names, looks local. The label and the literal address cannot detect that; use an explicit
+`staging`/`production` label, or `ENFORCE`, whenever the datastore is not a throw-away local one.
 
 ### 6.3 Driver logging
 

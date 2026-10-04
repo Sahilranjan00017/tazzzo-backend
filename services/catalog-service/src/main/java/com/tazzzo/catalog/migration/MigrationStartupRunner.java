@@ -45,20 +45,22 @@ public class MigrationStartupRunner implements ApplicationRunner {
     private final boolean legacyLoadSeed;
     private final IntConsumer exit;
     private final DatastoreReadiness readiness;
+    private final String uri;
 
     public MigrationStartupRunner(MigrationRunner runner, MigrationProperties props, MongoClient client, MongoDatabase db,
                                   SchemaBootstrap bootstrap, TaxonomyLoader taxonomyLoader,
                                   DiscriminatingAttributeRegistry discriminators, boolean legacyBootstrap,
                                   boolean legacyLoadSeed, IntConsumer exit) {
         this(runner, props, client, db, bootstrap, taxonomyLoader, discriminators, legacyBootstrap, legacyLoadSeed, exit,
-                new DatastoreReadiness());
+                new DatastoreReadiness(), "");
     }
 
     public MigrationStartupRunner(MigrationRunner runner, MigrationProperties props, MongoClient client, MongoDatabase db,
                                   SchemaBootstrap bootstrap, TaxonomyLoader taxonomyLoader,
                                   DiscriminatingAttributeRegistry discriminators, boolean legacyBootstrap,
-                                  boolean legacyLoadSeed, IntConsumer exit, DatastoreReadiness readiness) {
+                                  boolean legacyLoadSeed, IntConsumer exit, DatastoreReadiness readiness, String uri) {
         this.readiness = readiness;
+        this.uri = uri == null ? "" : uri;
         this.runner = runner;
         this.props = props;
         this.client = client;
@@ -77,7 +79,8 @@ public class MigrationStartupRunner implements ApplicationRunner {
                 .map(ServerAddress::toString).toList();
         String operator = props.getOperator() == null || props.getOperator().isBlank()
                 ? System.getProperty("user.name", "unknown") : props.getOperator();
-        return new MigrationTarget(props.getEnvironment(), databaseName, hosts, operator, props.getBuildVersion());
+        // the same authoritative local-target decision the datastore verifier makes, from the connection string (sees proxies)
+        return MigrationTarget.forUri(props.getEnvironment(), databaseName, hosts, uri, operator, props.getBuildVersion());
     }
 
     private MigrationRunner.Selection selection() {

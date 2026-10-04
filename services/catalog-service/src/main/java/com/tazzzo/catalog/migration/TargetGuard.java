@@ -1,7 +1,5 @@
 package com.tazzzo.catalog.migration;
 
-import com.tazzzo.catalog.datastore.ConnectionContract;
-
 import java.util.Set;
 
 /**
@@ -26,10 +24,9 @@ public final class TargetGuard {
 
     private TargetGuard() { }
 
-    /** Every host is a loopback literal (an empty or unknown host list is NOT local: fail closed). */
+    /** The single authoritative decision, made once when the target is built (loopback-only hosts, no proxy). */
     static boolean isLocalTarget(MigrationTarget target) {
-        return target.hosts() != null && !target.hosts().isEmpty()
-                && target.hosts().stream().allMatch(ConnectionContract::isLoopback);
+        return target.local();
     }
 
     public static void requireMutationAllowed(MigrationMode mode, MigrationTarget target,
