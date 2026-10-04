@@ -4,10 +4,12 @@ import com.mongodb.MongoWriteException;
 import com.mongodb.client.ClientSession;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.Filters;
+import com.mongodb.client.model.Sorts;
 import com.mongodb.client.model.Updates;
 import com.mongodb.client.result.UpdateResult;
 import com.tazzzo.catalog.tx.Tx;
 import com.tazzzo.commerce.contract.Pincode;
+import com.tazzzo.common.audit.Actor;
 import com.tazzzo.common.audit.DomainAudit;
 import com.tazzzo.common.audit.DomainEvent;
 import org.bson.Document;
@@ -141,6 +143,14 @@ public class ServiceabilityService implements ServiceabilityReadPort, Transactio
      * @return the new version.
      */
     public long upsertServiceArea(UpsertServiceAreaCommand cmd) {
+        return upsertServiceArea(null, cmd);
+    }
+
+    /**
+     * Admin write: identical to {@link #upsertServiceArea(UpsertServiceAreaCommand)} but the audit event carries the
+     * authenticated {@code actor}. The HTTP layer always uses this form; the actor-less form remains for seed code.
+     */
+    public long upsertServiceArea(Actor actor, UpsertServiceAreaCommand cmd) {
         ServiceArea validated = validateCommand(cmd);
         long newVersion;
         try {
@@ -150,7 +160,7 @@ public class ServiceabilityService implements ServiceabilityReadPort, Transactio
         }
         Date now = Date.from(clock.instant());
         DomainEvent event = new DomainEvent(AGGREGATE_TYPE, cmd.pincode(),
-                "SERVICE_AREA_UPDATED", auditDetail(cmd, newVersion));
+                "SERVICE_AREA_UPDATED", auditDetail(cmd, newVersion), actor);
 
         try {
             tx.run(session -> {
@@ -201,6 +211,68 @@ public class ServiceabilityService implements ServiceabilityReadPort, Transactio
         }
         log.info("serviceability_write_success pin={} area={} version={} routes={}",
                 mask(cmd.pincode()), cmd.serviceAreaId(), newVersion, validated.routes().size());
+        return newVersion;
+    }
+
+    // --- admin reads and lifecycle ----------------------------------------------------
+
+    /** The full configuration of one PIN (INTERNAL: carries fulfillment location ids), or empty. */
+    public java.util.Optional<ServiceArea> find(Pincode pin) {
+        Objects.requireNonNull(pin, "pin required");
+        Document d = db.getCollection(COLLECTION).find(Filters.eq("pincode", pin.value())).first();
+        return d == null ? java.util.Optional.empty() : java.util.Optional.of(fromDocument(d));
+    }
+
+    /** One page of areas in ascending pincode order, strictly after {@code afterPin} (null = from the start). */
+    public List<ServiceArea> list(String afterPin, int limit) {
+        if (limit < 1 || limit > 200) {
+            throw new InvalidServiceabilityException("limit must be between 1 and 200");
+        }
+        if (afterPin != null && !Pincode.isValid(afterPin)) {
+            throw new InvalidServiceabilityException("invalid cursor");
+        }
+        var find = afterPin == null ? db.getCollection(COLLECTION).find()
+                : db.getCollection(COLLECTION).find(Filters.gt("pincode", afterPin));
+        List<ServiceArea> out = new ArrayList<>();
+        for (Document d : find.sort(Sorts.ascending("pincode")).limit(limit)) {
+            out.add(fromDocument(d));
+        }
+        return out;
+    }
+
+    /**
+     * Activate or deactivate a PIN's area (CAS on {@code expectedVersion}, version +1, audited with the actor in the
+     * same transaction). A deactivated area keeps its routes but resolves as not serviceable.
+     *
+     * @return the new version
+     */
+    public long setActive(Actor actor, Pincode pin, long expectedVersion, boolean active) {
+        Objects.requireNonNull(actor, "actor required");
+        Objects.requireNonNull(pin, "pin required");
+        if (expectedVersion < 1) {
+            throw new InvalidServiceabilityException("expectedVersion must be positive: " + expectedVersion);
+        }
+        long newVersion = expectedVersion + 1;
+        Date now = Date.from(clock.instant());
+        Map<String, Object> detail = new LinkedHashMap<>();
+        detail.put("active", active);
+        detail.put("version", newVersion);
+        DomainEvent event = new DomainEvent(AGGREGATE_TYPE, pin.value(),
+                active ? "SERVICE_AREA_ACTIVATED" : "SERVICE_AREA_DEACTIVATED", detail, actor);
+        tx.run(session -> {
+            audit.append(session, event);
+            UpdateResult r = db.getCollection(COLLECTION).updateOne(session,
+                    Filters.and(Filters.eq("pincode", pin.value()), Filters.eq("version", expectedVersion)),
+                    Updates.combine(Updates.set("active", active), Updates.set("version", newVersion),
+                            Updates.set("updated_at", now)));
+            if (r.getMatchedCount() == 0) {
+                if (db.getCollection(COLLECTION).find(session, Filters.eq("pincode", pin.value())).first() == null) {
+                    throw new ServiceabilityNotFoundException("no service area for pin");
+                }
+                throw new ServiceabilityConflictException("stale update for pin config expectedVersion=" + expectedVersion);
+            }
+        });
+        log.info("serviceability_active_changed pin={} active={} version={}", mask(pin), active, newVersion);
         return newVersion;
     }
 

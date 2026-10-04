@@ -191,6 +191,9 @@ paths:
       tags: [commerce-read]
       operationId: getServiceability
       summary: Resolve a customer location to a serviceable area + ETA.
+      description: >
+        Resolve a PIN (or, when a geo provider is configured, a lat/lng) to a serviceable area. A coordinate the provider
+        cannot place in a PIN is a normal "outside coverage" answer (`serviceable:false`); a provider outage is 503.
       parameters:
         - $ref: '#/components/parameters/Pin'
         - $ref: '#/components/parameters/Lat'
@@ -863,13 +866,19 @@ components:
       in: query
       required: false
       schema: { type: number }
-      description: Reserved for future lat/lng resolution.
+      description: >
+        Used ONLY by GET /v1/serviceability, and ONLY when the operator has configured a geo provider; with the default
+        (no provider) any lat/lng is 400 INVALID_REQUEST. Must be sent together with `lng`, never with `pin`. Category
+        products and product detail remain PIN-only (lat/lng is always 400 there). Coordinates are never stored or logged.
     Lng:
       name: lng
       in: query
       required: false
       schema: { type: number }
-      description: Reserved for future lat/lng resolution.
+      description: >
+        Used ONLY by GET /v1/serviceability, and ONLY when the operator has configured a geo provider; with the default
+        (no provider) any lat/lng is 400 INVALID_REQUEST. Must be sent together with `lng`, never with `pin`. Category
+        products and product detail remain PIN-only (lat/lng is always 400 there). Coordinates are never stored or logged.
     InstallationId:
       name: X-Tazzzo-Installation-Id
       in: header

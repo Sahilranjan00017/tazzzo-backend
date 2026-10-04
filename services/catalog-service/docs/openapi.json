@@ -118,6 +118,66 @@
         }
       }
     },
+    "/api/v1/admin/service-areas/{pincode}" : {
+      "get" : {
+        "tags" : [ "service-area-admin-controller" ],
+        "operationId" : "get_5",
+        "parameters" : [ {
+          "name" : "pincode",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AreaResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put" : {
+        "tags" : [ "service-area-admin-controller" ],
+        "operationId" : "upsert",
+        "parameters" : [ {
+          "name" : "pincode",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/UpsertRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AreaResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/customer/orders" : {
       "post" : {
         "tags" : [ "order-controller" ],
@@ -1138,6 +1198,78 @@
         }
       }
     },
+    "/api/v1/admin/service-areas/{pincode}/deactivate" : {
+      "post" : {
+        "tags" : [ "service-area-admin-controller" ],
+        "operationId" : "deactivate",
+        "parameters" : [ {
+          "name" : "pincode",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/VersionRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AreaResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/service-areas/{pincode}/activate" : {
+      "post" : {
+        "tags" : [ "service-area-admin-controller" ],
+        "operationId" : "activate_1",
+        "parameters" : [ {
+          "name" : "pincode",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/VersionRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AreaResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/customer/profile" : {
       "get" : {
         "tags" : [ "customer-profile-controller" ],
@@ -1972,6 +2104,40 @@
         }
       }
     },
+    "/api/v1/admin/service-areas" : {
+      "get" : {
+        "tags" : [ "service-area-admin-controller" ],
+        "operationId" : "list_1",
+        "parameters" : [ {
+          "name" : "limit",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }, {
+          "name" : "after",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/PageResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/me" : {
       "get" : {
         "tags" : [ "admin-me-controller" ],
@@ -1993,7 +2159,7 @@
     "/api/v1/admin/audit-events" : {
       "get" : {
         "tags" : [ "admin-audit-events-controller" ],
-        "operationId" : "list_1",
+        "operationId" : "list_2",
         "responses" : {
           "200" : {
             "description" : "OK",
@@ -2194,6 +2360,63 @@
         "properties" : {
           "serviceable" : {
             "type" : "boolean"
+          }
+        }
+      },
+      "RouteDto" : {
+        "type" : "object",
+        "properties" : {
+          "fulfillmentLocationId" : {
+            "type" : "string"
+          },
+          "priority" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "active" : {
+            "type" : "boolean"
+          }
+        }
+      },
+      "UpsertRequest" : {
+        "type" : "object",
+        "properties" : {
+          "serviceAreaId" : {
+            "type" : "string"
+          },
+          "routes" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/RouteDto"
+            }
+          },
+          "expectedVersion" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }
+      },
+      "AreaResponse" : {
+        "type" : "object",
+        "properties" : {
+          "pincode" : {
+            "type" : "string"
+          },
+          "serviceAreaId" : {
+            "type" : "string"
+          },
+          "active" : {
+            "type" : "boolean"
+          },
+          "version" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "routes" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/RouteDto"
+            }
           }
         }
       },
@@ -2994,6 +3217,15 @@
           }
         }
       },
+      "VersionRequest" : {
+        "type" : "object",
+        "properties" : {
+          "expectedVersion" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }
+      },
       "CustomerProfileResponseDto" : {
         "type" : "object",
         "properties" : {
@@ -3511,6 +3743,20 @@
             }
           },
           "status" : {
+            "type" : "string"
+          }
+        }
+      },
+      "PageResponse" : {
+        "type" : "object",
+        "properties" : {
+          "items" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/AreaResponse"
+            }
+          },
+          "nextCursor" : {
             "type" : "string"
           }
         }

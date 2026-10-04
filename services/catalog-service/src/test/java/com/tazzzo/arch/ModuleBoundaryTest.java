@@ -65,6 +65,15 @@ class ModuleBoundaryTest {
             "com.tazzzo.serviceability.."
     };
 
+    /** The geo port is a leaf: it names no other module (the PIN travels as a string), so it can never close a cycle. */
+    @ArchTest
+    static final ArchRule location_is_a_leaf =
+            noClasses().that().resideInAPackage("com.tazzzo.location..")
+                    .should().dependOnClassesThat().resideInAnyPackage(
+                            "com.tazzzo.catalog..", "com.tazzzo.commerce..", "com.tazzzo.serviceability..",
+                            "com.tazzzo.customer..", "com.tazzzo.auth..", "com.tazzzo.admin..", "com.tazzzo.account..")
+                    .allowEmptyShould(true);
+
     /** Catalog is a domain peer: it must not depend on other domains or on the commerce layers. */
     @ArchTest
     static final ArchRule catalog_does_not_depend_on_other_modules =

@@ -1453,6 +1453,11 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-10-05** — Location + serviceability admin (backend completion PR-D; base `main` `484d42c`): INTERNAL admin API `GET/PUT /api/v1/admin/service-areas[/{pin}]` and `POST /{pin}/activate|deactivate`
+  (CAS on `expectedVersion`, create-vs-update explicit, route invariants in the domain, audit-before-state with the AUTHENTICATED actor — never the body; read-only credentials can read, not write), living in the
+  serviceability slice (`ServiceAreaAdminController`). New `com.tazzzo.location` geo port (`GeoPincodeResolver`, default `DisabledGeoPincodeResolver`): when an operator configures a provider, `lat`+`lng` on
+  `GET /v1/serviceability` resolve to a PIN (provider called only AFTER admission is charged; provider text/coordinates never echoed or logged; out-of-PIN point = not serviceable; outage = 503). List/PDP stay PIN-only.
+  No external provider ships: choosing one needs a business decision and a credential (`docs/ops/GEO_PROVIDER.md`), so that gate stays UNVERIFIED/external.
 - **2026-10-04** — DB-4 final proxy-detector fix (narrow re-review of `4e19e5e`: the MongoDB driver accepts `;` as well as `&` between URI options, and the raw text scan only split on `&`, so `?w=majority;proxyHost=evil.example.net` kept a loopback target "local" and bypassed `PROXY_FORBIDDEN`):
   proxy use now comes from the driver's own parse (effective `ProxySettings`), not a second text parser; the dead raw-scan helper was removed. Mutations, each killed: DB4-P1 detector sees only `&`, P2 `isLocalTarget` ignores proxies, P3 contract does not reject the proxy,
   P4 `MigrationTarget` loses the proxy decision, P5 detector fails open on an unparseable string, P6 detector blind. `./mvnw clean test` on Java 21 + Docker: **BUILD SUCCESS**, 2850 tests (1274 unit, 1576 integration), 0 failures / 0 errors / 0 skipped (+7); `ModuleBoundaryTest` 73/73, `IndexContractIT` 12/12. V0001 checksum unchanged (`3b703e4a…`); R1 unchanged and open.
