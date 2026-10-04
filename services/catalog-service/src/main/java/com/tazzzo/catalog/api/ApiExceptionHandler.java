@@ -128,8 +128,11 @@ public class ApiExceptionHandler {
     }
 
     @ExceptionHandler(org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class)
-    public ResponseEntity<?> typeMismatch(Exception ex, HttpServletRequest req) {
-        return envelope(HttpStatus.BAD_REQUEST, "MALFORMED_REQUEST", ex.getMessage(), req);
+    public ResponseEntity<?> typeMismatch(org.springframework.web.method.annotation.MethodArgumentTypeMismatchException ex,
+                                          HttpServletRequest req) {
+        // the parameter NAME only: the conversion exception's text carries Java type names and the raw value
+        return envelope(HttpStatus.BAD_REQUEST, "MALFORMED_REQUEST",
+                "parameter '" + (ex.getName() == null ? "?" : ex.getName()) + "' has an invalid value", req);
     }
 
     @ExceptionHandler(org.springframework.web.HttpRequestMethodNotSupportedException.class)
@@ -147,9 +150,38 @@ public class ApiExceptionHandler {
         return envelope(HttpStatus.NOT_FOUND, "NO_SUCH_ENDPOINT", ex.getMessage(), req);
     }
 
-    @ExceptionHandler({HttpMessageNotReadableException.class, IllegalArgumentException.class})
+    @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<?> malformed(Exception ex, HttpServletRequest req) {
         return envelope(HttpStatus.BAD_REQUEST, "MALFORMED_REQUEST", ex.getMessage(), req);
+    }
+
+    /**
+     * Platform baseline (error sanitization): the body could not be read. The parser's own text names Java types,
+     * field paths and sometimes the offending input, so it never reaches a client. (An oversized body never gets this
+     * far: {@link RequestBodyLimitFilter} answers 413 before any controller reads.)
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<?> unreadable(HttpMessageNotReadableException ex, HttpServletRequest req) {
+        return envelope(HttpStatus.BAD_REQUEST, "MALFORMED_REQUEST", "request body is malformed or unreadable", req);
+    }
+
+    /** A request parameter is missing, or a mapping's required parameter condition is not met: a 400, never the 500 catch-all. */
+    @ExceptionHandler({org.springframework.web.bind.MissingServletRequestParameterException.class,
+            org.springframework.web.bind.UnsatisfiedServletRequestParameterException.class,
+            org.springframework.web.bind.ServletRequestBindingException.class})
+    public ResponseEntity<?> parameterBinding(Exception ex, HttpServletRequest req) {
+        String message = "required request parameter is missing or invalid";
+        if (ex instanceof org.springframework.web.bind.MissingServletRequestParameterException m) {
+            message = "required request parameter '" + m.getParameterName() + "' is missing";
+        } else if (ex instanceof org.springframework.web.bind.UnsatisfiedServletRequestParameterException u) {
+            message = "request parameter condition not met: " + String.join(", ", u.getParamConditions());
+        }
+        return envelope(HttpStatus.BAD_REQUEST, "MALFORMED_REQUEST", message, req);
+    }
+
+    @ExceptionHandler(org.springframework.web.HttpMediaTypeNotAcceptableException.class)
+    public ResponseEntity<?> notAcceptable(Exception ex, HttpServletRequest req) {
+        return envelope(HttpStatus.NOT_ACCEPTABLE, "NOT_ACCEPTABLE", "no acceptable representation", req);
     }
 
     /** m2: duplicate key is a conflict, not a validation failure — and the two must not
@@ -190,7 +222,8 @@ public class ApiExceptionHandler {
         String requestId = String.valueOf(req.getAttribute(RequestIdFilter.REQUEST_ID));
         SurfaceClassifier.Surface surface = SurfaceClassifier.classify(req.getRequestURI());
         if (surface == SurfaceClassifier.Surface.PUBLIC_CONSUMER
-                || surface == SurfaceClassifier.Surface.CUSTOMER_AUTHENTICATED) {
+                || surface == SurfaceClassifier.Surface.CUSTOMER_AUTHENTICATED
+                || surface == SurfaceClassifier.Surface.HEALTH) {
             return publicEnvelope(status, code, requestId);
         }
         log.warn("api_error code={} status={} request_id={}", code, status.value(), requestId);

@@ -12,6 +12,8 @@ servers:
   - url: https://api.tazzzo.com
     description: Production gateway (not yet provisioned)
 tags:
+  - name: platform
+    description: Unauthenticated liveness/readiness probes for the container runtime and the load balancer.
   - name: commerce-read
     description: Composed, consumer-ready browse contract (ADR-001, ADR-003.1).
   - name: customer-auth-otp
@@ -96,6 +98,38 @@ tags:
       quote, reservation, address, fulfillment/routing, coordinates) are never exposed. Responses are
       no-store.
 paths:
+  /health/live:
+    get:
+      tags: [platform]
+      summary: Liveness probe (container runtime)
+      description: >
+        Always 200 while the process serves HTTP; never consults a dependency, so an outage can never cause a restart loop.
+        Unauthenticated; exact path; never cached. Body holds bounded words only (no hosts, versions or errors).
+      responses:
+        '200':
+          description: Alive
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HealthReport' }
+  /health/ready:
+    get:
+      tags: [platform]
+      summary: Readiness probe (load-balancer target health)
+      description: >
+        200 when this instance may receive traffic: the datastore serving gate is OPEN (verifier passed, startup complete)
+        and MongoDB answers a bounded ping. The rate-limiter store is reported and only gates readiness when configured
+        (TAZZZO_HEALTH_REQUIRE_RATE_LIMITER=true). A refused process or a migration job is never ready. Unauthenticated; never cached.
+      responses:
+        '200':
+          description: Ready
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HealthReport' }
+        '503':
+          description: Not ready (same body, status DOWN)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HealthReport' }
   /v1/categories:
     get:
       tags: [commerce-read]
@@ -890,6 +924,18 @@ components:
       description: Per-request auth state; never cacheable by any intermediary.
       schema: { type: string, example: "no-store" }
   schemas:
+    HealthReport:
+      type: object
+      required: [status, components]
+      properties:
+        status: { type: string, enum: [UP, DOWN] }
+        components:
+          type: object
+          required: [datastore, mongo, rate_limiter]
+          properties:
+            datastore: { type: string, enum: [OPEN, STARTING, REFUSED, JOB] }
+            mongo: { type: string, enum: [UP, DOWN, SKIPPED] }
+            rate_limiter: { type: string, enum: [UP, DOWN, DISABLED, SKIPPED] }
     Node:
       type: object
       required: [id, name]

@@ -1453,6 +1453,11 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-10-05** — Platform HTTP baseline (backend completion PR-B; base `main` `484d42c`): health probes (`GET /health/live`, `GET /health/ready`, new exact `HEALTH` surface, unauthenticated,
+  no-store, bounded words only; readiness = datastore gate OPEN + bounded Mongo ping, limiter store reported/optional), application-level request-body limit (64 KiB default, 413 before auth, chunked bodies
+  bounded by buffering), sanitized framework errors (unreadable body, type mismatch, missing/unsatisfied parameter → 400, never the 500 catch-all — this closes the `GET /api/v1/products` without `canonicalKey`
+  500 at the framework level), validated `X-Correlation-Id`, explicit CORS allowlist (off by default, exact https origins, no credentials), `forward-headers-strategy=none` + graceful shutdown. Filter chain pinned:
+  request-id → body-limit → CORS → service-token auth → customer auth. Doc: `docs/ops/HTTP_PLATFORM_BASELINE.md`. Test evidence and mutations are recorded in the PR.
 - **2026-10-04** — DB-4 final proxy-detector fix (narrow re-review of `4e19e5e`: the MongoDB driver accepts `;` as well as `&` between URI options, and the raw text scan only split on `&`, so `?w=majority;proxyHost=evil.example.net` kept a loopback target "local" and bypassed `PROXY_FORBIDDEN`):
   proxy use now comes from the driver's own parse (effective `ProxySettings`), not a second text parser; the dead raw-scan helper was removed. Mutations, each killed: DB4-P1 detector sees only `&`, P2 `isLocalTarget` ignores proxies, P3 contract does not reject the proxy,
   P4 `MigrationTarget` loses the proxy decision, P5 detector fails open on an unparseable string, P6 detector blind. `./mvnw clean test` on Java 21 + Docker: **BUILD SUCCESS**, 2850 tests (1274 unit, 1576 integration), 0 failures / 0 errors / 0 skipped (+7); `ModuleBoundaryTest` 73/73, `IndexContractIT` 12/12. V0001 checksum unchanged (`3b703e4a…`); R1 unchanged and open.
