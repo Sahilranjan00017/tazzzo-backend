@@ -155,6 +155,11 @@ public class SchemaBootstrap {
      * Shared by {@link #bootstrap} and the baseline migration.
      */
     public void ensureCollections(MongoDatabase db) {
+        ensureCollections(db, COLLECTIONS);
+    }
+
+    /** As {@link #ensureCollections(MongoDatabase)} for an explicit roster (a released migration's frozen list). */
+    public void ensureCollections(MongoDatabase db, List<String> roster) {
         List<String> existing = db.listCollectionNames().into(new java.util.ArrayList<>());
 
         if (!existing.contains("products")) {
@@ -164,7 +169,7 @@ public class SchemaBootstrap {
                             .validationLevel(ValidationLevel.STRICT)
                             .validationAction(ValidationAction.ERROR)));
         }
-        for (String name : COLLECTIONS) {
+        for (String name : roster) {
             if (!name.equals("products") && !existing.contains(name)) {
                 db.createCollection(name);
             }

@@ -3,7 +3,7 @@
 Single source of truth for what is actually built and verified in `tazzzo-backend`.
 Reflects **current reality only** — nothing is marked complete unless verified from existing code.
 
-Last updated: 2026-09-28
+Last updated: 2026-10-04
 
 ---
 
@@ -1254,6 +1254,25 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
 
 ## In review (NOT merged)
 
+- **Database foundation (MongoDB, DB-0 … DB-4)** — authoritative documents in [`docs/database/`](database/):
+  - **DB-0** database inventory: **COMPLETE** (PR #47, `52ab530`). **DB-1** collection contracts + validator policy: **COMPLETE** (PR #48, `e3a0db6`).
+    **DB-2** index manifest, per-vertical cursor index, `IndexContractIT`: **COMPLETE** (PR #50, `f99c1fe`). **DB-3** versioned, locked migration
+    framework (V0001–V0007, including the nine audit-read indexes), dry run, target guard, safe startup modes (R3, R5): **COMPLETE** (PR #51, `d9c440f`).
+  - **DB-4** staging requirements + users/security: **IN REVIEW** (branch `feature/db4-datastore-contract-and-privileges`). It adds the
+    explicit connection contract for staging/production (TLS, retry, `w=majority`, read concern, timeouts, pool: closes risk R7; the numeric limits are **PROPOSED — owner ratification required**), a fail-fast datastore verifier
+    that runs before the migration runner, a readiness gate so no `@Scheduled` worker acts until the datastore is verified and startup has finished (a refused process or a migration job runs none), an environment label that is metadata rather than a boundary
+    (a remote, proxied, wildcard or ambiguously spelled target is enforced whatever it is called; one strict classifier drives the verifier and `TargetGuard`), V0001's checksum input frozen so future schema cannot change a released migration, three least-privilege identities (runtime / migrator / read-only dry run) generated from one model
+    and proven against a real authenticated replica set, the shipped role files (`docs/database/roles/`), the staging runbook, and a retention matrix + PII map
+    for all 49 collections. The runtime identity holds no schema authority and cannot write the migration history; a migrator connecting as the runtime is refused.
+  - **Honest state:** Atlas staging is **PARTIAL** (design decisions only: no cluster, users, URI or connectivity); a staging dry run is **blocked on infrastructure**, not on code;
+    nothing was run against Atlas, AWS or production. DB-5 (ingestion), DB-6 (backup/restore/retention), DB-7 (query/load verification) and DB-8 (readiness gate) are not started.
+    The six deployment gates stay **PENDING / UNVERIFIED**. **The production datastore is NOT READY.**
+  - **OPEN CONFLICT — R1:** price history is ratified as retained, but `CatalogSchedulers.priceRollup()` runs hourly by default and `RollupService.purge()` hard-deletes rolled
+    `price_events` rows. Recorded by DB-0/DB-1, not fixed by DB-3 or DB-4 (needs an owner-designed durable discriminator). Until the R1 work package lands, staging must run
+    with `TAZZZO_SCHEDULER_ENABLED=false`. No price writer exists in `main` today.
+  - **PRE-EXISTING DEFECT — OUTSIDE THE DATABASE FOUNDATION:** `GET /api/v1/products` without `canonicalKey` answers a generic 500 (the route's request-parameter condition is
+    unsatisfied and is mapped to `INTERNAL`). Reproduced at an older head, unrelated to the audit-read API; to be fixed separately, not in any DB PR.
+
 - **Admin `/me` CMS bootstrap identity** (`GET /api/v1/admin/me`): **COMPLETE** (PR #46, merged `f5b2cdd`, CI run 37081156657, 2382 tests, ModuleBoundaryTest 73/73). **The backend exposes a safe authenticated
   Admin bootstrap endpoint for the CMS; the CMS login flow is NOT complete (no `tazzzo-web` BFF exists). No login/callback/
   logout, sessions, cookies, PKCE/nonce/CSRF, CORS, audit read API, sensitive Admin module or Payment.**
@@ -1279,7 +1298,7 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
     session store, the Google web OAuth client and the CMS hostname. Humans are not yet off the shared `cms-writer` token.
   - **Deployment gates unchanged:** six, all PENDING / UNVERIFIED.
 
-- **Admin audit-read API** (`GET /api/v1/admin/audit-events`): **IN REVIEW** (branch `feature/admin-audit-read`; not merged).
+- **Admin audit-read API** (`GET /api/v1/admin/audit-events`): **COMPLETE** (PR #49, squash `822728694cb5dd80a5b68c4587c6c79911222adc`, merged-`main` CI run `37138053909`, 2457 tests, `IndexContractIT` 10/10, `ModuleBoundaryTest` 73/73). Ready **in code**; the real CMS → real backend → persisted `HUMAN_ADMIN` audit round trip is NOT yet verified, and nothing here is production-ready.
   **A read-only, paginated, filterable view of the EXISTING persisted audit ledgers for per-person human admins holding the new
   narrow `audit-reader` role. Nothing is written; no second audit model; existing audit writes are unchanged.**
   - **Sources (no central audit collection exists, by design):** `product_events`, `node_events`, `domain_events`, attributed
@@ -1396,8 +1415,8 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
    hardening: plan cross-validation) complete (PR #41); PR #40 (binding payable, unratified) was merged and its binding is
    removed by the forward fix (complete, PR #42), which keeps the public authoritative Order money; the Checkout/Order
    architecture boundary hardening is complete (PR #43); the admin principal + actor-audit foundation is complete
-   (PR #44); human admin Google OIDC + config allowlist is complete (PR #45); Admin `/me` is in review, then the
-   `tazzzo-web` CMS BFF login; Payment comes last.
+   (PR #44); human admin Google OIDC + config allowlist is complete (PR #45); Admin `/me` is complete (PR #46); the admin audit-read API is
+   complete (PR #49); then the `tazzzo-web` CMS BFF login; Payment comes last.
 4. Payment domain, then the prepaid Order flow, then a real gateway.
 5. Admin/CMS expansion.
 
@@ -1434,6 +1453,31 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-10-04** — DB-4 final proxy-detector fix (narrow re-review of `4e19e5e`: the MongoDB driver accepts `;` as well as `&` between URI options, and the raw text scan only split on `&`, so `?w=majority;proxyHost=evil.example.net` kept a loopback target "local" and bypassed `PROXY_FORBIDDEN`):
+  proxy use now comes from the driver's own parse (effective `ProxySettings`), not a second text parser; the dead raw-scan helper was removed. Mutations, each killed: DB4-P1 detector sees only `&`, P2 `isLocalTarget` ignores proxies, P3 contract does not reject the proxy,
+  P4 `MigrationTarget` loses the proxy decision, P5 detector fails open on an unparseable string, P6 detector blind. `./mvnw clean test` on Java 21 + Docker: **BUILD SUCCESS**, 2850 tests (1274 unit, 1576 integration), 0 failures / 0 errors / 0 skipped (+7); `ModuleBoundaryTest` 73/73, `IndexContractIT` 12/12. V0001 checksum unchanged (`3b703e4a…`); R1 unchanged and open.
+- **2026-10-04** — DB-4 final classifier / gate hardening (focused re-review of `010d0b9`: M2 octal-looking `0177.0.0.1` and proxy options kept a loopback target "local"; two gate states had no deterministic test):
+  `./mvnw clean test` on Java 21 + Docker: **BUILD SUCCESS**, 2843 tests (1267 unit, 1576 integration), 0 failures / 0 errors / 0 skipped (+47 over 2796); `ModuleBoundaryTest` 73/73, `IndexContractIT` 12/12. One earlier full run
+  had 22 integration classes error with `MongoSocketOpenException` to the shared Testcontainers server (an environment failure, no assertion failed); the rerun is clean. One strict classifier (`ConnectionContract.isLocalTarget`) now drives the verifier and `TargetGuard`
+  (`MigrationTarget.local`): only `localhost`, a standard dotted-quad in `127/8`, a decimal integer in that range (confirmed against the JDK), `::1` and IPv4-mapped loopback, with no proxy option, are local; octal/hex/short spellings, `0.0.0.0`, proxies, SRV and mixed lists are enforced.
+  Mutations, each killed: DB4-F1/F2 `0177`/`00177` local, F1b octal parser, F3 proxyHost ignored, F4 other proxy options ignored (equivalent at the URI level because the driver rejects them without `proxyHost`; pinned by a direct detector test), F5a/b mixed hosts local, F6 APPLY opens the gate, F7a/b runner refusal opens the gate,
+  F8 `0.0.0.0` local, F9 runner ignores the URI, F10 TargetGuard ignores the decision, F11 SRV local, F12 verifier ignores the decision. V0001 checksum unchanged (`3b703e4a…`); R1 unchanged and open.
+- **2026-10-04** — DB-4 focused hardening (PR #52 review: M1 scheduled workers ran before the verifier, M2 environment label trusted, M3 V0001 checksum coupled to live constants):
+  `./mvnw clean test` on Java 21 + Docker: **BUILD SUCCESS**, 2796 tests (1221 unit, 1575 integration), 0 failures / 0 errors / 0 skipped (+123 over the reviewed 2673);
+  `ModuleBoundaryTest` 73/73, `IndexContractIT` 12/12. Mutations, each killed: DB4-H1 worker ignores the gate, H2a/b/c/d gate opened early or job mode unmarked, H3/H4/H5 remote target labelled dev/test/local
+  bypasses, H5b TargetGuard trusts the label, H6a/b V0001 reads the live collections, H7 V0001 reads the live index catalog (H6a is killed only by the source scan: live and frozen are equal today), H8a/b `URI_INVALID` echoes the
+  URI or driver message; contract C1 journal, C2 wtimeout, C3 OCSP, C4 proxy, C5 blank replicaSet, L1–L5 loopback normalisation; prior DB-M1..M8 and DB4-M1..M10 rerun (DB-M7c, which had silently stopped being killed, is now pinned by `MigrationDefaultsTest`).
+  V0001's stored checksum is unchanged (`3b703e4a…`). Not fixed here and still open: R1 (price purge), customer erasure, Atlas capability verification. Nothing was run against Atlas, AWS or production.
+- **2026-10-04** — `./mvnw clean test` on Java 21 + Docker on `feature/db4-datastore-contract-and-privileges` (based on `main`
+  `d9c440f3c1f4cddeb6c3578edbaee4c4d098c7c8`, whose push CI run `37145966422` had 2570 tests): **BUILD SUCCESS**, 2673 tests,
+  0 failures / 0 errors / 0 skipped (+103: 83 unit, 20 integration — 14 `DatastorePrivilegeIT` + 4 `DatastoreWiringIT` + 2
+  `RuntimeIdentityEndToEndIT` against a real authenticated MongoDB 7 replica set); `ModuleBoundaryTest` 73/73, `IndexContractIT` 12/12.
+  Mutations, each killed: DB-M1 lock removed, DB-M2 duplicate migration id allowed, DB-M3 dry run writes, DB-M4 unique preflight removed, DB-M5 audit
+  index key order, DB-M6 TTL on an audit ledger, DB-M7a/b/c runtime auto-migration (default mode, production guard, yml default), DB-M8 history not written;
+  DB4-M1 verifier no longer first, M2 any write concern, M3 no TLS requirement, M4 excess privileges ignored, M5 standalone accepted, M6 runtime writes the
+  history, M7 production not enforced, M8 driver message leaked, M9 VERIFY checked as the migrator, M10 database-wide runtime read. Nothing was run against Atlas, AWS or production.
+- **2026-10-03** — merged-`main` verification of PR #49 (squash `822728694cb5dd80a5b68c4587c6c79911222adc`, push CI run `37138053909` on Java 21):
+  **BUILD SUCCESS**, 2457 tests, 0 failures / 0 errors / 0 skipped; `ModuleBoundaryTest` 73/73, `IndexContractIT` 10/10.
 - **2026-10-03** — `./mvnw clean test` on Java 21 + Docker on `feature/pr26-admin-me` (based on `main`
   `d018cac373c0461fb0d4c7eaa56a425a883f7b3f`): **BUILD SUCCESS**, 2382 tests, 0 failures / 0 errors / 0 skipped (2366 + 12
   `AdminMeIT` + 4 `AdminProfilesTest`); `ModuleBoundaryTest` 73/73. Mutations, each killed: `credentialId` exposed, raw subject

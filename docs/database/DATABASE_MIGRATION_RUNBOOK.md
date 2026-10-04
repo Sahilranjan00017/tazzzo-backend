@@ -25,9 +25,16 @@ MigrationRunner ── TargetGuard ── MigrationLock ── MigrationHistory 
 | `MigrationRunner` | `dryRun` (read-only), `apply` (locked, recorded), `verify` (read-only, used at startup) |
 | `MigrationHistory` | collection `schema_migrations`, one document per migration id, fenced writes |
 | `MigrationLock` | collection `schema_migration_lock`, single-runner lease with fencing token |
-| `TargetGuard` | refuses ambiguous or disallowed targets before anything is mutated |
+| `TargetGuard` | refuses ambiguous or disallowed targets before anything is mutated; the self-serve `local`/`test`/`dev` treatment applies only to a loopback-only datastore (staging runbook §6.2) |
+| `BaselineV0001Contract` | the FROZEN collections and indexes of released V0001: its checksum input never follows the live `SchemaBootstrap`/`IndexCatalog`; new schema is a new migration (V0008+) |
 | `IndexSpec` / `IndexCatalog` | declarative index definitions; classify live state as ABSENT / EXACT / SAME_KEYS_OTHER_NAME / CONFLICT |
 | Generic migrations | `CreateIndexMigration`, `DropIndexMigration`, `ReplaceIndexMigration`, `ValidatorMigration` |
+
+**Known limit — seed contents are not part of V0003's checksum (NOTE, future hardening).** V0003's recorded definition names the seed file and its counts
+(460 nodes, 25 aliases, 110 definitions, 48 schemas) but not a hash of the file's contents, so an edit to `taxonomy_v0_9_0_seed.json` that keeps the counts would not change the checksum.
+The only other guards are the count assertions in `TaxonomyFoundationIT` and the frozen-release discipline of taxonomy v0.9.0. Hashing the content would change the identity of an already-applied
+migration, so it is deliberately NOT done here; a content hash belongs in a new seed migration (or the seed pack's own versioning) when the seed is next evolved. V0001, by contrast, now has an immutable
+checksum input (`BaselineV0001Contract`, pinned by `BaselineFrozenContractTest`).
 
 Code: `services/catalog-service/src/main/java/com/tazzzo/catalog/migration/`. The two bookkeeping collections
 are created lazily by the runner on `APPLY`; they are not in `SchemaBootstrap.COLLECTIONS`, and `VERIFY`,
@@ -245,7 +252,7 @@ java -jar catalog-service.jar --spring.main.web-application-type=none \
   --tazzzo.migration.approved-data-migrations=V0004__seed_schemas_pack_fields_not_required   # only when approved
 ```
 
-**The job is the application, so it needs the same mandatory configuration as the service** — notably `TAZZZO_CONSUMER_RATE_LIMIT_MODE`, which has no default and makes startup fail if unset (`DISABLED` is the fail-closed value for a job that serves nothing) — plus any other mandatory property the service requires at startup. A committed test (`MigrationJobContextIT`) starts the real application in exactly this shape (non-web, `DRY_RUN`, `exit-after-run=true`, only the configuration listed above) and checks that it exits with code 0 and creates nothing. Credentials come from the secret store (`MONGODB_URI`), never from this repository or the command line history. The migration identity should hold only the privileges it needs (`createCollection`, `createIndex`, `dropIndex`, `collMod`, read/write on the bookkeeping collections and, for data migrations, update on the target); the runtime application identity needs none of them in `VERIFY` mode (separate users are a DB-4 task).
+**The job is the application, so it needs the same mandatory configuration as the service** — notably `TAZZZO_CONSUMER_RATE_LIMIT_MODE`, which has no default and makes startup fail if unset (`DISABLED` is the fail-closed value for a job that serves nothing) — plus any other mandatory property the service requires at startup. A committed test (`MigrationJobContextIT`) starts the real application in exactly this shape (non-web, `DRY_RUN`, `exit-after-run=true`, only the configuration listed above) and checks that it exits with code 0 and creates nothing. Credentials come from the secret store (`MONGODB_URI`), never from this repository or the command line history. The migration identity should hold only the privileges it needs (`createCollection`, `createIndex`, `dropIndex`, `collMod`, read/write on the bookkeeping collections and, for data migrations, update on the target); the runtime application identity needs none of them in `VERIFY` mode. **Separate runtime / migrator / read-only identities, their exact role definitions (`docs/database/roles/`), the explicit connection contract and the startup verification that enforces both are DB-4: see `DATABASE_STAGING_RUNBOOK.md` (the verifier runs before the migration runner, and refuses to start a staging/production process whose connection string or privileges do not match).**
 
 ## 13. Rollback and roll-forward
 
@@ -304,4 +311,4 @@ pins that this is the only managed index it creates.
 
 ## 17. Not done in DB-3 (explicit)
 
-No migration was run against any staging or production database; no validator is enabled; no unused index is dropped; PR #49's nine `audit_read_*` indexes are now part of the catalog and created by `V0007`; index build time on production-sized data and the live index set remain UNVERIFIED; separate migration/runtime database users and the deployment pipeline integration are DB-4 and the AWS track.
+No migration was run against any staging or production database; no validator is enabled; no unused index is dropped; PR #49's nine `audit_read_*` indexes are now part of the catalog and created by `V0007`; index build time on production-sized data and the live index set remain UNVERIFIED; the deployment pipeline integration is the AWS track. *(Update, DB-4: separate migration/runtime/read-only database identities, the connection contract and the fail-fast verifier are implemented and tested against a real authenticated replica set — `DATABASE_STAGING_RUNBOOK.md`. Nothing was run against Atlas.)*

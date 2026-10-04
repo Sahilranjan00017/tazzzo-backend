@@ -428,8 +428,8 @@ class MigrationFrameworkIT extends AbstractMigrationIT {
     @Test
     void an_unidentified_or_unknown_environment_is_refused_before_anything_is_created() {
         MongoDatabase d = scratch();
-        MigrationRunner.RunReport blank = applyWith(d, new MigrationTarget("", d.getName(), List.of(), "op", "b"), MigrationMode.APPLY, "", "");
-        MigrationRunner.RunReport unknown = applyWith(d, new MigrationTarget("prod", d.getName(), List.of(), "op", "b"), MigrationMode.APPLY, d.getName(), "prod");
+        MigrationRunner.RunReport blank = applyWith(d, new MigrationTarget("", d.getName(), List.of("localhost:27017"), "op", "b"), MigrationMode.APPLY, "", "");
+        MigrationRunner.RunReport unknown = applyWith(d, new MigrationTarget("prod", d.getName(), List.of("localhost:27017"), "op", "b"), MigrationMode.APPLY, d.getName(), "prod");
         assertThat(blank.outcome()).isEqualTo(MigrationRunner.Outcome.TARGET_REFUSED);
         assertThat(unknown.outcome()).isEqualTo(MigrationRunner.Outcome.TARGET_REFUSED);
         assertThat(collectionNames(d)).as("a refused run creates nothing (no history, no lock)").isEmpty();
@@ -438,7 +438,7 @@ class MigrationFrameworkIT extends AbstractMigrationIT {
     @Test
     void production_apply_needs_the_two_key_confirmation() {
         MongoDatabase d = scratch();
-        MigrationTarget prod = new MigrationTarget("production", d.getName(), List.of(), "ci-job", "b");
+        MigrationTarget prod = new MigrationTarget("production", d.getName(), List.of("localhost:27017"), "ci-job", "b");
         assertThat(applyWith(d, prod, MigrationMode.APPLY, "", "").outcome()).isEqualTo(MigrationRunner.Outcome.TARGET_REFUSED);
         assertThat(applyWith(d, prod, MigrationMode.APPLY, d.getName(), "").outcome()).isEqualTo(MigrationRunner.Outcome.TARGET_REFUSED);
         assertThat(applyWith(d, prod, MigrationMode.APPLY, "some-other-db", "production").outcome()).isEqualTo(MigrationRunner.Outcome.TARGET_REFUSED);
@@ -451,7 +451,7 @@ class MigrationFrameworkIT extends AbstractMigrationIT {
     void startup_mutation_is_never_allowed_in_staging_or_production() {
         MongoDatabase d = scratch();
         for (String env : List.of("staging", "production")) {
-            MigrationTarget t = new MigrationTarget(env, d.getName(), List.of(), "op", "b");
+            MigrationTarget t = new MigrationTarget(env, d.getName(), List.of("localhost:27017"), "op", "b");
             assertThat(applyWith(d, t, MigrationMode.APPLY_ON_STARTUP, d.getName(), env).outcome()).isEqualTo(MigrationRunner.Outcome.TARGET_REFUSED);
             assertThatThrownBy(() -> TargetGuard.requireMutationAllowed(MigrationMode.LEGACY, t, null, null))
                     .isInstanceOf(TargetRefusedException.class);
@@ -463,7 +463,7 @@ class MigrationFrameworkIT extends AbstractMigrationIT {
     void self_serve_environments_need_no_confirmation() {
         MongoDatabase d = scratch();
         for (String env : List.of("local", "test", "dev")) {
-            assertThat(applyWith(d, new MigrationTarget(env, d.getName(), List.of(), "op", "b"), MigrationMode.APPLY_ON_STARTUP, null, null).ok()).as(env).isTrue();
+            assertThat(applyWith(d, new MigrationTarget(env, d.getName(), List.of("localhost:27017"), "op", "b"), MigrationMode.APPLY_ON_STARTUP, null, null).ok()).as(env).isTrue();
         }
     }
 
