@@ -65,6 +65,15 @@ class ModuleBoundaryTest {
             "com.tazzzo.serviceability.."
     };
 
+    /** Delivery slots sit above serviceability and never reach into commerce read/api, orders, cart or checkout (those call IN). */
+    @ArchTest
+    static final ArchRule delivery_does_not_depend_on_the_customer_commerce_flow =
+            noClasses().that().resideInAPackage("com.tazzzo.delivery..")
+                    .should().dependOnClassesThat().resideInAnyPackage(
+                            "com.tazzzo.commerce.read..", "com.tazzzo.commerce.api..", "com.tazzzo.customer..",
+                            "com.tazzzo.membership..", "com.tazzzo.pricing..", "com.tazzzo.inventory..", "com.tazzzo.media..")
+                    .allowEmptyShould(true);
+
     /** Catalog is a domain peer: it must not depend on other domains or on the commerce layers. */
     @ArchTest
     static final ArchRule catalog_does_not_depend_on_other_modules =

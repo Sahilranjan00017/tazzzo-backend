@@ -14,6 +14,11 @@ servers:
 tags:
   - name: commerce-read
     description: Composed, consumer-ready browse contract (ADR-001, ADR-003.1).
+  - name: customer-delivery
+    description: >
+      Delivery windows for a PIN (customer-authenticated). Computed fresh per request in the configured delivery time
+      zone; capacity is shown only as a status, never a count. Reserving a window happens inside checkout/order placement
+      (a later contract), not here.
   - name: customer-auth-otp
     description: >
       PR-11B — OTP challenge lifecycle only. Public (no bearer token required or honoured).
@@ -318,6 +323,47 @@ paths:
           headers:
             Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
         '401': { $ref: '#/components/responses/SessionUnauthenticated' }
+  /v1/customer/delivery/slots:
+    get:
+      tags: [customer-delivery]
+      operationId: listDeliverySlots
+      summary: >
+        The delivery windows a signed-in customer can choose for a PIN over the next `days` local days (default and
+        maximum: the configured horizon). An unserviceable PIN is 200 with `serviceable:false` and no slots.
+      security:
+        - customerBearerAuth: []
+      parameters:
+        - { name: pin, in: query, required: true, schema: { type: string, pattern: '^[1-9][0-9]{5}$' } }
+        - { name: days, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 14 } }
+      responses:
+        '200':
+          description: OK. Never cached.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [serviceable, timezone, slots, requestId]
+                properties:
+                  serviceable: { type: boolean }
+                  timezone: { type: string, example: Asia/Kolkata }
+                  requestId: { type: string }
+                  slots:
+                    type: array
+                    items:
+                      type: object
+                      required: [slotId, date, startsAt, endsAt, label, status]
+                      properties:
+                        slotId: { type: string, example: 'morning~2026-10-06', description: "Opaque and stable id of this occurrence" }
+                        date: { type: string, format: date }
+                        startsAt: { type: string, format: date-time }
+                        endsAt: { type: string, format: date-time }
+                        label: { type: string }
+                        status: { type: string, enum: [AVAILABLE, FULL, CLOSED] }
+        '400': { description: "Missing or malformed pin, or days outside 1..horizon (INVALID_REQUEST)" }
+        '401': { description: "Missing, invalid or revoked customer token" }
+        '503': { description: "Dependency unavailable (SERVICE_UNAVAILABLE)" }
   /v1/customer/profile:
     get:
       tags: [customer-profile]

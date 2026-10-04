@@ -34,6 +34,9 @@ public final class Migrations {
                 new CreateIndexMigration("V0007__audit_read_partial_indexes",
                         "product_events/node_events/domain_events: nine partial audit-read indexes (recent, actor, request) for GET /api/v1/admin/audit-events (PR #49)",
                         IndexCatalog.AUDIT_READ_SPECS, null),
+                new CreateIndexMigration("V0008__delivery_slot_indexes",
+                        "delivery_slot_windows (service_area_id) by-area lookup and delivery_slot_usage TTL on expire_at (PR-E delivery slots)",
+                        IndexCatalog.DELIVERY_SLOT_SPECS, null),
                 // DROP-CANDIDATES: registered but DISABLED. They run only when named in tazzzo.migration.enabled-migrations
                 // after the owner approves (docs/database/DATABASE_MIGRATION_RUNBOOK.md, unused-index decisions).
                 new DropIndexMigration("V0101__drop_unused_session_by_customer_index",

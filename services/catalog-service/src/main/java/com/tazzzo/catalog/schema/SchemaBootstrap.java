@@ -111,7 +111,12 @@ public class SchemaBootstrap {
             // PR-16A-1: one document per Membership TERM (entitlement window under one immutable plan
             // version), _id the opaque MBR_* id. Deliberately NO TTL, NO customer-history index and NO
             // validUntil expiry-scan index -- no query needs one yet; each arrives with its query.
-            "memberships");
+            "memberships",
+            // PR-E delivery slots: recurring windows per service area (authoritative config, _id
+            // "<area>|<window>", CAS version) and lazily-created per-occurrence capacity counters (_id
+            // "<area>|<window>|<date>"). Their indexes (by-area lookup, TTL purge a week after the date)
+            // are migration-only (V0008); bootstrap creates only the collections.
+            "delivery_slot_windows", "delivery_slot_usage");
 
     /**
      * PAG-2-SORT-1 transport support: the equality prefix the consumer-eligibility predicate uses,

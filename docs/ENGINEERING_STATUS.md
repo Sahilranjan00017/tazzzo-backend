@@ -1453,6 +1453,12 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-10-05** — Delivery slots (backend completion PR-E; base `main` `484d42c`): new `com.tazzzo.delivery` slice. Admin API `GET/PUT /api/v1/admin/delivery-slots/{serviceAreaId}[/{windowId}]` +
+  `POST …/activate|deactivate` (recurring windows per service area: local start/end minute, cutoff, capacity, ISO weekdays; CAS `expectedVersion`; audit-before-state with the AUTHENTICATED actor; area must exist), customer
+  `GET /v1/customer/delivery/slots?pin=&days=` (fresh availability in the configured zone `tazzzo.delivery.zone`, default `Asia/Kolkata`, horizon `tazzzo.delivery.horizon-days`, default 3; status only, never counts), and the
+  atomic hold primitives `reserve`/`release` that checkout/order placement (PR-L/M) will call inside THEIR transaction: idempotent per hold id, `used < capacity` conditional increment is the sole "full" decision (24-way
+  concurrency test: exactly capacity holds). Two collections added to the roster (`delivery_slot_windows`, `delivery_slot_usage`), migration `V0008` (by-area index + the only durable-collection TTL: counters purged a week
+  after the slot date), runtime role regenerated, DB docs/pins updated (51 collections, 62 indexes). Not wired into checkout yet (PR-L).
 - **2026-10-04** — DB-4 final proxy-detector fix (narrow re-review of `4e19e5e`: the MongoDB driver accepts `;` as well as `&` between URI options, and the raw text scan only split on `&`, so `?w=majority;proxyHost=evil.example.net` kept a loopback target "local" and bypassed `PROXY_FORBIDDEN`):
   proxy use now comes from the driver's own parse (effective `ProxySettings`), not a second text parser; the dead raw-scan helper was removed. Mutations, each killed: DB4-P1 detector sees only `&`, P2 `isLocalTarget` ignores proxies, P3 contract does not reject the proxy,
   P4 `MigrationTarget` loses the proxy decision, P5 detector fails open on an unparseable string, P6 detector blind. `./mvnw clean test` on Java 21 + Docker: **BUILD SUCCESS**, 2850 tests (1274 unit, 1576 integration), 0 failures / 0 errors / 0 skipped (+7); `ModuleBoundaryTest` 73/73, `IndexContractIT` 12/12. V0001 checksum unchanged (`3b703e4a…`); R1 unchanged and open.

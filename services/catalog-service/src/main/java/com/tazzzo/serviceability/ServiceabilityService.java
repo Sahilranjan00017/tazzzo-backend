@@ -272,6 +272,12 @@ public class ServiceabilityService implements ServiceabilityReadPort, Transactio
         return (pin == null || pin.length() < 6) ? "?" : pin.substring(0, 3) + "XXX";
     }
 
+    /** True when at least one PIN document carries this public service-area id (areas are not unique per document). */
+    public boolean areaExists(String serviceAreaId) {
+        Objects.requireNonNull(serviceAreaId, "serviceAreaId required");
+        return db.getCollection(COLLECTION).countDocuments(Filters.eq("service_area_id", serviceAreaId), new com.mongodb.client.model.CountOptions().limit(1)) > 0;
+    }
+
     private static boolean isDuplicateKey(com.mongodb.MongoException e) {
         if (e instanceof MongoWriteException w) {
             return w.getError().getCategory() == com.mongodb.ErrorCategory.DUPLICATE_KEY;
