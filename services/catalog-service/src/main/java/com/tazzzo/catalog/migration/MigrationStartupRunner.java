@@ -3,6 +3,7 @@ package com.tazzzo.catalog.migration;
 import com.mongodb.ServerAddress;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoDatabase;
+import com.mongodb.connection.ClusterSettings;
 import com.tazzzo.catalog.schema.DiscriminatingAttributeRegistry;
 import com.tazzzo.catalog.schema.SchemaBootstrap;
 import com.tazzzo.catalog.schema.TaxonomyLoader;
@@ -62,11 +63,24 @@ public class MigrationStartupRunner implements ApplicationRunner {
     }
 
     MigrationTarget target() {
-        List<String> hosts = client.getClusterDescription().getClusterSettings().getHosts().stream()
-                .map(ServerAddress::toString).toList();
+        List<String> hosts = targetHosts(client.getClusterDescription().getClusterSettings());
         String operator = props.getOperator() == null || props.getOperator().isBlank()
                 ? System.getProperty("user.name", "unknown") : props.getOperator();
         return new MigrationTarget(props.getEnvironment(), databaseName, hosts, operator, props.getBuildVersion());
+    }
+
+    /**
+     * The hosts to REPORT for the target (host or SRV name only, never credentials). For a {@code mongodb+srv://} connection the
+     * driver keeps the DNS name in {@code srvHost} and leaves {@code hosts} at its {@code 127.0.0.1:27017} placeholder, which
+     * would misreport an Atlas target as localhost; report the SRV name instead. A plain {@code mongodb://} URI is unchanged.
+     * Informational only: no guard or migration decision depends on it.
+     */
+    static List<String> targetHosts(ClusterSettings settings) {
+        String srvHost = settings.getSrvHost();
+        if (srvHost != null && !srvHost.isBlank()) {
+            return List.of(srvHost);
+        }
+        return settings.getHosts().stream().map(ServerAddress::toString).toList();
     }
 
     private MigrationRunner.Selection selection() {
