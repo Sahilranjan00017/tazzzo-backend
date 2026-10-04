@@ -3,6 +3,7 @@ package com.tazzzo.catalog.migration;
 import com.mongodb.ServerAddress;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoDatabase;
+import com.mongodb.connection.ClusterSettings;
 import com.tazzzo.catalog.datastore.DatastoreReadiness;
 import com.tazzzo.catalog.schema.DiscriminatingAttributeRegistry;
 import com.tazzzo.catalog.schema.SchemaBootstrap;
@@ -75,12 +76,27 @@ public class MigrationStartupRunner implements ApplicationRunner {
     }
 
     MigrationTarget target() {
-        List<String> hosts = client.getClusterDescription().getClusterSettings().getHosts().stream()
-                .map(ServerAddress::toString).toList();
+        List<String> hosts = targetHosts(client.getClusterDescription().getClusterSettings());
         String operator = props.getOperator() == null || props.getOperator().isBlank()
                 ? System.getProperty("user.name", "unknown") : props.getOperator();
         // the same authoritative local-target decision the datastore verifier makes, from the connection string (sees proxies)
         return MigrationTarget.forUri(props.getEnvironment(), databaseName, hosts, uri, operator, props.getBuildVersion());
+    }
+
+    /**
+     * The hosts to REPORT for the target (host or SRV name only, never credentials). For a {@code mongodb+srv://} connection the
+     * driver keeps the DNS name in {@code srvHost} and leaves {@code hosts} at its {@code 127.0.0.1:27017} placeholder, which
+     * would misreport an Atlas target as localhost; report the SRV name instead. A plain {@code mongodb://} URI is unchanged.
+     * The list is reported in the log line and run report. It also feeds {@link MigrationTarget#local()} when the connection
+     * string is blank (the fallback in {@link MigrationTarget#forUri}), where the placeholder would wrongly classify an Atlas
+     * SRV target as a loopback target; with a connection string the classification comes from the string itself.
+     */
+    static List<String> targetHosts(ClusterSettings settings) {
+        String srvHost = settings.getSrvHost();
+        if (srvHost != null && !srvHost.isBlank()) {
+            return List.of(srvHost);
+        }
+        return settings.getHosts().stream().map(ServerAddress::toString).toList();
     }
 
     private MigrationRunner.Selection selection() {
