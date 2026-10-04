@@ -46,6 +46,18 @@ class LocalTargetClassifierTest {
             {"mongodb://localhost/t?proxyPassword=p", "false"}, {"mongodb://localhost/t?proxyHost=", "false"},
             {"mongodb://localhost/t?proxyHost=a.example.net&proxyHost=b.example.net", "false"},
             {"mongodb://localhost/t?proxyHost=r.example.net&proxyPort=1080&proxyUsername=u&proxyPassword=p", "false"},
+            // the driver ALSO accepts ';' as an option delimiter and applies what it reads (review finding)
+            {"mongodb://localhost:27017/t?w=majority;proxyHost=evil.example.net", "false"},
+            {"mongodb://localhost:27017/t?w=majority;proxyHost=evil.example.net;proxyPort=1080", "false"},
+            {"mongodb://127.0.0.1:27017/t?w=majority;proxyHost=evil.example.net", "false"},
+            {"mongodb://[::1]:27017/t?w=majority;proxyHost=evil.example.net", "false"},
+            {"mongodb://localhost:27017/t?retryWrites=true;PROXYHOST=evil.example.net;ProxyPort=1080", "false"},
+            {"mongodb://localhost:27017/t?proxyHost=evil.example.net;w=majority", "false"},
+            {"mongodb://localhost:27017/t?w=majority&retryReads=true;proxyHost=evil.example.net&maxPoolSize=5", "false"},
+            {"mongodb://localhost:27017/t?w=majority;proxyHost=evil.example.net;proxyUsername=u;proxyPassword=p", "false"},
+            {"mongodb://localhost:27017/t?w=majority;proxyPort=1080", "false"},
+            {"mongodb://localhost:27017/t?w=majority;maxPoolSize=5", "true"},
+            {"mongodb://localhost:27017/t?appName=proxyHostLooking;w=majority", "true"},
             // remote, SRV, mixed, malformed
             {"mongodb://db.example.net:27017/t", "false"}, {"mongodb+srv://cluster0.abcde.mongodb.net/t", "false"},
             {"mongodb+srv://localhost/t", "false"}, {"mongodb://10.0.0.5/t", "false"}, {"mongodb://172.16.0.5/t", "false"},
@@ -147,6 +159,11 @@ class LocalTargetClassifierTest {
         for (String name : new String[]{"proxyHost", "proxyPort", "proxyUsername", "proxyPassword", "PROXYHOST", "ProxyPort", "proxyusername", "PROXYPASSWORD"}) {
             assertThat(ConnectionContract.hasProxyOption("mongodb://localhost/t?" + name + "=x")).as(name).isTrue();
             assertThat(ConnectionContract.hasProxyOption("mongodb://localhost/t?w=majority&" + name + "=x&retryWrites=true")).as(name + " among others").isTrue();
+        }
+        // both delimiters the driver accepts, mixed, in any case
+        for (String uri : new String[]{"mongodb://localhost/t?w=majority;proxyHost=x", "mongodb://localhost/t?w=majority;proxyHost=x;proxyPort=1080",
+                "mongodb://localhost/t?a=1&w=majority;PROXYHOST=x&retryReads=true", "mongodb://localhost/t?proxyHost=x;w=majority"}) {
+            assertThat(ConnectionContract.hasProxyOption(uri)).as(uri).isTrue();
         }
         assertThat(ConnectionContract.hasProxyOption("mongodb://localhost/t")).isFalse();
         assertThat(ConnectionContract.hasProxyOption("mongodb://localhost/t?appName=proxyHostLooking&w=majority")).isFalse();

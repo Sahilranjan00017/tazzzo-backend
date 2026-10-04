@@ -1,6 +1,8 @@
 package com.tazzzo.catalog.datastore;
 
 import com.mongodb.ConnectionString;
+import com.mongodb.connection.ProxySettings;
+import com.mongodb.connection.SocketSettings;
 import com.mongodb.ReadConcernLevel;
 
 import java.net.InetAddress;
@@ -104,7 +106,7 @@ public final class ConnectionContract {
             v.add(new Violation("TLS_REVOCATION_CHECK_DISABLED",
                     "certificate revocation checking must not be disabled (tlsDisableOCSPEndpointCheck / tlsDisableCertificateRevocationCheck)"));
         }
-        if (hasProxyOption(uri)) {
+        if (proxyConfigured(cs)) {
             v.add(new Violation("PROXY_FORBIDDEN",
                     "a proxy changes the network route to the datastore and is not allowed (proxyHost / proxyPort / proxyUsername / proxyPassword)"));
         }
@@ -191,7 +193,7 @@ public final class ConnectionContract {
         }
         try {
             ConnectionString cs = new ConnectionString(uri);
-            return !cs.isSrvProtocol() && !hasProxyOption(uri) && !cs.getHosts().isEmpty()
+            return !cs.isSrvProtocol() && !proxyConfigured(cs) && !cs.getHosts().isEmpty()
                     && cs.getHosts().stream().allMatch(ConnectionContract::isLoopback);
         } catch (RuntimeException e) {
             return false;
@@ -283,10 +285,27 @@ public final class ConnectionContract {
         }
     }
 
-    /** True when any MongoDB proxy option is present at all (the driver honours proxyHost/Port/Username/Password; names are case-insensitive). */
+    /**
+     * Will the MongoDB client actually use a proxy? Answered from the driver's own parse of the connection string (its
+     * effective {@link ProxySettings}), not from a second text parser: the driver accepts BOTH {@code &} and {@code ;} as
+     * option delimiters, in any letter case, and applies whatever it reads. A string the driver cannot parse or turn into
+     * settings (for example {@code proxyPort} without {@code proxyHost}) cannot be proven proxy-free, so it counts as proxied.
+     */
     static boolean hasProxyOption(String uri) {
-        return rawOptionPresent(uri, "proxyhost") || rawOptionPresent(uri, "proxyport")
-                || rawOptionPresent(uri, "proxyusername") || rawOptionPresent(uri, "proxypassword");
+        try {
+            return proxyConfigured(new ConnectionString(uri));
+        } catch (RuntimeException e) {
+            return true;
+        }
+    }
+
+    private static boolean proxyConfigured(ConnectionString cs) {
+        try {
+            ProxySettings ps = SocketSettings.builder().applyConnectionString(cs).build().getProxySettings(); // only the socket settings: unrelated pool/option errors must not look like a proxy
+            return ps.isProxyEnabled() || ps.getHost() != null || ps.getUsername() != null || ps.getPassword() != null;
+        } catch (RuntimeException e) {
+            return true;
+        }
     }
 
     /**
@@ -398,22 +417,6 @@ public final class ConnectionContract {
             int eq = pair.indexOf('=');
             if (eq > 0 && pair.substring(0, eq).toLowerCase(Locale.ROOT).equals(optionLowercase)
                     && pair.substring(eq + 1).equalsIgnoreCase("true")) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /** True when the option name appears at all in the query string (case-insensitive), whatever its value. */
-    private static boolean rawOptionPresent(String uri, String optionLowercase) {
-        int q = uri.indexOf('?');
-        if (q < 0) {
-            return false;
-        }
-        for (String pair : uri.substring(q + 1).split("&")) {
-            int eq = pair.indexOf('=');
-            String name = (eq < 0 ? pair : pair.substring(0, eq)).toLowerCase(Locale.ROOT);
-            if (name.equals(optionLowercase)) {
                 return true;
             }
         }

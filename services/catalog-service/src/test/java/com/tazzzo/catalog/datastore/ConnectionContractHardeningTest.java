@@ -80,6 +80,22 @@ class ConnectionContractHardeningTest {
         assertThat(codes(with(option))).contains("PROXY_FORBIDDEN");
     }
 
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {"w=majority;proxyHost=evil.example.net", "retryWrites=true;proxyHost=evil.example.net;proxyPort=1080",
+            "proxyHost=evil.example.net;w=majority", "a=1&w=majority;PROXYHOST=evil.example.net&retryReads=true",
+            "w=majority;proxyHost=evil.example.net;proxyUsername=u;proxyPassword=p", "maxPoolSize=20;ProxyHost=evil.example.net"})
+    void a_proxy_behind_a_semicolon_delimiter_is_refused_exactly_like_one_behind_an_ampersand(String option) {
+        // the MongoDB driver accepts ';' as well as '&' between options and applies every proxy option it reads
+        assertThat(codes(with(option))).contains("PROXY_FORBIDDEN");
+        assertThat(codes(RS.replace("&maxPoolSize=20", "") + ";" + option)).as("appended with ';'").contains("PROXY_FORBIDDEN");
+    }
+
+    @Test
+    void the_semicolon_proxy_is_forbidden_in_the_staging_contract_and_clean_semicolon_options_are_not() {
+        assertThat(codes(RS + ";proxyHost=evil.example.net")).contains("PROXY_FORBIDDEN");
+        assertThat(codes(RS + ";journal=true")).isEmpty();
+    }
+
     @Test
     void a_proxy_option_the_driver_cannot_even_parse_is_still_a_refusal() {
         assertThat(codes(with("proxyPort=1080"))).isNotEmpty(); // PROXY_FORBIDDEN or URI_INVALID, never accepted

@@ -99,6 +99,7 @@ class ReadinessGateStateTest {
     void the_target_handed_to_the_migration_runner_carries_the_authoritative_local_decision() {
         for (String[] c : new String[][]{{"mongodb://localhost:27017/tazzzo_test", "true"},
                 {"mongodb://localhost:27017/tazzzo_test?proxyHost=remote.example.net", "false"},
+                {"mongodb://localhost:27017/tazzzo_test?w=majority;proxyHost=remote.example.net", "false"},
                 {"mongodb://0177.0.0.1:27017/tazzzo_test", "false"}}) {
             Fixture f = new Fixture(MigrationMode.APPLY_ON_STARTUP, false, c[0]);
             f.readiness.markVerified();
