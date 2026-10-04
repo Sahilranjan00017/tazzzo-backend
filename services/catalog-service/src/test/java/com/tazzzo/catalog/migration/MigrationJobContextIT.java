@@ -21,14 +21,19 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * The migration job exactly as the runbook documents it: the real application started as a one-shot NON-WEB process
- * (web-application-type none) in mode DRY_RUN with {@code exit-after-run=true} against a staging-named target, with
+ * (web-application-type none) in mode DRY_RUN with {@code exit-after-run=true}, with
  * ONLY the configuration the runbook lists (database, scheduler off, and the mandatory consumer rate-limit mode, which
  * the application requires and has no default for). It deliberately does NOT extend {@code AbstractMongoIT}, whose
  * injected properties would otherwise hide missing configuration. The exit action is observed, not executed.
+ *
+ * <p>The environment is {@code dev} on purpose (DB-4): for {@code staging}/{@code production} the datastore verifier requires a
+ * contract-compliant connection string (TLS, credentials, replica set, explicit options), which a throw-away
+ * Testcontainers server cannot offer. The staging job shape, its refusal of a non-compliant URI and the privilege checks are
+ * covered by {@code DatastoreWiringIT} and {@code DatastorePrivilegeIT} (real authenticated replica set).
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE, properties = {
         "tazzzo.migration.mode=DRY_RUN",
-        "tazzzo.migration.environment=staging",
+        "tazzzo.migration.environment=dev",
         "tazzzo.migration.exit-after-run=true",
         "tazzzo.schema.load-taxonomy-seed=false",
         "tazzzo.scheduler.enabled=false",

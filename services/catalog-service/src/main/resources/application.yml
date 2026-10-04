@@ -24,6 +24,14 @@ tazzzo:
     operator: ${TAZZZO_MIGRATION_OPERATOR:}
     build-version: ${TAZZZO_BUILD_VERSION:unknown}
     exit-after-run: ${TAZZZO_MIGRATION_EXIT_AFTER_RUN:false}
+  # DB-4: fail-fast datastore verification (docs/database/DATABASE_STAGING_RUNBOOK.md). For staging/production the
+  # connection string must state the explicit contract (TLS, retry, w=majority, read concern, timeouts, pool) and the
+  # connected identity must hold exactly the privileges of its profile (runtime in VERIFY; migrator in APPLY).
+  #   AUTO     (default) enforced for staging/production; advisory log line elsewhere
+  #   ENFORCE  enforced in every environment
+  # There is deliberately no value that disables enforcement for staging or production.
+  datastore:
+    privilege-verification: ${TAZZZO_DATASTORE_PRIVILEGE_VERIFICATION:AUTO}
   schema:
     # Honoured ONLY in mode LEGACY (local/test/dev). They are false by default: bootstrap/seed are migrations now.
     bootstrap-on-startup: false

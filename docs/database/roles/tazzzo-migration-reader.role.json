@@ -1,0 +1,17 @@
+{
+  "createRole": "tazzzo_migration_reader",
+  "privileges": [
+    {
+      "resource": {
+        "db": "tazzzo_staging",
+        "collection": ""
+      },
+      "actions": [
+        "find",
+        "listCollections",
+        "listIndexes"
+      ]
+    }
+  ],
+  "roles": []
+}

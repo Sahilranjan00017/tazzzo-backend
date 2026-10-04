@@ -57,7 +57,7 @@ public abstract class AbstractMongoIT {
      */
     protected void applySchemaMigrations() {
         MigrationRunner.RunReport r = migrationRunner.apply(
-                new MigrationTarget("test", db.getName(), List.of(), "tests", "test"),
+                new MigrationTarget("test", db.getName(), List.of("localhost:27017"), "tests", "test"),
                 MigrationRunner.Selection.schemaOnly(), MigrationRunner.ApplyOptions.forTests());
         if (!r.ok()) throw new AssertionError("schema migrations failed in test setup: " + r.render());
     }

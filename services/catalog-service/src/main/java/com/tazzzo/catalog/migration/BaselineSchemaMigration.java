@@ -16,24 +16,37 @@ import java.util.List;
  * IndexOptionsConflict (a conflicting definition BLOCKS instead), and performs the one historical
  * destructive step — dropping the exact superseded pre-PAG-2 products prefix index — only after the
  * superseding index exists.
+ *
+ * <p>Its collections and indexes are the FROZEN {@link BaselineV0001Contract}, never the live schema constants, so
+ * adding a collection or an index later can neither change this migration's checksum nor make an already-migrated
+ * database fail verification; new schema is a new migration (V0008+).
  */
 public final class BaselineSchemaMigration implements Migration {
 
     private final SchemaBootstrap bootstrap;
+    private final List<String> collections;
+    private final List<IndexSpec> indexes;
 
     public BaselineSchemaMigration(SchemaBootstrap bootstrap) {
+        this(bootstrap, BaselineV0001Contract.COLLECTIONS, BaselineV0001Contract.INDEXES);
+    }
+
+    /** Test seam: the contract is injected so a test can prove the definition derives from it and from nothing else. */
+    BaselineSchemaMigration(SchemaBootstrap bootstrap, List<String> collections, List<IndexSpec> indexes) {
         this.bootstrap = bootstrap;
+        this.collections = collections;
+        this.indexes = indexes;
     }
 
     @Override public String id() { return "V0001__baseline_schema"; }
     @Override public String description() { return "Collections and baseline indexes (adopts a database created by the legacy bootstrap)"; }
     @Override public MigrationKind kind() { return MigrationKind.SCHEMA; }
-    @Override public List<String> collections() { return SchemaBootstrap.COLLECTIONS; }
+    @Override public List<String> collections() { return collections; }
 
     @Override
     public String definition() {
-        StringBuilder sb = new StringBuilder("baseline collections=").append(String.join(",", SchemaBootstrap.COLLECTIONS));
-        for (IndexSpec s : IndexCatalog.BASELINE) sb.append('\n').append(s.describe());
+        StringBuilder sb = new StringBuilder("baseline collections=").append(String.join(",", collections));
+        for (IndexSpec s : indexes) sb.append('\n').append(s.describe());
         sb.append("\ndrop superseded products prefix index (exact legacy shape) after PAG-2 exists");
         return sb.toString();
     }
@@ -41,12 +54,12 @@ public final class BaselineSchemaMigration implements Migration {
     @Override
     public Preflight preflight(MongoDatabase db) {
         List<String> existing = db.listCollectionNames().into(new ArrayList<>());
-        List<String> missing = SchemaBootstrap.COLLECTIONS.stream().filter(c -> !existing.contains(c)).toList();
+        List<String> missing = collections.stream().filter(c -> !existing.contains(c)).toList();
         List<String> blockers = new ArrayList<>();
         List<String> ops = new ArrayList<>();
         List<String> notes = new ArrayList<>();
         int create = 0, adopt = 0, exact = 0;
-        for (IndexSpec s : IndexCatalog.BASELINE) {
+        for (IndexSpec s : indexes) {
             IndexSpec.Inspection in = s.inspect(db);
             switch (in.state()) {
                 case ABSENT -> {
@@ -84,9 +97,9 @@ public final class BaselineSchemaMigration implements Migration {
 
     @Override
     public ApplyResult apply(MongoDatabase db) {
-        bootstrap.ensureCollections(db);
+        bootstrap.ensureCollections(db, collections);
         int created = 0;
-        for (IndexSpec s : IndexCatalog.BASELINE) {
+        for (IndexSpec s : indexes) {
             IndexSpec.Inspection in = s.inspect(db);
             switch (in.state()) {
                 case ABSENT -> { s.create(db); created++; }
@@ -103,10 +116,10 @@ public final class BaselineSchemaMigration implements Migration {
     public List<String> validate(MongoDatabase db) {
         List<String> problems = new ArrayList<>();
         List<String> existing = db.listCollectionNames().into(new ArrayList<>());
-        for (String c : SchemaBootstrap.COLLECTIONS) {
+        for (String c : collections) {
             if (!existing.contains(c)) problems.add("collection missing after apply: " + c);
         }
-        for (IndexSpec s : IndexCatalog.BASELINE) {
+        for (IndexSpec s : indexes) {
             IndexSpec.State st = s.inspect(db).state();
             if (st != IndexSpec.State.EXACT && st != IndexSpec.State.SAME_KEYS_OTHER_NAME) {
                 problems.add("baseline index missing after apply: " + s.describe() + " (" + st + ")");

@@ -4,6 +4,7 @@ import com.mongodb.ServerAddress;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.connection.ClusterSettings;
+import com.tazzzo.catalog.datastore.DatastoreReadiness;
 import com.tazzzo.catalog.schema.DiscriminatingAttributeRegistry;
 import com.tazzzo.catalog.schema.SchemaBootstrap;
 import com.tazzzo.catalog.schema.TaxonomyLoader;
@@ -44,11 +45,23 @@ public class MigrationStartupRunner implements ApplicationRunner {
     private final boolean legacyBootstrap;
     private final boolean legacyLoadSeed;
     private final IntConsumer exit;
+    private final DatastoreReadiness readiness;
+    private final String uri;
 
     public MigrationStartupRunner(MigrationRunner runner, MigrationProperties props, MongoClient client, MongoDatabase db,
                                   SchemaBootstrap bootstrap, TaxonomyLoader taxonomyLoader,
                                   DiscriminatingAttributeRegistry discriminators, boolean legacyBootstrap,
                                   boolean legacyLoadSeed, IntConsumer exit) {
+        this(runner, props, client, db, bootstrap, taxonomyLoader, discriminators, legacyBootstrap, legacyLoadSeed, exit,
+                new DatastoreReadiness(), "");
+    }
+
+    public MigrationStartupRunner(MigrationRunner runner, MigrationProperties props, MongoClient client, MongoDatabase db,
+                                  SchemaBootstrap bootstrap, TaxonomyLoader taxonomyLoader,
+                                  DiscriminatingAttributeRegistry discriminators, boolean legacyBootstrap,
+                                  boolean legacyLoadSeed, IntConsumer exit, DatastoreReadiness readiness, String uri) {
+        this.readiness = readiness;
+        this.uri = uri == null ? "" : uri;
         this.runner = runner;
         this.props = props;
         this.client = client;
@@ -66,14 +79,17 @@ public class MigrationStartupRunner implements ApplicationRunner {
         List<String> hosts = targetHosts(client.getClusterDescription().getClusterSettings());
         String operator = props.getOperator() == null || props.getOperator().isBlank()
                 ? System.getProperty("user.name", "unknown") : props.getOperator();
-        return new MigrationTarget(props.getEnvironment(), databaseName, hosts, operator, props.getBuildVersion());
+        // the same authoritative local-target decision the datastore verifier makes, from the connection string (sees proxies)
+        return MigrationTarget.forUri(props.getEnvironment(), databaseName, hosts, uri, operator, props.getBuildVersion());
     }
 
     /**
      * The hosts to REPORT for the target (host or SRV name only, never credentials). For a {@code mongodb+srv://} connection the
      * driver keeps the DNS name in {@code srvHost} and leaves {@code hosts} at its {@code 127.0.0.1:27017} placeholder, which
      * would misreport an Atlas target as localhost; report the SRV name instead. A plain {@code mongodb://} URI is unchanged.
-     * Informational only: no guard or migration decision depends on it.
+     * The list is reported in the log line and run report. It also feeds {@link MigrationTarget#local()} when the connection
+     * string is blank (the fallback in {@link MigrationTarget#forUri}), where the placeholder would wrongly classify an Atlas
+     * SRV target as a loopback target; with a connection string the classification comes from the string itself.
      */
     static List<String> targetHosts(ClusterSettings settings) {
         String srvHost = settings.getSrvHost();
@@ -102,6 +118,9 @@ public class MigrationStartupRunner implements ApplicationRunner {
     @Override
     public void run(ApplicationArguments args) {
         MigrationMode mode = props.getMode();
+        if (mode == MigrationMode.DRY_RUN || mode == MigrationMode.APPLY) {
+            readiness.markJob(); // a migration job never opens the business-worker gate
+        }
         MigrationTarget target = target();
         log.info("database evolution mode={} target[{}]", mode, target.describe());
         switch (mode) {
@@ -137,6 +156,9 @@ public class MigrationStartupRunner implements ApplicationRunner {
             log.info("taxonomy seed (insert-if-absent): {} nodes, {} aliases, {} definitions, {} schemas",
                     r.nodes(), r.aliases(), r.definitions(), r.schemas());
         }
+        // Startup is complete and, in a serving mode, the datastore was verified: scheduled workers may now act.
+        // (No-op if the datastore verifier did not verify, and never reached by a refused or job process.)
+        readiness.openWorkers();
     }
 
     private void verify() {

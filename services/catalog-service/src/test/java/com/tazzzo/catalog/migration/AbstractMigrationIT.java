@@ -36,7 +36,7 @@ abstract class AbstractMigrationIT extends AbstractMongoIT {
     }
 
     protected MigrationTarget target(MongoDatabase d) {
-        return new MigrationTarget("test", d.getName(), List.of("test-host:27017"), "tests", "build-1");
+        return new MigrationTarget("test", d.getName(), List.of("localhost:27017"), "tests", "build-1");
     }
 
     protected MigrationRunner runner(MongoDatabase d, List<Migration> registry) {
