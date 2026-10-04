@@ -118,6 +118,80 @@
         }
       }
     },
+    "/api/v1/admin/media/{ownerType}/{ownerId}" : {
+      "get" : {
+        "tags" : [ "media-admin-controller" ],
+        "operationId" : "get_5",
+        "parameters" : [ {
+          "name" : "ownerType",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "ownerId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SetResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put" : {
+        "tags" : [ "media-admin-controller" ],
+        "operationId" : "put",
+        "parameters" : [ {
+          "name" : "ownerType",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "ownerId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/SetRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SetResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/customer/orders" : {
       "post" : {
         "tags" : [ "order-controller" ],
@@ -1131,6 +1205,34 @@
               "*/*" : {
                 "schema" : {
                   "$ref" : "#/components/schemas/IdResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/media/uploads" : {
+      "post" : {
+        "tags" : [ "media-admin-controller" ],
+        "operationId" : "upload",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/UploadRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/UploadResponse"
                 }
               }
             }
@@ -2197,6 +2299,77 @@
           }
         }
       },
+      "AssetDto" : {
+        "type" : "object",
+        "properties" : {
+          "assetId" : {
+            "type" : "string"
+          },
+          "assetKey" : {
+            "type" : "string"
+          },
+          "role" : {
+            "type" : "string"
+          },
+          "sortOrder" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "altText" : {
+            "type" : "string"
+          },
+          "width" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "height" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "contentType" : {
+            "type" : "string"
+          }
+        }
+      },
+      "SetRequest" : {
+        "type" : "object",
+        "properties" : {
+          "assets" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/AssetDto"
+            }
+          },
+          "expectedVersion" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }
+      },
+      "SetResponse" : {
+        "type" : "object",
+        "properties" : {
+          "ownerType" : {
+            "type" : "string"
+          },
+          "ownerId" : {
+            "type" : "string"
+          },
+          "version" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "active" : {
+            "type" : "boolean"
+          },
+          "assets" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/AssetDto"
+            }
+          }
+        }
+      },
       "CustomerOrderDto" : {
         "type" : "object",
         "properties" : {
@@ -2991,6 +3164,51 @@
           },
           "allowBreaking" : {
             "type" : "boolean"
+          }
+        }
+      },
+      "UploadRequest" : {
+        "type" : "object",
+        "properties" : {
+          "ownerType" : {
+            "type" : "string"
+          },
+          "ownerId" : {
+            "type" : "string"
+          },
+          "contentType" : {
+            "type" : "string"
+          },
+          "sizeBytes" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }
+      },
+      "UploadResponse" : {
+        "type" : "object",
+        "properties" : {
+          "assetKey" : {
+            "type" : "string"
+          },
+          "method" : {
+            "type" : "string"
+          },
+          "url" : {
+            "type" : "string"
+          },
+          "headers" : {
+            "type" : "object",
+            "additionalProperties" : {
+              "type" : "string"
+            }
+          },
+          "expiresAt" : {
+            "type" : "string"
+          },
+          "maxBytes" : {
+            "type" : "integer",
+            "format" : "int64"
           }
         }
       },
