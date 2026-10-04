@@ -231,6 +231,33 @@
         }
       }
     },
+    "/v1/customer/account/deletion" : {
+      "post" : {
+        "tags" : [ "account-deletion-controller" ],
+        "operationId" : "delete",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/JsonNode"
+              }
+            }
+          }
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AccountDeletionResponseDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/auth/session" : {
       "post" : {
         "tags" : [ "session-controller" ],
@@ -1216,7 +1243,7 @@
       },
       "delete" : {
         "tags" : [ "address-controller" ],
-        "operationId" : "delete",
+        "operationId" : "delete_1",
         "parameters" : [ {
           "name" : "addressId",
           "in" : "path",
@@ -2416,6 +2443,17 @@
           "longitude" : {
             "type" : "number",
             "format" : "double"
+          }
+        }
+      },
+      "AccountDeletionResponseDto" : {
+        "type" : "object",
+        "properties" : {
+          "status" : {
+            "type" : "string"
+          },
+          "request_id" : {
+            "type" : "string"
           }
         }
       },
