@@ -1453,6 +1453,13 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-10-05** — Catalogue/taxonomy admin completion (backend completion PR-F; base `main` `484d42c`): `GET /api/v1/products` was a **500** (the only mapping was `params="canonicalKey"`, and the unsatisfied-parameter
+  exception fell through to the catch-all). It is now a real admin list — ascending-id keyset paging (`cursor` = last id), filters `verticalId` / `lifecycle` / `status` (the latter two require a vertical so no query is a collection scan on a
+  secondary filter), closed parameter grammar (unknown/repeated/empty/oversized = 400) — and `ServletRequestBindingException` is now a 400 `MALFORMED_REQUEST`, never a 500. Taxonomy: `POST /api/v1/taxonomy/nodes` creates a
+  super_category / category / sub_category / vertical under an ACTIVE parent of the right level inside the OPEN release (so consumers see it only when that release is published), duplicate active sibling = `DUPLICATE_NODE`,
+  verticals must name an existing attribute schema, ids minted from per-prefix sequences (`TZS`/`TZC`/`TZG`/`TZV`, base 100000), audit event `created` with the authenticated actor; `GET /api/v1/taxonomy/nodes` lists nodes
+  (filters `parentId`/`nodeType`/`status`, keyset paged). **Open product decision (not built):** sibling *reorder* — the consumer taxonomy order is the ratified transport order (name, then node id) that cursors and ETags hash, so a
+  display order is a consumer-contract change (snapshot field + ordering + ETag), not an admin-only feature.
 - **2026-10-04** — DB-4 final proxy-detector fix (narrow re-review of `4e19e5e`: the MongoDB driver accepts `;` as well as `&` between URI options, and the raw text scan only split on `&`, so `?w=majority;proxyHost=evil.example.net` kept a loopback target "local" and bypassed `PROXY_FORBIDDEN`):
   proxy use now comes from the driver's own parse (effective `ProxySettings`), not a second text parser; the dead raw-scan helper was removed. Mutations, each killed: DB4-P1 detector sees only `&`, P2 `isLocalTarget` ignores proxies, P3 contract does not reject the proxy,
   P4 `MigrationTarget` loses the proxy decision, P5 detector fails open on an unparseable string, P6 detector blind. `./mvnw clean test` on Java 21 + Docker: **BUILD SUCCESS**, 2850 tests (1274 unit, 1576 integration), 0 failures / 0 errors / 0 skipped (+7); `ModuleBoundaryTest` 73/73, `IndexContractIT` 12/12. V0001 checksum unchanged (`3b703e4a…`); R1 unchanged and open.

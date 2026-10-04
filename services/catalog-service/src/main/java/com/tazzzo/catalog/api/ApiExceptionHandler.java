@@ -122,6 +122,16 @@ public class ApiExceptionHandler {
 
     // M3: Spring MVC exceptions must map to their proper client codes; the catch-all below
     // would otherwise turn every missing header / bad method / wrong media type into a 500.
+    /**
+     * A missing or unsatisfiable request parameter ({@code MissingServletRequestParameterException},
+     * {@code UnsatisfiedServletRequestParameterException}) is the CALLER's error. Without this it fell through to the
+     * catch-all and answered 500 INTERNAL, e.g. {@code GET /api/v1/products} before the list endpoint existed.
+     */
+    @ExceptionHandler(org.springframework.web.bind.ServletRequestBindingException.class)
+    public ResponseEntity<?> binding(Exception ex, HttpServletRequest req) {
+        return envelope(HttpStatus.BAD_REQUEST, "MALFORMED_REQUEST", "missing or invalid request parameter", req);
+    }
+
     @ExceptionHandler(org.springframework.web.bind.MissingRequestHeaderException.class)
     public ResponseEntity<?> missingHeader(Exception ex, HttpServletRequest req) {
         return envelope(HttpStatus.BAD_REQUEST, "MISSING_HEADER", ex.getMessage(), req);
