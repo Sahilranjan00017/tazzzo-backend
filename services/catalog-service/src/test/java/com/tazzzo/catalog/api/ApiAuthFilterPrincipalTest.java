@@ -209,7 +209,7 @@ class ApiAuthFilterPrincipalTest {
             assertThat(AdminPrincipalResolver.require(o.request()).canReadAudit()).isTrue();
         }
         for (String path : new String[]{"/api/v1/products", "/api/v1/products/TZP-1", "/api/v1/taxonomy/nodes",
-                "/api/v1/admin/audit-events/", "/api/v1/admin/audit-events;x=1", "/api/v1/admin/AUDIT-EVENTS",
+                "/api/v1/admin/audit-events/", "/api/v1/admin/AUDIT-EVENTS",
                 "/api", "/v3/api-docs"}) {
             Outcome o = call(humanFilter(), "GET", path, token);
             assertThat(o.passed()).as(path).isFalse();
@@ -221,9 +221,15 @@ class ApiAuthFilterPrincipalTest {
         Outcome traversal = call(humanFilter(), "GET", "/api/v1/admin/audit-events/../products", token);
         assertThat(traversal.passed()).isFalse();
         assertThat(traversal.response().getStatus()).isEqualTo(404);
+        // so is a path parameter or a percent escape (Spring would route the decoded, parameter-free path)
+        for (String raw : new String[]{"/api/v1/admin/audit-events;x=1", "/api/v1/admin/%61udit-events"}) {
+            Outcome o = call(humanFilter(), "GET", raw, token);
+            assertThat(o.passed()).as(raw).isFalse();
+            assertThat(o.response().getStatus()).as(raw).isEqualTo(404);
+        }
         Outcome write = call(humanFilter(), "POST", "/api/v1/admin/audit-events", token);
         assertThat(write.response().getStatus()).isEqualTo(403);
-        assertThat(rejected("forbidden")).isEqualTo(9.0);
+        assertThat(rejected("forbidden")).isEqualTo(8.0);
     }
 
     @Test

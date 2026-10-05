@@ -1455,6 +1455,11 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-10-05** — Staff roles and the access policy (backend completion PR-P; base `main` `484d42c`): new roles `order-ops` and `support-agent` (human admins only, via the allowlist) and `AdminAccessPolicy`, now the ONE place that
+  authorises an INTERNAL request (`ApiAuthFilter` delegates; legacy rules for unchanged paths are identical). Two staff namespaces are reserved for the order-operations and support APIs that follow: `/api/v1/admin/orders/**`
+  (order-ops read+write, support-agent read) and `/api/v1/admin/support/**` (support-agent read+write, order-ops read); cms-writer, reader, audit-reader and the shared service tokens do NOT reach them, and a staff role confers nothing on the
+  catalogue surface (only `/me`). Exact segment-boundary matching; a staff role on a service account is refused. `docs/ops/ADMIN_ROLES.md` is the matrix. **Open (owner decision):** splitting pricing/stock/delivery writes out of the
+  broad `cms-writer` role — it would change the shared service token's existing reach.
 - **2026-10-05** — Customer order history and cancellation (backend completion PR-M; STACKED on PR-K/L #63 → PR-E #58): `GET /v1/customer/orders` (newest first, keyset by `(createdAt, _id)`, CONFIRMED + CANCELLED only, summaries
   without address/lines, index `order_by_customer_recent` via migration `V0010`) and `POST /v1/customer/orders/{id}/cancel` (`{"reason": CHANGED_MIND|ORDERED_BY_MISTAKE|OTHER}`). Cancel is ONE transaction: CAS `CONFIRMED(v2)→CANCELLED(v3)` with who/when/why,
   then — only if that call won the CAS — release the delivery slot hold and return the consumed stock through the new exactly-once `InventoryReservationPort.restockConsumed` (one-shot `restockedAt` marker on the reservation header; its status stays
