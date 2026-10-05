@@ -26,5 +26,13 @@ final class BulkImportDtos {
     record RowResult(int row, String key, String outcome, Long version, String code, String message) { }
 
     record ImportReport(String importId, String kind, boolean dryRun, int rows, int applied, int failed, int notAttempted,
-                        List<RowResult> results) { }
+                        List<RowResult> results, int unchanged) {
+        ImportReport(String importId, String kind, boolean dryRun, int rows, int applied, int failed, int notAttempted,
+                     List<RowResult> results) {
+            this(importId, kind, dryRun, rows, applied, failed, notAttempted, results, 0);
+        }
+    }
+
+    /** Rows shaped exactly like the single {@code POST /api/v1/products} request. */
+    record ProductImportRequest(Boolean dryRun, List<com.tazzzo.catalog.api.ApiDtos.CreateProductRequest> rows) { }
 }

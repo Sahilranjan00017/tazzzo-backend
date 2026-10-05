@@ -8,7 +8,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * {@code POST /api/v1/admin/imports/prices} and {@code /inventory}: up to 500 rows, validated as a whole before anything
+ * {@code POST /api/v1/admin/imports/prices}, {@code /inventory} and {@code /products}: up to 500 rows, validated as a whole before anything
  * is written; {@code "dryRun": true} validates and reports without writing. Same authorisation as the single-row admin
  * writes (the admin access policy governs {@code /api/v1/admin/**}); every applied row is attributed to the caller.
  */
@@ -25,6 +25,11 @@ class BulkImportController {
     @PostMapping("/prices")
     BulkImportDtos.ImportReport prices(@RequestBody BulkImportDtos.PriceImportRequest body, HttpServletRequest request) {
         return imports.importPrices(body, AdminActors.require(request));
+    }
+
+    @PostMapping("/products")
+    BulkImportDtos.ImportReport products(@RequestBody BulkImportDtos.ProductImportRequest body, HttpServletRequest request) {
+        return imports.importProducts(body, AdminActors.require(request));
     }
 
     @PostMapping("/inventory")

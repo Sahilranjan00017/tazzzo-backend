@@ -16,7 +16,11 @@ class BulkImportConfig {
 
     @Bean
     BulkImportService bulkImportService(PricingService pricing, InventoryService inventory, ProductQueryService products,
-                                        MongoDatabase db, Tx tx) {
-        return new BulkImportService(pricing, inventory, products, new DomainAudit(db, Clock.systemUTC()), tx);
+                                        MongoDatabase db, Tx tx, com.mongodb.client.MongoClient client,
+                                        com.tazzzo.catalog.schema.AttributeGovernanceService governance,
+                                        com.tazzzo.catalog.schema.CanonicalKeyService canonicalKeys,
+                                        com.tazzzo.catalog.tx.MintService mint) {
+        return new BulkImportService(pricing, inventory, products, new DomainAudit(db, Clock.systemUTC()), tx)
+                .withProducts(new ProductImportValidator(db, client, governance, canonicalKeys), mint);
     }
 }

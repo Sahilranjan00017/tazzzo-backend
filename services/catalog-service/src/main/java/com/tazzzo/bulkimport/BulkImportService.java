@@ -49,6 +49,16 @@ public class BulkImportService {
     private final DomainAudit audit;
     private final Tx tx;
 
+    private ProductImportValidator productValidator;
+    private com.tazzzo.catalog.tx.MintService mint;
+
+    /** Product import collaborators (separate so the price/stock fixtures keep their narrow constructor). */
+    BulkImportService withProducts(ProductImportValidator validator, com.tazzzo.catalog.tx.MintService mint) {
+        this.productValidator = validator;
+        this.mint = mint;
+        return this;
+    }
+
     public BulkImportService(PricingService pricing, InventoryService inventory, ProductQueryService products, DomainAudit audit, Tx tx) {
         this.pricing = pricing;
         this.inventory = inventory;
@@ -132,6 +142,29 @@ public class BulkImportService {
                 cmd -> inventory.setInventory(cmd, actor), actor);
     }
 
+    /**
+     * Products: the whole file is validated first (see {@link ProductImportValidator}); a row already present with the same
+     * create payload is UNCHANGED, so re-submitting a file is safe. Valid rows go through {@code MintService.mint}, the
+     * same attributed path as {@code POST /api/v1/products}, each with its own product event.
+     */
+    BulkImportDtos.ImportReport importProducts(BulkImportDtos.ProductImportRequest req, Actor actor) {
+        List<com.tazzzo.catalog.api.ApiDtos.CreateProductRequest> rows = rowsOf(req == null ? null : req.rows());
+        ProductImportValidator.Checked checked = productValidator.validate(rows);
+        boolean dryRun = Boolean.TRUE.equals(req.dryRun());
+        return run("products", dryRun, checked.drafts(), com.tazzzo.catalog.domain.ProductDraft::id, d -> {
+            mint.mint(actor, d);
+            return 1L;
+        }, actor, d -> checked.unchanged().contains(d.id()), BulkImportService::catalogueDomainFailure);
+    }
+
+    /** A product row that the catalogue rejected on its own terms (a race with another writer, a governance change). */
+    static boolean catalogueDomainFailure(RuntimeException e) {
+        return e instanceof com.tazzzo.catalog.tx.IdentityCollisionException
+                || e instanceof com.tazzzo.catalog.tx.AttributeViolationException
+                || e instanceof com.tazzzo.catalog.tx.EvidenceGateException
+                || (e instanceof com.mongodb.MongoWriteException w && (w.getError().getCode() == 121 || w.getError().getCode() == 11000));
+    }
+
     private static <T> List<T> rowsOf(List<T> rows) {
         if (rows == null || rows.isEmpty()) {
             throw new ImportRejectedException("rows must contain 1.." + MAX_ROWS + " entries", List.of());
@@ -159,12 +192,29 @@ public class BulkImportService {
 
     <C> BulkImportDtos.ImportReport run(String kind, boolean dryRun, List<C> commands, Function<C, String> key,
                                                 Function<C, Long> apply, Actor actor) {
+        return run(kind, dryRun, commands, key, apply, actor, c -> false,
+                e -> e instanceof PricingException || e instanceof InventoryException);
+    }
+
+    /**
+     * @param unchanged a row already in exactly the requested state: reported UNCHANGED, never rewritten
+     * @param domainFailure a failure that belongs to the row (it fails alone); anything else is treated as the datastore
+     *                      failing and stops the run
+     */
+    <C> BulkImportDtos.ImportReport run(String kind, boolean dryRun, List<C> commands, Function<C, String> key,
+                                        Function<C, Long> apply, Actor actor, java.util.function.Predicate<C> unchanged,
+                                        java.util.function.Predicate<RuntimeException> domainFailure) {
         String importId = "IMP-" + new ObjectId().toHexString();
         List<BulkImportDtos.RowResult> results = new ArrayList<>();
-        int applied = 0, failed = 0, notAttempted = 0;
+        int applied = 0, failed = 0, notAttempted = 0, same = 0;
         boolean stopped = false;
         for (int i = 0; i < commands.size(); i++) {
             C cmd = commands.get(i);
+            if (unchanged.test(cmd)) {
+                same++;
+                results.add(new BulkImportDtos.RowResult(i, key.apply(cmd), "UNCHANGED", null, null, null));
+                continue;
+            }
             if (dryRun) {
                 results.add(new BulkImportDtos.RowResult(i, key.apply(cmd), "VALID", null, null, null));
                 continue;
@@ -178,10 +228,12 @@ public class BulkImportService {
                 long version = apply.apply(cmd);
                 applied++;
                 results.add(new BulkImportDtos.RowResult(i, key.apply(cmd), "APPLIED", version, null, null));
-            } catch (PricingException | InventoryException e) {
-                failed++;
-                results.add(new BulkImportDtos.RowResult(i, key.apply(cmd), "FAILED", null, failureCode(e), e.getMessage()));
             } catch (RuntimeException e) {
+                if (domainFailure.test(e)) {
+                    failed++;
+                    results.add(new BulkImportDtos.RowResult(i, key.apply(cmd), "FAILED", null, failureCode(e), e.getMessage()));
+                    continue;
+                }
                 failed++;
                 stopped = true;
                 log.warn("bulk_import_stopped kind={} import_id={} row={} error={}", kind, importId, i, e.getClass().getSimpleName());
@@ -196,6 +248,7 @@ public class BulkImportService {
             detail.put("applied", applied);
             detail.put("failed", failed);
             detail.put("not_attempted", notAttempted);
+            detail.put("unchanged", same);
             try {
                 tx.run(s -> audit.append(s, new DomainEvent("bulk_import", importId, "BULK_IMPORT_APPLIED", detail, actor)));
             } catch (RuntimeException e) {
@@ -205,11 +258,13 @@ public class BulkImportService {
         }
         log.info("bulk_import kind={} import_id={} dry_run={} rows={} applied={} failed={} not_attempted={}", kind, importId,
                 dryRun, commands.size(), applied, failed, notAttempted);
-        return new BulkImportDtos.ImportReport(importId, kind, dryRun, commands.size(), applied, failed, notAttempted, results);
+        return new BulkImportDtos.ImportReport(importId, kind, dryRun, commands.size(), applied, failed, notAttempted, results,
+                same);
     }
 
     private static String failureCode(RuntimeException e) {
         String name = e.getClass().getSimpleName();
-        return name.contains("Conflict") ? "STALE_VERSION" : name.contains("NotFound") ? "NOT_FOUND" : "INVALID_ROW";
+        return name.contains("Conflict") ? "STALE_VERSION" : name.contains("NotFound") ? "NOT_FOUND"
+                : name.contains("Collision") ? "CONFLICT" : "INVALID_ROW";
     }
 }

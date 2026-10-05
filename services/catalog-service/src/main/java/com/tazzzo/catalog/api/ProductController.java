@@ -188,7 +188,8 @@ public class ProductController {
                 "outbox committed; finalizer completes repointing asynchronously"));
     }
 
-    private ProductDraft toDraft(CreateProductRequest b) {
+    /** The single create mapping, shared with the bulk product import so a bulk row means exactly what a create means. */
+    public static ProductDraft toDraft(CreateProductRequest b) {
         List<GtinBinding> gtins = b.gtins() == null ? null
                 : b.gtins().stream().map(g -> new GtinBinding(g.value(), g.market())).toList();
         List<BundleComponent> components = b.bundleContents() == null ? null
