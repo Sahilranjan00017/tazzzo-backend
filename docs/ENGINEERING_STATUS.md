@@ -1455,6 +1455,12 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-10-05** — Consumer product search (backend completion PR-G; base `main` `484d42c`): `GET /v1/search?q=&pin=&page_size=&cursor=` on the PUBLIC commerce surface. Query → lower-cased tokens (shared
+  `SearchTokens` normalisation, ≤64 chars, ≤5 tokens, ≥2 chars each); candidates from `product_card_base.search_tokens` (anchored-prefix `$all`, served by the new multikey index `card_search_tokens`, migration `V0009`)
+  restricted to the release's reachable verticals; every candidate is then re-checked against `products` with `ConsumerEligibility.within` (a stale projection row can hide a product, never show an ineligible one);
+  the page is enriched through the same composer/enricher as the category list (price, stock, serviceability), keyset-paged by sku with the same signed commerce cursor (query bound as a keyed fingerprint;
+  location bound as before). Admission charged `1 + page_size` on the new bounded route `commerce_search`. The projector writes tokens and backfills older rows on their next rebuild (explicit exception to the
+  content-NOOP rule). **Not built (product decision):** relevance ranking / synonyms / typo tolerance — results are deterministic sku order; a ranking choice (Atlas Search vs in-house scoring) needs a product ruling.
 - **2026-10-05** — Delivery slots (backend completion PR-E; base `main` `484d42c`): new `com.tazzzo.delivery` slice. Admin API `GET/PUT /api/v1/admin/delivery-slots/{serviceAreaId}[/{windowId}]` +
   `POST …/activate|deactivate` (recurring windows per service area: local start/end minute, cutoff, capacity, ISO weekdays; CAS `expectedVersion`; audit-before-state with the AUTHENTICATED actor; area must exist), customer
   `GET /v1/customer/delivery/slots?pin=&days=` (fresh availability in the configured zone `tazzzo.delivery.zone`, default `Asia/Kolkata`, horizon `tazzzo.delivery.horizon-days`, default 3; status only, never counts), and the

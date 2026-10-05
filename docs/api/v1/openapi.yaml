@@ -1096,6 +1096,42 @@ paths:
           $ref: '#/components/responses/ProfileUnauthenticated'
         '503':
           $ref: '#/components/responses/DeliverySlot503'
+  /v1/search:
+    get:
+      tags:
+      - commerce-read
+      operationId: searchProducts
+      summary: 'Product search. Every token of `q` (2..32 chars, at most 5 tokens, 64 chars overall) must prefix-match a token of a product''s title or brand; results are consumer-eligible products of the resolved release in deterministic id order (no relevance ranking), enriched exactly like a category page (price, stock and serviceability for `pin` when given). Keyset-paged: `cursor` is bound to the query, the page size and the location it was issued for.
+
+        '
+      parameters:
+      - name: q
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 2
+          maxLength: 64
+      - $ref: '#/components/parameters/Release'
+      - $ref: '#/components/parameters/PageSize'
+      - $ref: '#/components/parameters/Cursor'
+      - $ref: '#/components/parameters/Pin'
+      - $ref: '#/components/parameters/Lat'
+      - $ref: '#/components/parameters/Lng'
+      - $ref: '#/components/parameters/InstallationId'
+      responses:
+        '200':
+          description: OK (an empty `items` is a normal no-match answer). Never cached.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PagedProductResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/Unavailable'
 components:
   parameters:
     AddressIdParam:

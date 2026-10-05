@@ -9,7 +9,7 @@ package com.tazzzo.catalog.api;
  *   PUBLIC_CONSUMER          /catalog/v1, /catalog/v1/**,
  *                            /v1/categories, /v1/categories/**,
  *                            /v1/products, /v1/products/**,
- *                            /v1/serviceability (exact only),
+ *                            /v1/serviceability (exact only), /v1/search (exact only),
  *                            /v1/auth, /v1/auth/**              public BY DECISION, per-family (Q4-b)
  *   CUSTOMER_AUTHENTICATED   /v1/customer, /v1/customer/**           customer bearer boundary (PR-11A)
  *   INTERNAL                 /api, /api/**, the OpenAPI surface      service-token boundary
@@ -106,6 +106,7 @@ public final class SurfaceClassifier {
         return uri.equals("/v1/categories") || uri.startsWith("/v1/categories/")
                 || uri.equals("/v1/products") || uri.startsWith("/v1/products/")
                 || uri.equals("/v1/serviceability")
+                || uri.equals("/v1/search")
                 || uri.equals("/v1/auth") || uri.startsWith("/v1/auth/");
     }
 
