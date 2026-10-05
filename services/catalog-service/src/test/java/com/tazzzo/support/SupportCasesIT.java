@@ -94,6 +94,7 @@ class SupportCasesIT extends AbstractApiIT {
 
     @Autowired OtpVerifiedGrantRepository grants;
     @Autowired SupportService service;
+    @Autowired SupportErasure erasure;
     @Autowired com.tazzzo.catalog.tx.Tx txBean;
 
     @BeforeAll
@@ -317,9 +318,43 @@ class SupportCasesIT extends AbstractApiIT {
         open(t);
         open(other);
         String id = customerId(t);
-        Long deleted = txBean.call(s -> service.eraseForCustomer(s, id));
+        Long deleted = txBean.call(s -> erasure.erase(s, id));
         assertThat(deleted).isEqualTo(2L);
         assertThat(db.getCollection("support_cases").countDocuments(new Document("customerId", id))).isZero();
         assertThat(db.getCollection("support_cases").countDocuments(new Document("customerId", customerId(other)))).isEqualTo(1);
+    }
+
+    List<Document> outbox(String caseId) {
+        return db.getCollection("notification_outbox").find(new Document("subject_id", new Document("$regex", "^" + caseId + "-")))
+                .into(new ArrayList<>());
+    }
+
+    @Test
+    void staff_replies_and_resolutions_notify_the_customer_once_each_and_carry_no_case_text() {
+        String t = customer();
+        String id = open(t);
+        String agent = staff(AGENT);
+        assertThat(outbox(id)).as("opening a case notifies nobody").isEmpty();
+
+        JsonNode replied = call(HttpMethod.POST, STAFF + "/" + id + "/messages", agent, Map.of("message", "Refund issued to your card ending 4242")).getBody();
+        List<Document> rows = outbox(id);
+        assertThat(rows).hasSize(1);
+        Document reply = rows.get(0);
+        assertThat(reply.getString("_id")).isEqualTo("SUPPORT_REPLY:" + id + "-m2");
+        assertThat(reply.getString("customer_id")).isEqualTo(customerId(t));
+        assertThat(reply.toJson()).doesNotContain("Refund").doesNotContain("4242").doesNotContain(AGENT);
+
+        long v = replied.get("version").asLong();
+        assertThat(call(HttpMethod.POST, STAFF + "/" + id + "/status", agent, Map.of("expectedVersion", v + 7, "to", "RESOLVED"))
+                .getStatusCode().value()).as("stale").isEqualTo(409);
+        assertThat(outbox(id)).as("a refused transition enqueues nothing").hasSize(1);
+        call(HttpMethod.POST, STAFF + "/" + id + "/status", agent, Map.of("expectedVersion", v, "to", "RESOLVED"));
+        assertThat(outbox(id)).extracting(d -> d.getString("type")).containsExactlyInAnyOrder("SUPPORT_REPLY", "SUPPORT_CASE_RESOLVED");
+
+        call(HttpMethod.POST, CUSTOMER + "/" + id + "/messages", t, Map.of("message", "Still waiting"));
+        assertThat(outbox(id)).as("the customer's own reply notifies nobody").hasSize(2);
+        long v2 = call(HttpMethod.GET, STAFF + "/" + id, agent, null).getBody().get("version").asLong();
+        call(HttpMethod.POST, STAFF + "/" + id + "/status", agent, Map.of("expectedVersion", v2, "to", "RESOLVED"));
+        assertThat(outbox(id)).as("a second resolution after a reopen is a new notification").hasSize(3);
     }
 }

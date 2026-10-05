@@ -106,9 +106,20 @@ class AccountDeletionIT extends AbstractMongoIT {
     void deleting_an_account_erases_every_customer_linked_collection_and_leaves_other_customers_untouched() {
         CustomerId victim = seedCustomer("+919000000001", 2);
         CustomerId other = seedCustomer("+919000000002", 1);
+        // customer data owned by modules newer than the orchestrator: support cases and the notification outbox
+        for (CustomerId c : List.of(victim, other)) {
+            for (int i = 0; i < 2; i++) {
+                db.getCollection("support_cases").insertOne(new Document("_id", "SUP_" + c.value().substring(4) + "case000000000000" + i)
+                        .append("customerId", c.value()).append("subject", "Where is my order, call me on +9190000").append("status", "OPEN"));
+            }
+            db.getCollection("notification_outbox").insertOne(new Document("_id", "ORDER_CONFIRMED:ORD_" + c.value().substring(4))
+                    .append("customer_id", c.value()).append("status", "PENDING"));
+        }
 
         assertThat(service.delete(victim)).isEqualTo(AccountDeletionService.Outcome.DELETED);
         String v = victim.value();
+        assertThat(count("support_cases", "customerId", v)).as("support case text is personal data").isZero();
+        assertThat(count("notification_outbox", "customer_id", v)).as("nothing is ever sent to an erased account").isZero();
 
         // identity: tombstone, no phone, no login timestamp
         Document row = db.getCollection("customers").find(Filters.eq("_id", v)).first();
@@ -157,6 +168,7 @@ class AccountDeletionIT extends AbstractMongoIT {
         }
         assertThat(events).hasSize(1);
         assertThat(events.get(0).toJson()).contains(v).doesNotContain("+919000000001").doesNotContain("Person ");
+        assertThat(events.get(0).get("detail", Document.class)).containsEntry("supportCases", 2L).containsEntry("notifications", 1L);
         // the other customer is untouched
         String o = other.value();
         assertThat(db.getCollection("customers").find(Filters.eq("_id", o)).first().getString("status")).isEqualTo("ACTIVE");
@@ -166,6 +178,8 @@ class AccountDeletionIT extends AbstractMongoIT {
         assertThat(db.getCollection("customer_sessions").countDocuments(Filters.and(Filters.eq("customerId", o), Filters.eq("revokedAt", null)))).isEqualTo(2);
         assertThat(db.getCollection("orders").find(Filters.eq("customerId", o)).first().get("addressSnapshot", Document.class).getString("recipientPhone")).isEqualTo("+919000000002");
         assertThat(db.getCollection("memberships").find(Filters.eq("customerId", o)).first().getString("status")).isEqualTo("ACTIVE");
+        assertThat(count("support_cases", "customerId", o)).isEqualTo(2);
+        assertThat(count("notification_outbox", "customer_id", o)).isEqualTo(1);
     }
 
     @Test
@@ -236,7 +250,9 @@ class AccountDeletionIT extends AbstractMongoIT {
         AccountDeletionService broken = new AccountDeletionService(new Tx(mongo), Clock.systemUTC(),
                 new CustomerAccountErasure(customers, sessions), new OtpErasure(db), new CustomerProfileErasure(db),
                 new AddressErasure(db), new CartErasure(db), new CheckoutQuoteErasure(db), failing,
-                new MembershipErasure(membershipRepository()), new DomainAudit(db, Clock.systemUTC()), new AccountDeletionObservability(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
+                new MembershipErasure(membershipRepository()), new com.tazzzo.support.SupportErasure(
+                        new com.tazzzo.support.SupportCaseRepository(db)), new com.tazzzo.notification.NotificationErasure(db),
+                new DomainAudit(db, Clock.systemUTC()), new AccountDeletionObservability(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
         assertThatThrownBy(() -> broken.delete(id)).isInstanceOf(AccountDeletionFailure.class);
         String v = id.value();
         assertThat(db.getCollection("customers").find(Filters.eq("_id", v)).first().getString("status")).as("transaction rolled back").isEqualTo("ACTIVE");

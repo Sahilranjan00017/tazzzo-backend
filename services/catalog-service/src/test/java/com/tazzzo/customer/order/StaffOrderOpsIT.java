@@ -250,4 +250,37 @@ class StaffOrderOpsIT extends AbstractOrderSlotIT {
         String winning = plan.get("queryPlanner", Document.class).get("winningPlan", Document.class).toJson();
         assertThat(winning).contains("order_by_status_recent").doesNotContain("\"SORT\"").doesNotContain("COLLSCAN");
     }
+
+    List<Document> outbox(String orderId) {
+        return db.getCollection("notification_outbox").find(new Document("subject_id", orderId)).into(new ArrayList<>());
+    }
+
+    @Test
+    void every_fulfilment_step_notifies_the_customer_once_inside_its_transaction() {
+        Shopper s = shopper();
+        String id = placed(s, false);
+        String ops = staff(OPS);
+        assertThat(outbox(id)).extracting(d -> d.getString("type")).containsExactly("ORDER_CONFIRMED");
+
+        assertThat(transition(ops, id, "OUT_FOR_DELIVERY", 9, null).getStatusCode().value()).as("stale").isEqualTo(409);
+        assertThat(transition(ops, id, "DELIVERED", 2, null).getStatusCode().value()).as("invalid").isEqualTo(409);
+        assertThat(outbox(id)).as("refused transitions enqueue nothing").hasSize(1);
+
+        transition(ops, id, "OUT_FOR_DELIVERY", 2, null);
+        transition(ops, id, "OUT_FOR_DELIVERY", 2, null);                       // a stale retry of the same step
+        transition(ops, id, "DELIVERED", 3, null);
+        assertThat(outbox(id)).extracting(d -> d.getString("_id")).containsExactlyInAnyOrder(
+                "ORDER_CONFIRMED:" + id, "ORDER_OUT_FOR_DELIVERY:" + id, "ORDER_DELIVERED:" + id);
+        assertThat(outbox(id)).allSatisfy(d -> {
+            assertThat(d.getString("customer_id")).isEqualTo(s.customerId());
+            assertThat(d.toJson()).doesNotContain(s.pin()).doesNotContain("Ravi").doesNotContain("+91");
+        });
+
+        Shopper c = shopper();
+        String cancelled = placed(c, false);
+        transition(ops, cancelled, "CANCELLED", 2, "OUT_OF_STOCK");
+        Document row = db.getCollection("notification_outbox").find(new Document("_id", "ORDER_CANCELLED:" + cancelled)).first();
+        assertThat(row).isNotNull();
+        assertThat(row.get("params", Document.class)).containsEntry("cancelled_by", "STAFF").containsEntry("reason_code", "OUT_OF_STOCK");
+    }
 }

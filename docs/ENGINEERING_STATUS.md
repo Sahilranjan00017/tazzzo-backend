@@ -1453,6 +1453,8 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-10-05** — Closure: notification hooks + account-erasure wiring + dashboard (`feature/closure-notify-erasure`, stacked on #68 (→#64→#63→#58, #66), #67, #56, #71): ORDER_OUT_FOR_DELIVERY / ORDER_DELIVERED / ORDER_CANCELLED (staff and customer) and SUPPORT_REPLY / SUPPORT_CASE_RESOLVED enqueued inside their business transactions; account deletion now erases support cases and notification-outbox rows in its transaction (`SupportErasure`, `NotificationErasure`); bounded `GET /api/v1/admin/dashboard/summary`. Docs: `docs/ops/NOTIFICATIONS.md`, `docs/ops/ADMIN_DASHBOARD.md`.
+
 - **2026-10-05** — Staff order operations + fulfilment statuses (backend completion PR-M2; STACKED on PR-M #64 with PR-P #66 merged in): `GET /api/v1/admin/orders[?status]` (newest first, keyset; V0012 indexes), `GET /{id}` (with the delivery
   address — fulfilment needs it), `POST /{id}/transition` in the orders namespace (order-ops writes, support-agent reads; catalogue roles/shared tokens never reach it). State machine: CONFIRMED(v2) → OUT_FOR_DELIVERY(v3) → DELIVERED(v4); CANCELLED
   from CONFIRMED (v3) or OUT_FOR_DELIVERY (v4, a failed/refused delivery) with a closed staff reason set; every transition is a CAS on (status, version) with the audit row (authenticated actor) in the SAME transaction; a staff cancel returns the
