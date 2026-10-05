@@ -75,6 +75,18 @@ public final class IndexCatalog {
         AUDIT_READ_SPECS = List.copyOf(a);
     }
 
+    /** Support cases (PR-O): the customer's own cases, the staff queue by status, and the unfiltered staff queue -- each newest-updated first. */
+    public static final List<IndexSpec> SUPPORT_CASE_SPECS = List.of(
+            named("support_cases", "support_by_customer_recent", k("customerId", 1, "updatedAt", -1, "_id", -1), false, null, null),
+            named("support_cases", "support_by_status_recent", k("status", 1, "updatedAt", -1, "_id", -1), false, null, null),
+            named("support_cases", "support_recent", k("updatedAt", -1, "_id", -1), false, null, null));
+    /**
+     * Public search (PR-G): the multikey index that serves the anchored-prefix {@code $all} over a card's
+     * {@code search_tokens}, with {@code sku_id} for the keyset order. Migration-only (V0009).
+     */
+    public static final IndexSpec PRODUCT_CARD_SEARCH_SPEC = named("product_card_base", "card_search_tokens",
+            k("search_tokens", 1, "sku_id", 1), false, null, null);
+
     /**
      * Delivery slots (backend completion PR-E): the by-area lookup of window definitions and the TTL that purges a
      * per-occurrence capacity counter a week after its slot date. Migration-only (V0008): bootstrap never creates them,
@@ -107,6 +119,8 @@ public final class IndexCatalog {
         List<IndexSpec> m = new ArrayList<>(List.of(
                 PRODUCT_VERTICAL_CURSOR_SPEC, EVIDENCE_LINK_UNIQUE_SPEC, TAXONOMY_SIBLING_UNIQUE_SPEC));
         m.addAll(AUDIT_READ_SPECS);
+        m.addAll(SUPPORT_CASE_SPECS);
+        m.add(PRODUCT_CARD_SEARCH_SPEC);
         m.addAll(DELIVERY_SLOT_SPECS);
         m.add(ORDER_BY_CUSTOMER_RECENT_SPEC);
         m.addAll(STAFF_ORDER_QUEUE_SPECS);

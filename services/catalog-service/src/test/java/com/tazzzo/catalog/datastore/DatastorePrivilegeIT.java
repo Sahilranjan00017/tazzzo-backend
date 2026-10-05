@@ -146,7 +146,7 @@ class DatastorePrivilegeIT {
         Set<String> applied = new TreeSet<>();
         root().getCollection(MigrationHistory.COLLECTION).find(new Document("status", "APPLIED"))
                 .forEach(d -> applied.add(d.getString("_id")));
-        assertThat(applied).hasSize(10).allMatch(id -> id.startsWith("V00"));   // the default-enabled migrations; V01xx are the disabled drop candidates
+        assertThat(applied).hasSize(12).allMatch(id -> id.startsWith("V00"));   // the default-enabled migrations; V01xx are the disabled drop candidates
         Set<String> expected = new TreeSet<>(SchemaBootstrap.COLLECTIONS);
         expected.addAll(BOOKKEEPING);
         assertThat(new TreeSet<>(root().listCollectionNames().into(new ArrayList<>()))).isEqualTo(expected);

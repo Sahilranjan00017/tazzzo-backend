@@ -112,6 +112,9 @@ public class SchemaBootstrap {
             // version), _id the opaque MBR_* id. Deliberately NO TTL, NO customer-history index and NO
             // validUntil expiry-scan index -- no query needs one yet; each arrives with its query.
             "memberships",
+            // PR-O support cases: one document per case, messages embedded and bounded. Free text is personal data
+            // (deleted by account erasure). Indexes are migration-only (V0011).
+            "support_cases",
             // PR-E delivery slots: recurring windows per service area (authoritative config, _id
             // "<area>|<window>", CAS version) and lazily-created per-occurrence capacity counters (_id
             // "<area>|<window>|<date>"). Their indexes (by-area lookup, TTL purge a week after the date)

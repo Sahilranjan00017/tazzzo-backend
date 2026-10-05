@@ -29,6 +29,11 @@ public final class AdminAccessPolicy {
 
     public static Decision decide(AdminPrincipal principal, String method, String uri, java.util.Set<String> narrowReadPaths) {
         boolean read = "GET".equals(method);
+        // Spring routes on the decoded path with ';' parameters removed, but this policy sees the raw URI: a path parameter
+        // (/orders;x/...) or a percent escape (/%6frders) would otherwise slip past the namespace checks. Fail closed.
+        if (uri == null || uri.indexOf(';') >= 0 || uri.indexOf('%') >= 0) {
+            return read ? Decision.FORBIDDEN_READ : Decision.FORBIDDEN_WRITE;
+        }
         if (inNamespace(uri, ORDERS)) {
             return staffDecision(principal, read, AdminPrincipal.ORDER_OPS, AdminPrincipal.SUPPORT_AGENT);
         }
