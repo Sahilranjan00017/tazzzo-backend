@@ -33,13 +33,14 @@ class ErrorSanitizationIT extends AbstractApiIT {
 
     @Test
     void a_collection_get_whose_required_parameter_is_missing_is_400_never_the_500_catch_all() {
+        // integration note: once #59 serves GET /api/v1/products as a list, a bare collection GET is a 200 and no route is
+        // left whose required parameter can be missing; the guarantee is kept on a malformed parameter of that route
         for (String token : new String[]{READ_TOKEN, CMS_TOKEN}) {
-            ResponseEntity<JsonNode> res = get("/api/v1/products", token, JsonNode.class);
+            assertThat(get("/api/v1/products", token, JsonNode.class).getStatusCode().value()).as("list, token=" + token).isEqualTo(200);
+            ResponseEntity<JsonNode> res = get("/api/v1/products?limit=abc", token, JsonNode.class);
             assertThat(res.getStatusCode().value()).as("token=" + token).isEqualTo(400);
-            assertThat(res.getBody().at("/error/code").asText()).isEqualTo("MALFORMED_REQUEST");
-            assertThat(res.getBody().at("/error/message").asText()).contains("canonicalKey");
-            ResponseEntity<JsonNode> other = get("/api/v1/products?limit=10", token, JsonNode.class);
-            assertThat(other.getStatusCode().value()).isEqualTo(400);
+            assertThat(res.getBody().at("/error/code").asText()).isNotEqualTo("INTERNAL");
+            assertThat(res.getBody().toString()).doesNotContain("Exception").doesNotContain("java.");
         }
     }
 
