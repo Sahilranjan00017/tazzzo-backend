@@ -1453,6 +1453,8 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-10-05** — Bulk product catalogue import (`feature/bulk-product-import`, stacked on #73): `POST /api/v1/admin/imports/products`, 1–500 single-create-shaped rows, whole-file validation reusing governance, canonical-key derivation and the products `$jsonSchema` validator (aborted-transaction probe) plus release/vertical existence and GS1 check digits; in-file and existing-owner identity conflicts; identical existing product = UNCHANGED (re-submit safe); apply through `MintService.mint`; a 500-row file loads in one call. `docs/ops/BULK_IMPORT.md` gains the end-to-end 500-SKU load procedure. **No 500-SKU dataset exists in any repo; none is loaded.**
+
 - **2026-10-05** — Bulk price/stock import PR-T (`feature/bulk-price-stock-import`, stacked on #61): `POST /api/v1/admin/imports/{prices,inventory}`, 1–500 rows, whole-file validation (422 with every row error, nothing written), dry run, per-row attributed CAS writes through the single-row service path, stop-on-datastore-failure with NOT_ATTEMPTED rows, one summary audit row per run. See `docs/ops/BULK_IMPORT.md`.
 
 - **2026-10-05** — Price and stock admin APIs (backend completion PR-H/PR-I; base `main` `484d42c`): INTERNAL `GET/PUT /api/v1/admin/prices/{sku}` (explicit paise, `expectedVersion` absent = create / present = CAS, sanity ceiling and
