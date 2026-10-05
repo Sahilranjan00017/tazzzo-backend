@@ -1453,6 +1453,8 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-10-05** — Platform hardening PR-U (`feature/platform-hardening`): security headers on every response (incl. filter-written refusals), static log-safety guard over every log argument, LOGGING OTP provider refused outside unset/local/test/dev, dependency-free secret scan as a CI job, Dependabot for Maven + Actions. See `docs/ops/HARDENING.md`.
+
 - **2026-10-04** — DB-4 final proxy-detector fix (narrow re-review of `4e19e5e`: the MongoDB driver accepts `;` as well as `&` between URI options, and the raw text scan only split on `&`, so `?w=majority;proxyHost=evil.example.net` kept a loopback target "local" and bypassed `PROXY_FORBIDDEN`):
   proxy use now comes from the driver's own parse (effective `ProxySettings`), not a second text parser; the dead raw-scan helper was removed. Mutations, each killed: DB4-P1 detector sees only `&`, P2 `isLocalTarget` ignores proxies, P3 contract does not reject the proxy,
   P4 `MigrationTarget` loses the proxy decision, P5 detector fails open on an unparseable string, P6 detector blind. `./mvnw clean test` on Java 21 + Docker: **BUILD SUCCESS**, 2850 tests (1274 unit, 1576 integration), 0 failures / 0 errors / 0 skipped (+7); `ModuleBoundaryTest` 73/73, `IndexContractIT` 12/12. V0001 checksum unchanged (`3b703e4a…`); R1 unchanged and open.

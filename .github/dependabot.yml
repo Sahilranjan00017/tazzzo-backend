@@ -1,0 +1,17 @@
+# Weekly dependency update PRs (Maven and the CI actions). Each is an ordinary PR that must pass backend-ci; nothing
+# merges automatically.
+version: 2
+updates:
+  - package-ecosystem: maven
+    directory: /services/catalog-service
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      spring-boot:
+        patterns: ["org.springframework.boot:*", "org.springframework:*"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
