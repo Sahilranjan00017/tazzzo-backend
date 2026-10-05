@@ -65,6 +65,20 @@ class ModuleBoundaryTest {
             "com.tazzzo.serviceability.."
     };
 
+    /**
+     * Commerce writes are attributed: no production class may call the actor-less price/stock write overloads (they are
+     * fixture seams kept for tests). The admin HTTP layer and any future caller must pass the authenticated actor.
+     */
+    @ArchTest
+    static final ArchRule production_code_never_writes_prices_unattributed =
+            noClasses().should().callMethod(com.tazzzo.pricing.PricingService.class, "upsertPrice",
+                    com.tazzzo.pricing.UpsertPriceCommand.class);
+
+    @ArchTest
+    static final ArchRule production_code_never_writes_stock_unattributed =
+            noClasses().should().callMethod(com.tazzzo.inventory.InventoryService.class, "setInventory",
+                    com.tazzzo.inventory.SetInventoryCommand.class);
+
     /** Catalog is a domain peer: it must not depend on other domains or on the commerce layers. */
     @ArchTest
     static final ArchRule catalog_does_not_depend_on_other_modules =

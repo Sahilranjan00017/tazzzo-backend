@@ -108,8 +108,9 @@ public class PricingService implements PriceReadPort, TransactionalPriceReadPort
      * @return the new version after this write.
      */
     /**
-     * An UNATTRIBUTED price write (no audited caller yet: there is no admin pricing endpoint). The ledger row and its event
-     * carry no {@code actor}; the caller-supplied {@code source} is provenance, never identity.
+     * An UNATTRIBUTED price write: a fixture/seed seam. The ledger row and its event carry no {@code actor}; the
+     * caller-supplied {@code source} is provenance, never identity. No production class may call it -- the admin API uses
+     * {@link #upsertPrice(UpsertPriceCommand, com.tazzzo.common.audit.Actor)} (pinned by ModuleBoundaryTest).
      */
     public long upsertPrice(UpsertPriceCommand cmd) {
         return upsertPrice(cmd, null);
