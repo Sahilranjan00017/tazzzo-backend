@@ -187,6 +187,8 @@ tazzzo.http:
   # Every request body on every surface is bounded (413 PAYLOAD_TOO_LARGE); the largest legitimate body in this API
   # is a few KiB. Bounds: 1 KiB .. 16 MiB (startup failure outside them).
   max-request-body-bytes: ${TAZZZO_HTTP_MAX_BODY_BYTES:65536}
+  # Admin bulk import (/api/v1/admin/imports/**): up to 500 rows per file. Bounds: max-request-body-bytes .. 16 MiB.
+  bulk-import-max-request-body-bytes: ${TAZZZO_HTTP_BULK_IMPORT_MAX_BODY_BYTES:2097152}
   cors:
     # CORS is OFF unless exact origins are listed (comma-separated), e.g. https://cms.tazzzo.com. Browser-only concern:
     # the mobile app and a server-side BFF are not subject to it. No wildcard; https required (http only for localhost).

@@ -22,6 +22,9 @@ public class HttpPlatformProperties {
     public static final long MAX_BODY_BYTES = 16L * 1024 * 1024;
 
     private long maxRequestBodyBytes = 65_536;
+    /** The admin bulk-import routes ({@link #BULK_IMPORT_PREFIX}) accept up to 500 rows per file, far above the API default. */
+    private long bulkImportMaxRequestBodyBytes = 2L * 1024 * 1024;
+    public static final String BULK_IMPORT_PREFIX = "/api/v1/admin/imports/";
     private Cors cors = new Cors();
 
     public long getMaxRequestBodyBytes() {
@@ -30,6 +33,14 @@ public class HttpPlatformProperties {
 
     public void setMaxRequestBodyBytes(long maxRequestBodyBytes) {
         this.maxRequestBodyBytes = maxRequestBodyBytes;
+    }
+
+    public long getBulkImportMaxRequestBodyBytes() {
+        return bulkImportMaxRequestBodyBytes;
+    }
+
+    public void setBulkImportMaxRequestBodyBytes(long bulkImportMaxRequestBodyBytes) {
+        this.bulkImportMaxRequestBodyBytes = bulkImportMaxRequestBodyBytes;
     }
 
     public Cors getCors() {
@@ -45,6 +56,10 @@ public class HttpPlatformProperties {
         if (maxRequestBodyBytes < MIN_BODY_BYTES || maxRequestBodyBytes > MAX_BODY_BYTES) {
             throw new IllegalStateException("tazzzo.http.max-request-body-bytes must be between " + MIN_BODY_BYTES
                     + " and " + MAX_BODY_BYTES + ", was " + maxRequestBodyBytes);
+        }
+        if (bulkImportMaxRequestBodyBytes < maxRequestBodyBytes || bulkImportMaxRequestBodyBytes > MAX_BODY_BYTES) {
+            throw new IllegalStateException("tazzzo.http.bulk-import-max-request-body-bytes must be between "
+                    + "tazzzo.http.max-request-body-bytes and " + MAX_BODY_BYTES + ", was " + bulkImportMaxRequestBodyBytes);
         }
         cors.validate();
     }

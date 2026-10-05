@@ -42,11 +42,13 @@ public class RequestBodyLimitFilter extends OncePerRequestFilter {
     public static final String MESSAGE = "request body too large";
 
     private final long limitBytes;
+    private final long bulkImportLimitBytes;
     private final ObjectMapper mapper;
 
     public RequestBodyLimitFilter(HttpPlatformProperties properties, ObjectMapper mapper) {
         properties.validate();
         this.limitBytes = properties.getMaxRequestBodyBytes();
+        this.bulkImportLimitBytes = properties.getBulkImportMaxRequestBodyBytes();
         this.mapper = mapper;
     }
 
@@ -57,6 +59,10 @@ public class RequestBodyLimitFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
             throws ServletException, IOException {
+        // the bulk-import routes (exact prefix, internal surface only) take files of up to 500 rows; everything else is small
+        String uri = req.getRequestURI();
+        long limitBytes = uri != null && uri.startsWith(HttpPlatformProperties.BULK_IMPORT_PREFIX) && !uri.contains("..")
+                && SurfaceClassifier.classify(uri) == SurfaceClassifier.Surface.INTERNAL ? bulkImportLimitBytes : this.limitBytes;
         long declared = req.getContentLengthLong();
         if (declared > limitBytes) {
             reject(req, res);

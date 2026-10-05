@@ -58,4 +58,15 @@ class HttpPlatformPropertiesTest {
         assertThat(config.getAllowedHeaders()).doesNotContain("*");
         assertThat(config.getAllowedMethods()).doesNotContain("*");
     }
+
+    @org.junit.jupiter.api.Test
+    void the_bulk_import_bound_is_at_least_the_api_bound_and_at_most_16_mib() {
+        HttpPlatformProperties p = new HttpPlatformProperties();
+        p.validate();
+        org.assertj.core.api.Assertions.assertThat(p.getBulkImportMaxRequestBodyBytes()).isEqualTo(2L * 1024 * 1024);
+        p.setBulkImportMaxRequestBodyBytes(p.getMaxRequestBodyBytes() - 1);
+        org.assertj.core.api.Assertions.assertThatThrownBy(p::validate).isInstanceOf(IllegalStateException.class);
+        p.setBulkImportMaxRequestBodyBytes(HttpPlatformProperties.MAX_BODY_BYTES + 1);
+        org.assertj.core.api.Assertions.assertThatThrownBy(p::validate).isInstanceOf(IllegalStateException.class);
+    }
 }

@@ -78,4 +78,25 @@ class RequestBodyLimitIT extends AbstractApiIT {
         assertThat(malformed.getStatusCode().value()).isEqualTo(400);
         assertThat(malformed.getBody().at("/error/code").asText()).isEqualTo("MALFORMED_REQUEST");
     }
+
+    /** A bulk bound small enough that "over" is refused before the client has streamed much (no broken pipe). */
+    static final int BULK = 128 * 1024;
+
+    @org.springframework.test.context.DynamicPropertySource
+    static void bulkBound(org.springframework.test.context.DynamicPropertyRegistry r) {
+        r.add("tazzzo.http.bulk-import-max-request-body-bytes", () -> String.valueOf(BULK));
+    }
+
+    @Test
+    void the_admin_bulk_import_routes_take_files_up_to_their_own_bound_and_nothing_else_does() {
+        String file = jsonOfSize(100 * 1024);                                    // above the API default, under the bulk bound
+        assertThat(post("/api/v1/admin/imports/products", file, CMS_TOKEN, JsonNode.class).getStatusCode().value())
+                .as("not refused for size (no such route on this branch, so 404/405)").isNotEqualTo(413);
+        assertThat(post("/api/v1/admin/imports/products", jsonOfSize(BULK + 1024), CMS_TOKEN, JsonNode.class)
+                .getStatusCode().value()).as("the bulk bound still applies").isEqualTo(413);
+        assertThat(post("/api/v1/products", file, CMS_TOKEN, JsonNode.class).getStatusCode().value())
+                .as("other admin routes keep the API default").isEqualTo(413);
+        assertThat(post("/api/v1/admin/importsX", file, CMS_TOKEN, JsonNode.class).getStatusCode().value())
+                .as("exact prefix only").isEqualTo(413);
+    }
 }

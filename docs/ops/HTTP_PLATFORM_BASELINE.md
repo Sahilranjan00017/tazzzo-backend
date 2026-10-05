@@ -27,6 +27,7 @@ healthy threshold ≥ 2, interval 10–15 s, timeout ≤ 5 s; `server.shutdown=g
 timeout and the target-group deregistration delay to ≥ 30 s.
 
 ## 2. Request-body size limit
+- `tazzzo.http.bulk-import-max-request-body-bytes` (`TAZZZO_HTTP_BULK_IMPORT_MAX_BODY_BYTES`, default 2 MiB; bounds: the API limit .. 16 MiB) applies ONLY to the exact prefix `/api/v1/admin/imports/` on the internal surface: the admin bulk imports (#73 and the product import) take files of up to 500 rows (a 500-SKU product file is ~200 KB), every other route keeps the API default.
 
 Every request body on every surface is bounded by `tazzzo.http.max-request-body-bytes` (`TAZZZO_HTTP_MAX_BODY_BYTES`,
 default 65536; allowed 1 KiB–16 MiB, startup failure outside). `RequestBodyLimitFilter` runs right after the request-id
