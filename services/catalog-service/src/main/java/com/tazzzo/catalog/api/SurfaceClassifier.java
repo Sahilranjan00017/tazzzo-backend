@@ -110,7 +110,9 @@ public final class SurfaceClassifier {
      */
     static boolean isNormalised(String uri) {
         String lower = uri.toLowerCase();
-        if (lower.contains("%2e") || lower.contains("%2f") || lower.contains("\\")) {
+        // ';' path parameters and percent escapes: Spring matches the decoded, parameter-free path while every guard here
+        // sees the raw URI, so any such URI is UNKNOWN (fail closed). No route of this service needs either.
+        if (uri.indexOf(';') >= 0 || uri.indexOf('%') >= 0 || lower.contains("\\")) {
             return false;
         }
         for (String segment : uri.split("/", -1)) {

@@ -175,4 +175,12 @@ class SurfaceClassifierTest {
                 .isEqualTo(CUSTOMER_AUTHENTICATED)
                 .isNotEqualTo(PUBLIC_CONSUMER);
     }
+
+    @org.junit.jupiter.api.Test
+    void path_parameters_and_percent_escapes_are_unknown_on_every_surface() {
+        for (String uri : new String[]{"/api/v1/admin/orders;x", "/api/v1/admin/support;/cases", "/api/v1/admin/%6frders",
+                "/v1/customer;x/orders", "/v1/customer/orders;x", "/v1/categories;x", "/v1/%63ategories", "/api/v1/products%2Fx"}) {
+            assertThat(SurfaceClassifier.classify(uri)).as(uri).isEqualTo(UNKNOWN);
+        }
+    }
 }
