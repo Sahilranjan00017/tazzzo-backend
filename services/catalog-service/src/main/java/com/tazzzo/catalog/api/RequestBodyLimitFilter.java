@@ -59,11 +59,14 @@ public class RequestBodyLimitFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
             throws ServletException, IOException {
-        // the bulk-import routes (exact prefix, internal surface only) take files of up to 500 rows; everything else is small
+        // the bulk-import routes (exact prefix, internal surface only) take files of up to 500 rows; everything else is small.
+        // Only a DECLARED length earns the larger bound: it is checked without reading a byte. A chunked body would be
+        // buffered here, before authentication, so it keeps the API default (no anonymous 2 MiB buffers).
         String uri = req.getRequestURI();
-        long limitBytes = uri != null && uri.startsWith(HttpPlatformProperties.BULK_IMPORT_PREFIX) && !uri.contains("..")
-                && SurfaceClassifier.classify(uri) == SurfaceClassifier.Surface.INTERNAL ? bulkImportLimitBytes : this.limitBytes;
         long declared = req.getContentLengthLong();
+        long limitBytes = declared >= 0 && uri != null && uri.startsWith(HttpPlatformProperties.BULK_IMPORT_PREFIX)
+                && !uri.contains("..") && SurfaceClassifier.classify(uri) == SurfaceClassifier.Surface.INTERNAL
+                ? bulkImportLimitBytes : this.limitBytes;
         if (declared > limitBytes) {
             reject(req, res);
             return;

@@ -99,4 +99,15 @@ class RequestBodyLimitIT extends AbstractApiIT {
         assertThat(post("/api/v1/admin/importsX", file, CMS_TOKEN, JsonNode.class).getStatusCode().value())
                 .as("exact prefix only").isEqualTo(413);
     }
+
+    @Test
+    void a_chunked_body_never_earns_the_bulk_bound_because_it_would_be_buffered_before_authentication() throws Exception {
+        byte[] body = jsonOfSize(100 * 1024).getBytes(StandardCharsets.UTF_8);       // above the API default, under the bulk bound
+        HttpClient client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build();
+        HttpRequest req = HttpRequest.newBuilder(URI.create(url("/api/v1/admin/imports/products")))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofInputStream(() -> new ByteArrayInputStream(body))) // no Content-Length: chunked
+                .build();
+        assertThat(client.send(req, HttpResponse.BodyHandlers.ofString()).statusCode()).isEqualTo(413);
+    }
 }
