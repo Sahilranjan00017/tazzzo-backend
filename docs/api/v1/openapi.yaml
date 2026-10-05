@@ -218,9 +218,9 @@ paths:
                         link: { type: string }
                         ids: { type: array, items: { type: string } }
                   requestId: { type: string }
-        '400': { description: "Any query parameter (INVALID_REQUEST)" }
-        '429': { description: "Rate limited (RATE_LIMITED, with Retry-After)" }
-        '503': { description: "Dependency unavailable (SERVICE_UNAVAILABLE)" }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/Unavailable' }
   /v1/app-config:
     get:
       tags: [content]
@@ -260,9 +260,9 @@ paths:
                       phone: { type: string }
                       email: { type: string }
                   requestId: { type: string }
-        '400': { description: "Any query parameter (INVALID_REQUEST)" }
-        '429': { description: "Rate limited (RATE_LIMITED, with Retry-After)" }
-        '503': { description: "Dependency unavailable (SERVICE_UNAVAILABLE)" }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/Unavailable' }
   /v1/serviceability:
     get:
       tags: [commerce-read]
