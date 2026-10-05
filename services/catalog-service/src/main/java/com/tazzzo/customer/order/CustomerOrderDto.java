@@ -12,10 +12,16 @@ import java.util.List;
  * <p>Deliberately NOT exposed: customerId, quoteId, reservationId, addressId, addressVersion, the Order
  * {@code version}, any fulfillment/routing identity, coordinates, or any Mongo/internal field.
  */
-public record CustomerOrderDto(String orderId, String status, String paymentMethod, String paymentCondition,
+public record CustomerOrderDto(String orderId, String status, String paymentMethod,
+                               @JsonInclude(JsonInclude.Include.NON_NULL) String paymentCondition,
                                List<Item> items, int itemCount, long subtotalPaise, String currency,
                                DeliveryAddress deliveryAddress, String createdAt, String confirmedAt,
-                               @JsonInclude(JsonInclude.Include.NON_NULL) OrderMoney money, String requestId) {
+                               @JsonInclude(JsonInclude.Include.NON_NULL) OrderMoney money,
+                               @JsonInclude(JsonInclude.Include.NON_NULL) DeliverySlot deliverySlot,
+                               @JsonInclude(JsonInclude.Include.NON_NULL) String cancelledAt, String requestId) {
+
+    /** The delivery window the customer chose: only what they need to see (never the area, the window id or any capacity). */
+    public record DeliverySlot(String slotId, String label, String startsAt, String endsAt) { }
 
     public record Item(String skuId, String title, String brandCode, int quantity, long unitPricePaise,
                        long lineTotalPaise) {
@@ -52,19 +58,41 @@ public record CustomerOrderDto(String orderId, String status, String paymentMeth
     /** Only a {@code CONFIRMED} Order is ever customer-visible ({@code OrderService.getOrder} and
      *  {@code placeCodOrder} guarantee it); anything else here is a programming defect, never rendered. */
     static CustomerOrderDto of(Order o, String requestId) {
-        if (o.status() != OrderStatus.CONFIRMED || o.confirmedAt() == null
+        if ((o.status() != OrderStatus.CONFIRMED && o.status() != OrderStatus.CANCELLED) || o.confirmedAt() == null
                 || o.confirmedPaymentCondition() == null) {
-            throw new IllegalStateException("only a CONFIRMED order is customer-visible");
+            throw new IllegalStateException("only a CONFIRMED or CANCELLED order is customer-visible");
         }
+        boolean cancelled = o.status() == OrderStatus.CANCELLED;
         OrderAddressSnapshot a = o.addressSnapshot();
         return new CustomerOrderDto(o.orderId().value(), o.status().name(), o.paymentMethod().name(),
-                o.confirmedPaymentCondition().name(),
+                cancelled ? null : o.confirmedPaymentCondition().name(),   // nothing is due on a cancelled order
                 o.lines().stream().map(l -> new Item(l.skuId(), l.title(), l.brandCode(), l.quantity(),
                         l.unitPricePaise(), l.lineTotalPaise())).toList(),
                 o.itemCount(), o.subtotalPaise(), o.currency(),
                 new DeliveryAddress(a.label(), a.recipientName(), a.recipientPhone(), a.addressLine1(),
                         a.addressLine2(), a.landmark(), a.city(), a.state(), a.postalCode()),
                 o.createdAt().toString(), o.confirmedAt().toString(),
-                o.moneyView().map(OrderMoney::of).orElse(null), requestId);
+                o.moneyView().map(OrderMoney::of).orElse(null),
+                o.deliverySlot() == null ? null : new DeliverySlot(o.deliverySlot().slotId(), o.deliverySlot().label(),
+                        o.deliverySlot().startsAt().toString(), o.deliverySlot().endsAt().toString()),
+                cancelled ? o.cancellation().cancelledAt().toString() : null, requestId);
     }
+
+    /** One row of the order history: just what a list needs, never the address or the lines. */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record Summary(String orderId, String status, String paymentMethod, int itemCount, long subtotalPaise,
+                          Long payablePaise, String createdAt, DeliverySlot deliverySlot, String cancelledAt) {
+
+        static Summary of(Order o) {
+            boolean cancelled = o.status() == OrderStatus.CANCELLED;
+            return new Summary(o.orderId().value(), o.status().name(), o.paymentMethod().name(), o.itemCount(),
+                    o.subtotalPaise(), o.moneyView().map(OrderMoneyView::payablePaise).orElse(null), o.createdAt().toString(),
+                    o.deliverySlot() == null ? null : new DeliverySlot(o.deliverySlot().slotId(), o.deliverySlot().label(),
+                            o.deliverySlot().startsAt().toString(), o.deliverySlot().endsAt().toString()),
+                    cancelled ? o.cancellation().cancelledAt().toString() : null);
+        }
+    }
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record Page(List<Summary> items, String nextCursor, String requestId) { }
 }

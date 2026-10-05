@@ -80,6 +80,32 @@ public final class IndexCatalog {
             named("support_cases", "support_by_customer_recent", k("customerId", 1, "updatedAt", -1, "_id", -1), false, null, null),
             named("support_cases", "support_by_status_recent", k("status", 1, "updatedAt", -1, "_id", -1), false, null, null),
             named("support_cases", "support_recent", k("updatedAt", -1, "_id", -1), false, null, null));
+    /**
+     * Public search (PR-G): the multikey index that serves the anchored-prefix {@code $all} over a card's
+     * {@code search_tokens}, with {@code sku_id} for the keyset order. Migration-only (V0009).
+     */
+    public static final IndexSpec PRODUCT_CARD_SEARCH_SPEC = named("product_card_base", "card_search_tokens",
+            k("search_tokens", 1, "sku_id", 1), false, null, null);
+
+    /**
+     * Delivery slots (backend completion PR-E): the by-area lookup of window definitions and the TTL that purges a
+     * per-occurrence capacity counter a week after its slot date. Migration-only (V0008): bootstrap never creates them,
+     * which keeps the dev/test bootstrap equal to baseline + audit-read as IndexContractIT pins.
+     */
+    public static final IndexSpec DELIVERY_WINDOW_BY_AREA_SPEC = named("delivery_slot_windows", "delivery_window_by_area",
+            k("service_area_id", 1), false, null, null);
+
+    public static final IndexSpec DELIVERY_USAGE_TTL_SPEC = named("delivery_slot_usage", "delivery_usage_expiry_ttl",
+            k("expire_at", 1), false, null, 0L);
+
+    public static final List<IndexSpec> DELIVERY_SLOT_SPECS = List.of(DELIVERY_WINDOW_BY_AREA_SPEC, DELIVERY_USAGE_TTL_SPEC);
+
+    /**
+     * Customer order history (PR-M): the caller's own orders newest first, keyset-paged by {@code (createdAt, _id)}.
+     * Migration-only (V0010); the existing unique {@code (customerId, quoteId)} index cannot serve the sort.
+     */
+    public static final IndexSpec ORDER_BY_CUSTOMER_RECENT_SPEC = named("orders", "order_by_customer_recent",
+            k("customerId", 1, "createdAt", -1, "_id", -1), false, null, null);
 
     /** Indexes created only by explicit migrations (never by the baseline migration). */
     public static final List<IndexSpec> MANAGED;
@@ -89,6 +115,9 @@ public final class IndexCatalog {
                 PRODUCT_VERTICAL_CURSOR_SPEC, EVIDENCE_LINK_UNIQUE_SPEC, TAXONOMY_SIBLING_UNIQUE_SPEC));
         m.addAll(AUDIT_READ_SPECS);
         m.addAll(SUPPORT_CASE_SPECS);
+        m.add(PRODUCT_CARD_SEARCH_SPEC);
+        m.addAll(DELIVERY_SLOT_SPECS);
+        m.add(ORDER_BY_CUSTOMER_RECENT_SPEC);
         MANAGED = List.copyOf(m);
     }
 
