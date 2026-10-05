@@ -97,6 +97,29 @@ public class TaxonomyController {
         return out;
     }
 
+    /** Create a node under an active parent of the right level in the open release; see {@code TaxonomyChangeService#createNode}. */
+    @PostMapping("/nodes")
+    public ResponseEntity<NodeResponse> createNode(@RequestBody CreateNodeRequest body, HttpServletRequest httpRequest) {
+        String id = changes.createNode(AdminActors.require(httpRequest), body.nodeType(), body.name(), body.parentId(),
+                body.attributeSchemaId());
+        return ResponseEntity.status(HttpStatus.CREATED).body(node(id));
+    }
+
+    /** Ascending-id, keyset-paged node list; filters parentId, nodeType, status. Unknown or repeated parameters are 400. */
+    @GetMapping("/nodes")
+    public NodeListResponse listNodes(HttpServletRequest request) {
+        AdminListParams q = AdminListParams.read(request, java.util.Set.of("parentId", "nodeType", "status"));
+        List<Document> rows = taxonomy.list(q.get("parentId"), q.get("nodeType"), q.get("status"), q.cursor(), q.limit() + 1);
+        boolean more = rows.size() > q.limit();
+        List<Document> page = more ? rows.subList(0, q.limit()) : rows;
+        List<NodeResponse> items = new ArrayList<>();
+        for (Document n : page) {
+            items.add(new NodeResponse(n.getString("_id"), n.getString("node_type"), n.getString("name"),
+                    n.getString("parent_id"), n.getString("status"), n.getString("attribute_schema_id"), n.getInteger("version")));
+        }
+        return new NodeListResponse(items, more ? page.get(page.size() - 1).getString("_id") : null);
+    }
+
     @GetMapping("/nodes/{id}")
     public NodeResponse node(@PathVariable String id) {
         Document n = taxonomy.node(id);

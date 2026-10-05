@@ -8,7 +8,7 @@ Index, uniqueness and TTL contract derived from real query paths and business in
 |---|---|
 | Repository | `Sahilranjan00017/tazzzo-backend` |
 | Base | `origin/main` `e3a0db6d47bc556472b42f169223eb89684d67a8` (DB-1 merged; DB-0 `52ab530`; audited source `f5b2cdd`) |
-| Index count today | **48** non-`_id` indexes on 34 collections (DB-0 §8: 31 + 17). After DB-2: **49**. After DB-3 and PR #49: **60** — the 48 baseline indexes (created by `SchemaBootstrap`/migration `V0001`) plus 3 created **only by explicit migrations** (`V0002`, `V0005`, `V0006`) plus the 9 audit-read indexes (`V0007`; also created by the legacy test/dev `bootstrap`) plus the 2 delivery-slot indexes (`V0008`, migration-only; **62** in total); `docs/database/DATABASE_MIGRATION_RUNBOOK.md`) |
+| Index count today | **48** non-`_id` indexes on 34 collections (DB-0 §8: 31 + 17). After DB-2: **49**. After DB-3 and PR #49: **60** — the 48 baseline indexes (created by `SchemaBootstrap`/migration `V0001`) plus 3 created **only by explicit migrations** (`V0002`, `V0005`, `V0006`) plus the 9 audit-read indexes (`V0007`; also created by the legacy test/dev `bootstrap`) plus the migration-only indexes of the backend completion program: 2 delivery-slot (`V0008`) — **62** in total; `docs/database/DATABASE_MIGRATION_RUNBOOK.md`) |
 | Evidence | (a) three read-only query-path audits of every Mongo operation on every collection, with path:line cites; (b) a **one-off, uncommitted** `explain(executionStats)` experiment on `mongo:7` (Testcontainers replica set, synthetic data, single node) — see §3; this PR does not reproduce those figures; (c) the **committed** `IndexContractIT`, which runs against a real MongoDB 7 Testcontainers server and pins plan *shape* and index specs, not the experiment's numbers |
 | In-flight work | none on indexes. Admin audit-read (PR #49) **merged** as `8227286`; its nine `audit_read_*` indexes are now pinned (§10) and created by migration `V0007` |
 | Database access | none beyond local Testcontainers. No Atlas/production connection. No data or live-schema mutation |
@@ -164,7 +164,7 @@ TTL is permitted only for temporary data. The repository has **exactly four** TT
 
 **Deliberately no TTL** (durable or required to remain readable): `orders`, `checkout_quotes` (expired quotes must still resolve for replay and answer 410), `memberships`, `inventory_reservations`, `customer_carts`, `customer_profiles`, `customer_addresses`, `price_current`, **`price_events`** (R1), `product_events`, `node_events`, `domain_events`, `classification_history`, `products`, `inventory`. **No TTL change is proposed.**
 
-## 9. R1 — pricing index impact (analysis only; retention semantics unchanged)
+## 9. R1 — pricing index impact (analysis record; **R1 is now FIXED IN CODE**: the purge in the bullets below was removed, `rolled_1_ts_1` now serves only the roll-up select, and no index change was needed)
 
 - `price_events` writers are insert-only (`PricingService:139`, `OffersService:35`); the only update is rollup setting `rolled:true`; the only delete is purge (`RollupService:68`). Nothing in main reads it except `RollupService`.
 - **One-off explain experiment (§3, X; uncommitted, not reproduced by this PR):** `rolled_1_ts_1` serves both the select (`rolled != true`, 5,001 keys for 5,000 rows) and the purge. The index is not the problem; the unbounded in-memory read (`RollupService:46-48`) and the missing shape discriminator are (DB-1 §9). Current behaviour remains **non-compliant with R1**; DB-2 does not change it.

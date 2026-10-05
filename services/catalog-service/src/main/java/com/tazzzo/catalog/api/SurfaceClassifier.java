@@ -13,6 +13,8 @@ package com.tazzzo.catalog.api;
  *                            /v1/auth, /v1/auth/**              public BY DECISION, per-family (Q4-b)
  *   CUSTOMER_AUTHENTICATED   /v1/customer, /v1/customer/**           customer bearer boundary (PR-11A)
  *   INTERNAL                 /api, /api/**, the OpenAPI surface      service-token boundary
+ *   HEALTH                   /health/live, /health/ready (EXACT)     unauthenticated probes for the
+ *                                                                    container runtime and the load balancer
  *   UNKNOWN                  everything else, INCLUDING any other  DENIED by default (Q4-f)
  *                            /v1/** path not named above
  * </pre>
@@ -59,7 +61,11 @@ package com.tazzzo.catalog.api;
  */
 public final class SurfaceClassifier {
 
-    public enum Surface { PUBLIC_CONSUMER, CUSTOMER_AUTHENTICATED, INTERNAL, UNKNOWN }
+    public enum Surface { PUBLIC_CONSUMER, CUSTOMER_AUTHENTICATED, INTERNAL, HEALTH, UNKNOWN }
+
+    /** The two probe paths, exact. {@code /health}, {@code /health/}, {@code /healthz} and any sub-path are UNKNOWN. */
+    public static final String HEALTH_LIVE = "/health/live";
+    public static final String HEALTH_READY = "/health/ready";
 
     private SurfaceClassifier() {
     }
@@ -80,6 +86,11 @@ public final class SurfaceClassifier {
         }
         if (uri.equals("/api") || uri.startsWith("/api/") || isOpenApiSurface(uri)) {
             return Surface.INTERNAL;
+        }
+        // Platform baseline: the two probe paths are a surface of their own, EXACT match only. They carry no
+        // credential (an ALB/ECS probe has none) and no business data; anything else under /health is UNKNOWN.
+        if (uri.equals(HEALTH_LIVE) || uri.equals(HEALTH_READY)) {
+            return Surface.HEALTH;
         }
         return Surface.UNKNOWN;
     }
