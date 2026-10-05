@@ -313,7 +313,8 @@ public class PricingService implements PriceReadPort, TransactionalPriceReadPort
         }
     }
 
-    static Price validateCommand(UpsertPriceCommand cmd) {
+    /** Public for dry runs (bulk import): the same checks a write performs, without touching the database. */
+    public static Price validateCommand(UpsertPriceCommand cmd) {
         try {
             Objects.requireNonNull(cmd, "command required");
             if (cmd.skuId() == null || cmd.skuId().isBlank()) {

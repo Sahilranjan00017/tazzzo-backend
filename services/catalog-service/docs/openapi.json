@@ -542,50 +542,6 @@
         }
       }
     },
-    "/api/v1/taxonomy/nodes" : {
-      "get" : {
-        "tags" : [ "taxonomy-controller" ],
-        "operationId" : "listNodes",
-        "responses" : {
-          "200" : {
-            "description" : "OK",
-            "content" : {
-              "*/*" : {
-                "schema" : {
-                  "$ref" : "#/components/schemas/NodeListResponse"
-                }
-              }
-            }
-          }
-        }
-      },
-      "post" : {
-        "tags" : [ "taxonomy-controller" ],
-        "operationId" : "createNode",
-        "requestBody" : {
-          "content" : {
-            "application/json" : {
-              "schema" : {
-                "$ref" : "#/components/schemas/CreateNodeRequest"
-              }
-            }
-          },
-          "required" : true
-        },
-        "responses" : {
-          "200" : {
-            "description" : "OK",
-            "content" : {
-              "*/*" : {
-                "schema" : {
-                  "$ref" : "#/components/schemas/NodeResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/taxonomy/nodes/{id}/split" : {
       "post" : {
         "tags" : [ "taxonomy-controller" ],
@@ -808,7 +764,7 @@
     "/api/v1/products" : {
       "get" : {
         "tags" : [ "product-controller" ],
-        "operationId" : "list_1_1",
+        "operationId" : "getByCanonicalKey",
         "parameters" : [ {
           "name" : "canonicalKey",
           "in" : "query",
@@ -823,11 +779,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "oneOf" : [ {
-                    "$ref" : "#/components/schemas/ProductResponse"
-                  }, {
-                    "$ref" : "#/components/schemas/ProductListResponse"
-                  } ]
+                  "$ref" : "#/components/schemas/ProductResponse"
                 }
               }
             }
@@ -1406,6 +1358,62 @@
         }
       }
     },
+    "/api/v1/admin/imports/prices" : {
+      "post" : {
+        "tags" : [ "bulk-import-controller" ],
+        "operationId" : "prices",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/PriceImportRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ImportReport"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/imports/inventory" : {
+      "post" : {
+        "tags" : [ "bulk-import-controller" ],
+        "operationId" : "inventory",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/StockImportRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ImportReport"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/customer/profile" : {
       "get" : {
         "tags" : [ "customer-profile-controller" ],
@@ -1938,48 +1946,6 @@
               "*/*" : {
                 "schema" : {
                   "$ref" : "#/components/schemas/NodeListResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/health/ready" : {
-      "get" : {
-        "tags" : [ "health-controller" ],
-        "operationId" : "ready",
-        "responses" : {
-          "200" : {
-            "description" : "OK",
-            "content" : {
-              "*/*" : {
-                "schema" : {
-                  "type" : "object",
-                  "additionalProperties" : {
-                    "type" : "object"
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/health/live" : {
-      "get" : {
-        "tags" : [ "health-controller" ],
-        "operationId" : "live",
-        "responses" : {
-          "200" : {
-            "description" : "OK",
-            "content" : {
-              "*/*" : {
-                "schema" : {
-                  "type" : "object",
-                  "additionalProperties" : {
-                    "type" : "object"
-                  }
                 }
               }
             }
@@ -2970,20 +2936,18 @@
           }
         }
       },
-      "CreateNodeRequest" : {
+      "SplitNodeRequest" : {
         "type" : "object",
         "properties" : {
-          "nodeType" : {
-            "type" : "string"
+          "childNames" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
           },
-          "name" : {
-            "type" : "string"
-          },
-          "parentId" : {
-            "type" : "string"
-          },
-          "attributeSchemaId" : {
-            "type" : "string"
+          "expectedVersion" : {
+            "type" : "integer",
+            "format" : "int32"
           }
         }
       },
@@ -3009,21 +2973,6 @@
             "type" : "string"
           },
           "version" : {
-            "type" : "integer",
-            "format" : "int32"
-          }
-        }
-      },
-      "SplitNodeRequest" : {
-        "type" : "object",
-        "properties" : {
-          "childNames" : {
-            "type" : "array",
-            "items" : {
-              "type" : "string"
-            }
-          },
-          "expectedVersion" : {
             "type" : "integer",
             "format" : "int32"
           }
@@ -3432,6 +3381,145 @@
       "VersionRequest" : {
         "type" : "object",
         "properties" : {
+          "expectedVersion" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }
+      },
+      "PriceImportRequest" : {
+        "type" : "object",
+        "properties" : {
+          "dryRun" : {
+            "type" : "boolean"
+          },
+          "rows" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/PriceRow"
+            }
+          }
+        }
+      },
+      "PriceRow" : {
+        "type" : "object",
+        "properties" : {
+          "skuId" : {
+            "type" : "string"
+          },
+          "sellingPricePaise" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "mrpPaise" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "currency" : {
+            "type" : "string"
+          },
+          "expectedVersion" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }
+      },
+      "ImportReport" : {
+        "type" : "object",
+        "properties" : {
+          "importId" : {
+            "type" : "string"
+          },
+          "kind" : {
+            "type" : "string"
+          },
+          "dryRun" : {
+            "type" : "boolean"
+          },
+          "rows" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "applied" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "failed" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "notAttempted" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "results" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/RowResult"
+            }
+          }
+        }
+      },
+      "RowResult" : {
+        "type" : "object",
+        "properties" : {
+          "row" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "key" : {
+            "type" : "string"
+          },
+          "outcome" : {
+            "type" : "string"
+          },
+          "version" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "code" : {
+            "type" : "string"
+          },
+          "message" : {
+            "type" : "string"
+          }
+        }
+      },
+      "StockImportRequest" : {
+        "type" : "object",
+        "properties" : {
+          "dryRun" : {
+            "type" : "boolean"
+          },
+          "rows" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/StockRow"
+            }
+          }
+        }
+      },
+      "StockRow" : {
+        "type" : "object",
+        "properties" : {
+          "skuId" : {
+            "type" : "string"
+          },
+          "locationId" : {
+            "type" : "string"
+          },
+          "onHand" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "lowStockThreshold" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "maxPurchasable" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
           "expectedVersion" : {
             "type" : "integer",
             "format" : "int64"

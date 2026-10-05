@@ -401,7 +401,8 @@ public class InventoryService implements InventoryReadPort {
 
     // --- validation (STEP 20) ---------------------------------------------------
 
-    static void validateCommand(SetInventoryCommand cmd) {
+    /** Public for dry runs (bulk import): the same checks a write performs, without touching the database. */
+    public static void validateCommand(SetInventoryCommand cmd) {
         try {
             Objects.requireNonNull(cmd, "command required");
             new InventoryKey(cmd.skuId(), cmd.fulfillmentLocationId());

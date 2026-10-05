@@ -39,8 +39,6 @@ tags:
   description: 'PR-15A-2 — Cash-on-Delivery order placement for the authenticated customer. One operation places an order from one of the caller''s OWN checkout quotes: it confirms the order, consumes the held stock and finalizes the source cart in one atomic step, so a successful placement is directly `CONFIRMED` (there is no intermediate state to observe). `customerId` always comes from the token, never from the request. Cash on delivery is the only payment method. `paymentCondition` `COD_DUE` means the order is confirmed and payment is OWED ON DELIVERY — nothing has been collected. Placement is idempotent by `quoteId` (no `Idempotency-Key`): replaying the same quote returns the same order. The order is the immutable snapshot taken at placement — title, brand, price and address never change with later catalog, pricing or address edits. The order carries its AUTHORITATIVE `money` (merchandise subtotal, benefit discount, payable), computed at placement by revalidating Pricing, Membership and Benefits. It may differ from the quote''s ADVISORY `moneyPreview` (for example a benefit was gained or lost since the quote); that is not an error and the order''s money is the one that holds. Internal identifiers (customer, quote, reservation, address, fulfillment/routing, coordinates) are never exposed. Responses are no-store.
 
     '
-- name: platform
-  description: Unauthenticated liveness/readiness probes for the container runtime and the load balancer.
 paths:
   /v1/categories:
     get:
@@ -1005,42 +1003,6 @@ paths:
           $ref: '#/components/responses/OrderInternalError'
         '503':
           $ref: '#/components/responses/OrderUnavailable'
-  /health/live:
-    get:
-      tags:
-      - platform
-      summary: Liveness probe (container runtime)
-      description: 'Always 200 while the process serves HTTP; never consults a dependency, so an outage can never cause a restart loop. Unauthenticated; exact path; never cached. Body holds bounded words only (no hosts, versions or errors).
-
-        '
-      responses:
-        '200':
-          description: Alive
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HealthReport'
-  /health/ready:
-    get:
-      tags:
-      - platform
-      summary: Readiness probe (load-balancer target health)
-      description: '200 when this instance may receive traffic: the datastore serving gate is OPEN (verifier passed, startup complete) and MongoDB answers a bounded ping. The rate-limiter store is reported and only gates readiness when configured (TAZZZO_HEALTH_REQUIRE_RATE_LIMITER=true). A refused process or a migration job is never ready. Unauthenticated; never cached.
-
-        '
-      responses:
-        '200':
-          description: Ready
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HealthReport'
-        '503':
-          description: Not ready (same body, status DOWN)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HealthReport'
 components:
   parameters:
     AddressIdParam:
@@ -2469,44 +2431,6 @@ components:
           type: string
         requestId:
           type: string
-    HealthReport:
-      type: object
-      required:
-      - status
-      - components
-      properties:
-        status:
-          type: string
-          enum:
-          - UP
-          - DOWN
-        components:
-          type: object
-          required:
-          - datastore
-          - mongo
-          - rate_limiter
-          properties:
-            datastore:
-              type: string
-              enum:
-              - OPEN
-              - STARTING
-              - REFUSED
-              - JOB
-            mongo:
-              type: string
-              enum:
-              - UP
-              - DOWN
-              - SKIPPED
-            rate_limiter:
-              type: string
-              enum:
-              - UP
-              - DOWN
-              - DISABLED
-              - SKIPPED
   responses:
     BadRequest:
       description: Invalid request or cursor
