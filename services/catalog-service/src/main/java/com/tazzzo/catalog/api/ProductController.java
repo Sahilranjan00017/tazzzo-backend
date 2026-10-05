@@ -74,6 +74,31 @@ public class ProductController {
         return ResponseEntity.status(HttpStatus.CREATED).body(read(body.id()));
     }
 
+    /**
+     * Admin product list: ascending id order, keyset-paged by {@code cursor} (the last id of the previous page).
+     * Filters: {@code verticalId}; {@code lifecycle} and {@code status} (classification status) require a
+     * {@code verticalId} so no query is a collection scan on a secondary filter. Unknown or repeated parameters are 400.
+     * (A request carrying {@code canonicalKey} is the identity lookup below, never this list.)
+     */
+    @GetMapping
+    public ProductListResponse list(HttpServletRequest request) {
+        AdminListParams q = AdminListParams.read(request, java.util.Set.of("verticalId", "lifecycle", "status"));
+        if ((q.get("lifecycle") != null || q.get("status") != null) && q.get("verticalId") == null) {
+            throw new IllegalArgumentException("lifecycle and status filters require verticalId");
+        }
+        List<Document> rows = productQueryService.list(q.get("verticalId"), q.get("lifecycle"), q.get("status"),
+                q.cursor(), q.limit() + 1);
+        boolean more = rows.size() > q.limit();
+        List<Document> page = more ? rows.subList(0, q.limit()) : rows;
+        List<ProductSummary> items = page.stream().map(p -> {
+            Document c = p.get("classification", Document.class);
+            return new ProductSummary(p.getString("_id"), p.getString("product_type"), p.getString("lifecycle"),
+                    p.getString("brand_code"), p.getString("title"), c == null ? null : c.getString("vertical_id"),
+                    c == null ? null : c.getString("status"), p.getInteger("version", 0));
+        }).toList();
+        return new ProductListResponse(items, more ? page.get(page.size() - 1).getString("_id") : null);
+    }
+
     /** CAT-ID-4 — identity resolution by canonical key (404 when unbound). */
     @GetMapping(params = "canonicalKey")
     public ProductResponse getByCanonicalKey(@RequestParam String canonicalKey) {
