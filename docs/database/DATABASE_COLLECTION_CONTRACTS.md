@@ -112,7 +112,7 @@ All 49 collections of `SchemaBootstrap.COLLECTIONS` (`SB:26-114`). "Unused" = cr
 | 25 | `attribute_schemas` | catalog | authoritative (versioned) | C | DEFER | none |
 | 26 | `id_sequences` | catalog | operational (counter) | **D** | NO | none |
 | 27 | `price_current` | pricing | authoritative | C | **YES (PROPOSED)** | none |
-| 28 | `price_events` | pricing/catalog | event (two shapes) | C | **DEFER** (R1 discriminator first) | **TARGET: retain (R1). CURRENT: rolled rows hard-deleted hourly (non-compliant)** |
+| 28 | `price_events` | pricing/catalog | event (two shapes) | C | **DEFER** (R1 discriminator first) | **RETAINED (R1 fixed in code; the purge was removed)** |
 | 29 | `price_rollups` | catalog | derived | C | NO | none |
 | 30 | `inventory` | inventory | authoritative | C | **YES (PROPOSED)** | none |
 | 31 | `inventory_reservations` | inventory | authoritative | **A** | **YES (PROPOSED)** | none (never deleted) |
@@ -336,6 +336,8 @@ Remaining collections are summarised in §7.
 ---
 
 ## 9. R1 contract — immutable vs purgeable price-event categories
+
+> **UPDATE — R1 FIXED IN CODE (price-history retention PR).** The statements below describe the state BEFORE that PR and are kept as the analysis record. Now: `purge()` and its scheduler call are removed; `price_events` is append-only (no delete, no TTL; `PriceHistoryRetentionSourceTest`); the roll-up aggregates only legacy offer events (string `product_id`/`seller`, int32 `price`), flags each `rolled=true` with a conditional claim in the same transaction, and never reads or writes a paise ledger row. No migration, no discriminator was needed for retention: shape is still inferred by field presence, which only decides what is *aggregated*, never what is deleted (nothing is).
 
 ### 9.1 Facts (VERIFIED; see DB-0 §13)
 

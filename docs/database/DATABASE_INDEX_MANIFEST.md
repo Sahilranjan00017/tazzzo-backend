@@ -164,7 +164,7 @@ TTL is permitted only for temporary data. The repository has **exactly four** TT
 
 **Deliberately no TTL** (durable or required to remain readable): `orders`, `checkout_quotes` (expired quotes must still resolve for replay and answer 410), `memberships`, `inventory_reservations`, `customer_carts`, `customer_profiles`, `customer_addresses`, `price_current`, **`price_events`** (R1), `product_events`, `node_events`, `domain_events`, `classification_history`, `products`, `inventory`. **No TTL change is proposed.**
 
-## 9. R1 — pricing index impact (analysis only; retention semantics unchanged)
+## 9. R1 — pricing index impact (analysis record; **R1 is now FIXED IN CODE**: the purge in the bullets below was removed, `rolled_1_ts_1` now serves only the roll-up select, and no index change was needed)
 
 - `price_events` writers are insert-only (`PricingService:139`, `OffersService:35`); the only update is rollup setting `rolled:true`; the only delete is purge (`RollupService:68`). Nothing in main reads it except `RollupService`.
 - **One-off explain experiment (§3, X; uncommitted, not reproduced by this PR):** `rolled_1_ts_1` serves both the select (`rolled != true`, 5,001 keys for 5,000 rows) and the purge. The index is not the problem; the unbounded in-memory read (`RollupService:46-48`) and the missing shape discriminator are (DB-1 §9). Current behaviour remains **non-compliant with R1**; DB-2 does not change it.
