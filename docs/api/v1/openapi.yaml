@@ -348,11 +348,11 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/SupportCase' }
-        '400': { description: "Malformed body or parameters (INVALID_REQUEST)" }
-        '401': { description: "Missing, invalid or revoked customer token" }
-        '404': { description: "Unknown or someone else's case (NOT_FOUND)" }
-        '409': { description: "STATE_CONFLICT (closed case), TOO_MANY_OPEN (5 open cases) or MESSAGE_LIMIT (100 messages)" }
-        '503': { description: "Dependency unavailable (UNAVAILABLE)" }
+        '400': { $ref: '#/components/responses/SupportCase400' }
+        '401': { $ref: '#/components/responses/ProfileUnauthenticated' }
+        '404': { $ref: '#/components/responses/SupportCase404' }
+        '409': { $ref: '#/components/responses/SupportCase409' }
+        '503': { $ref: '#/components/responses/SupportCase503' }
     get:
       tags: [customer-support]
       operationId: listSupportCases
@@ -385,11 +385,11 @@ paths:
                         updatedAt: { type: string, format: date-time }
                   nextCursor: { type: string }
                   requestId: { type: string }
-        '400': { description: "Malformed body or parameters (INVALID_REQUEST)" }
-        '401': { description: "Missing, invalid or revoked customer token" }
-        '404': { description: "Unknown or someone else's case (NOT_FOUND)" }
-        '409': { description: "STATE_CONFLICT (closed case), TOO_MANY_OPEN (5 open cases) or MESSAGE_LIMIT (100 messages)" }
-        '503': { description: "Dependency unavailable (UNAVAILABLE)" }
+        '400': { $ref: '#/components/responses/SupportCase400' }
+        '401': { $ref: '#/components/responses/ProfileUnauthenticated' }
+        '404': { $ref: '#/components/responses/SupportCase404' }
+        '409': { $ref: '#/components/responses/SupportCase409' }
+        '503': { $ref: '#/components/responses/SupportCase503' }
   /v1/customer/support/cases/{caseId}:
     get:
       tags: [customer-support]
@@ -405,11 +405,11 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/SupportCase' }
-        '400': { description: "Malformed body or parameters (INVALID_REQUEST)" }
-        '401': { description: "Missing, invalid or revoked customer token" }
-        '404': { description: "Unknown or someone else's case (NOT_FOUND)" }
-        '409': { description: "STATE_CONFLICT (closed case), TOO_MANY_OPEN (5 open cases) or MESSAGE_LIMIT (100 messages)" }
-        '503': { description: "Dependency unavailable (UNAVAILABLE)" }
+        '400': { $ref: '#/components/responses/SupportCase400' }
+        '401': { $ref: '#/components/responses/ProfileUnauthenticated' }
+        '404': { $ref: '#/components/responses/SupportCase404' }
+        '409': { $ref: '#/components/responses/SupportCase409' }
+        '503': { $ref: '#/components/responses/SupportCase503' }
   /v1/customer/support/cases/{caseId}/messages:
     post:
       tags: [customer-support]
@@ -435,11 +435,11 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/SupportCase' }
-        '400': { description: "Malformed body or parameters (INVALID_REQUEST)" }
-        '401': { description: "Missing, invalid or revoked customer token" }
-        '404': { description: "Unknown or someone else's case (NOT_FOUND)" }
-        '409': { description: "STATE_CONFLICT (closed case), TOO_MANY_OPEN (5 open cases) or MESSAGE_LIMIT (100 messages)" }
-        '503': { description: "Dependency unavailable (UNAVAILABLE)" }
+        '400': { $ref: '#/components/responses/SupportCase400' }
+        '401': { $ref: '#/components/responses/ProfileUnauthenticated' }
+        '404': { $ref: '#/components/responses/SupportCase404' }
+        '409': { $ref: '#/components/responses/SupportCase409' }
+        '503': { $ref: '#/components/responses/SupportCase503' }
   /v1/customer/support/cases/{caseId}/close:
     post:
       tags: [customer-support]
@@ -455,11 +455,11 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/SupportCase' }
-        '400': { description: "Malformed body or parameters (INVALID_REQUEST)" }
-        '401': { description: "Missing, invalid or revoked customer token" }
-        '404': { description: "Unknown or someone else's case (NOT_FOUND)" }
-        '409': { description: "STATE_CONFLICT (closed case), TOO_MANY_OPEN (5 open cases) or MESSAGE_LIMIT (100 messages)" }
-        '503': { description: "Dependency unavailable (UNAVAILABLE)" }
+        '400': { $ref: '#/components/responses/SupportCase400' }
+        '401': { $ref: '#/components/responses/ProfileUnauthenticated' }
+        '404': { $ref: '#/components/responses/SupportCase404' }
+        '409': { $ref: '#/components/responses/SupportCase409' }
+        '503': { $ref: '#/components/responses/SupportCase503' }
   /v1/customer/profile:
     get:
       tags: [customer-profile]
@@ -1032,6 +1032,14 @@ components:
       description: Per-request auth state; never cacheable by any intermediary.
       schema: { type: string, example: "no-store" }
   schemas:
+    SupportCaseErrorEnvelope:
+      type: object
+      description: The flat customer error envelope shared by every /v1/customer domain.
+      required: [code, message, requestId]
+      properties:
+        code: { type: string, enum: [INVALID_REQUEST, NOT_FOUND, STATE_CONFLICT, TOO_MANY_OPEN, MESSAGE_LIMIT, SERVICE_UNAVAILABLE, INTERNAL] }
+        message: { type: string }
+        requestId: { type: string }
     SupportCase:
       type: object
       required: [caseId, category, subject, status, messages, createdAt, updatedAt, requestId]
@@ -1716,6 +1724,34 @@ components:
         message: { type: string }
         requestId: { type: string }
   responses:
+    SupportCase400:
+      description: "Malformed body or parameters (INVALID_REQUEST)"
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/SupportCaseErrorEnvelope' }
+    SupportCase404:
+      description: "Unknown or someone else's case (NOT_FOUND)"
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/SupportCaseErrorEnvelope' }
+    SupportCase409:
+      description: "STATE_CONFLICT (closed case), TOO_MANY_OPEN (5 open cases) or MESSAGE_LIMIT (100 messages)"
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/SupportCaseErrorEnvelope' }
+    SupportCase503:
+      description: "Dependency unavailable (SERVICE_UNAVAILABLE)"
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/SupportCaseErrorEnvelope' }
     BadRequest:
       description: Invalid request or cursor
       content:

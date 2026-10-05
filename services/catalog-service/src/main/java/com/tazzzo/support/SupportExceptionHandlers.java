@@ -45,7 +45,9 @@ final class SupportExceptionHandlers {
     static class Customer {
         @ExceptionHandler(SupportFailure.class)
         ResponseEntity<CustomerError> failure(SupportFailure e, HttpServletRequest req) {
-            return body(status(e.reason()), e.reason().name(), req);
+            // the customer surface spells an outage SERVICE_UNAVAILABLE, like every other /v1/customer domain
+            String code = e.reason() == SupportFailure.Reason.UNAVAILABLE ? "SERVICE_UNAVAILABLE" : e.reason().name();
+            return body(status(e.reason()), code, req);
         }
 
         @ExceptionHandler(HttpMessageNotReadableException.class)
