@@ -118,6 +118,80 @@
         }
       }
     },
+    "/api/v1/admin/delivery-slots/{serviceAreaId}/{windowId}" : {
+      "get" : {
+        "tags" : [ "delivery-slot-admin-controller" ],
+        "operationId" : "get_5",
+        "parameters" : [ {
+          "name" : "serviceAreaId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "windowId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/WindowResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put" : {
+        "tags" : [ "delivery-slot-admin-controller" ],
+        "operationId" : "upsert",
+        "parameters" : [ {
+          "name" : "serviceAreaId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "windowId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/WindowRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/WindowResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/customer/orders" : {
       "post" : {
         "tags" : [ "order-controller" ],
@@ -190,7 +264,7 @@
     "/v1/customer/addresses" : {
       "get" : {
         "tags" : [ "address-controller" ],
-        "operationId" : "list",
+        "operationId" : "list_1",
         "responses" : {
           "200" : {
             "description" : "OK",
@@ -1138,6 +1212,92 @@
         }
       }
     },
+    "/api/v1/admin/delivery-slots/{serviceAreaId}/{windowId}/deactivate" : {
+      "post" : {
+        "tags" : [ "delivery-slot-admin-controller" ],
+        "operationId" : "deactivate",
+        "parameters" : [ {
+          "name" : "serviceAreaId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "windowId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/VersionRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/WindowResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/delivery-slots/{serviceAreaId}/{windowId}/activate" : {
+      "post" : {
+        "tags" : [ "delivery-slot-admin-controller" ],
+        "operationId" : "activate_1",
+        "parameters" : [ {
+          "name" : "serviceAreaId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "windowId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/VersionRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/WindowResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/customer/profile" : {
       "get" : {
         "tags" : [ "customer-profile-controller" ],
@@ -1528,6 +1688,39 @@
               "*/*" : {
                 "schema" : {
                   "$ref" : "#/components/schemas/CustomerOrderDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/customer/delivery/slots" : {
+      "get" : {
+        "tags" : [ "delivery-slot-controller" ],
+        "operationId" : "list",
+        "parameters" : [ {
+          "name" : "pin",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "days",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SlotsResponse"
                 }
               }
             }
@@ -2058,10 +2251,36 @@
         }
       }
     },
+    "/api/v1/admin/delivery-slots/{serviceAreaId}" : {
+      "get" : {
+        "tags" : [ "delivery-slot-admin-controller" ],
+        "operationId" : "list_2",
+        "parameters" : [ {
+          "name" : "serviceAreaId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/audit-events" : {
       "get" : {
         "tags" : [ "admin-audit-events-controller" ],
-        "operationId" : "list_1",
+        "operationId" : "list_3",
         "responses" : {
           "200" : {
             "description" : "OK",
@@ -2262,6 +2481,87 @@
         "properties" : {
           "serviceable" : {
             "type" : "boolean"
+          }
+        }
+      },
+      "WindowRequest" : {
+        "type" : "object",
+        "properties" : {
+          "label" : {
+            "type" : "string"
+          },
+          "startMinute" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "endMinute" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "cutoffMinutes" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "capacity" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "days" : {
+            "uniqueItems" : true,
+            "type" : "array",
+            "items" : {
+              "type" : "integer",
+              "format" : "int32"
+            }
+          },
+          "expectedVersion" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }
+      },
+      "WindowResponse" : {
+        "type" : "object",
+        "properties" : {
+          "serviceAreaId" : {
+            "type" : "string"
+          },
+          "windowId" : {
+            "type" : "string"
+          },
+          "label" : {
+            "type" : "string"
+          },
+          "startMinute" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "endMinute" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "cutoffMinutes" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "capacity" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "days" : {
+            "uniqueItems" : true,
+            "type" : "array",
+            "items" : {
+              "type" : "integer",
+              "format" : "int32"
+            }
+          },
+          "active" : {
+            "type" : "boolean"
+          },
+          "version" : {
+            "type" : "integer",
+            "format" : "int64"
           }
         }
       },
@@ -3062,6 +3362,15 @@
           }
         }
       },
+      "VersionRequest" : {
+        "type" : "object",
+        "properties" : {
+          "expectedVersion" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }
+      },
       "CustomerProfileResponseDto" : {
         "type" : "object",
         "properties" : {
@@ -3380,6 +3689,49 @@
           }
         }
       },
+      "SlotDto" : {
+        "type" : "object",
+        "properties" : {
+          "slotId" : {
+            "type" : "string"
+          },
+          "date" : {
+            "type" : "string"
+          },
+          "startsAt" : {
+            "type" : "string"
+          },
+          "endsAt" : {
+            "type" : "string"
+          },
+          "label" : {
+            "type" : "string"
+          },
+          "status" : {
+            "type" : "string"
+          }
+        }
+      },
+      "SlotsResponse" : {
+        "type" : "object",
+        "properties" : {
+          "serviceable" : {
+            "type" : "boolean"
+          },
+          "timezone" : {
+            "type" : "string"
+          },
+          "slots" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/SlotDto"
+            }
+          },
+          "requestId" : {
+            "type" : "string"
+          }
+        }
+      },
       "AddressListResponseDto" : {
         "type" : "object",
         "properties" : {
@@ -3599,6 +3951,17 @@
             "type" : "array",
             "items" : {
               "type" : "string"
+            }
+          }
+        }
+      },
+      "ListResponse" : {
+        "type" : "object",
+        "properties" : {
+          "items" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/WindowResponse"
             }
           }
         }

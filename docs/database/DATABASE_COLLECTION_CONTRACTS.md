@@ -81,7 +81,7 @@ Verification note (§1): `Order` record: `long version`, `long addressVersion`, 
 
 ## 5. Collection roster, classification and validator decision
 
-All 49 collections of `SchemaBootstrap.COLLECTIONS` (`SB:26-114`). "Unused" = created by bootstrap with no reader/writer in main. Retention "none" means no TTL and no code that removes rows.
+All 51 collections of `SchemaBootstrap.COLLECTIONS` (`SB:26-114`). "Unused" = created by bootstrap with no reader/writer in main. Retention "none" means no TTL and no code that removes rows.
 
 | # | Collection | Owner | Class | Strictness | Validator | Retention |
 |---|---|---|---|---|---|---|
@@ -112,7 +112,7 @@ All 49 collections of `SchemaBootstrap.COLLECTIONS` (`SB:26-114`). "Unused" = cr
 | 25 | `attribute_schemas` | catalog | authoritative (versioned) | C | DEFER | none |
 | 26 | `id_sequences` | catalog | operational (counter) | **D** | NO | none |
 | 27 | `price_current` | pricing | authoritative | C | **YES (PROPOSED)** | none |
-| 28 | `price_events` | pricing/catalog | event (two shapes) | C | **DEFER** (R1 discriminator first) | **TARGET: retain (R1). CURRENT: rolled rows hard-deleted hourly (non-compliant)** |
+| 28 | `price_events` | pricing/catalog | event (two shapes) | C | **DEFER** (R1 discriminator first) | **RETAINED (R1 fixed in code; the purge was removed)** |
 | 29 | `price_rollups` | catalog | derived | C | NO | none |
 | 30 | `inventory` | inventory | authoritative | C | **YES (PROPOSED)** | none |
 | 31 | `inventory_reservations` | inventory | authoritative | **A** | **YES (PROPOSED)** | none (never deleted) |
@@ -134,8 +134,10 @@ All 49 collections of `SchemaBootstrap.COLLECTIONS` (`SB:26-114`). "Unused" = cr
 | 47 | `checkout_quotes` | customer.checkout | snapshot | **B** | **YES (PROPOSED)** | none (forever) |
 | 48 | `orders` | customer.order | authoritative + snapshot | **B** | **YES (PROPOSED)** | none (forever) |
 | 49 | `memberships` | membership | authoritative | **B** | **YES (PROPOSED)** | none (by design) |
+| 50 | `delivery_slot_windows` | delivery | authoritative (config) | C | DEFER | none |
+| 51 | `delivery_slot_usage` | delivery | operational (counter) | D | NO | TTL `expire_at` (migration `V0008`) |
 
-**Tallies (49):** A = 2 (`inventory_reservations`, `consumer_projection_policy`); B = 3 (`orders`, `checkout_quotes`, `memberships`); D = 4 (`work_queue`, `id_sequences`, `customer_otp_challenges`, `customer_otp_verified_grants`); C = 40 (of which 7 are unused collections). 2 + 3 + 40 + 4 = 49. Validators: 1 exists (`products`); **YES (proposed) 6**; **DEFER 24**; **NO 18** (7 of the NOs are the unused collections); 1 + 6 + 24 + 18 = 49.
+**Tallies (51):** A = 2 (`inventory_reservations`, `consumer_projection_policy`); B = 3 (`orders`, `checkout_quotes`, `memberships`); D = 5 (`work_queue`, `id_sequences`, `customer_otp_challenges`, `customer_otp_verified_grants`, `delivery_slot_usage`); C = 41 (of which 7 are unused collections; `delivery_slot_windows` is the 41st). 2 + 3 + 41 + 5 = 51. Validators: 1 exists (`products`); **YES (proposed) 6**; **DEFER 25**; **NO 19** (7 of the NOs are the unused collections); 1 + 6 + 25 + 19 = 51.
 
 **Reclassification note (post-review):** an earlier draft classed `products`, `product_card_base` and `domain_events` as A/B. Under the §3.1 rule they are C: `products` has read-path defaults (`CatalogCardReader` missing `version`→0 and missing classification→null vertical; `ProductController.toResponse` stringifies nulls as `"null"`); `product_card_base.fromDocument` validates only `source_versions`, `catalog_version`, `projection_version` and `price_status` and silently reads a missing `price_version`/`media_version` as null; `domain_events` has no reader in main and `ActorDocuments.fromEvent` has no caller, so no reconstruction path exists to be strict. Their *write-side* contracts (the `products` validator, the strict `ActorDocuments` codec) remain as documented.
 
@@ -336,6 +338,8 @@ Remaining collections are summarised in §7.
 ---
 
 ## 9. R1 contract — immutable vs purgeable price-event categories
+
+> **UPDATE — R1 FIXED IN CODE (price-history retention PR).** The statements below describe the state BEFORE that PR and are kept as the analysis record. Now: `purge()` and its scheduler call are removed; `price_events` is append-only (no delete, no TTL; `PriceHistoryRetentionSourceTest`); the roll-up aggregates only legacy offer events (string `product_id`/`seller`, int32 `price`), flags each `rolled=true` with a conditional claim in the same transaction, and never reads or writes a paise ledger row. No migration, no discriminator was needed for retention: shape is still inferred by field presence, which only decides what is *aggregated*, never what is deleted (nothing is).
 
 ### 9.1 Facts (VERIFIED; see DB-0 §13)
 

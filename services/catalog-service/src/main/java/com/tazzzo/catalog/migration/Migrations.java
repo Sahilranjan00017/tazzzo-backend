@@ -37,6 +37,9 @@ public final class Migrations {
                 new CreateIndexMigration("V0009__product_card_search_tokens_index",
                         "product_card_base (search_tokens, sku_id): multikey index for the public product search (PR-G)",
                         List.of(IndexCatalog.PRODUCT_CARD_SEARCH_SPEC), null),
+                new CreateIndexMigration("V0008__delivery_slot_indexes",
+                        "delivery_slot_windows (service_area_id) by-area lookup and delivery_slot_usage TTL on expire_at (PR-E delivery slots)",
+                        IndexCatalog.DELIVERY_SLOT_SPECS, null),
                 // DROP-CANDIDATES: registered but DISABLED. They run only when named in tazzzo.migration.enabled-migrations
                 // after the owner approves (docs/database/DATABASE_MIGRATION_RUNBOOK.md, unused-index decisions).
                 new DropIndexMigration("V0101__drop_unused_session_by_customer_index",

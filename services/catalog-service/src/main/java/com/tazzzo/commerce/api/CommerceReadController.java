@@ -59,11 +59,13 @@ public class CommerceReadController {
     private final CommerceSearchService search;
     private final ClientIpResolver clientIps;
     private final ConsumerObservability observe;
+    private final com.tazzzo.location.GeoPincodeResolver geo;
 
     public CommerceReadController(ConsumerTaxonomyService taxonomy, CommerceListService list,
                                   CommercePdpService pdp, CommerceServiceabilityService serviceability,
                                   CommerceSearchService search,
-                                  ClientIpResolver clientIps, ConsumerObservability observe) {
+                                  ClientIpResolver clientIps, ConsumerObservability observe,
+                                  com.tazzzo.location.GeoPincodeResolver geo) {
         this.taxonomy = taxonomy;
         this.list = list;
         this.pdp = pdp;
@@ -71,6 +73,7 @@ public class CommerceReadController {
         this.search = search;
         this.clientIps = clientIps;
         this.observe = observe;
+        this.geo = geo;
     }
 
     @GetMapping("/categories")
@@ -179,9 +182,14 @@ public class CommerceReadController {
                                                     HttpServletRequest request, HttpServletResponse response) {
         response.setHeader(HttpHeaders.CACHE_CONTROL, CACHE_PRIVATE_NO_STORE);
         return measured(ConsumerObservability.Route.COMMERCE_SERVICEABILITY, () -> {
-            Pincode validPin = CommerceLocationParser.requirePin(pin, lat, lng);
-            return RuntimeToDtoMapper.serviceability(
-                    serviceability.resolve(validPin, identity(request)), requestId(request));
+            // PIN path: validated before admission, exactly as before. Geo path: the provider is called only AFTER
+            // admission is charged, so an unauthenticated flood cannot reach it ahead of the limiter.
+            boolean viaGeo = CommerceLocationParser.usesGeo(geo, lat, lng);
+            Pincode validPin = viaGeo ? null : CommerceLocationParser.requirePin(pin, lat, lng);
+            return RuntimeToDtoMapper.serviceability(viaGeo
+                            ? serviceability.resolve(() -> CommerceLocationParser.requirePin(pin, lat, lng, geo), identity(request))
+                            : serviceability.resolve(validPin, identity(request)),
+                    requestId(request));
         });
     }
 
