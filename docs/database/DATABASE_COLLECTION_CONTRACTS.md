@@ -81,7 +81,7 @@ Verification note (§1): `Order` record: `long version`, `long addressVersion`, 
 
 ## 5. Collection roster, classification and validator decision
 
-All 51 collections of `SchemaBootstrap.COLLECTIONS` (`SB:26-114`). "Unused" = created by bootstrap with no reader/writer in main. Retention "none" means no TTL and no code that removes rows.
+All 53 collections of `SchemaBootstrap.COLLECTIONS` (`SB:26-114`). "Unused" = created by bootstrap with no reader/writer in main. Retention "none" means no TTL and no code that removes rows.
 
 | # | Collection | Owner | Class | Strictness | Validator | Retention |
 |---|---|---|---|---|---|---|
@@ -136,11 +136,10 @@ All 51 collections of `SchemaBootstrap.COLLECTIONS` (`SB:26-114`). "Unused" = cr
 | 49 | `memberships` | membership | authoritative | **B** | **YES (PROPOSED)** | none (by design) |
 | 50 | `delivery_slot_windows` | delivery | authoritative (config) | C | DEFER | none |
 | 51 | `delivery_slot_usage` | delivery | operational (counter) | D | NO | TTL `expire_at` (migration `V0008`) |
+| 52 | `support_cases` | support | authoritative | C | DEFER | none |
+| 53 | `notification_outbox` | notification | operational (outbox) | D | NO | TTL `expire_at` (migration `V0014`) |
 
-**Tallies (51):** A = 2 (`inventory_reservations`, `consumer_projection_policy`); B = 3 (`orders`, `checkout_quotes`, `memberships`); D = 5 (`work_queue`, `id_sequences`, `customer_otp_challenges`, `customer_otp_verified_grants`, `delivery_slot_usage`); C = 41 (of which 7 are unused collections; `delivery_slot_windows` is the 41st). 2 + 3 + 41 + 5 = 51. Validators: 1 exists (`products`); **YES (proposed) 6**; **DEFER 25**; **NO 19** (7 of the NOs are the unused collections); 1 + 6 + 25 + 19 = 51.
-| 50 | `support_cases` | support | authoritative | C | DEFER | none |
-
-**Tallies (50):** A = 2 (`inventory_reservations`, `consumer_projection_policy`); B = 3 (`orders`, `checkout_quotes`, `memberships`); D = 4 (`work_queue`, `id_sequences`, `customer_otp_challenges`, `customer_otp_verified_grants`); C = 41 (of which 7 are unused collections; `support_cases` is the 41st). 2 + 3 + 41 + 4 = 50. Validators: 1 exists (`products`); **YES (proposed) 6**; **DEFER 25**; **NO 18** (7 of the NOs are the unused collections); 1 + 6 + 25 + 18 = 50.
+**Tallies (53):** A = 2 (`inventory_reservations`, `consumer_projection_policy`); B = 3 (`orders`, `checkout_quotes`, `memberships`); D = 6 (`work_queue`, `id_sequences`, `customer_otp_challenges`, `customer_otp_verified_grants`, `delivery_slot_usage`, `notification_outbox`); C = 42 (of which 7 are unused collections; `delivery_slot_windows` and `support_cases` are the 41st–42nd). 2 + 3 + 42 + 6 = 53. Validators: 1 exists (`products`); **YES (proposed) 6**; **DEFER 26**; **NO 20** (7 of the NOs are the unused collections); 1 + 6 + 26 + 20 = 53.
 
 **Reclassification note (post-review):** an earlier draft classed `products`, `product_card_base` and `domain_events` as A/B. Under the §3.1 rule they are C: `products` has read-path defaults (`CatalogCardReader` missing `version`→0 and missing classification→null vertical; `ProductController.toResponse` stringifies nulls as `"null"`); `product_card_base.fromDocument` validates only `source_versions`, `catalog_version`, `projection_version` and `price_status` and silently reads a missing `price_version`/`media_version` as null; `domain_events` has no reader in main and `ActorDocuments.fromEvent` has no caller, so no reconstruction path exists to be strict. Their *write-side* contracts (the `products` validator, the strict `ActorDocuments` codec) remain as documented.
 

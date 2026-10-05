@@ -119,7 +119,11 @@ public class SchemaBootstrap {
             "delivery_slot_windows", "delivery_slot_usage",
             // PR-O support cases: one document per case, messages embedded and bounded. Free text is personal data
             // (deleted by account erasure). Indexes are migration-only (V0011).
-            "support_cases");
+            "support_cases",
+            // N2 transactional notification outbox: one row per (type, subject), _id the dedupe key; recipient is the
+            // opaque customer id only (contact resolved at send time). Indexes (due scan, by-customer erasure, TTL) are
+            // migration-only (V0014); bootstrap creates only the collection.
+            "notification_outbox");
 
     /**
      * PAG-2-SORT-1 transport support: the equality prefix the consumer-eligibility predicate uses,

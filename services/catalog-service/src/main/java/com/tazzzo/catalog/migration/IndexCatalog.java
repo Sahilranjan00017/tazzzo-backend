@@ -105,6 +105,22 @@ public final class IndexCatalog {
             named("support_cases", "support_by_status_recent", k("status", 1, "updatedAt", -1, "_id", -1), false, null, null),
             named("support_cases", "support_recent", k("updatedAt", -1, "_id", -1), false, null, null));
 
+    /**
+     * Notification outbox (backend completion N2): the dispatcher's due scan, the by-customer erasure lookup and the TTL
+     * that removes every row seven days after creation whatever its state. Migration-only (V0014).
+     */
+    public static final IndexSpec NOTIFICATION_DUE_SPEC = named("notification_outbox", "notification_due",
+            k("status", 1, "next_attempt_at", 1, "_id", 1), false, null, null);
+
+    public static final IndexSpec NOTIFICATION_BY_CUSTOMER_SPEC = named("notification_outbox", "notification_by_customer",
+            k("customer_id", 1), false, null, null);
+
+    public static final IndexSpec NOTIFICATION_EXPIRY_SPEC = named("notification_outbox", "notification_expiry_ttl",
+            k("expire_at", 1), false, null, 0L);
+
+    public static final List<IndexSpec> NOTIFICATION_SPECS =
+            List.of(NOTIFICATION_DUE_SPEC, NOTIFICATION_BY_CUSTOMER_SPEC, NOTIFICATION_EXPIRY_SPEC);
+
     /** Indexes created only by explicit migrations (never by the baseline migration). */
     public static final List<IndexSpec> MANAGED;
 
@@ -116,6 +132,7 @@ public final class IndexCatalog {
         m.add(ORDER_BY_CUSTOMER_RECENT_SPEC);
         m.addAll(STAFF_ORDER_QUEUE_SPECS);
         m.addAll(SUPPORT_CASE_SPECS);
+        m.addAll(NOTIFICATION_SPECS);
         MANAGED = List.copyOf(m);
     }
 
