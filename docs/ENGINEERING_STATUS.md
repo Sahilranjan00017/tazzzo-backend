@@ -1455,6 +1455,11 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-10-05** — Staff order operations + fulfilment statuses (backend completion PR-M2; STACKED on PR-M #64 with PR-P #66 merged in): `GET /api/v1/admin/orders[?status]` (newest first, keyset; V0012 indexes), `GET /{id}` (with the delivery
+  address — fulfilment needs it), `POST /{id}/transition` in the orders namespace (order-ops writes, support-agent reads; catalogue roles/shared tokens never reach it). State machine: CONFIRMED(v2) → OUT_FOR_DELIVERY(v3) → DELIVERED(v4); CANCELLED
+  from CONFIRMED (v3) or OUT_FOR_DELIVERY (v4, a failed/refused delivery) with a closed staff reason set; every transition is a CAS on (status, version) with the audit row (authenticated actor) in the SAME transaction; a staff cancel returns the
+  stock (exactly-once) and releases the slot hold. A DELIVERED order is never cancelled (returns are not modelled); a customer can no longer cancel once the order is out for delivery (409). Customers see the new statuses with
+  `outForDeliveryAt`/`deliveredAt`. Cash collection on delivery is a payment concern and is NOT recorded.
 - **2026-10-05** — Support cases (backend completion PR-O; STACKED on PR-P #66): customer `POST/GET /v1/customer/support/cases`, `GET /{id}`, `POST /{id}/messages`, `POST /{id}/close` (owner is always the verified principal; an
   `orderId` must be one of the caller's own orders; at most 5 open cases; closed field set — no identifier, status or role is accepted from the body) and staff `GET /api/v1/admin/support/cases[?status]`, `GET /{id}`, `POST /{id}/messages`,
   `/assign` (to self, CAS) and `/status` (IN_PROGRESS/RESOLVED/CLOSED, CAS) in the staff namespace (support-agent read+write, order-ops read-only). Threads are bounded (100 messages, 2000 chars, plain text) and every reply is an

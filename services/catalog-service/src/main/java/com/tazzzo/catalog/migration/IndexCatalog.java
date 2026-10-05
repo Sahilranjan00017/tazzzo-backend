@@ -107,6 +107,11 @@ public final class IndexCatalog {
     public static final IndexSpec ORDER_BY_CUSTOMER_RECENT_SPEC = named("orders", "order_by_customer_recent",
             k("customerId", 1, "createdAt", -1, "_id", -1), false, null, null);
 
+    /** Staff order queue (PR-M2): newest first, filtered by status or across every customer-visible status. Migration-only (V0012). */
+    public static final List<IndexSpec> STAFF_ORDER_QUEUE_SPECS = List.of(
+            named("orders", "order_by_status_recent", k("status", 1, "createdAt", -1, "_id", -1), false, null, null),
+            named("orders", "order_recent", k("createdAt", -1, "_id", -1), false, null, null));
+
     /** Indexes created only by explicit migrations (never by the baseline migration). */
     public static final List<IndexSpec> MANAGED;
 
@@ -118,6 +123,7 @@ public final class IndexCatalog {
         m.add(PRODUCT_CARD_SEARCH_SPEC);
         m.addAll(DELIVERY_SLOT_SPECS);
         m.add(ORDER_BY_CUSTOMER_RECENT_SPEC);
+        m.addAll(STAFF_ORDER_QUEUE_SPECS);
         MANAGED = List.copyOf(m);
     }
 

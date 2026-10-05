@@ -1037,6 +1037,8 @@ paths:
                           enum:
                           - CONFIRMED
                           - CANCELLED
+                          - OUT_FOR_DELIVERY
+                          - DELIVERED
                         paymentMethod:
                           type: string
                           enum:
@@ -2893,7 +2895,7 @@ components:
           type: string
     CustomerOrder:
       type: object
-      description: 'A placed order. `status` is `CONFIRMED`, or `CANCELLED` once cancelled (then `cancelledAt` is present and there is no `paymentCondition`: nothing is due). `paymentCondition` `COD_DUE` means the order is confirmed and payment is owed on delivery; nothing has been collected. `money.payablePaise` is the amount due on delivery (it is never a statement that anything was paid); it is `0` for a fully discounted order, in which case nothing is due.
+      description: 'A placed order. `status` is `CONFIRMED`, then `OUT_FOR_DELIVERY` and `DELIVERED` as staff fulfil it (with `outForDeliveryAt`/`deliveredAt`), or `CANCELLED` once cancelled (then `cancelledAt` is present and there is no `paymentCondition`: nothing is due). `paymentCondition` `COD_DUE` means the order is confirmed and payment is owed on delivery; nothing has been collected. `money.payablePaise` is the amount due on delivery (it is never a statement that anything was paid); it is `0` for a fully discounted order, in which case nothing is due.
 
         '
       required:
@@ -2917,6 +2919,8 @@ components:
           enum:
           - CONFIRMED
           - CANCELLED
+          - OUT_FOR_DELIVERY
+          - DELIVERED
         paymentMethod:
           type: string
           enum:
@@ -2972,6 +2976,12 @@ components:
               type: string
               format: date-time
         cancelledAt:
+          type: string
+          format: date-time
+        outForDeliveryAt:
+          type: string
+          format: date-time
+        deliveredAt:
           type: string
           format: date-time
     CustomerOrderMoney:

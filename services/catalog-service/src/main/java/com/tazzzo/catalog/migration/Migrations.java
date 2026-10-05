@@ -46,6 +46,9 @@ public final class Migrations {
                 new CreateIndexMigration("V0010__orders_by_customer_recent_index",
                         "orders (customerId, createdAt desc, _id desc): the customer order history, newest first (PR-M)",
                         List.of(IndexCatalog.ORDER_BY_CUSTOMER_RECENT_SPEC), null),
+                new CreateIndexMigration("V0012__orders_staff_queue_indexes",
+                        "orders (status, createdAt desc, _id desc) and (createdAt desc, _id desc): the staff order queue (PR-M2)",
+                        IndexCatalog.STAFF_ORDER_QUEUE_SPECS, null),
                 // DROP-CANDIDATES: registered but DISABLED. They run only when named in tazzzo.migration.enabled-migrations
                 // after the owner approves (docs/database/DATABASE_MIGRATION_RUNBOOK.md, unused-index decisions).
                 new DropIndexMigration("V0101__drop_unused_session_by_customer_index",

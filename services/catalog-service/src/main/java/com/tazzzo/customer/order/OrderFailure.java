@@ -34,7 +34,11 @@ public final class OrderFailure extends RuntimeException {
         /** Cancellation: the order is not in a state a customer may cancel from (409). */
         NOT_CANCELLABLE,
         /** Cancellation: the customer cancellation window is closed, or no window is configured (409). */
-        CANCELLATION_WINDOW_CLOSED
+        CANCELLATION_WINDOW_CLOSED,
+        /** Staff: the version the caller saw is no longer current (409). */
+        STALE_VERSION,
+        /** Staff: the order's current status does not allow that transition (409). */
+        INVALID_TRANSITION
     }
 
     private final Reason reason;

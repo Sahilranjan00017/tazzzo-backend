@@ -156,8 +156,11 @@ public class OrderLifecycleService {
                 if (order.status() == OrderStatus.CANCELLED) {
                     return order;                                    // idempotent: nothing is touched again
                 }
-                if (order.status() != OrderStatus.CONFIRMED) {
+                if (order.status() == OrderStatus.CREATED) {
                     throw new OrderFailure(OrderFailure.Reason.ORDER_NOT_FOUND);   // CREATED is never customer-visible
+                }
+                if (order.status() != OrderStatus.CONFIRMED) {
+                    throw new OrderFailure(OrderFailure.Reason.NOT_CANCELLABLE);   // out for delivery or delivered: staff only
                 }
                 Instant now = clock.instant().truncatedTo(java.time.temporal.ChronoUnit.MILLIS);
                 Instant deadline = order.confirmedAt().plus(Duration.ofSeconds(cancelWindowSeconds));

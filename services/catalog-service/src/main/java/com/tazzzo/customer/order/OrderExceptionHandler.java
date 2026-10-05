@@ -61,6 +61,9 @@ public class OrderExceptionHandler {
                     "the stock hold expired before the order could be placed", requestId);
             case CART_VERSION_ALREADY_PURCHASED -> reject(op, null, HttpStatus.CONFLICT,
                     "CART_VERSION_ALREADY_PURCHASED", "this cart has already been ordered", requestId);
+            case STALE_VERSION -> reject(op, null, HttpStatus.CONFLICT, "STALE_VERSION", "the order has changed; reload it", requestId);
+            case INVALID_TRANSITION -> reject(op, null, HttpStatus.CONFLICT, "INVALID_TRANSITION",
+                    "the order's status does not allow that change", requestId);
             case NOT_CANCELLABLE -> reject(op, null, HttpStatus.CONFLICT, "ORDER_NOT_CANCELLABLE",
                     "this order can no longer be cancelled", requestId);
             case CANCELLATION_WINDOW_CLOSED -> reject(op, null, HttpStatus.CONFLICT, "CANCELLATION_WINDOW_CLOSED",

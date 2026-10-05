@@ -21,3 +21,7 @@ Rules that hold (tested by `AdminAccessPolicyTest` and `AdminStaffRbacIT`):
 Granting a staff role: add it to the person's `roles` in the allowlist (comma list). Revoking: remove it or set `enabled=false`. The audit ledger records `actor.id` (`google:<sub>`) for every staff write.
 
 The general INTERNAL surface still uses the coarse model (`cms-writer` writes everything on it, including pricing/stock/delivery). Splitting those into narrower roles is a deliberate follow-up: it would change the shared `cms-writer` service token's existing reach and needs an owner decision on which automation keeps broad access.
+
+## Staff APIs living in the namespaces
+- `/api/v1/admin/orders` — queue (`?status=`), one order (with the delivery address), `POST /{id}/transition` (`OUT_FOR_DELIVERY`, `DELIVERED`, `CANCELLED` with a staff reason). order-ops writes; support-agent reads.
+- `/api/v1/admin/support/cases` — the support queue (PR-O).

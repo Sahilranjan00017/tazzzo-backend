@@ -18,7 +18,9 @@ public record CustomerOrderDto(String orderId, String status, String paymentMeth
                                DeliveryAddress deliveryAddress, String createdAt, String confirmedAt,
                                @JsonInclude(JsonInclude.Include.NON_NULL) OrderMoney money,
                                @JsonInclude(JsonInclude.Include.NON_NULL) DeliverySlot deliverySlot,
-                               @JsonInclude(JsonInclude.Include.NON_NULL) String cancelledAt, String requestId) {
+                               @JsonInclude(JsonInclude.Include.NON_NULL) String cancelledAt,
+                               @JsonInclude(JsonInclude.Include.NON_NULL) String outForDeliveryAt,
+                               @JsonInclude(JsonInclude.Include.NON_NULL) String deliveredAt, String requestId) {
 
     /** The delivery window the customer chose: only what they need to see (never the area, the window id or any capacity). */
     public record DeliverySlot(String slotId, String label, String startsAt, String endsAt) { }
@@ -58,9 +60,8 @@ public record CustomerOrderDto(String orderId, String status, String paymentMeth
     /** Only a {@code CONFIRMED} Order is ever customer-visible ({@code OrderService.getOrder} and
      *  {@code placeCodOrder} guarantee it); anything else here is a programming defect, never rendered. */
     static CustomerOrderDto of(Order o, String requestId) {
-        if ((o.status() != OrderStatus.CONFIRMED && o.status() != OrderStatus.CANCELLED) || o.confirmedAt() == null
-                || o.confirmedPaymentCondition() == null) {
-            throw new IllegalStateException("only a CONFIRMED or CANCELLED order is customer-visible");
+        if (o.status() == OrderStatus.CREATED || o.confirmedAt() == null || o.confirmedPaymentCondition() == null) {
+            throw new IllegalStateException("an internal CREATED order is never customer-visible");
         }
         boolean cancelled = o.status() == OrderStatus.CANCELLED;
         OrderAddressSnapshot a = o.addressSnapshot();
@@ -75,7 +76,9 @@ public record CustomerOrderDto(String orderId, String status, String paymentMeth
                 o.moneyView().map(OrderMoney::of).orElse(null),
                 o.deliverySlot() == null ? null : new DeliverySlot(o.deliverySlot().slotId(), o.deliverySlot().label(),
                         o.deliverySlot().startsAt().toString(), o.deliverySlot().endsAt().toString()),
-                cancelled ? o.cancellation().cancelledAt().toString() : null, requestId);
+                cancelled ? o.cancellation().cancelledAt().toString() : null,
+                o.fulfilment().outForDeliveryAt() == null ? null : o.fulfilment().outForDeliveryAt().toString(),
+                o.fulfilment().deliveredAt() == null ? null : o.fulfilment().deliveredAt().toString(), requestId);
     }
 
     /** One row of the order history: just what a list needs, never the address or the lines. */

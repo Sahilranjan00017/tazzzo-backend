@@ -85,13 +85,52 @@ public class OrderRepository {
     public List<Document> findPage(String customerId, Instant beforeCreatedAt, String beforeId, int limit) {
         List<org.bson.conversions.Bson> filters = new ArrayList<>();
         filters.add(Filters.eq("customerId", customerId));
-        filters.add(Filters.in("status", OrderStatus.CONFIRMED.name(), OrderStatus.CANCELLED.name()));
+        filters.add(Filters.in("status", CUSTOMER_VISIBLE));
         if (beforeCreatedAt != null) {
             filters.add(Filters.or(Filters.lt("createdAt", Date.from(beforeCreatedAt)),
                     Filters.and(Filters.eq("createdAt", Date.from(beforeCreatedAt)), Filters.lt("_id", beforeId))));
         }
         return collection().find(Filters.and(filters))
                 .sort(new Document("createdAt", -1).append("_id", -1)).limit(limit).into(new ArrayList<>());
+    }
+
+    /** Every status a customer (and staff) may see: never the internal CREATED. */
+    static final List<String> CUSTOMER_VISIBLE = List.of(OrderStatus.CONFIRMED.name(), OrderStatus.OUT_FOR_DELIVERY.name(),
+            OrderStatus.DELIVERED.name(), OrderStatus.CANCELLED.name());
+
+    public Document findById(ClientSession session, String orderId) {
+        return collection().find(session, Filters.eq("_id", orderId)).first();
+    }
+
+    public Document findById(String orderId) {
+        return collection().find(Filters.eq("_id", orderId)).first();
+    }
+
+    /**
+     * Staff CAS transition: from exactly {@code (fromStatus, fromVersion)} to {@code toStatus} at version + 1, setting the given
+     * fields in the same update. {@code true} iff THIS call applied it.
+     */
+    public boolean staffTransition(ClientSession session, String orderId, OrderStatus fromStatus, long fromVersion,
+                                   OrderStatus toStatus, Instant now, org.bson.conversions.Bson extra) {
+        List<org.bson.conversions.Bson> u = new ArrayList<>(List.of(
+                com.mongodb.client.model.Updates.set("status", toStatus.name()),
+                com.mongodb.client.model.Updates.set("version", fromVersion + 1),
+                com.mongodb.client.model.Updates.set("updatedAt", Date.from(now))));
+        if (extra != null) u.add(extra);
+        return collection().updateOne(session, Filters.and(Filters.eq("_id", orderId), Filters.eq("status", fromStatus.name()),
+                Filters.eq("version", fromVersion)), com.mongodb.client.model.Updates.combine(u)).getModifiedCount() == 1;
+    }
+
+    /** Staff queue: newest first, keyset by (createdAt, _id); optional status. Served by V0012's indexes. */
+    public List<Document> staffPage(String status, Instant beforeCreatedAt, String beforeId, int limit) {
+        List<org.bson.conversions.Bson> filters = new ArrayList<>();
+        filters.add(status == null ? Filters.in("status", CUSTOMER_VISIBLE) : Filters.eq("status", status));
+        if (beforeCreatedAt != null) {
+            filters.add(Filters.or(Filters.lt("createdAt", Date.from(beforeCreatedAt)),
+                    Filters.and(Filters.eq("createdAt", Date.from(beforeCreatedAt)), Filters.lt("_id", beforeId))));
+        }
+        return collection().find(Filters.and(filters)).sort(new Document("createdAt", -1).append("_id", -1)).limit(limit)
+                .into(new ArrayList<>());
     }
 
     public void insert(ClientSession session, Order order) {
@@ -134,6 +173,11 @@ public class OrderRepository {
             d.append("deliverySlot", new Document("serviceAreaId", slot.serviceAreaId()).append("windowId", slot.windowId())
                     .append("date", slot.date().toString()).append("label", slot.label())
                     .append("startsAt", Date.from(slot.startsAt())).append("endsAt", Date.from(slot.endsAt())));
+        }
+        if (o.fulfilment().outForDeliveryAt() != null) { // present once staff handed the order to delivery
+            Document f = new Document("outForDeliveryAt", Date.from(o.fulfilment().outForDeliveryAt()));
+            if (o.fulfilment().deliveredAt() != null) f.append("deliveredAt", Date.from(o.fulfilment().deliveredAt()));
+            d.append("fulfilment", f);
         }
         if (o.cancellation() != null) { // present ONLY on a CANCELLED order
             OrderCancellation c = o.cancellation();
@@ -189,6 +233,12 @@ public class OrderRepository {
             cancellation = new OrderCancellation(c.getDate("cancelledAt").toInstant(),
                     OrderCancellation.CancelledBy.valueOf(requireString(c, "cancelledBy")), requireString(c, "reasonCode"));
         }
+        OrderFulfilment fulfilment = OrderFulfilment.NONE;
+        if (d.containsKey("fulfilment")) {
+            Document f = d.get("fulfilment", Document.class);
+            fulfilment = new OrderFulfilment(f.getDate("outForDeliveryAt").toInstant(),
+                    f.getDate("deliveredAt") == null ? null : f.getDate("deliveredAt").toInstant());
+        }
         return new Order(new OrderId(d.getString("_id")), d.getString("customerId"), d.getString("quoteId"),
                 status, PaymentMethod.valueOf(requireString(d, "paymentMethod")), requireLong(d, "version"),
                 d.getString("addressId"), d.get("addressVersion", Number.class).longValue(), addressSnapshot,
@@ -198,7 +248,7 @@ public class OrderRepository {
                 rawCondition == null ? null : ConfirmedPaymentCondition.valueOf(requireString(d, "confirmedPaymentCondition")),
                 d.getDate("createdAt").toInstant(),
                 rawConfirmedAt == null ? null : d.getDate("confirmedAt").toInstant(),
-                d.getDate("updatedAt").toInstant(), benefitSnapshot, moneySnapshot, deliverySlot, cancellation);
+                d.getDate("updatedAt").toInstant(), benefitSnapshot, moneySnapshot, deliverySlot, cancellation, fulfilment);
     }
 
     /** PR-15A-2 — coordinates are nullable as a PAIR (enforced by {@link OrderAddressSnapshot}); a present

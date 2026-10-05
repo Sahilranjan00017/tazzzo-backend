@@ -39,12 +39,21 @@ class OrderBenefitSnapshotTest {
                 "123 Test Street", "Near Landmark", "Landmark", "Bengaluru", "Karnataka", "560001", 12.97, 77.59);
         List<OrderLine> lines = List.of(new OrderLine("TZP-1", "Widget", "BR-1", 2, 5_000, SUBTOTAL));
         boolean cancelled = status == OrderStatus.CANCELLED;
-        boolean confirmed = status == OrderStatus.CONFIRMED || cancelled;   // a cancelled order was confirmed first
+        boolean shipped = status == OrderStatus.OUT_FOR_DELIVERY || status == OrderStatus.DELIVERED;
+        boolean confirmed = status != OrderStatus.CREATED;   // every other status was confirmed first
+        long version = switch (status) {
+            case CREATED -> 1L;
+            case CONFIRMED -> 2L;
+            case CANCELLED, OUT_FOR_DELIVERY -> 3L;
+            case DELIVERED -> 4L;
+        };
+        OrderFulfilment fulfilment = !shipped ? OrderFulfilment.NONE
+                : new OrderFulfilment(T, status == OrderStatus.DELIVERED ? T : null);
         return new Order(OrderId.generate(), "cus_1", CheckoutQuoteId.generate().value(), status, PaymentMethod.COD,
-                cancelled ? 3L : confirmed ? 2L : 1L, AddressId.generate().value(), 1L, address, lines, 2, SUBTOTAL, "INR",
+                version, AddressId.generate().value(), 1L, address, lines, 2, SUBTOTAL, "INR",
                 InventoryReservationId.generate().value(), confirmed ? ConfirmedPaymentCondition.COD_DUE : null, T,
                 confirmed ? T : null, T, snapshot, null, // money null: a pre-money-model Order
-                null, cancelled ? new OrderCancellation(T, OrderCancellation.CancelledBy.CUSTOMER, "OTHER") : null);
+                null, cancelled ? new OrderCancellation(T, OrderCancellation.CancelledBy.CUSTOMER, "OTHER") : null, fulfilment);
     }
 
     // ---------- the two snapshot shapes ----------
@@ -242,7 +251,7 @@ class OrderBenefitSnapshotTest {
         // the authoritative money and the chosen delivery slot (both optional) are the ONLY additions; the benefit snapshot (reason, membership, plan) stays internal
         assertThat(java.util.Arrays.stream(CustomerOrderDto.class.getRecordComponents()).map(c -> c.getName()).toList())
                 .containsExactly("orderId", "status", "paymentMethod", "paymentCondition", "items", "itemCount",
-                        "subtotalPaise", "currency", "deliveryAddress", "createdAt", "confirmedAt", "money", "deliverySlot", "cancelledAt", "requestId");
+                        "subtotalPaise", "currency", "deliveryAddress", "createdAt", "confirmedAt", "money", "deliverySlot", "cancelledAt", "outForDeliveryAt", "deliveredAt", "requestId");
     }
 
     @Test
