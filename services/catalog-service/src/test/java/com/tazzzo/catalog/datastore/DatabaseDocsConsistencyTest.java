@@ -57,13 +57,14 @@ class DatabaseDocsConsistencyTest {
     }
 
     @Test
-    void only_the_three_ttl_collections_show_a_ttl_and_no_audit_ledger_or_durable_business_collection_does() throws IOException {
+    void only_the_four_ttl_collections_show_a_ttl_and_no_audit_ledger_or_durable_business_collection_does() throws IOException {
         String doc = read("database/DATABASE_RETENTION_AND_PII.md");
         Set<String> withTtl = new TreeSet<>();
         for (List<String> r : matrixRows(doc.substring(doc.indexOf("## 2. Retention matrix"), doc.indexOf("## 3. Personal-data map")))) {
             if (!r.get(4).startsWith("none")) withTtl.add(r.get(0)); // columns: name, owner, class, durable, TTL, retention, ...
         }
-        assertThat(withTtl).containsExactlyInAnyOrder("customer_otp_challenges", "customer_otp_verified_grants", "customer_sessions");
+        assertThat(withTtl).containsExactlyInAnyOrder("customer_otp_challenges", "customer_otp_verified_grants", "customer_sessions",
+                "customer_address_idempotency");
     }
 
     @Test

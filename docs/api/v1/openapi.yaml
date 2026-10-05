@@ -406,9 +406,20 @@ paths:
         default; subsequent addresses do not. Bounded by a per-customer saved-address limit
         (409 ADDRESS_LIMIT_REACHED once reached). Saving succeeds even if the address is CURRENTLY
         unserviceable — address validity is independent of commerce eligibility, which is
-        re-evaluated dynamically on every read and again at future Checkout.
+        re-evaluated dynamically on every read and again at future Checkout. With an optional
+        `Idempotency-Key`, a retry of the same request (same customer, same key, same normalised body)
+        returns the address the first request created, as 201 with the same `addressId`, its current
+        state, and without counting again against the limit; the same key with a different body, or a
+        key whose address has since been deleted, is 409 IDEMPOTENCY_CONFLICT. Without the header a
+        create is not idempotent (unchanged).
       security:
         - customerBearerAuth: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: Optional client-generated key, 8-64 chars of `[A-Za-z0-9_-]`, scoped to the authenticated customer; remembered for a short retry window only.
+          schema: { type: string, minLength: 8, maxLength: 64, pattern: '^[A-Za-z0-9_-]{8,64}$' }
       requestBody:
         required: true
         content:
@@ -425,7 +436,7 @@ paths:
               schema: { $ref: '#/components/schemas/CustomerAddressResponse' }
         '400': { $ref: '#/components/responses/AddressBadRequest' }
         '401': { $ref: '#/components/responses/AddressUnauthenticated' }
-        '409': { $ref: '#/components/responses/AddressLimitReached' }
+        '409': { $ref: '#/components/responses/AddressCreateConflict' }
         '503': { $ref: '#/components/responses/AddressUnavailable' }
   /v1/customer/addresses/{addressId}:
     get:
@@ -1277,7 +1288,7 @@ components:
         code:
           type: string
           enum: [INVALID_REQUEST, UNAUTHENTICATED, NOT_FOUND, PRECONDITION_REQUIRED,
-                 PRECONDITION_FAILED, ADDRESS_LIMIT_REACHED, SERVICE_UNAVAILABLE, INTERNAL]
+                 PRECONDITION_FAILED, ADDRESS_LIMIT_REACHED, IDEMPOTENCY_CONFLICT, SERVICE_UNAVAILABLE, INTERNAL]
         message: { type: string, description: "Safe, generic. No internals, no PII." }
         requestId: { type: string }
     CustomerCartSetQuantityRequest:
@@ -1676,6 +1687,15 @@ components:
       description: >
         Unknown address id, OR an address belonging to another customer -- the IDENTICAL response
         either way. No ownership enumeration.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CustomerAddressErrorEnvelope' }
+    AddressCreateConflict:
+      description: >
+        ADDRESS_LIMIT_REACHED (the caller's saved-address limit has been reached) or IDEMPOTENCY_CONFLICT
+        (the Idempotency-Key was already used for a different request, or the address it created no longer exists).
       headers:
         Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
       content:

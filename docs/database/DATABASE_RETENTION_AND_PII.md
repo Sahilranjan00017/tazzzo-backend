@@ -1,6 +1,6 @@
 # DATABASE_RETENTION_AND_PII — tazzzo-backend (DB-4)
 
-The retention matrix and the personal-data map for the 49 application collections of `SchemaBootstrap.COLLECTIONS`
+The retention matrix and the personal-data map for the 50 application collections of `SchemaBootstrap.COLLECTIONS`
 (plus the two migration bookkeeping collections, §4). **It records what the code and the database do today and marks every
 unresolved policy `TBD — PRODUCTION POLICY`. No retention period, legal basis or deletion promise is invented here.** Owner, class and the
 "none" retention values are taken from `DATABASE_COLLECTION_CONTRACTS.md` §5 (single source); TTL indexes from
@@ -73,6 +73,7 @@ unresolved policy `TBD — PRODUCTION POLICY`. No retention period, legal basis 
 | `checkout_quotes` | customer.checkout | snapshot | durable | none | TBD — PRODUCTION POLICY | customer link: `customerId`, `addressId` (the raw `Idempotency-Key` is never stored, only its SHA-256) | linked data: TBD — PRODUCTION POLICY | TBD — PRODUCTION POLICY | included |
 | `orders` | customer.order | authoritative + snapshot | durable | none | TBD — PRODUCTION POLICY | **DIRECT PII**: `addressSnapshot.*` (`recipientName`, `recipientPhone`, address lines, `landmark`, `city`, `state`, `postalCode`, coordinates); customer link: `customerId` | no erasure/anonymisation path exists in the backend; design: TBD — PRODUCTION POLICY | TBD — PRODUCTION POLICY | included — **a restore re-introduces erased personal data** |
 | `memberships` | membership | authoritative | durable | none | TBD — PRODUCTION POLICY | customer link: `customerId` | linked data: TBD — PRODUCTION POLICY | TBD — PRODUCTION POLICY | included |
+| `customer_address_idempotency` | customer.address | operational (idempotency) | temporary | TTL `address_idempotency_expiry_ttl` on `expire_at` (creation + `AddressIdempotencyRepository.RETENTION`) | removed by TTL; `AddressIdempotencyRepository.eraseForCustomer` deletes a customer's rows (wired into account erasure at merge) | customer link: `customer_id`; the Idempotency-Key itself is never stored (SHA-256 digest only); no address content (a digest of the request and the created address id) | erasure deletes every row for the customer | n/a | included; rows can reappear in a restored copy until the TTL monitor runs |
 
 ## 3. Personal-data map (summary)
 

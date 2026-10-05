@@ -111,7 +111,10 @@ public class SchemaBootstrap {
             // PR-16A-1: one document per Membership TERM (entitlement window under one immutable plan
             // version), _id the opaque MBR_* id. Deliberately NO TTL, NO customer-history index and NO
             // validUntil expiry-scan index -- no query needs one yet; each arrives with its query.
-            "memberships");
+            "memberships",
+            // Address-create idempotency: one row per (customer, Idempotency-Key digest) -> the address it created,
+            // kept only long enough to absorb a client retry. TTL index on expire_at is migration-only (V0015).
+            "customer_address_idempotency");
 
     /**
      * PAG-2-SORT-1 transport support: the equality prefix the consumer-eligibility predicate uses,

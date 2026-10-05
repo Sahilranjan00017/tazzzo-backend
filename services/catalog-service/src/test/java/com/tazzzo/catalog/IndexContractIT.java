@@ -150,7 +150,10 @@ class IndexContractIT extends AbstractMongoIT {
             named("node_events", "audit_read_request", k("actor.request_id", 1, "at", -1, "_id", -1), false, ATTRIBUTED, null),
             named("domain_events", "audit_read_recent", k("at", -1, "_id", -1), false, ATTRIBUTED, null),
             named("domain_events", "audit_read_actor", k("actor.id", 1, "at", -1, "_id", -1), false, ATTRIBUTED, null),
-            named("domain_events", "audit_read_request", k("actor.request_id", 1, "at", -1, "_id", -1), false, ATTRIBUTED, null)
+            named("domain_events", "audit_read_request", k("actor.request_id", 1, "at", -1, "_id", -1), false, ATTRIBUTED, null),
+            // address-create idempotency (V0015): rows expire after a short retry window; erasure lookup by customer
+            named("customer_address_idempotency", "address_idempotency_expiry_ttl", k("expire_at", 1), false, null, 0L),
+            named("customer_address_idempotency", "address_idempotency_by_customer", k("customer_id", 1), false, null, null)
     );
 
     // ---- helpers -----------------------------------------------------------------------------
@@ -278,7 +281,7 @@ class IndexContractIT extends AbstractMongoIT {
     // ---- 3. TTL is allowed ONLY on the four temporary auth/OTP indexes -----------------------
 
     @Test
-    void only_the_four_temporary_auth_indexes_carry_a_ttl_and_no_durable_collection_does() {
+    void only_the_temporary_indexes_carry_a_ttl_and_no_durable_collection_does() {
         Set<String> ttl = new TreeSet<>();
         for (String coll : db.listCollectionNames()) {
             indexesOf(coll).forEach((name, spec) -> {
@@ -289,7 +292,9 @@ class IndexContractIT extends AbstractMongoIT {
                 "customer_otp_challenges.expiresAt_1",
                 "customer_otp_challenges.otp_challenge_createdat_backstop_ttl",
                 "customer_otp_verified_grants.expiresAt_1",
-                "customer_sessions.session_expiry_ttl");
+                "customer_sessions.session_expiry_ttl",
+                // a retry window, never a record of what was created (the address itself is the record)
+                "customer_address_idempotency.address_idempotency_expiry_ttl");
         for (String durable : List.of("orders", "checkout_quotes", "memberships", "inventory_reservations",
                 "customer_carts", "customer_profiles", "customer_addresses", "price_current", "price_events",
                 "product_events", "node_events", "domain_events", "classification_history", "products", "inventory")) {
