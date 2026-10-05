@@ -44,7 +44,19 @@ public record Order(OrderId orderId, String customerId, String quoteId, OrderSta
                     OrderAddressSnapshot addressSnapshot, List<OrderLine> lines, int itemCount,
                     long subtotalPaise, String currency, String reservationId,
                     ConfirmedPaymentCondition confirmedPaymentCondition, Instant createdAt, Instant confirmedAt,
-                    Instant updatedAt, OrderBenefitSnapshot benefitSnapshot, OrderMoneySnapshot moneySnapshot) {
+                    Instant updatedAt, OrderBenefitSnapshot benefitSnapshot, OrderMoneySnapshot moneySnapshot,
+                    OrderDeliverySlot deliverySlot) {
+
+    /** An order without a delivery slot (every order placed before slots existed, and any placement that chose none). */
+    public Order(OrderId orderId, String customerId, String quoteId, OrderStatus status, PaymentMethod paymentMethod,
+                 long version, String addressId, long addressVersion, OrderAddressSnapshot addressSnapshot,
+                 List<OrderLine> lines, int itemCount, long subtotalPaise, String currency, String reservationId,
+                 ConfirmedPaymentCondition confirmedPaymentCondition, Instant createdAt, Instant confirmedAt,
+                 Instant updatedAt, OrderBenefitSnapshot benefitSnapshot, OrderMoneySnapshot moneySnapshot) {
+        this(orderId, customerId, quoteId, status, paymentMethod, version, addressId, addressVersion, addressSnapshot, lines,
+                itemCount, subtotalPaise, currency, reservationId, confirmedPaymentCondition, createdAt, confirmedAt, updatedAt,
+                benefitSnapshot, moneySnapshot, null);
+    }
 
     public Order {
         if (orderId == null) {

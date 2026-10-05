@@ -40,12 +40,18 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/v1/customer/orders")
 public class OrderController {
 
+    private static final java.util.regex.Pattern SLOT_ID =
+            java.util.regex.Pattern.compile("^[a-z0-9][a-z0-9-]{0,31}~[0-9]{4}-[0-9]{2}-[0-9]{2}$");
+
     private final OrderService service;
     private final OrderHttpObservability observability;
+    private final boolean slotRequired;
 
-    public OrderController(OrderService service, OrderHttpObservability observability) {
+    public OrderController(OrderService service, OrderHttpObservability observability,
+                           @org.springframework.beans.factory.annotation.Value("${tazzzo.checkout.delivery-slot-required:false}") boolean slotRequired) {
         this.service = service;
         this.observability = observability;
+        this.slotRequired = slotRequired;
     }
 
     @PostMapping
@@ -54,7 +60,11 @@ public class OrderController {
         CustomerPrincipal p = CustomerPrincipalResolver.require(request);
         String quoteId = parseQuoteId(body);
         requireCod(body);
-        Order order = service.placeCodOrder(p.customerId(), quoteId);
+        String slotId = parseDeliverySlotId(body);
+        if (slotId == null && slotRequired) {
+            throw new OrderRequestFailure(OrderRequestFailure.Reason.INVALID_REQUEST);
+        }
+        Order order = service.placeCodOrder(p.customerId(), quoteId, slotId);
         return ok(CustomerOrderDto.of(order, requestId(request)));
     }
 
@@ -89,6 +99,18 @@ public class OrderController {
         if (!PaymentMethod.COD.name().equals(body.get("paymentMethod").asText())) {
             throw new OrderRequestFailure(OrderRequestFailure.Reason.PAYMENT_METHOD_UNSUPPORTED);
         }
+    }
+
+    /** Optional; when present it must be a string of the exact slot-id shape (its availability is judged by the domain). */
+    private static String parseDeliverySlotId(JsonNode body) {
+        if (!body.has("deliverySlotId")) {
+            return null;
+        }
+        JsonNode n = body.get("deliverySlotId");
+        if (!n.isTextual() || !SLOT_ID.matcher(n.asText()).matches()) {
+            throw new OrderRequestFailure(OrderRequestFailure.Reason.INVALID_REQUEST);
+        }
+        return n.asText();
     }
 
     private static String requestId(HttpServletRequest request) {

@@ -13,6 +13,8 @@ import com.tazzzo.catalog.tx.Tx;
 import com.tazzzo.common.audit.Actor;
 import com.tazzzo.common.audit.DomainAudit;
 import com.tazzzo.common.audit.DomainEvent;
+import com.tazzzo.commerce.contract.Pincode;
+import com.tazzzo.serviceability.ServiceabilityResolution;
 import com.tazzzo.serviceability.ServiceabilityService;
 import org.bson.Document;
 import org.slf4j.Logger;
@@ -295,6 +297,47 @@ public class DeliverySlotService {
             return SlotReservation.ALREADY_HELD;
         }
         return SlotReservation.FULL;
+    }
+
+    private static final java.util.regex.Pattern SLOT_ID =
+            java.util.regex.Pattern.compile("([a-z0-9][a-z0-9-]{0,31})~([0-9]{4}-[0-9]{2}-[0-9]{2})");
+
+    /**
+     * Order placement's one call: resolve the address PIN's service area, reserve the occurrence named by
+     * {@code slotId} for {@code orderId} inside the caller's transaction, and return what to snapshot on the order.
+     * Idempotent per order id (a retried placement keeps its one unit).
+     *
+     * @throws SlotRefusedException invalid id, PIN not serviceable, occurrence full or not bookable -- the caller aborts
+     *         its whole transaction, so nothing partial is ever committed
+     */
+    public SlotChoice reserveForOrder(ClientSession session, Pincode pin, String slotId, String orderId) {
+        Objects.requireNonNull(session, "session required: the hold belongs to the order's transaction");
+        java.util.regex.Matcher m = slotId == null ? null : SLOT_ID.matcher(slotId);
+        if (m == null || !m.matches()) {
+            throw new SlotRefusedException(SlotRefusedException.Reason.INVALID);
+        }
+        LocalDate date;
+        try {
+            date = LocalDate.parse(m.group(2));
+        } catch (java.time.format.DateTimeParseException e) {
+            throw new SlotRefusedException(SlotRefusedException.Reason.INVALID);
+        }
+        ServiceabilityResolution area = serviceability.resolveByPincode(session, pin);
+        if (area.status() != ServiceabilityResolution.Status.SERVICEABLE) {
+            throw new SlotRefusedException(SlotRefusedException.Reason.NOT_SERVICEABLE);
+        }
+        String areaId = area.serviceAreaId();
+        SlotReservation outcome = reserve(session, areaId, m.group(1), date, orderId);
+        if (outcome == SlotReservation.FULL) {
+            throw new SlotRefusedException(SlotRefusedException.Reason.FULL);
+        }
+        if (outcome == SlotReservation.UNAVAILABLE) {
+            throw new SlotRefusedException(SlotRefusedException.Reason.UNAVAILABLE);
+        }
+        SlotWindow w = fromDoc(db.getCollection(WINDOWS).find(session, Filters.eq("_id", docId(areaId, m.group(1)))).first()).window();
+        ZonedDateTime start = date.atStartOfDay(zone).plusMinutes(w.startMinute());
+        ZonedDateTime end = date.atStartOfDay(zone).plusMinutes(w.endMinute());
+        return new SlotChoice(areaId, w.windowId(), date, w.label(), start.toInstant(), end.toInstant());
     }
 
     /** Give the unit back. Idempotent: releasing a hold that does not exist changes nothing and returns false. */

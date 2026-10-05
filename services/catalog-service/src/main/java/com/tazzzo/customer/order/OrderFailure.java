@@ -28,7 +28,9 @@ public final class OrderFailure extends RuntimeException {
         /** PR-15A-2 — READ path only ({@code OrderService.getOrder}): the id is malformed, unknown,
          *  owned by another customer, or names an internal non-{@code CONFIRMED} row. All four are one
          *  indistinguishable outcome by design. The placement path never raises it. */
-        ORDER_NOT_FOUND
+        ORDER_NOT_FOUND,
+        /** The requested delivery slot is full, closed or not offered for the address (409; nothing was written). */
+        SLOT_UNAVAILABLE
     }
 
     private final Reason reason;

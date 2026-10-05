@@ -1455,6 +1455,11 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-10-05** — Delivery slot at order placement (backend completion PR-K/L; STACKED on PR-E #58 — retarget to `main` after it merges): `POST /v1/customer/orders` accepts an optional `deliverySlotId`
+  (`<window>~<yyyy-MM-dd>`, from `GET /v1/customer/delivery/slots`). It is reserved in the SAME transaction as the COD placement through `DeliverySlotService.reserveForOrder` (PIN → service area → atomic hold keyed by the order id): a full,
+  closed, unknown or out-of-horizon slot is `409 DELIVERY_SLOT_UNAVAILABLE` and the whole placement rolls back (stock, cart marker, order, hold); a malformed id is 400; a replay returns the original order and never re-reserves. The
+  order stores an `OrderDeliverySlot` snapshot (internal area/window/date for the later release on cancellation; the customer sees only `slotId`, `label`, `startsAt`, `endsAt`). `tazzzo.checkout.delivery-slot-required` (default false)
+  makes a slot mandatory. Orders placed without a slot are unchanged. The cart and checkout-quote contracts are untouched (no quote fingerprint change). Releasing the hold on cancellation is PR-M.
 - **2026-10-05** — Consumer product search (backend completion PR-G; base `main` `484d42c`): `GET /v1/search?q=&pin=&page_size=&cursor=` on the PUBLIC commerce surface. Query → lower-cased tokens (shared
   `SearchTokens` normalisation, ≤64 chars, ≤5 tokens, ≥2 chars each); candidates from `product_card_base.search_tokens` (anchored-prefix `$all`, served by the new multikey index `card_search_tokens`, migration `V0009`)
   restricted to the release's reachable verticals; every candidate is then re-checked against `products` with `ConsumerEligibility.within` (a stale projection row can hide a product, never show an ineligible one);

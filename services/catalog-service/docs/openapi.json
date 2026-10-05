@@ -2609,6 +2609,9 @@
           "money" : {
             "$ref" : "#/components/schemas/OrderMoney"
           },
+          "deliverySlot" : {
+            "$ref" : "#/components/schemas/DeliverySlot"
+          },
           "requestId" : {
             "type" : "string"
           }
@@ -2642,6 +2645,23 @@
             "type" : "string"
           },
           "postalCode" : {
+            "type" : "string"
+          }
+        }
+      },
+      "DeliverySlot" : {
+        "type" : "object",
+        "properties" : {
+          "slotId" : {
+            "type" : "string"
+          },
+          "label" : {
+            "type" : "string"
+          },
+          "startsAt" : {
+            "type" : "string"
+          },
+          "endsAt" : {
             "type" : "string"
           }
         }
