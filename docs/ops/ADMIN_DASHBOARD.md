@@ -6,8 +6,8 @@
 |---|---|---|
 | `orders` | open CONFIRMED / OUT_FOR_DELIVERY; last-24h CONFIRMED / OUT_FOR_DELIVERY / DELIVERED / CANCELLED | index `order_by_status_recent` (status, createdAt) |
 | `inventory` | out of stock (active, on_hand ≤ 0); low stock (active, 0 < on_hand ≤ low_stock_threshold) | cap + time limit (field comparison is not indexable) |
-| `catalog` | products total (collection estimate), active, draft | estimate is O(1); others cap + time limit |
-| `serviceability` | service areas total (estimate), active | estimate O(1); cap + time limit |
+| `catalog` | products total, active, draft | cap + time limit |
+| `serviceability` | service areas total, active | cap + time limit |
 | `support` | OPEN, IN_PROGRESS | index `support_by_status_recent` |
 | `notifications` | PENDING, FAILED | index `notification_due` |
 

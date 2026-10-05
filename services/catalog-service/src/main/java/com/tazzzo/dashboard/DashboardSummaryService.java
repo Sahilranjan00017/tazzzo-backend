@@ -21,7 +21,8 @@ import java.util.concurrent.TimeUnit;
  * The launch operations dashboard: a handful of numbers an operator needs at a glance, each one BOUNDED. Every count
  * either rides an index prefix (orders by status, support cases by status) or carries a hard cap ({@link #CAP}) and a
  * server-side time limit ({@link #MAX_TIME}); a count that hits its cap is reported as {@code capped: true} with the cap
- * as a floor, never as an exact number. Collection totals use the O(1) collection metadata estimate. Recent audit activity
+ * as a floor, never as an exact number. No collection metadata or schema introspection is used (the runtime identity has
+ * no such authority). Recent audit activity
  * is NOT duplicated here: the admin audit-read API ({@code GET /api/v1/admin/audit-events}) already serves it, paged.
  */
 @Service
@@ -75,13 +76,13 @@ public class DashboardSummaryService {
             out.put("inventory", inventory);
 
             Map<String, Object> catalog = new LinkedHashMap<>();
-            catalog.put("products_total_estimate", db.getCollection("products").estimatedDocumentCount());
+            catalog.put("products_total", count("products", new Document()));
             catalog.put("active", count("products", Filters.eq("lifecycle", "active")));
             catalog.put("draft", count("products", Filters.eq("lifecycle", "draft")));
             out.put("catalog", catalog);
 
             Map<String, Object> serviceability = new LinkedHashMap<>();
-            serviceability.put("service_areas_total_estimate", db.getCollection("service_areas").estimatedDocumentCount());
+            serviceability.put("service_areas_total", count("service_areas", new Document()));
             serviceability.put("active", count("service_areas", Filters.eq("active", true)));
             out.put("serviceability", serviceability);
 

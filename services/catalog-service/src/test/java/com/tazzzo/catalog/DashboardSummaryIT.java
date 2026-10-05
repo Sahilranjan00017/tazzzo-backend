@@ -75,7 +75,8 @@ class DashboardSummaryIT extends AbstractApiIT {
         assertThat(value(b, "/inventory/low_stock")).isEqualTo(1);
         assertThat(value(b, "/catalog/active")).isEqualTo(2);
         assertThat(value(b, "/catalog/draft")).isEqualTo(1);
-        assertThat(b.at("/catalog/products_total_estimate").asLong()).isEqualTo(3);
+        assertThat(value(b, "/catalog/products_total")).isEqualTo(3);
+        assertThat(value(b, "/serviceability/service_areas_total")).isEqualTo(2);
         assertThat(value(b, "/serviceability/active")).isEqualTo(1);
         assertThat(value(b, "/support/open")).isEqualTo(1);
         assertThat(value(b, "/notifications/pending")).isEqualTo(1);
