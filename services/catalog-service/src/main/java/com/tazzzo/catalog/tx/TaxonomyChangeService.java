@@ -407,6 +407,93 @@ public class TaxonomyChangeService {
         });
     }
 
+    /** The four node levels: id prefix, the parent level they hang under (null = root), and whether a schema is allowed/required. */
+    private enum Level {
+        SUPER_CATEGORY("super_category", "TZS", null, false, false),
+        CATEGORY("category", "TZC", "super_category", false, false),
+        SUB_CATEGORY("sub_category", "TZG", "category", true, false),
+        VERTICAL("vertical", "TZV", "sub_category", true, true);
+
+        final String type;
+        final String prefix;
+        final String parentType;
+        final boolean schemaAllowed;
+        final boolean schemaRequired;
+
+        Level(String type, String prefix, String parentType, boolean schemaAllowed, boolean schemaRequired) {
+            this.type = type;
+            this.prefix = prefix;
+            this.parentType = parentType;
+            this.schemaAllowed = schemaAllowed;
+            this.schemaRequired = schemaRequired;
+        }
+
+        static Level of(String type) {
+            for (Level l : values()) {
+                if (l.type.equals(type)) return l;
+            }
+            throw new TaxonomyChangeException("INVALID_NODE", "nodeType must be super_category, category, sub_category or vertical");
+        }
+    }
+
+    public static final int MAX_NODE_NAME = 120;
+
+    /**
+     * Create a node under an ACTIVE parent of the right level, inside the open release (so it only becomes visible to
+     * consumers when that release is published). Fail-closed and idempotency-by-conflict: an active sibling with the
+     * same name is {@code DUPLICATE_NODE} (also enforced by the partial unique index V0006). Verticals must reference an
+     * existing attribute schema; super categories and categories carry none.
+     *
+     * @return the minted node id
+     */
+    public String createNode(Actor actor, String nodeType, String name, String parentId, String attributeSchemaId) {
+        Objects.requireNonNull(actor, "actor");
+        Level level = Level.of(nodeType);
+        if (name == null || name.isBlank() || name.length() > MAX_NODE_NAME || !name.equals(name.trim())
+                || name.chars().anyMatch(ch -> ch < 0x20 || ch == 0x7F)) {
+            throw new TaxonomyChangeException("INVALID_NODE", "name required: non-blank, trimmed, no control chars, max " + MAX_NODE_NAME);
+        }
+        if (level.parentType == null ? parentId != null : parentId == null) {
+            throw new TaxonomyChangeException("INVALID_NODE", level.parentType == null
+                    ? "a super_category has no parent" : "parentId is required for a " + level.type);
+        }
+        if (attributeSchemaId != null && !level.schemaAllowed) {
+            throw new TaxonomyChangeException("INVALID_NODE", "a " + level.type + " carries no attributeSchemaId");
+        }
+        if (level.schemaRequired && attributeSchemaId == null) {
+            throw new TaxonomyChangeException("INVALID_NODE", "attributeSchemaId is required for a " + level.type);
+        }
+        String[] minted = new String[1];
+        tx.run(session -> {
+            EventPayload e = ev(actor, "NODE_CREATED", Map.of("type", level.type, "name", name));
+            String rel = releaseGate.requireOpen(session, e);
+            if (level.parentType != null) {
+                Document parent = activeNode(session, parentId);
+                if (!level.parentType.equals(parent.getString("node_type"))) {
+                    throw new TaxonomyChangeException("INVALID_NODE", "a " + level.type + " belongs under a " + level.parentType);
+                }
+            }
+            if (attributeSchemaId != null && writePath.database().getCollection("attribute_schemas")
+                    .countDocuments(session, Filters.eq("schema_id", attributeSchemaId)) == 0) {
+                throw new TaxonomyChangeException("UNKNOWN_SCHEMA", attributeSchemaId);
+            }
+            long dup = writePath.database().getCollection("taxonomy_nodes").countDocuments(session, Filters.and(
+                    Filters.eq("parent_id", parentId), Filters.eq("name", name), Filters.eq("status", "active")));
+            if (dup > 0) {
+                throw new TaxonomyChangeException("DUPLICATE_NODE", "active sibling with name already exists: " + name);
+            }
+            String id = nextId(session, e, level.prefix);
+            Document node = new Document("_id", id).append("node_type", level.type).append("name", name)
+                    .append("parent_id", parentId);
+            if (attributeSchemaId != null) node.append("attribute_schema_id", attributeSchemaId);
+            node.append("status", "active").append("created_in_version", rel).append("version", 1);
+            writePath.insertWithEvent(session, "taxonomy_nodes", node, e);
+            nodeEvent(session, e, id, "created", rel, new Document("type", level.type).append("parent", parentId));
+            minted[0] = id;
+        });
+        return minted[0];
+    }
+
     // ---------- internals ----------
 
     private Document activeNode(ClientSession session, String nodeId) {
@@ -510,23 +597,30 @@ public class TaxonomyChangeService {
     }
 
     private String nextVerticalId(ClientSession session, EventPayload e) {
-        // Initialize the counter ONCE at 100000 (far past seed max TZV-000293), then every
-        // caller — including two mints inside one split — gets a strictly increasing value.
+        return nextId(session, e, "TZV");
+    }
+
+    /**
+     * Mint the next id of a prefix (TZS super_category, TZC category, TZG sub_category, TZV vertical). Each counter is
+     * initialised ONCE at 100000 (far past every seed id), then every caller -- including two mints inside one split --
+     * gets a strictly increasing value.
+     */
+    private String nextId(ClientSession session, EventPayload e, String prefix) {
         if (writePath.database().getCollection("id_sequences")
-                .find(session, Filters.eq("_id", "TZV")).first() == null) {
+                .find(session, Filters.eq("_id", prefix)).first() == null) {
             try {
                 writePath.auxWrite(session, "id_sequences", e, c -> c.insertOne(session,
-                        new Document("_id", "TZV").append("seq", 100000L)));
+                        new Document("_id", prefix).append("seq", 100000L)));
             } catch (MongoWriteException ex) {
                 if (ex.getError().getCode() != 11000) throw ex; // concurrent init = fine
             }
         }
         Document[] seq = new Document[1];
         writePath.auxWrite(session, "id_sequences", e, c -> seq[0] = c.findOneAndUpdate(session,
-                Filters.eq("_id", "TZV"), Updates.inc("seq", 1),
+                Filters.eq("_id", prefix), Updates.inc("seq", 1),
                 new com.mongodb.client.model.FindOneAndUpdateOptions()
                         .returnDocument(com.mongodb.client.model.ReturnDocument.AFTER)));
-        return String.format("TZV-%06d", seq[0].get("seq", Number.class).longValue());
+        return String.format("%s-%06d", prefix, seq[0].get("seq", Number.class).longValue());
     }
 
     private EventPayload ev(Actor actor, String type, Map<String, Object> detail) {

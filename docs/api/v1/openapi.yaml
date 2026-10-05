@@ -1,1945 +1,2955 @@
 openapi: 3.0.3
 info:
   title: Tazzzo Commerce Read API
-  version: "1.0.0-draft"
-  description: >
-    Production customer-facing commerce READ contract (Phase 3.1 freeze).
-    This document is a FROZEN CONTRACT ONLY — it is NOT yet implemented.
-    The existing internal/consumer API under `/catalog/v1` and `/api/v1`
-    (see docs/openapi.json) is unchanged and documented separately.
-    All monetary amounts are integer paise (int64), currency INR.
+  version: 1.0.0-draft
+  description: 'Production customer-facing commerce READ contract (Phase 3.1 freeze). This document is a FROZEN CONTRACT ONLY — it is NOT yet implemented. The existing internal/consumer API under `/catalog/v1` and `/api/v1` (see docs/openapi.json) is unchanged and documented separately. All monetary amounts are integer paise (int64), currency INR.
+
+    '
 servers:
-  - url: https://api.tazzzo.com
-    description: Production gateway (not yet provisioned)
+- url: https://api.tazzzo.com
+  description: Production gateway (not yet provisioned)
 tags:
-  - name: commerce-read
-    description: Composed, consumer-ready browse contract (ADR-001, ADR-003.1).
-  - name: customer-auth-otp
-    description: >
-      PR-11B — OTP challenge lifecycle only. Public (no bearer token required or honoured).
-      Does NOT create a customer, a session, or issue any access/refresh token — a successful
-      verify proves phone possession and produces a one-time internal login grant that PR-11C
-      consumes to create a session.
-  - name: customer-auth-session
-    description: >
-      PR-11C — completes customer authentication: OTP verified grant -> customer resolution/
-      creation -> session -> access/refresh tokens -> refresh rotation -> logout. Session
-      establishment and refresh are PUBLIC (no bearer required — that is how a client obtains one);
-      logout REQUIRES a valid customer access token. Does NOT cover customer profile, addresses,
-      cart, checkout, or orders — those are future phases.
-  - name: customer-profile
-    description: >
-      PR-12A — authenticated read/update of a customer's OWN profile (displayName, email only).
-      Both endpoints REQUIRE a valid customer access token; customerId always comes from the
-      token, never from the request. Optimistic concurrency via ETag/If-Match. Email here is
-      OPTIONAL, UNVERIFIED profile data — never an authentication identity, never used to log in.
-      Does NOT cover address, cart, checkout, order, payment, or any other customer data — those
-      are future phases.
-  - name: customer-address
-    description: >
-      PR-12B — authenticated CRUD of a customer's OWN saved delivery addresses, plus dynamic
-      serviceability binding. All endpoints REQUIRE a valid customer access token; customerId
-      always comes from the token, never from the request. Optimistic concurrency via
-      ETag/If-Match, the SAME pattern as customer-profile. Serviceability is evaluated FRESH on
-      every read/response from the existing serviceability domain — it is never persisted as
-      address state, and saving an address never requires it to currently be serviceable.
-      The ETag `"address-<version>"` is the address-CONTENT concurrency token for PATCH/DELETE
-      If-Match — not a complete version of the customer's default-preference state (`isDefault` can
-      change without the address version changing; responses are no-store).
-      recipientPhone is delivery-contact information only, never an authentication identity.
-      fulfillmentLocationId is internal and never exposed. serviceAreaId/serviceAreaVersion are public
-      in the existing /v1/serviceability contract, but this address projection intentionally omits them
-      (it exposes only the narrower `serviceable`). Does NOT cover cart, checkout, order,
-      or payment — those are future phases.
-  - name: customer-cart
-    description: >
-      PR-12C — the authenticated customer's OWN cart: purchase INTENT (SKU + quantity) only. All
-      endpoints REQUIRE a valid customer access token; ownership is always the token's customer,
-      never a request field. A cart is NOT a reservation: stock is not held, prices are not locked
-      (every response shows CURRENT catalog price, stock and serviceability), and checkout MUST
-      revalidate everything. Optimistic concurrency via ETag `"cart-<version>"` and a REQUIRED
-      If-Match on every mutation; a customer with no cart is logical version 0 (`"cart-0"`).
-      Carts expire 7 days after the last mutation (expiry is evaluated at runtime, the version
-      never resets). `subtotalPaise` is the sum of current line totals of buyable-priced lines and
-      is NOT a final payable total (no fees, tax, discount or delivery). Without the optional
-      `addressId` location context, stock is UNKNOWN, `serviceable` is null and nothing is buyable.
-      fulfillmentLocationId / warehouse identifiers are never exposed. Does NOT cover checkout,
-      orders, or payment — those are future phases.
-  - name: customer-checkout
-    description: >
-      PR-13A — checkout VALIDATION + QUOTE for the authenticated customer. A quote binds the exact cart
-      version the customer reviewed (`If-Match: "cart-<n>"`), one OWNED delivery address, and current
-      commerce truth (catalog visibility, canonical price, serviceability, inventory), and returns a
-      short-lived (5 minutes by default) validated snapshot. Creation is ALL-OR-NOTHING (any failing
-      line rejects the whole quote; nothing is reduced, substituted or partially quoted), idempotent
-      (`Idempotency-Key`, scoped per customer) and never mutates the cart. A quote is NOT a
-      reservation: NO stock is held, prices are NOT locked beyond this snapshot, and a future order
-      must revalidate stock and quote validity. `subtotalPaise` is the sum of line totals at the
-      quoted current prices. The optional `moneyPreview` is an ADVISORY payable preview stored with the
-      quote: it is not Payment authority, not a price lock and not binding on Order placement, which
-      revalidates and computes its own authoritative money (it may differ). Internal routing/fulfillment
-      identifiers are never exposed. Order placement is a separate surface; no payment endpoint exists yet.
-  - name: customer-orders
-    description: >
-      PR-15A-2 — Cash-on-Delivery order placement for the authenticated customer. One operation places an
-      order from one of the caller's OWN checkout quotes: it confirms the order, consumes the held stock
-      and finalizes the source cart in one atomic step, so a successful placement is directly
-      `CONFIRMED` (there is no intermediate state to observe). `customerId` always comes from the token,
-      never from the request. Cash on delivery is the only payment method. `paymentCondition` `COD_DUE`
-      means the order is confirmed and payment is OWED ON DELIVERY — nothing has been collected.
-      Placement is idempotent by `quoteId` (no `Idempotency-Key`): replaying the same quote returns the
-      same order. The order is the immutable snapshot taken at placement — title, brand, price and
-      address never change with later catalog, pricing or address edits. The order carries its AUTHORITATIVE
-      `money` (merchandise subtotal, benefit discount, payable), computed at placement by revalidating Pricing,
-      Membership and Benefits. It may differ from the quote's ADVISORY `moneyPreview` (for example a benefit was
-      gained or lost since the quote); that is not an error and the order's money is the one that holds. Internal identifiers (customer,
-      quote, reservation, address, fulfillment/routing, coordinates) are never exposed. Responses are
-      no-store.
+- name: commerce-read
+  description: Composed, consumer-ready browse contract (ADR-001, ADR-003.1).
+- name: customer-auth-otp
+  description: 'PR-11B — OTP challenge lifecycle only. Public (no bearer token required or honoured). Does NOT create a customer, a session, or issue any access/refresh token — a successful verify proves phone possession and produces a one-time internal login grant that PR-11C consumes to create a session.
+
+    '
+- name: customer-auth-session
+  description: 'PR-11C — completes customer authentication: OTP verified grant -> customer resolution/ creation -> session -> access/refresh tokens -> refresh rotation -> logout. Session establishment and refresh are PUBLIC (no bearer required — that is how a client obtains one); logout REQUIRES a valid customer access token. Does NOT cover customer profile, addresses, cart, checkout, or orders — those are future phases.
+
+    '
+- name: customer-profile
+  description: 'PR-12A — authenticated read/update of a customer''s OWN profile (displayName, email only). Both endpoints REQUIRE a valid customer access token; customerId always comes from the token, never from the request. Optimistic concurrency via ETag/If-Match. Email here is OPTIONAL, UNVERIFIED profile data — never an authentication identity, never used to log in. Does NOT cover address, cart, checkout, order, payment, or any other customer data — those are future phases.
+
+    '
+- name: customer-address
+  description: 'PR-12B — authenticated CRUD of a customer''s OWN saved delivery addresses, plus dynamic serviceability binding. All endpoints REQUIRE a valid customer access token; customerId always comes from the token, never from the request. Optimistic concurrency via ETag/If-Match, the SAME pattern as customer-profile. Serviceability is evaluated FRESH on every read/response from the existing serviceability domain — it is never persisted as address state, and saving an address never requires it to currently be serviceable. The ETag `"address-<version>"` is the address-CONTENT concurrency token for PATCH/DELETE If-Match — not a complete version of the customer''s default-preference state (`isDefault` can change without the address version changing; responses are no-store). recipientPhone is delivery-contact information only, never an authentication identity. fulfillmentLocationId is internal and never exposed. serviceAreaId/serviceAreaVersion are public in the existing /v1/serviceability contract, but this address projection intentionally omits them (it exposes only the narrower `serviceable`). Does NOT cover cart, checkout, order, or payment — those are future phases.
+
+    '
+- name: customer-cart
+  description: 'PR-12C — the authenticated customer''s OWN cart: purchase INTENT (SKU + quantity) only. All endpoints REQUIRE a valid customer access token; ownership is always the token''s customer, never a request field. A cart is NOT a reservation: stock is not held, prices are not locked (every response shows CURRENT catalog price, stock and serviceability), and checkout MUST revalidate everything. Optimistic concurrency via ETag `"cart-<version>"` and a REQUIRED If-Match on every mutation; a customer with no cart is logical version 0 (`"cart-0"`). Carts expire 7 days after the last mutation (expiry is evaluated at runtime, the version never resets). `subtotalPaise` is the sum of current line totals of buyable-priced lines and is NOT a final payable total (no fees, tax, discount or delivery). Without the optional `addressId` location context, stock is UNKNOWN, `serviceable` is null and nothing is buyable. fulfillmentLocationId / warehouse identifiers are never exposed. Does NOT cover checkout, orders, or payment — those are future phases.
+
+    '
+- name: customer-checkout
+  description: 'PR-13A — checkout VALIDATION + QUOTE for the authenticated customer. A quote binds the exact cart version the customer reviewed (`If-Match: "cart-<n>"`), one OWNED delivery address, and current commerce truth (catalog visibility, canonical price, serviceability, inventory), and returns a short-lived (5 minutes by default) validated snapshot. Creation is ALL-OR-NOTHING (any failing line rejects the whole quote; nothing is reduced, substituted or partially quoted), idempotent (`Idempotency-Key`, scoped per customer) and never mutates the cart. A quote is NOT a reservation: NO stock is held, prices are NOT locked beyond this snapshot, and a future order must revalidate stock and quote validity. `subtotalPaise` is the sum of line totals at the quoted current prices. The optional `moneyPreview` is an ADVISORY payable preview stored with the quote: it is not Payment authority, not a price lock and not binding on Order placement, which revalidates and computes its own authoritative money (it may differ). Internal routing/fulfillment identifiers are never exposed. Order placement is a separate surface; no payment endpoint exists yet.
+
+    '
+- name: customer-orders
+  description: 'PR-15A-2 — Cash-on-Delivery order placement for the authenticated customer. One operation places an order from one of the caller''s OWN checkout quotes: it confirms the order, consumes the held stock and finalizes the source cart in one atomic step, so a successful placement is directly `CONFIRMED` (there is no intermediate state to observe). `customerId` always comes from the token, never from the request. Cash on delivery is the only payment method. `paymentCondition` `COD_DUE` means the order is confirmed and payment is OWED ON DELIVERY — nothing has been collected. Placement is idempotent by `quoteId` (no `Idempotency-Key`): replaying the same quote returns the same order. The order is the immutable snapshot taken at placement — title, brand, price and address never change with later catalog, pricing or address edits. The order carries its AUTHORITATIVE `money` (merchandise subtotal, benefit discount, payable), computed at placement by revalidating Pricing, Membership and Benefits. It may differ from the quote''s ADVISORY `moneyPreview` (for example a benefit was gained or lost since the quote); that is not an error and the order''s money is the one that holds. Internal identifiers (customer, quote, reservation, address, fulfillment/routing, coordinates) are never exposed. Responses are no-store.
+
+    '
 paths:
   /v1/categories:
     get:
-      tags: [commerce-read]
+      tags:
+      - commerce-read
       operationId: getCategories
       summary: Flat list of consumer-visible super-categories (ROOT).
       parameters:
-        - $ref: '#/components/parameters/Release'
-        - $ref: '#/components/parameters/InstallationId'
+      - $ref: '#/components/parameters/Release'
+      - $ref: '#/components/parameters/InstallationId'
       responses:
         '200':
           description: OK
           headers:
-            ETag: { $ref: '#/components/headers/ETag' }
-            Cache-Control: { $ref: '#/components/headers/CacheControl' }
+            ETag:
+              $ref: '#/components/headers/ETag'
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/NodeListResponse' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '429': { $ref: '#/components/responses/RateLimited' }
-        '503': { $ref: '#/components/responses/Unavailable' }
+              schema:
+                $ref: '#/components/schemas/NodeListResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/Unavailable'
   /v1/categories/{id}/children:
     get:
-      tags: [commerce-read]
+      tags:
+      - commerce-read
       operationId: getCategoryChildren
       summary: Immediate consumer-visible children of a taxonomy node.
       parameters:
-        - $ref: '#/components/parameters/NodeId'
-        - $ref: '#/components/parameters/Release'
-        - $ref: '#/components/parameters/InstallationId'
+      - $ref: '#/components/parameters/NodeId'
+      - $ref: '#/components/parameters/Release'
+      - $ref: '#/components/parameters/InstallationId'
       responses:
         '200':
           description: OK (a visible vertical returns empty items)
           headers:
-            Cache-Control: { $ref: '#/components/headers/CacheControl' }
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/NodeListResponse' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '429': { $ref: '#/components/responses/RateLimited' }
-        '503': { $ref: '#/components/responses/Unavailable' }
+              schema:
+                $ref: '#/components/schemas/NodeListResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/Unavailable'
   /v1/categories/{id}/products:
     get:
-      tags: [commerce-read]
+      tags:
+      - commerce-read
       operationId: listProductsInCategory
-      summary: >
-        Cursor-paginated ProductCard list under a node, enriched with
-        location-specific stock/serviceability when a location is supplied.
+      summary: 'Cursor-paginated ProductCard list under a node, enriched with location-specific stock/serviceability when a location is supplied.
+
+        '
       parameters:
-        - $ref: '#/components/parameters/NodeId'
-        - $ref: '#/components/parameters/Release'
-        - $ref: '#/components/parameters/PageSize'
-        - $ref: '#/components/parameters/Cursor'
-        - $ref: '#/components/parameters/Pin'
-        - $ref: '#/components/parameters/Lat'
-        - $ref: '#/components/parameters/Lng'
-        - $ref: '#/components/parameters/InstallationId'
+      - $ref: '#/components/parameters/NodeId'
+      - $ref: '#/components/parameters/Release'
+      - $ref: '#/components/parameters/PageSize'
+      - $ref: '#/components/parameters/Cursor'
+      - $ref: '#/components/parameters/Pin'
+      - $ref: '#/components/parameters/Lat'
+      - $ref: '#/components/parameters/Lng'
+      - $ref: '#/components/parameters/InstallationId'
       responses:
         '200':
           description: OK
           headers:
-            Cache-Control: { $ref: '#/components/headers/CacheControlPrivate' }
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlPrivate'
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/PagedProductResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '429': { $ref: '#/components/responses/RateLimited' }
-        '503': { $ref: '#/components/responses/Unavailable' }
+              schema:
+                $ref: '#/components/schemas/PagedProductResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/Unavailable'
   /v1/products/{id}:
     get:
-      tags: [commerce-read]
+      tags:
+      - commerce-read
       operationId: getProductDetail
       summary: Full ProductDetail, location-enriched when a location is supplied.
       parameters:
-        - $ref: '#/components/parameters/ProductId'
-        - $ref: '#/components/parameters/Release'
-        - $ref: '#/components/parameters/Pin'
-        - $ref: '#/components/parameters/Lat'
-        - $ref: '#/components/parameters/Lng'
-        - $ref: '#/components/parameters/InstallationId'
+      - $ref: '#/components/parameters/ProductId'
+      - $ref: '#/components/parameters/Release'
+      - $ref: '#/components/parameters/Pin'
+      - $ref: '#/components/parameters/Lat'
+      - $ref: '#/components/parameters/Lng'
+      - $ref: '#/components/parameters/InstallationId'
       responses:
         '200':
           description: OK
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/ProductDetail' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '429': { $ref: '#/components/responses/RateLimited' }
-        '503': { $ref: '#/components/responses/Unavailable' }
+              schema:
+                $ref: '#/components/schemas/ProductDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/Unavailable'
   /v1/serviceability:
     get:
-      tags: [commerce-read]
+      tags:
+      - commerce-read
       operationId: getServiceability
       summary: Resolve a customer location to a serviceable area + ETA.
-      description: >
-        Resolve a PIN (or, when a geo provider is configured, a lat/lng) to a serviceable area. A coordinate the provider
-        cannot place in a PIN is a normal "outside coverage" answer (`serviceable:false`); a provider outage is 503.
       parameters:
-        - $ref: '#/components/parameters/Pin'
-        - $ref: '#/components/parameters/Lat'
-        - $ref: '#/components/parameters/Lng'
-        - $ref: '#/components/parameters/InstallationId'
+      - $ref: '#/components/parameters/Pin'
+      - $ref: '#/components/parameters/Lat'
+      - $ref: '#/components/parameters/Lng'
+      - $ref: '#/components/parameters/InstallationId'
       responses:
         '200':
           description: OK
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/ServiceabilityResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '429': { $ref: '#/components/responses/RateLimited' }
-        '503': { $ref: '#/components/responses/Unavailable' }
+              schema:
+                $ref: '#/components/schemas/ServiceabilityResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      description: 'Resolve a PIN (or, when a geo provider is configured, a lat/lng) to a serviceable area. A coordinate the provider cannot place in a PIN is a normal "outside coverage" answer (`serviceable:false`); a provider outage is 503.
+
+        '
   /v1/auth/otp/request:
     post:
-      tags: [customer-auth-otp]
+      tags:
+      - customer-auth-otp
       operationId: requestOtp
-      summary: >
-        Request (or idempotently re-arm, within the resend cooldown) an OTP challenge for an
-        India phone number. The response is IDENTICAL regardless of whether the phone belongs to
-        an existing customer — this endpoint queries no customer data at all.
+      summary: 'Request (or idempotently re-arm, within the resend cooldown) an OTP challenge for an India phone number. The response is IDENTICAL regardless of whether the phone belongs to an existing customer — this endpoint queries no customer data at all.
+
+        '
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/OtpRequestRequest' }
+            schema:
+              $ref: '#/components/schemas/OtpRequestRequest'
       responses:
         '202':
           description: Challenge created or re-armed. Never contains the OTP or the phone.
           headers:
-            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/OtpRequestResponse' }
-        '400': { $ref: '#/components/responses/OtpBadRequest' }
-        '429': { $ref: '#/components/responses/OtpRateLimited' }
-        '503': { $ref: '#/components/responses/OtpUnavailable' }
+              schema:
+                $ref: '#/components/schemas/OtpRequestResponse'
+        '400':
+          $ref: '#/components/responses/OtpBadRequest'
+        '429':
+          $ref: '#/components/responses/OtpRateLimited'
+        '503':
+          $ref: '#/components/responses/OtpUnavailable'
   /v1/auth/otp/verify:
     post:
-      tags: [customer-auth-otp]
+      tags:
+      - customer-auth-otp
       operationId: verifyOtp
-      summary: >
-        Verify a 6-digit OTP against an active challenge. Success produces an opaque, one-time
-        internal login grant id — NOT a customer access or refresh token, and no session or
-        customer is created by this call.
+      summary: 'Verify a 6-digit OTP against an active challenge. Success produces an opaque, one-time internal login grant id — NOT a customer access or refresh token, and no session or customer is created by this call.
+
+        '
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/OtpVerifyRequest' }
+            schema:
+              $ref: '#/components/schemas/OtpVerifyRequest'
       responses:
         '200':
           description: OTP verified. grantId is opaque and carries no phone/PII.
           headers:
-            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/OtpVerifyResponse' }
-        '400': { $ref: '#/components/responses/OtpBadRequest' }
-        '429': { $ref: '#/components/responses/OtpRateLimited' }
-        '503': { $ref: '#/components/responses/OtpUnavailable' }
+              schema:
+                $ref: '#/components/schemas/OtpVerifyResponse'
+        '400':
+          $ref: '#/components/responses/OtpBadRequest'
+        '429':
+          $ref: '#/components/responses/OtpRateLimited'
+        '503':
+          $ref: '#/components/responses/OtpUnavailable'
   /v1/auth/session:
     post:
-      tags: [customer-auth-session]
+      tags:
+      - customer-auth-session
       operationId: establishSession
-      summary: >
-        Consume an OTP verified grant to resolve-or-create the customer, create a login session,
-        and issue an access token + refresh token. PUBLIC — this is how a client obtains its
-        first token. sessionId and the phone number are never returned.
+      summary: 'Consume an OTP verified grant to resolve-or-create the customer, create a login session, and issue an access token + refresh token. PUBLIC — this is how a client obtains its first token. sessionId and the phone number are never returned.
+
+        '
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/SessionEstablishRequest' }
+            schema:
+              $ref: '#/components/schemas/SessionEstablishRequest'
       responses:
         '200':
           description: Session established.
           headers:
-            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/SessionEstablishResponse' }
-        '400': { $ref: '#/components/responses/SessionBadRequest' }
-        '401': { $ref: '#/components/responses/SessionUnauthenticated' }
-        '503': { $ref: '#/components/responses/SessionUnavailable' }
+              schema:
+                $ref: '#/components/schemas/SessionEstablishResponse'
+        '400':
+          $ref: '#/components/responses/SessionBadRequest'
+        '401':
+          $ref: '#/components/responses/SessionUnauthenticated'
+        '503':
+          $ref: '#/components/responses/SessionUnavailable'
   /v1/auth/refresh:
     post:
-      tags: [customer-auth-session]
+      tags:
+      - customer-auth-session
       operationId: refreshSession
-      summary: >
-        Rotate a refresh token for a new access token + a NEW refresh token. The presented refresh
-        token is invalidated by this call, whether or not it is ever used again — atomic rotation
-        (a race between two callers presenting the SAME token lets exactly one win). PUBLIC.
+      summary: 'Rotate a refresh token for a new access token + a NEW refresh token. The presented refresh token is invalidated by this call, whether or not it is ever used again — atomic rotation (a race between two callers presenting the SAME token lets exactly one win). PUBLIC.
+
+        '
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/RefreshRequest' }
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
       responses:
         '200':
           description: Rotated. A brand-new refresh token is always returned.
           headers:
-            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/RefreshResponse' }
-        '400': { $ref: '#/components/responses/SessionBadRequest' }
-        '401': { $ref: '#/components/responses/SessionUnauthenticated' }
-        '503': { $ref: '#/components/responses/SessionUnavailable' }
+              schema:
+                $ref: '#/components/schemas/RefreshResponse'
+        '400':
+          $ref: '#/components/responses/SessionBadRequest'
+        '401':
+          $ref: '#/components/responses/SessionUnauthenticated'
+        '503':
+          $ref: '#/components/responses/SessionUnavailable'
   /v1/auth/logout:
     post:
-      tags: [customer-auth-session]
+      tags:
+      - customer-auth-session
       operationId: logout
-      summary: >
-        Revoke the CURRENT session (identified by the presented access token). REQUIRES a valid
-        customer access token — despite living under the public /v1/auth/** namespace, this
-        endpoint performs its own explicit bearer authentication. Repeated logout is safe. Does
-        not delete the customer. No logout-all in this phase.
+      summary: 'Revoke the CURRENT session (identified by the presented access token). REQUIRES a valid customer access token — despite living under the public /v1/auth/** namespace, this endpoint performs its own explicit bearer authentication. Repeated logout is safe. Does not delete the customer. No logout-all in this phase.
+
+        '
       security:
-        - customerBearerAuth: []
+      - customerBearerAuth: []
       responses:
         '204':
           description: Session revoked (or was already revoked — never distinguished).
           headers:
-            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
-        '401': { $ref: '#/components/responses/SessionUnauthenticated' }
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+        '401':
+          $ref: '#/components/responses/SessionUnauthenticated'
   /v1/customer/profile:
     get:
-      tags: [customer-profile]
+      tags:
+      - customer-profile
       operationId: getCustomerProfile
-      summary: >
-        The caller's OWN profile. A customer who has never set one gets a deterministic default
-        projection (displayName=null, email=null) at version 0 — no profile document is created by
-        a GET. customerId always comes from the access token, never a path/query parameter.
+      summary: 'The caller''s OWN profile. A customer who has never set one gets a deterministic default projection (displayName=null, email=null) at version 0 — no profile document is created by a GET. customerId always comes from the access token, never a path/query parameter.
+
+        '
       security:
-        - customerBearerAuth: []
+      - customerBearerAuth: []
       responses:
         '200':
           description: OK (a default, never-persisted projection if no profile exists yet).
           headers:
-            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
             ETag:
-              description: 'Opaque optimistic-concurrency tag, shape "profile-<version>". "profile-0" means no profile has been created yet.'
-              schema: { type: string, example: '"profile-0"' }
+              description: Opaque optimistic-concurrency tag, shape "profile-<version>". "profile-0" means no profile has been created yet.
+              schema:
+                type: string
+                example: '"profile-0"'
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/CustomerProfileResponse' }
-        '401': { $ref: '#/components/responses/ProfileUnauthenticated' }
-        '503': { $ref: '#/components/responses/ProfileUnavailable' }
+              schema:
+                $ref: '#/components/schemas/CustomerProfileResponse'
+        '401':
+          $ref: '#/components/responses/ProfileUnauthenticated'
+        '503':
+          $ref: '#/components/responses/ProfileUnavailable'
     patch:
-      tags: [customer-profile]
+      tags:
+      - customer-profile
       operationId: patchCustomerProfile
-      summary: >
-        Partial update of the caller's OWN profile. Requires If-Match (optimistic concurrency) —
-        a missing header is 428, a stale version is 412. Only fields PRESENT in the body are
-        changed; a field explicit-null CLEARS it; a field entirely omitted is left untouched. An
-        empty body (or a body with neither displayName nor email) is 400. Lazily creates the
-        profile on first PATCH (If-Match: "profile-0" against a customer with no profile yet).
+      summary: 'Partial update of the caller''s OWN profile. Requires If-Match (optimistic concurrency) — a missing header is 428, a stale version is 412. Only fields PRESENT in the body are changed; a field explicit-null CLEARS it; a field entirely omitted is left untouched. An empty body (or a body with neither displayName nor email) is 400. Lazily creates the profile on first PATCH (If-Match: "profile-0" against a customer with no profile yet).
+
+        '
       security:
-        - customerBearerAuth: []
+      - customerBearerAuth: []
       parameters:
-        - name: If-Match
-          in: header
-          required: true
-          schema: { type: string, maxLength: 40, example: '"profile-0"' }
-          description: The ETag last observed for this profile ("profile-0" if none was ever read).
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+          maxLength: 40
+          example: '"profile-0"'
+        description: The ETag last observed for this profile ("profile-0" if none was ever read).
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/CustomerProfilePatchRequest' }
+            schema:
+              $ref: '#/components/schemas/CustomerProfilePatchRequest'
       responses:
         '200':
           description: Updated (or lazily created). Returns the full current profile projection.
           headers:
-            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
             ETag:
               description: The NEW version tag after this mutation.
-              schema: { type: string, example: '"profile-1"' }
+              schema:
+                type: string
+                example: '"profile-1"'
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/CustomerProfileResponse' }
-        '400': { $ref: '#/components/responses/ProfileBadRequest' }
-        '401': { $ref: '#/components/responses/ProfileUnauthenticated' }
-        '412': { $ref: '#/components/responses/ProfilePreconditionFailed' }
-        '428': { $ref: '#/components/responses/ProfilePreconditionRequired' }
-        '503': { $ref: '#/components/responses/ProfileUnavailable' }
+              schema:
+                $ref: '#/components/schemas/CustomerProfileResponse'
+        '400':
+          $ref: '#/components/responses/ProfileBadRequest'
+        '401':
+          $ref: '#/components/responses/ProfileUnauthenticated'
+        '412':
+          $ref: '#/components/responses/ProfilePreconditionFailed'
+        '428':
+          $ref: '#/components/responses/ProfilePreconditionRequired'
+        '503':
+          $ref: '#/components/responses/ProfileUnavailable'
   /v1/customer/addresses:
     get:
-      tags: [customer-address]
+      tags:
+      - customer-address
       operationId: listCustomerAddresses
-      summary: >
-        The caller's OWN saved addresses only. Ordered default-first, then most-recently-updated.
-        No pagination (the saved-address limit is small by design).
+      summary: 'The caller''s OWN saved addresses only. Ordered default-first, then most-recently-updated. No pagination (the saved-address limit is small by design).
+
+        '
       security:
-        - customerBearerAuth: []
+      - customerBearerAuth: []
       responses:
         '200':
           description: OK. Each item's `serviceability` is evaluated fresh, not stored state.
           headers:
-            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/CustomerAddressListResponse' }
-        '401': { $ref: '#/components/responses/AddressUnauthenticated' }
-        '503': { $ref: '#/components/responses/AddressUnavailable' }
+              schema:
+                $ref: '#/components/schemas/CustomerAddressListResponse'
+        '401':
+          $ref: '#/components/responses/AddressUnauthenticated'
+        '503':
+          $ref: '#/components/responses/AddressUnavailable'
     post:
-      tags: [customer-address]
+      tags:
+      - customer-address
       operationId: createCustomerAddress
-      summary: >
-        Save a new address for the caller. The FIRST saved address automatically becomes the
-        default; subsequent addresses do not. Bounded by a per-customer saved-address limit
-        (409 ADDRESS_LIMIT_REACHED once reached). Saving succeeds even if the address is CURRENTLY
-        unserviceable — address validity is independent of commerce eligibility, which is
-        re-evaluated dynamically on every read and again at future Checkout.
+      summary: 'Save a new address for the caller. The FIRST saved address automatically becomes the default; subsequent addresses do not. Bounded by a per-customer saved-address limit (409 ADDRESS_LIMIT_REACHED once reached). Saving succeeds even if the address is CURRENTLY unserviceable — address validity is independent of commerce eligibility, which is re-evaluated dynamically on every read and again at future Checkout.
+
+        '
       security:
-        - customerBearerAuth: []
+      - customerBearerAuth: []
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/CustomerAddressCreateRequest' }
+            schema:
+              $ref: '#/components/schemas/CustomerAddressCreateRequest'
       responses:
         '201':
           description: Created, at version 1.
           headers:
-            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
-            ETag: { description: 'Shape "address-1".', schema: { type: string, example: '"address-1"' } }
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+            ETag:
+              description: Shape "address-1".
+              schema:
+                type: string
+                example: '"address-1"'
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/CustomerAddressResponse' }
-        '400': { $ref: '#/components/responses/AddressBadRequest' }
-        '401': { $ref: '#/components/responses/AddressUnauthenticated' }
-        '409': { $ref: '#/components/responses/AddressLimitReached' }
-        '503': { $ref: '#/components/responses/AddressUnavailable' }
+              schema:
+                $ref: '#/components/schemas/CustomerAddressResponse'
+        '400':
+          $ref: '#/components/responses/AddressBadRequest'
+        '401':
+          $ref: '#/components/responses/AddressUnauthenticated'
+        '409':
+          $ref: '#/components/responses/AddressLimitReached'
+        '503':
+          $ref: '#/components/responses/AddressUnavailable'
   /v1/customer/addresses/{addressId}:
     get:
-      tags: [customer-address]
+      tags:
+      - customer-address
       operationId: getCustomerAddress
-      summary: >
-        The caller's OWN address. An unknown address id AND another customer's address return the
-        IDENTICAL 404 — no ownership enumeration.
+      summary: 'The caller''s OWN address. An unknown address id AND another customer''s address return the IDENTICAL 404 — no ownership enumeration.
+
+        '
       security:
-        - customerBearerAuth: []
+      - customerBearerAuth: []
       parameters:
-        - $ref: '#/components/parameters/AddressIdParam'
+      - $ref: '#/components/parameters/AddressIdParam'
       responses:
         '200':
           description: OK.
           headers:
-            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
-            ETag: { description: 'Shape "address-<version>".', schema: { type: string } }
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+            ETag:
+              description: Shape "address-<version>".
+              schema:
+                type: string
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/CustomerAddressResponse' }
-        '401': { $ref: '#/components/responses/AddressUnauthenticated' }
-        '404': { $ref: '#/components/responses/AddressNotFound' }
-        '503': { $ref: '#/components/responses/AddressUnavailable' }
+              schema:
+                $ref: '#/components/schemas/CustomerAddressResponse'
+        '401':
+          $ref: '#/components/responses/AddressUnauthenticated'
+        '404':
+          $ref: '#/components/responses/AddressNotFound'
+        '503':
+          $ref: '#/components/responses/AddressUnavailable'
     patch:
-      tags: [customer-address]
+      tags:
+      - customer-address
       operationId: patchCustomerAddress
-      summary: >
-        Partial update of the caller's OWN address. Requires If-Match. Only fields PRESENT in the
-        body change; addressLine2/landmark may be explicit-null cleared; latitude/longitude are
-        ALWAYS a pair (both present or both absent in the patch, never just one); every other
-        field is required and can never be set null. Cannot change addressId, customerId, version,
-        createdAt, updatedAt, or isDefault directly (use the dedicated default endpoint).
+      summary: 'Partial update of the caller''s OWN address. Requires If-Match. Only fields PRESENT in the body change; addressLine2/landmark may be explicit-null cleared; latitude/longitude are ALWAYS a pair (both present or both absent in the patch, never just one); every other field is required and can never be set null. Cannot change addressId, customerId, version, createdAt, updatedAt, or isDefault directly (use the dedicated default endpoint).
+
+        '
       security:
-        - customerBearerAuth: []
+      - customerBearerAuth: []
       parameters:
-        - $ref: '#/components/parameters/AddressIdParam'
-        - name: If-Match
-          in: header
-          required: true
-          schema: { type: string, maxLength: 40, example: '"address-1"' }
+      - $ref: '#/components/parameters/AddressIdParam'
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+          maxLength: 40
+          example: '"address-1"'
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/CustomerAddressPatchRequest' }
+            schema:
+              $ref: '#/components/schemas/CustomerAddressPatchRequest'
       responses:
         '200':
           description: Updated. Returns the full current address projection with a new ETag.
           headers:
-            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
-            ETag: { description: 'The NEW version tag.', schema: { type: string } }
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+            ETag:
+              description: The NEW version tag.
+              schema:
+                type: string
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/CustomerAddressResponse' }
-        '400': { $ref: '#/components/responses/AddressBadRequest' }
-        '401': { $ref: '#/components/responses/AddressUnauthenticated' }
-        '404': { $ref: '#/components/responses/AddressNotFound' }
-        '412': { $ref: '#/components/responses/AddressPreconditionFailed' }
-        '428': { $ref: '#/components/responses/AddressPreconditionRequired' }
-        '503': { $ref: '#/components/responses/AddressUnavailable' }
+              schema:
+                $ref: '#/components/schemas/CustomerAddressResponse'
+        '400':
+          $ref: '#/components/responses/AddressBadRequest'
+        '401':
+          $ref: '#/components/responses/AddressUnauthenticated'
+        '404':
+          $ref: '#/components/responses/AddressNotFound'
+        '412':
+          $ref: '#/components/responses/AddressPreconditionFailed'
+        '428':
+          $ref: '#/components/responses/AddressPreconditionRequired'
+        '503':
+          $ref: '#/components/responses/AddressUnavailable'
     delete:
-      tags: [customer-address]
+      tags:
+      - customer-address
       operationId: deleteCustomerAddress
-      summary: >
-        Delete the caller's OWN address. Requires If-Match (prevents deleting a version the client
-        never actually read). Deleting the current default deterministically promotes the
-        most-recently-updated remaining address (or leaves zero default if none remain). Repeated
-        delete after success is 404 (simple, idempotent-in-effect).
+      summary: 'Delete the caller''s OWN address. Requires If-Match (prevents deleting a version the client never actually read). Deleting the current default deterministically promotes the most-recently-updated remaining address (or leaves zero default if none remain). Repeated delete after success is 404 (simple, idempotent-in-effect).
+
+        '
       security:
-        - customerBearerAuth: []
+      - customerBearerAuth: []
       parameters:
-        - $ref: '#/components/parameters/AddressIdParam'
-        - name: If-Match
-          in: header
-          required: true
-          schema: { type: string, maxLength: 40, example: '"address-1"' }
+      - $ref: '#/components/parameters/AddressIdParam'
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+          maxLength: 40
+          example: '"address-1"'
       responses:
         '204':
           description: Deleted.
           headers:
-            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
-        '401': { $ref: '#/components/responses/AddressUnauthenticated' }
-        '404': { $ref: '#/components/responses/AddressNotFound' }
-        '412': { $ref: '#/components/responses/AddressPreconditionFailed' }
-        '428': { $ref: '#/components/responses/AddressPreconditionRequired' }
-        '503': { $ref: '#/components/responses/AddressUnavailable' }
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+        '401':
+          $ref: '#/components/responses/AddressUnauthenticated'
+        '404':
+          $ref: '#/components/responses/AddressNotFound'
+        '412':
+          $ref: '#/components/responses/AddressPreconditionFailed'
+        '428':
+          $ref: '#/components/responses/AddressPreconditionRequired'
+        '503':
+          $ref: '#/components/responses/AddressUnavailable'
   /v1/customer/addresses/{addressId}/default:
     put:
-      tags: [customer-address]
+      tags:
+      - customer-address
       operationId: setDefaultCustomerAddress
-      summary: >
-        Atomically make this the caller's default address, clearing any prior default. Default is
-        a customer PREFERENCE, independent of serviceability — it is never changed automatically
-        because a location becomes unserviceable.
+      summary: 'Atomically make this the caller''s default address, clearing any prior default. Default is a customer PREFERENCE, independent of serviceability — it is never changed automatically because a location becomes unserviceable.
+
+        '
       security:
-        - customerBearerAuth: []
+      - customerBearerAuth: []
       parameters:
-        - $ref: '#/components/parameters/AddressIdParam'
+      - $ref: '#/components/parameters/AddressIdParam'
       responses:
         '200':
           description: OK. Returns the full current address projection (now the default).
           headers:
-            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
-            ETag: { description: 'Shape "address-<version>".', schema: { type: string } }
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+            ETag:
+              description: Shape "address-<version>".
+              schema:
+                type: string
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/CustomerAddressResponse' }
-        '401': { $ref: '#/components/responses/AddressUnauthenticated' }
-        '404': { $ref: '#/components/responses/AddressNotFound' }
-        '503': { $ref: '#/components/responses/AddressUnavailable' }
+              schema:
+                $ref: '#/components/schemas/CustomerAddressResponse'
+        '401':
+          $ref: '#/components/responses/AddressUnauthenticated'
+        '404':
+          $ref: '#/components/responses/AddressNotFound'
+        '503':
+          $ref: '#/components/responses/AddressUnavailable'
   /v1/customer/cart:
     get:
-      tags: [customer-cart]
+      tags:
+      - customer-cart
       operationId: getCustomerCart
-      summary: >
-        The caller's OWN cart (logical version 0 with an empty item list when none exists). Read-only: never creates a cart. An expired cart is presented empty and its version continues.
+      summary: 'The caller''s OWN cart (logical version 0 with an empty item list when none exists). Read-only: never creates a cart. An expired cart is presented empty and its version continues.
+
+        '
       security:
-        - customerBearerAuth: []
+      - customerBearerAuth: []
       parameters:
-        - name: addressId
-          in: query
-          required: false
-          description: >
-            Optional saved-address id used ONLY as location context for stock/serviceability. Must be
-            the caller's own; a foreign, unknown or malformed id returns the IDENTICAL 404.
-          schema: { type: string, maxLength: 64, example: ADDR_0123456789abcdef }
+      - name: addressId
+        in: query
+        required: false
+        description: 'Optional saved-address id used ONLY as location context for stock/serviceability. Must be the caller''s own; a foreign, unknown or malformed id returns the IDENTICAL 404.
+
+          '
+        schema:
+          type: string
+          maxLength: 64
+          example: ADDR_0123456789abcdef
       responses:
         '200':
           description: OK.
           headers:
-            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
-            ETag: { description: 'Shape "cart-<version>".', schema: { type: string } }
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+            ETag:
+              description: Shape "cart-<version>".
+              schema:
+                type: string
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/CustomerCartResponse' }
-        '401': { $ref: '#/components/responses/CartUnauthenticated' }
-        '404': { $ref: '#/components/responses/CartNotFound' }
-        '503': { $ref: '#/components/responses/CartUnavailable' }
+              schema:
+                $ref: '#/components/schemas/CustomerCartResponse'
+        '401':
+          $ref: '#/components/responses/CartUnauthenticated'
+        '404':
+          $ref: '#/components/responses/CartNotFound'
+        '503':
+          $ref: '#/components/responses/CartUnavailable'
     delete:
-      tags: [customer-cart]
+      tags:
+      - customer-cart
       operationId: clearCustomerCart
-      summary: >
-        Remove every item from the caller's cart. Requires If-Match. The cart record and its version history are kept (clearing advances the version); clearing a cart that never existed is a deterministic no-op returning version 0.
+      summary: 'Remove every item from the caller''s cart. Requires If-Match. The cart record and its version history are kept (clearing advances the version); clearing a cart that never existed is a deterministic no-op returning version 0.
+
+        '
       security:
-        - customerBearerAuth: []
+      - customerBearerAuth: []
       parameters:
-        - name: If-Match
-          in: header
-          required: true
-          schema: { type: string, maxLength: 40, example: '"cart-0"' }
-        - name: addressId
-          in: query
-          required: false
-          description: >
-            Optional saved-address id used ONLY as location context for stock/serviceability. Must be
-            the caller's own; a foreign, unknown or malformed id returns the IDENTICAL 404.
-          schema: { type: string, maxLength: 64, example: ADDR_0123456789abcdef }
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+          maxLength: 40
+          example: '"cart-0"'
+      - name: addressId
+        in: query
+        required: false
+        description: 'Optional saved-address id used ONLY as location context for stock/serviceability. Must be the caller''s own; a foreign, unknown or malformed id returns the IDENTICAL 404.
+
+          '
+        schema:
+          type: string
+          maxLength: 64
+          example: ADDR_0123456789abcdef
       responses:
         '200':
           description: Cleared. Returns the empty cart with its new ETag.
           headers:
-            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
-            ETag: { description: 'Shape "cart-<version>".', schema: { type: string } }
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+            ETag:
+              description: Shape "cart-<version>".
+              schema:
+                type: string
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/CustomerCartResponse' }
-        '400': { $ref: '#/components/responses/CartBadRequest' }
-        '401': { $ref: '#/components/responses/CartUnauthenticated' }
-        '404': { $ref: '#/components/responses/CartNotFound' }
-        '412': { $ref: '#/components/responses/CartPreconditionFailed' }
-        '428': { $ref: '#/components/responses/CartPreconditionRequired' }
-        '503': { $ref: '#/components/responses/CartUnavailable' }
+              schema:
+                $ref: '#/components/schemas/CustomerCartResponse'
+        '400':
+          $ref: '#/components/responses/CartBadRequest'
+        '401':
+          $ref: '#/components/responses/CartUnauthenticated'
+        '404':
+          $ref: '#/components/responses/CartNotFound'
+        '412':
+          $ref: '#/components/responses/CartPreconditionFailed'
+        '428':
+          $ref: '#/components/responses/CartPreconditionRequired'
+        '503':
+          $ref: '#/components/responses/CartUnavailable'
   /v1/customer/cart/items/{skuId}:
     put:
-      tags: [customer-cart]
+      tags:
+      - customer-cart
       operationId: setCustomerCartItem
-      summary: >
-        Set the EXACT quantity of one SKU (not incremental). Requires If-Match. Only `quantity` is read from the body; client-supplied price, name, stock or location fields are ignored and never stored. The SKU must currently be customer-visible in the catalog (unknown and hidden SKUs return the identical 404). An out-of-stock SKU may be added. Adding a new distinct SKU beyond the limit (default 50) is 409; quantity must be 1..20 (default).
+      summary: 'Set the EXACT quantity of one SKU (not incremental). Requires If-Match. Only `quantity` is read from the body; client-supplied price, name, stock or location fields are ignored and never stored. The SKU must currently be customer-visible in the catalog (unknown and hidden SKUs return the identical 404). An out-of-stock SKU may be added. Adding a new distinct SKU beyond the limit (default 50) is 409; quantity must be 1..20 (default).
+
+        '
       security:
-        - customerBearerAuth: []
+      - customerBearerAuth: []
       parameters:
-        - name: skuId
-          in: path
-          required: true
-          schema: { type: string, pattern: '^TZP-[0-9]{1,18}$' }
-        - name: If-Match
-          in: header
-          required: true
-          schema: { type: string, maxLength: 40, example: '"cart-0"' }
-        - name: addressId
-          in: query
-          required: false
-          description: >
-            Optional saved-address id used ONLY as location context for stock/serviceability. Must be
-            the caller's own; a foreign, unknown or malformed id returns the IDENTICAL 404.
-          schema: { type: string, maxLength: 64, example: ADDR_0123456789abcdef }
+      - name: skuId
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^TZP-[0-9]{1,18}$
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+          maxLength: 40
+          example: '"cart-0"'
+      - name: addressId
+        in: query
+        required: false
+        description: 'Optional saved-address id used ONLY as location context for stock/serviceability. Must be the caller''s own; a foreign, unknown or malformed id returns the IDENTICAL 404.
+
+          '
+        schema:
+          type: string
+          maxLength: 64
+          example: ADDR_0123456789abcdef
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/CustomerCartSetQuantityRequest' }
+            schema:
+              $ref: '#/components/schemas/CustomerCartSetQuantityRequest'
       responses:
         '200':
           description: Updated. Returns the full cart with its new ETag.
           headers:
-            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
-            ETag: { description: 'Shape "cart-<version>".', schema: { type: string } }
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+            ETag:
+              description: Shape "cart-<version>".
+              schema:
+                type: string
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/CustomerCartResponse' }
-        '400': { $ref: '#/components/responses/CartBadRequest' }
-        '401': { $ref: '#/components/responses/CartUnauthenticated' }
-        '404': { $ref: '#/components/responses/CartNotFound' }
-        '409': { $ref: '#/components/responses/CartItemLimitReached' }
-        '412': { $ref: '#/components/responses/CartPreconditionFailed' }
-        '415': { $ref: '#/components/responses/CartUnsupportedMediaType' }
-        '428': { $ref: '#/components/responses/CartPreconditionRequired' }
-        '503': { $ref: '#/components/responses/CartUnavailable' }
+              schema:
+                $ref: '#/components/schemas/CustomerCartResponse'
+        '400':
+          $ref: '#/components/responses/CartBadRequest'
+        '401':
+          $ref: '#/components/responses/CartUnauthenticated'
+        '404':
+          $ref: '#/components/responses/CartNotFound'
+        '409':
+          $ref: '#/components/responses/CartItemLimitReached'
+        '412':
+          $ref: '#/components/responses/CartPreconditionFailed'
+        '415':
+          $ref: '#/components/responses/CartUnsupportedMediaType'
+        '428':
+          $ref: '#/components/responses/CartPreconditionRequired'
+        '503':
+          $ref: '#/components/responses/CartUnavailable'
     delete:
-      tags: [customer-cart]
+      tags:
+      - customer-cart
       operationId: removeCustomerCartItem
-      summary: >
-        Remove one SKU line. Requires If-Match. An absent line is 404. Returns the updated cart (200), not 204.
+      summary: 'Remove one SKU line. Requires If-Match. An absent line is 404. Returns the updated cart (200), not 204.
+
+        '
       security:
-        - customerBearerAuth: []
+      - customerBearerAuth: []
       parameters:
-        - name: skuId
-          in: path
-          required: true
-          schema: { type: string, pattern: '^TZP-[0-9]{1,18}$' }
-        - name: If-Match
-          in: header
-          required: true
-          schema: { type: string, maxLength: 40, example: '"cart-0"' }
-        - name: addressId
-          in: query
-          required: false
-          description: >
-            Optional saved-address id used ONLY as location context for stock/serviceability. Must be
-            the caller's own; a foreign, unknown or malformed id returns the IDENTICAL 404.
-          schema: { type: string, maxLength: 64, example: ADDR_0123456789abcdef }
+      - name: skuId
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^TZP-[0-9]{1,18}$
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+          maxLength: 40
+          example: '"cart-0"'
+      - name: addressId
+        in: query
+        required: false
+        description: 'Optional saved-address id used ONLY as location context for stock/serviceability. Must be the caller''s own; a foreign, unknown or malformed id returns the IDENTICAL 404.
+
+          '
+        schema:
+          type: string
+          maxLength: 64
+          example: ADDR_0123456789abcdef
       responses:
         '200':
           description: Removed. Returns the full cart with its new ETag.
           headers:
-            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
-            ETag: { description: 'Shape "cart-<version>".', schema: { type: string } }
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+            ETag:
+              description: Shape "cart-<version>".
+              schema:
+                type: string
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/CustomerCartResponse' }
-        '400': { $ref: '#/components/responses/CartBadRequest' }
-        '401': { $ref: '#/components/responses/CartUnauthenticated' }
-        '404': { $ref: '#/components/responses/CartNotFound' }
-        '412': { $ref: '#/components/responses/CartPreconditionFailed' }
-        '428': { $ref: '#/components/responses/CartPreconditionRequired' }
-        '503': { $ref: '#/components/responses/CartUnavailable' }
+              schema:
+                $ref: '#/components/schemas/CustomerCartResponse'
+        '400':
+          $ref: '#/components/responses/CartBadRequest'
+        '401':
+          $ref: '#/components/responses/CartUnauthenticated'
+        '404':
+          $ref: '#/components/responses/CartNotFound'
+        '412':
+          $ref: '#/components/responses/CartPreconditionFailed'
+        '428':
+          $ref: '#/components/responses/CartPreconditionRequired'
+        '503':
+          $ref: '#/components/responses/CartUnavailable'
   /v1/customer/checkout/quote:
     post:
-      tags: [customer-checkout]
+      tags:
+      - customer-checkout
       operationId: createCustomerCheckoutQuote
-      summary: >
-        Validate the caller's current cart against current commerce truth for one owned address and
-        create a short-lived quote. Requires If-Match (the cart ETag reviewed) and Idempotency-Key.
-        Replaying the same key with the same input returns the ORIGINAL quote (same id, expiry not
-        extended, not re-priced); the same key with a different address or cart version is 409
-        IDEMPOTENCY_CONFLICT. Replaying the same key AFTER the quote expired is 410 QUOTE_EXPIRED (never 200):
-        a new quote after expiry needs a new key. Does not reserve stock.
+      summary: 'Validate the caller''s current cart against current commerce truth for one owned address and create a short-lived quote. Requires If-Match (the cart ETag reviewed) and Idempotency-Key. Replaying the same key with the same input returns the ORIGINAL quote (same id, expiry not extended, not re-priced); the same key with a different address or cart version is 409 IDEMPOTENCY_CONFLICT. Replaying the same key AFTER the quote expired is 410 QUOTE_EXPIRED (never 200): a new quote after expiry needs a new key. Does not reserve stock.
+
+        '
       security:
-        - customerBearerAuth: []
+      - customerBearerAuth: []
       parameters:
-        - name: If-Match
-          in: header
-          required: true
-          description: The cart ETag the customer reviewed, e.g. `"cart-3"`. Missing is 428, malformed 400, stale 412.
-          schema: { type: string, maxLength: 40, example: '"cart-3"' }
-        - name: Idempotency-Key
-          in: header
-          required: true
-          description: Client-generated key, 8-64 chars of `[A-Za-z0-9_-]`. Scoped to the authenticated customer.
-          schema: { type: string, minLength: 8, maxLength: 64, pattern: '^[A-Za-z0-9_-]{8,64}$' }
+      - name: If-Match
+        in: header
+        required: true
+        description: The cart ETag the customer reviewed, e.g. `"cart-3"`. Missing is 428, malformed 400, stale 412.
+        schema:
+          type: string
+          maxLength: 40
+          example: '"cart-3"'
+      - name: Idempotency-Key
+        in: header
+        required: true
+        description: Client-generated key, 8-64 chars of `[A-Za-z0-9_-]`. Scoped to the authenticated customer.
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 64
+          pattern: ^[A-Za-z0-9_-]{8,64}$
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/CustomerCheckoutQuoteRequest' }
+            schema:
+              $ref: '#/components/schemas/CustomerCheckoutQuoteRequest'
       responses:
         '200':
           description: The committed quote (created now, or the original on an idempotent replay).
           headers:
-            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/CustomerCheckoutQuote' }
-        '400': { $ref: '#/components/responses/CheckoutBadRequest' }
-        '401': { $ref: '#/components/responses/CheckoutUnauthenticated' }
-        '404': { $ref: '#/components/responses/CheckoutNotFound' }
-        '409': { $ref: '#/components/responses/CheckoutConflict' }
-        '410': { $ref: '#/components/responses/CheckoutQuoteExpired' }
-        '412': { $ref: '#/components/responses/CheckoutPreconditionFailed' }
-        '415': { $ref: '#/components/responses/CheckoutUnsupportedMediaType' }
-        '428': { $ref: '#/components/responses/CheckoutPreconditionRequired' }
-        '503': { $ref: '#/components/responses/CheckoutUnavailable' }
+              schema:
+                $ref: '#/components/schemas/CustomerCheckoutQuote'
+        '400':
+          $ref: '#/components/responses/CheckoutBadRequest'
+        '401':
+          $ref: '#/components/responses/CheckoutUnauthenticated'
+        '404':
+          $ref: '#/components/responses/CheckoutNotFound'
+        '409':
+          $ref: '#/components/responses/CheckoutConflict'
+        '410':
+          $ref: '#/components/responses/CheckoutQuoteExpired'
+        '412':
+          $ref: '#/components/responses/CheckoutPreconditionFailed'
+        '415':
+          $ref: '#/components/responses/CheckoutUnsupportedMediaType'
+        '428':
+          $ref: '#/components/responses/CheckoutPreconditionRequired'
+        '503':
+          $ref: '#/components/responses/CheckoutUnavailable'
   /v1/customer/checkout/quotes/{quoteId}:
     get:
-      tags: [customer-checkout]
+      tags:
+      - customer-checkout
       operationId: getCustomerCheckoutQuote
-      summary: >
-        Read one of the caller's OWN quotes. A foreign, unknown or malformed id is the identical 404.
-        After `expiresAt` the quote resource answers 410 QUOTE_EXPIRED (expiry is derived, the quote is
-        not deleted, so expired is distinguishable from unknown). Never re-prices.
+      summary: 'Read one of the caller''s OWN quotes. A foreign, unknown or malformed id is the identical 404. After `expiresAt` the quote resource answers 410 QUOTE_EXPIRED (expiry is derived, the quote is not deleted, so expired is distinguishable from unknown). Never re-prices.
+
+        '
       security:
-        - customerBearerAuth: []
+      - customerBearerAuth: []
       parameters:
-        - name: quoteId
-          in: path
-          required: true
-          schema: { type: string, pattern: '^CHKQ_[A-Za-z0-9_-]{6,64}$' }
+      - name: quoteId
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^CHKQ_[A-Za-z0-9_-]{6,64}$
       responses:
         '200':
           description: The quote as it was committed, still within its validity window.
           headers:
-            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/CustomerCheckoutQuote' }
-        '401': { $ref: '#/components/responses/CheckoutUnauthenticated' }
-        '404': { $ref: '#/components/responses/CheckoutNotFound' }
-        '410': { $ref: '#/components/responses/CheckoutQuoteExpired' }
-        '503': { $ref: '#/components/responses/CheckoutUnavailable' }
+              schema:
+                $ref: '#/components/schemas/CustomerCheckoutQuote'
+        '401':
+          $ref: '#/components/responses/CheckoutUnauthenticated'
+        '404':
+          $ref: '#/components/responses/CheckoutNotFound'
+        '410':
+          $ref: '#/components/responses/CheckoutQuoteExpired'
+        '503':
+          $ref: '#/components/responses/CheckoutUnavailable'
   /v1/customer/orders:
     post:
-      tags: [customer-orders]
+      tags:
+      - customer-orders
       operationId: placeCustomerOrder
-      summary: >
-        Place a Cash-on-Delivery order from one of the caller's OWN checkout quotes. On success the order is
-        `CONFIRMED` with `paymentCondition` `COD_DUE`. Idempotent by `quoteId`: the first placement and any
-        replay of the same quote both return 200 with the same order (and never reserve, consume or clear
-        the cart again), and a replay is never re-judged: it returns the stored order and its stored money even if
-        the benefit state has changed since. Only `quoteId` and `paymentMethod` are read from the body; any other
-        field is ignored. The order's `money` is computed authoritatively at placement and may differ from the quote's
-        advisory `moneyPreview`; a difference is not an error. Fails as a whole — a failed placement leaves stock, cart and orders untouched.
+      summary: 'Place a Cash-on-Delivery order from one of the caller''s OWN checkout quotes. On success the order is `CONFIRMED` with `paymentCondition` `COD_DUE`. Idempotent by `quoteId`: the first placement and any replay of the same quote both return 200 with the same order (and never reserve, consume or clear the cart again), and a replay is never re-judged: it returns the stored order and its stored money even if the benefit state has changed since. Only `quoteId` and `paymentMethod` are read from the body; any other field is ignored. The order''s `money` is computed authoritatively at placement and may differ from the quote''s advisory `moneyPreview`; a difference is not an error. Fails as a whole — a failed placement leaves stock, cart and orders untouched.
+
+        '
       security:
-        - customerBearerAuth: []
+      - customerBearerAuth: []
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/CustomerOrderPlaceRequest' }
+            schema:
+              $ref: '#/components/schemas/CustomerOrderPlaceRequest'
       responses:
         '200':
           description: The confirmed order (placed now, or the same order on an idempotent replay).
           headers:
-            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/CustomerOrder' }
-        '400': { $ref: '#/components/responses/OrderBadRequest' }
-        '401': { $ref: '#/components/responses/OrderUnauthenticated' }
-        '404': { $ref: '#/components/responses/OrderNotFound' }
-        '409': { $ref: '#/components/responses/OrderConflict' }
-        '410': { $ref: '#/components/responses/OrderQuoteExpired' }
-        '415': { $ref: '#/components/responses/OrderUnsupportedMediaType' }
-        '500': { $ref: '#/components/responses/OrderInternalError' }
-        '503': { $ref: '#/components/responses/OrderUnavailable' }
+              schema:
+                $ref: '#/components/schemas/CustomerOrder'
+        '400':
+          $ref: '#/components/responses/OrderBadRequest'
+        '401':
+          $ref: '#/components/responses/OrderUnauthenticated'
+        '404':
+          $ref: '#/components/responses/OrderNotFound'
+        '409':
+          $ref: '#/components/responses/OrderConflict'
+        '410':
+          $ref: '#/components/responses/OrderQuoteExpired'
+        '415':
+          $ref: '#/components/responses/OrderUnsupportedMediaType'
+        '500':
+          $ref: '#/components/responses/OrderInternalError'
+        '503':
+          $ref: '#/components/responses/OrderUnavailable'
   /v1/customer/orders/{orderId}:
     get:
-      tags: [customer-orders]
+      tags:
+      - customer-orders
       operationId: getCustomerOrder
-      summary: >
-        Read one of the caller's OWN orders. A malformed, unknown or foreign id is the identical 404. Returns
-        the immutable snapshot taken at placement; it is never re-derived from current product, price or
-        address data.
+      summary: 'Read one of the caller''s OWN orders. A malformed, unknown or foreign id is the identical 404. Returns the immutable snapshot taken at placement; it is never re-derived from current product, price or address data.
+
+        '
       security:
-        - customerBearerAuth: []
+      - customerBearerAuth: []
       parameters:
-        - name: orderId
-          in: path
-          required: true
-          schema: { type: string, pattern: '^ORD_[A-Za-z0-9_-]{6,64}$' }
+      - name: orderId
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^ORD_[A-Za-z0-9_-]{6,64}$
       responses:
         '200':
           description: The order exactly as it was placed.
           headers:
-            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/CustomerOrder' }
-        '401': { $ref: '#/components/responses/OrderUnauthenticated' }
-        '404': { $ref: '#/components/responses/OrderNotFound' }
-        '500': { $ref: '#/components/responses/OrderInternalError' }
-        '503': { $ref: '#/components/responses/OrderUnavailable' }
+              schema:
+                $ref: '#/components/schemas/CustomerOrder'
+        '401':
+          $ref: '#/components/responses/OrderUnauthenticated'
+        '404':
+          $ref: '#/components/responses/OrderNotFound'
+        '500':
+          $ref: '#/components/responses/OrderInternalError'
+        '503':
+          $ref: '#/components/responses/OrderUnavailable'
 components:
   parameters:
     AddressIdParam:
       name: addressId
       in: path
       required: true
-      schema: { type: string, pattern: '^ADDR_[A-Za-z0-9_-]{6,64}$' }
+      schema:
+        type: string
+        pattern: ^ADDR_[A-Za-z0-9_-]{6,64}$
     Release:
       name: release
       in: query
       required: false
-      schema: { type: string }
+      schema:
+        type: string
       description: Taxonomy release id; omitted resolves the current pointer once.
     NodeId:
       name: id
       in: path
       required: true
-      schema: { type: string, pattern: '^TZ[SCGV]-[0-9]{6}$' }
+      schema:
+        type: string
+        pattern: ^TZ[SCGV]-[0-9]{6}$
     ProductId:
       name: id
       in: path
       required: true
-      schema: { type: string, pattern: '^TZP-[0-9]+$' }
+      schema:
+        type: string
+        pattern: ^TZP-[0-9]+$
     PageSize:
       name: page_size
       in: query
       required: false
-      schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 50
+        default: 20
     Cursor:
       name: cursor
       in: query
       required: false
-      schema: { type: string }
+      schema:
+        type: string
       description: Opaque signed cursor. Clients MUST NOT parse it.
     Pin:
       name: pin
       in: query
       required: false
-      schema: { type: string, pattern: '^[1-9][0-9]{5}$' }
+      schema:
+        type: string
+        pattern: ^[1-9][0-9]{5}$
       description: 6-digit Indian PIN code (launch location mechanism).
     Lat:
       name: lat
       in: query
       required: false
-      schema: { type: number }
-      description: >
-        Used ONLY by GET /v1/serviceability, and ONLY when the operator has configured a geo provider; with the default
-        (no provider) any lat/lng is 400 INVALID_REQUEST. Must be sent together with `lng`, never with `pin`. Category
-        products and product detail remain PIN-only (lat/lng is always 400 there). Coordinates are never stored or logged.
+      schema:
+        type: number
+      description: 'Used ONLY by GET /v1/serviceability, and ONLY when the operator has configured a geo provider; with the default (no provider) any lat/lng is 400 INVALID_REQUEST. Must be sent together with `lng`, never with `pin`. Category products and product detail remain PIN-only (lat/lng is always 400 there). Coordinates are never stored or logged.
+
+        '
     Lng:
       name: lng
       in: query
       required: false
-      schema: { type: number }
-      description: >
-        Used ONLY by GET /v1/serviceability, and ONLY when the operator has configured a geo provider; with the default
-        (no provider) any lat/lng is 400 INVALID_REQUEST. Must be sent together with `lng`, never with `pin`. Category
-        products and product detail remain PIN-only (lat/lng is always 400 there). Coordinates are never stored or logged.
+      schema:
+        type: number
+      description: 'Used ONLY by GET /v1/serviceability, and ONLY when the operator has configured a geo provider; with the default (no provider) any lat/lng is 400 INVALID_REQUEST. Must be sent together with `lng`, never with `pin`. Category products and product detail remain PIN-only (lat/lng is always 400 there). Coordinates are never stored or logged.
+
+        '
     InstallationId:
       name: X-Tazzzo-Installation-Id
       in: header
       required: false
-      schema: { type: string, maxLength: 128, pattern: '^[A-Za-z0-9\-_.:]+$' }
+      schema:
+        type: string
+        maxLength: 128
+        pattern: ^[A-Za-z0-9\-_.:]+$
       description: Optional opaque rate-limit dimension. Never identity/authz.
   headers:
     ETag:
       description: Entity tag for conditional GET on stable/global responses.
-      schema: { type: string }
+      schema:
+        type: string
     CacheControl:
       description: Cacheable (global, release-keyed) response.
-      schema: { type: string, example: "public, max-age=300, stale-while-revalidate=60" }
+      schema:
+        type: string
+        example: public, max-age=300, stale-while-revalidate=60
     CacheControlPrivate:
       description: Location-enriched response; never shared across locations.
-      schema: { type: string, example: "private, max-age=15" }
+      schema:
+        type: string
+        example: private, max-age=15
     CacheControlNoStore:
       description: Per-request auth state; never cacheable by any intermediary.
-      schema: { type: string, example: "no-store" }
+      schema:
+        type: string
+        example: no-store
   schemas:
     Node:
       type: object
-      required: [id, name]
+      required:
+      - id
+      - name
       properties:
-        id: { type: string }
-        name: { type: string }
+        id:
+          type: string
+        name:
+          type: string
     NodeListResponse:
       type: object
-      required: [resolvedReleaseId, items, requestId]
+      required:
+      - resolvedReleaseId
+      - items
+      - requestId
       properties:
-        resolvedReleaseId: { type: string }
+        resolvedReleaseId:
+          type: string
         items:
           type: array
-          items: { $ref: '#/components/schemas/Node' }
-        requestId: { type: string }
+          items:
+            $ref: '#/components/schemas/Node'
+        requestId:
+          type: string
     StockState:
       type: string
-      enum: [IN_STOCK, LOW_STOCK, OUT_OF_STOCK, UNKNOWN]
+      enum:
+      - IN_STOCK
+      - LOW_STOCK
+      - OUT_OF_STOCK
+      - UNKNOWN
     ProductImage:
       type: object
-      required: [url, role, order]
+      required:
+      - url
+      - role
+      - order
       properties:
-        url: { type: string, format: uri, description: Approved CDN host only. }
-        role: { type: string, enum: [PRIMARY, GALLERY] }
-        order: { type: integer, minimum: 0 }
-        alt: { type: string, nullable: true }
-        width: { type: integer, nullable: true }
-        height: { type: integer, nullable: true }
+        url:
+          type: string
+          format: uri
+          description: Approved CDN host only.
+        role:
+          type: string
+          enum:
+          - PRIMARY
+          - GALLERY
+        order:
+          type: integer
+          minimum: 0
+        alt:
+          type: string
+          nullable: true
+        width:
+          type: integer
+          nullable: true
+        height:
+          type: integer
+          nullable: true
     ProductVariant:
       type: object
-      required: [variantId, skuId]
+      required:
+      - variantId
+      - skuId
       properties:
-        variantId: { type: string }
-        skuId: { type: string }
-        packSize: { type: string, nullable: true }
-        unit: { type: string, nullable: true }
+        variantId:
+          type: string
+        skuId:
+          type: string
+        packSize:
+          type: string
+          nullable: true
+        unit:
+          type: string
+          nullable: true
     ProductAttribute:
       type: object
-      required: [key, label]
+      required:
+      - key
+      - label
       properties:
-        key: { type: string }
-        label: { type: string }
+        key:
+          type: string
+        label:
+          type: string
         value: {}
-        unit: { type: string, nullable: true }
+        unit:
+          type: string
+          nullable: true
     LegalInformation:
       type: object
       properties:
-        manufacturer: { type: string, nullable: true }
-        countryOfOrigin: { type: string, nullable: true }
-        netQuantity: { type: string, nullable: true }
-        fssai: { type: string, nullable: true }
-        importer: { type: string, nullable: true }
+        manufacturer:
+          type: string
+          nullable: true
+        countryOfOrigin:
+          type: string
+          nullable: true
+        netQuantity:
+          type: string
+          nullable: true
+        fssai:
+          type: string
+          nullable: true
+        importer:
+          type: string
+          nullable: true
     ServiceAreaSummary:
       type: object
-      required: [serviceable]
+      required:
+      - serviceable
       properties:
-        serviceAreaId: { type: string, nullable: true }
-        serviceable: { type: boolean }
+        serviceAreaId:
+          type: string
+          nullable: true
+        serviceable:
+          type: boolean
     ServiceabilityResponse:
       type: object
-      required: [serviceable, requestId]
+      required:
+      - serviceable
+      - requestId
       properties:
-        serviceable: { type: boolean }
-        serviceAreaId: { type: string, nullable: true }
-        serviceAreaVersion: { type: integer, format: int64, nullable: true }
-        etaMinutesMin: { type: integer, nullable: true }
-        etaMinutesMax: { type: integer, nullable: true }
-        requestId: { type: string }
+        serviceable:
+          type: boolean
+        serviceAreaId:
+          type: string
+          nullable: true
+        serviceAreaVersion:
+          type: integer
+          format: int64
+          nullable: true
+        etaMinutesMin:
+          type: integer
+          nullable: true
+        etaMinutesMax:
+          type: integer
+          nullable: true
+        requestId:
+          type: string
     ProductCard:
       type: object
-      description: >
-        Public composed card = stable base fields + runtime location enrichment.
-        Amounts are integer paise (int64). Location fields are null/UNKNOWN when
-        no location is supplied.
-      required: [skuId, productId, name, stockState, maxOrderQuantity, minimumOrderQuantity, buyable]
+      description: 'Public composed card = stable base fields + runtime location enrichment. Amounts are integer paise (int64). Location fields are null/UNKNOWN when no location is supplied.
+
+        '
+      required:
+      - skuId
+      - productId
+      - name
+      - stockState
+      - maxOrderQuantity
+      - minimumOrderQuantity
+      - buyable
       properties:
-        skuId: { type: string }
-        productId: { type: string }
-        name: { type: string }
-        brandCode: { type: string, nullable: true }
-        brandName: { type: string, nullable: true }
-        thumbnailUrl: { type: string, format: uri, nullable: true }
-        packSize: { type: string, nullable: true }
-        unit: { type: string, nullable: true }
-        sellingPricePaise: { type: integer, format: int64, nullable: true, minimum: 0 }
-        mrpPaise: { type: integer, format: int64, nullable: true, minimum: 0 }
-        discountPercent: { type: integer, nullable: true, minimum: 0, maximum: 99 }
-        discountAmountPaise: { type: integer, format: int64, nullable: true, minimum: 0 }
-        offerSummary: { type: string, nullable: true }
-        categoryId: { type: string, nullable: true }
-        verticalId: { type: string, nullable: true }
+        skuId:
+          type: string
+        productId:
+          type: string
+        name:
+          type: string
+        brandCode:
+          type: string
+          nullable: true
+        brandName:
+          type: string
+          nullable: true
+        thumbnailUrl:
+          type: string
+          format: uri
+          nullable: true
+        packSize:
+          type: string
+          nullable: true
+        unit:
+          type: string
+          nullable: true
+        sellingPricePaise:
+          type: integer
+          format: int64
+          nullable: true
+          minimum: 0
+        mrpPaise:
+          type: integer
+          format: int64
+          nullable: true
+          minimum: 0
+        discountPercent:
+          type: integer
+          nullable: true
+          minimum: 0
+          maximum: 99
+        discountAmountPaise:
+          type: integer
+          format: int64
+          nullable: true
+          minimum: 0
+        offerSummary:
+          type: string
+          nullable: true
+        categoryId:
+          type: string
+          nullable: true
+        verticalId:
+          type: string
+          nullable: true
         badges:
           type: array
           nullable: true
-          items: { type: string }
-        rating: { type: integer, nullable: true, description: "rating x10 (e.g. 45 = 4.5); integer to avoid floats" }
-        ratingCount: { type: integer, nullable: true }
-        sponsored: { type: boolean, default: false }
-        stockState: { $ref: '#/components/schemas/StockState' }
-        lowStockRemaining: { type: integer, nullable: true }
-        maxOrderQuantity: { type: integer, minimum: 0 }
-        minimumOrderQuantity: { type: integer, minimum: 1, default: 1 }
-        serviceable: { type: boolean, nullable: true }
-        etaMinutesMin: { type: integer, nullable: true }
-        etaMinutesMax: { type: integer, nullable: true }
-        buyable: { type: boolean, description: "server-derived: priced AND in stock AND serviceable AND active" }
+          items:
+            type: string
+        rating:
+          type: integer
+          nullable: true
+          description: rating x10 (e.g. 45 = 4.5); integer to avoid floats
+        ratingCount:
+          type: integer
+          nullable: true
+        sponsored:
+          type: boolean
+          default: false
+        stockState:
+          $ref: '#/components/schemas/StockState'
+        lowStockRemaining:
+          type: integer
+          nullable: true
+        maxOrderQuantity:
+          type: integer
+          minimum: 0
+        minimumOrderQuantity:
+          type: integer
+          minimum: 1
+          default: 1
+        serviceable:
+          type: boolean
+          nullable: true
+        etaMinutesMin:
+          type: integer
+          nullable: true
+        etaMinutesMax:
+          type: integer
+          nullable: true
+        buyable:
+          type: boolean
+          description: 'server-derived: priced AND in stock AND serviceable AND active'
     ProductDetail:
       allOf:
-        - $ref: '#/components/schemas/ProductCard'
-        - type: object
-          required: [resolvedReleaseId, requestId]
-          properties:
-            description: { type: string, nullable: true }
-            highlights:
-              type: array
-              nullable: true
-              items: { type: string }
-            gallery:
-              type: array
-              items: { $ref: '#/components/schemas/ProductImage' }
-            attributes:
-              type: array
-              items: { $ref: '#/components/schemas/ProductAttribute' }
-            variants:
-              type: array
-              items: { $ref: '#/components/schemas/ProductVariant' }
-            legal: { $ref: '#/components/schemas/LegalInformation' }
-            serviceability: { $ref: '#/components/schemas/ServiceabilityResponse' }
-            resolvedReleaseId: { type: string }
-            requestId: { type: string }
+      - $ref: '#/components/schemas/ProductCard'
+      - type: object
+        required:
+        - resolvedReleaseId
+        - requestId
+        properties:
+          description:
+            type: string
+            nullable: true
+          highlights:
+            type: array
+            nullable: true
+            items:
+              type: string
+          gallery:
+            type: array
+            items:
+              $ref: '#/components/schemas/ProductImage'
+          attributes:
+            type: array
+            items:
+              $ref: '#/components/schemas/ProductAttribute'
+          variants:
+            type: array
+            items:
+              $ref: '#/components/schemas/ProductVariant'
+          legal:
+            $ref: '#/components/schemas/LegalInformation'
+          serviceability:
+            $ref: '#/components/schemas/ServiceabilityResponse'
+          resolvedReleaseId:
+            type: string
+          requestId:
+            type: string
     PagedProductResponse:
       type: object
-      required: [resolvedReleaseId, items, hasMore, requestId]
+      required:
+      - resolvedReleaseId
+      - items
+      - hasMore
+      - requestId
       properties:
-        resolvedReleaseId: { type: string }
-        serviceArea: { $ref: '#/components/schemas/ServiceAreaSummary' }
+        resolvedReleaseId:
+          type: string
+        serviceArea:
+          $ref: '#/components/schemas/ServiceAreaSummary'
         items:
           type: array
-          items: { $ref: '#/components/schemas/ProductCard' }
-        nextCursor: { type: string, nullable: true, description: Omitted at end of list. }
-        hasMore: { type: boolean }
-        requestId: { type: string }
+          items:
+            $ref: '#/components/schemas/ProductCard'
+        nextCursor:
+          type: string
+          nullable: true
+          description: Omitted at end of list.
+        hasMore:
+          type: boolean
+        requestId:
+          type: string
     OtpRequestRequest:
       type: object
-      required: [phone]
+      required:
+      - phone
       properties:
         phone:
           type: string
-          description: >
-            India phone number. E.164 (+91XXXXXXXXXX) preferred; bare 10-digit or leading-zero
-            domestic forms are also normalized. No other country is accepted.
-          example: "+919876543210"
+          description: 'India phone number. E.164 (+91XXXXXXXXXX) preferred; bare 10-digit or leading-zero domestic forms are also normalized. No other country is accepted.
+
+            '
+          example: '+919876543210'
     OtpRequestResponse:
       type: object
-      required: [challengeId, expiresInSeconds, resendAfterSeconds, requestId]
+      required:
+      - challengeId
+      - expiresInSeconds
+      - resendAfterSeconds
+      - requestId
       properties:
-        challengeId: { type: string, pattern: '^OTP_[A-Za-z0-9_-]+$' }
-        expiresInSeconds: { type: integer, format: int64 }
-        resendAfterSeconds: { type: integer, format: int64 }
-        requestId: { type: string }
+        challengeId:
+          type: string
+          pattern: ^OTP_[A-Za-z0-9_-]+$
+        expiresInSeconds:
+          type: integer
+          format: int64
+        resendAfterSeconds:
+          type: integer
+          format: int64
+        requestId:
+          type: string
     OtpVerifyRequest:
       type: object
-      required: [challengeId, otp]
+      required:
+      - challengeId
+      - otp
       properties:
-        challengeId: { type: string, pattern: '^OTP_[A-Za-z0-9_-]+$' }
-        otp: { type: string, pattern: '^[0-9]{6}$' }
+        challengeId:
+          type: string
+          pattern: ^OTP_[A-Za-z0-9_-]+$
+        otp:
+          type: string
+          pattern: ^[0-9]{6}$
     OtpVerifyResponse:
       type: object
-      required: [challengeId, verified, grantId, requestId]
+      required:
+      - challengeId
+      - verified
+      - grantId
+      - requestId
       properties:
-        challengeId: { type: string }
-        verified: { type: boolean }
+        challengeId:
+          type: string
+        verified:
+          type: boolean
         grantId:
           type: string
-          pattern: '^GRANT_[A-Za-z0-9_-]+$'
-          description: >
-            Opaque one-time login grant. NOT an access or refresh token; carries no phone/PII.
-            A future phase atomically consumes it to create a customer session.
-        requestId: { type: string }
+          pattern: ^GRANT_[A-Za-z0-9_-]+$
+          description: 'Opaque one-time login grant. NOT an access or refresh token; carries no phone/PII. A future phase atomically consumes it to create a customer session.
+
+            '
+        requestId:
+          type: string
     OtpErrorEnvelope:
       type: object
-      description: >
-        Independent of ErrorEnvelope (the frozen commerce-read contract) — a deliberately small,
-        stable OTP-specific vocabulary that never distinguishes "unknown challenge" from "wrong
-        code" from "locked" from "superseded" (all OTP_INVALID).
-      required: [code, message, requestId]
+      description: 'Independent of ErrorEnvelope (the frozen commerce-read contract) — a deliberately small, stable OTP-specific vocabulary that never distinguishes "unknown challenge" from "wrong code" from "locked" from "superseded" (all OTP_INVALID).
+
+        '
+      required:
+      - code
+      - message
+      - requestId
       properties:
         code:
           type: string
-          enum: [OTP_INVALID_REQUEST, OTP_INVALID, OTP_EXPIRED, OTP_RATE_LIMITED, SERVICE_UNAVAILABLE, INTERNAL]
-        message: { type: string, description: "Safe, generic. No internals, no OTP, no phone." }
-        requestId: { type: string }
-        retryAfterSeconds: { type: integer, nullable: true }
+          enum:
+          - OTP_INVALID_REQUEST
+          - OTP_INVALID
+          - OTP_EXPIRED
+          - OTP_RATE_LIMITED
+          - SERVICE_UNAVAILABLE
+          - INTERNAL
+        message:
+          type: string
+          description: Safe, generic. No internals, no OTP, no phone.
+        requestId:
+          type: string
+        retryAfterSeconds:
+          type: integer
+          nullable: true
     ErrorEnvelope:
       type: object
-      required: [code, message, requestId, retryable]
+      required:
+      - code
+      - message
+      - requestId
+      - retryable
       properties:
         code:
           type: string
-          enum: [INVALID_REQUEST, INVALID_CURSOR, NOT_FOUND, RATE_LIMITED, SERVICE_UNAVAILABLE, INTERNAL]
-        message: { type: string, description: "Safe, generic. No internals." }
-        requestId: { type: string }
-        retryable: { type: boolean }
-        retryAfterSeconds: { type: integer, nullable: true }
-        details: { type: object, nullable: true, description: Only when safe. }
+          enum:
+          - INVALID_REQUEST
+          - INVALID_CURSOR
+          - NOT_FOUND
+          - RATE_LIMITED
+          - SERVICE_UNAVAILABLE
+          - INTERNAL
+        message:
+          type: string
+          description: Safe, generic. No internals.
+        requestId:
+          type: string
+        retryable:
+          type: boolean
+        retryAfterSeconds:
+          type: integer
+          nullable: true
+        details:
+          type: object
+          nullable: true
+          description: Only when safe.
     SessionEstablishRequest:
       type: object
-      required: [grantId]
+      required:
+      - grantId
       properties:
-        grantId: { type: string, pattern: '^GRANT_[A-Za-z0-9_-]+$' }
+        grantId:
+          type: string
+          pattern: ^GRANT_[A-Za-z0-9_-]+$
     SessionEstablishResponse:
       type: object
-      description: >
-        sessionId and the phone number are DELIBERATELY OMITTED — the client never needs either
-        directly; the access token carries the session internally and the refresh token embeds it
-        as an opaque routing prefix.
-      required: [customerId, accessToken, accessTokenExpiresIn, refreshToken, requestId]
+      description: 'sessionId and the phone number are DELIBERATELY OMITTED — the client never needs either directly; the access token carries the session internally and the refresh token embeds it as an opaque routing prefix.
+
+        '
+      required:
+      - customerId
+      - accessToken
+      - accessTokenExpiresIn
+      - refreshToken
+      - requestId
       properties:
-        customerId: { type: string, pattern: '^CUS_[A-Za-z0-9_-]+$' }
-        accessToken: { type: string }
-        accessTokenExpiresIn: { type: integer, format: int64, description: Seconds. }
-        refreshToken: { type: string }
-        requestId: { type: string }
+        customerId:
+          type: string
+          pattern: ^CUS_[A-Za-z0-9_-]+$
+        accessToken:
+          type: string
+        accessTokenExpiresIn:
+          type: integer
+          format: int64
+          description: Seconds.
+        refreshToken:
+          type: string
+        requestId:
+          type: string
     RefreshRequest:
       type: object
-      required: [refreshToken]
+      required:
+      - refreshToken
       properties:
-        refreshToken: { type: string }
+        refreshToken:
+          type: string
     RefreshResponse:
       type: object
-      description: A brand-new refresh token every time — the presented one is rotated away and
-        never usable again, whether or not this response is ever received by the client.
-      required: [accessToken, accessTokenExpiresIn, refreshToken, requestId]
+      description: A brand-new refresh token every time — the presented one is rotated away and never usable again, whether or not this response is ever received by the client.
+      required:
+      - accessToken
+      - accessTokenExpiresIn
+      - refreshToken
+      - requestId
       properties:
-        accessToken: { type: string }
-        accessTokenExpiresIn: { type: integer, format: int64, description: Seconds. }
-        refreshToken: { type: string }
-        requestId: { type: string }
+        accessToken:
+          type: string
+        accessTokenExpiresIn:
+          type: integer
+          format: int64
+          description: Seconds.
+        refreshToken:
+          type: string
+        requestId:
+          type: string
     SessionErrorEnvelope:
       type: object
-      description: >
-        Independent of ErrorEnvelope/OtpErrorEnvelope/CustomerAuthError (different trust domains).
-        INVALID grant/refresh-token states — unknown, consumed, expired, wrong purpose, digest
-        mismatch, revoked, rotated-away — all collapse to the SAME UNAUTHENTICATED outcome.
-      required: [code, message, requestId]
+      description: 'Independent of ErrorEnvelope/OtpErrorEnvelope/CustomerAuthError (different trust domains). INVALID grant/refresh-token states — unknown, consumed, expired, wrong purpose, digest mismatch, revoked, rotated-away — all collapse to the SAME UNAUTHENTICATED outcome.
+
+        '
+      required:
+      - code
+      - message
+      - requestId
       properties:
-        code: { type: string, enum: [INVALID_REQUEST, UNAUTHENTICATED, SERVICE_UNAVAILABLE, INTERNAL] }
-        message: { type: string, description: "Safe, generic. No internals, no tokens, no phone." }
-        requestId: { type: string }
+        code:
+          type: string
+          enum:
+          - INVALID_REQUEST
+          - UNAUTHENTICATED
+          - SERVICE_UNAVAILABLE
+          - INTERNAL
+        message:
+          type: string
+          description: Safe, generic. No internals, no tokens, no phone.
+        requestId:
+          type: string
     CustomerProfileResponse:
       type: object
-      description: >
-        Deliberately excludes phoneNormalized (auth identity data) and any Mongo internals beyond
-        the public version counter. displayName/email are nullable — null means never set (or
-        explicitly cleared). email is UNVERIFIED profile data only; this document never claims
-        emailVerified=true because there is no verification step in this PR.
-      required: [customerId, version, requestId]
+      description: 'Deliberately excludes phoneNormalized (auth identity data) and any Mongo internals beyond the public version counter. displayName/email are nullable — null means never set (or explicitly cleared). email is UNVERIFIED profile data only; this document never claims emailVerified=true because there is no verification step in this PR.
+
+        '
+      required:
+      - customerId
+      - version
+      - requestId
       properties:
-        customerId: { type: string, pattern: '^CUS_[A-Za-z0-9_-]+$' }
-        displayName: { type: string, nullable: true, maxLength: 80 }
-        email: { type: string, nullable: true, maxLength: 254 }
-        version: { type: integer, format: int64, minimum: 0 }
-        requestId: { type: string }
+        customerId:
+          type: string
+          pattern: ^CUS_[A-Za-z0-9_-]+$
+        displayName:
+          type: string
+          nullable: true
+          maxLength: 80
+        email:
+          type: string
+          nullable: true
+          maxLength: 254
+        version:
+          type: integer
+          format: int64
+          minimum: 0
+        requestId:
+          type: string
     CustomerProfilePatchRequest:
       type: object
-      description: >
-        True partial-update semantics: a field OMITTED from the body is left untouched; a field
-        PRESENT with JSON null CLEARS it; a field PRESENT with a string sets it. A body with
-        neither key present (including {}) is rejected as 400 INVALID_REQUEST — there is no
-        silent no-op PATCH.
+      description: 'True partial-update semantics: a field OMITTED from the body is left untouched; a field PRESENT with JSON null CLEARS it; a field PRESENT with a string sets it. A body with neither key present (including {}) is rejected as 400 INVALID_REQUEST — there is no silent no-op PATCH.
+
+        '
       properties:
-        displayName: { type: string, nullable: true, maxLength: 80 }
-        email: { type: string, nullable: true, maxLength: 254 }
+        displayName:
+          type: string
+          nullable: true
+          maxLength: 80
+        email:
+          type: string
+          nullable: true
+          maxLength: 254
     CustomerProfileErrorEnvelope:
       type: object
-      description: >
-        Covers BOTH failure sources on this path: the pre-existing CustomerAuthFilter boundary
-        (UNAUTHENTICATED/SERVICE_UNAVAILABLE — an invalid/missing/revoked credential, or a
-        signing-key/session-authority readiness failure) and this domain's own controller
-        (INVALID_REQUEST/PRECONDITION_REQUIRED/PRECONDITION_FAILED/SERVICE_UNAVAILABLE/INTERNAL —
-        a request-shape problem, a missing/stale If-Match, or a profile-store outage). Same flat
-        shape either way; a client never needs to know which layer rejected it.
-      required: [code, message, requestId]
+      description: 'Covers BOTH failure sources on this path: the pre-existing CustomerAuthFilter boundary (UNAUTHENTICATED/SERVICE_UNAVAILABLE — an invalid/missing/revoked credential, or a signing-key/session-authority readiness failure) and this domain''s own controller (INVALID_REQUEST/PRECONDITION_REQUIRED/PRECONDITION_FAILED/SERVICE_UNAVAILABLE/INTERNAL — a request-shape problem, a missing/stale If-Match, or a profile-store outage). Same flat shape either way; a client never needs to know which layer rejected it.
+
+        '
+      required:
+      - code
+      - message
+      - requestId
       properties:
         code:
           type: string
-          enum: [INVALID_REQUEST, UNAUTHENTICATED, PRECONDITION_REQUIRED, PRECONDITION_FAILED,
-                 SERVICE_UNAVAILABLE, INTERNAL]
-        message: { type: string, description: "Safe, generic. No internals, no PII." }
-        requestId: { type: string }
+          enum:
+          - INVALID_REQUEST
+          - UNAUTHENTICATED
+          - PRECONDITION_REQUIRED
+          - PRECONDITION_FAILED
+          - SERVICE_UNAVAILABLE
+          - INTERNAL
+        message:
+          type: string
+          description: Safe, generic. No internals, no PII.
+        requestId:
+          type: string
     CustomerAddressServiceability:
       type: object
-      description: >
-        Evaluated FRESH from the existing serviceability domain on every read/response — never
-        persisted address state. `serviceable=null` means UNKNOWN (the serviceability dependency
-        could not currently be evaluated), deliberately distinct from `false` (a definite answer:
-        this location is outside coverage today). Saving an address never requires it to be
-        serviceable now.
+      description: 'Evaluated FRESH from the existing serviceability domain on every read/response — never persisted address state. `serviceable=null` means UNKNOWN (the serviceability dependency could not currently be evaluated), deliberately distinct from `false` (a definite answer: this location is outside coverage today). Saving an address never requires it to be serviceable now.
+
+        '
       properties:
-        serviceable: { type: boolean, nullable: true }
+        serviceable:
+          type: boolean
+          nullable: true
     CustomerAddressResponse:
       type: object
-      description: >
-        NEVER exposes fulfillmentLocationId (internal), warehouseId, or any Mongo internal. It also
-        intentionally omits serviceAreaId/serviceAreaVersion (public in /v1/serviceability) — the
-        address projection is a narrower `serviceable`-only view.
-        recipientPhone is DELIVERY CONTACT information only — never an authentication identity,
-        never used to log in, may differ from the customer's login phone.
-      required: [addressId, label, recipientName, recipientPhone, addressLine1, city, state,
-                 postalCode, isDefault, version, serviceability, requestId]
+      description: 'NEVER exposes fulfillmentLocationId (internal), warehouseId, or any Mongo internal. It also intentionally omits serviceAreaId/serviceAreaVersion (public in /v1/serviceability) — the address projection is a narrower `serviceable`-only view. recipientPhone is DELIVERY CONTACT information only — never an authentication identity, never used to log in, may differ from the customer''s login phone.
+
+        '
+      required:
+      - addressId
+      - label
+      - recipientName
+      - recipientPhone
+      - addressLine1
+      - city
+      - state
+      - postalCode
+      - isDefault
+      - version
+      - serviceability
+      - requestId
       properties:
-        addressId: { type: string, pattern: '^ADDR_[A-Za-z0-9_-]+$' }
-        label: { type: string, enum: [HOME, WORK, OTHER] }
-        recipientName: { type: string, maxLength: 80 }
-        recipientPhone: { type: string, description: "Canonical +91 E.164. Delivery contact only." }
-        addressLine1: { type: string, maxLength: 160 }
-        addressLine2: { type: string, nullable: true, maxLength: 160 }
-        landmark: { type: string, nullable: true, maxLength: 120 }
-        city: { type: string, maxLength: 80 }
-        state: { type: string, maxLength: 80 }
-        postalCode: { type: string, pattern: '^[1-9][0-9]{5}$' }
-        latitude: { type: number, format: double, nullable: true, minimum: -90, maximum: 90 }
-        longitude: { type: number, format: double, nullable: true, minimum: -180, maximum: 180 }
-        isDefault: { type: boolean }
-        version: { type: integer, format: int64, minimum: 1 }
-        serviceability: { $ref: '#/components/schemas/CustomerAddressServiceability' }
-        requestId: { type: string }
+        addressId:
+          type: string
+          pattern: ^ADDR_[A-Za-z0-9_-]+$
+        label:
+          type: string
+          enum:
+          - HOME
+          - WORK
+          - OTHER
+        recipientName:
+          type: string
+          maxLength: 80
+        recipientPhone:
+          type: string
+          description: Canonical +91 E.164. Delivery contact only.
+        addressLine1:
+          type: string
+          maxLength: 160
+        addressLine2:
+          type: string
+          nullable: true
+          maxLength: 160
+        landmark:
+          type: string
+          nullable: true
+          maxLength: 120
+        city:
+          type: string
+          maxLength: 80
+        state:
+          type: string
+          maxLength: 80
+        postalCode:
+          type: string
+          pattern: ^[1-9][0-9]{5}$
+        latitude:
+          type: number
+          format: double
+          nullable: true
+          minimum: -90
+          maximum: 90
+        longitude:
+          type: number
+          format: double
+          nullable: true
+          minimum: -180
+          maximum: 180
+        isDefault:
+          type: boolean
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+        serviceability:
+          $ref: '#/components/schemas/CustomerAddressServiceability'
+        requestId:
+          type: string
     CustomerAddressListResponse:
       type: object
-      required: [items, requestId]
+      required:
+      - items
+      - requestId
       properties:
         items:
           type: array
-          items: { $ref: '#/components/schemas/CustomerAddressResponse' }
-        requestId: { type: string }
+          items:
+            $ref: '#/components/schemas/CustomerAddressResponse'
+        requestId:
+          type: string
     CustomerAddressCreateRequest:
       type: object
-      description: >
-        No client-supplied addressId/customerId/version/createdAt/updatedAt/fulfillmentLocationId/
-        serviceAreaId — none of those fields exist on this request at all. latitude/longitude are a
-        PAIR: both present and valid, or both omitted; exactly one supplied is 400.
-      required: [label, recipientName, recipientPhone, addressLine1, city, state, postalCode]
+      description: 'No client-supplied addressId/customerId/version/createdAt/updatedAt/fulfillmentLocationId/ serviceAreaId — none of those fields exist on this request at all. latitude/longitude are a PAIR: both present and valid, or both omitted; exactly one supplied is 400.
+
+        '
+      required:
+      - label
+      - recipientName
+      - recipientPhone
+      - addressLine1
+      - city
+      - state
+      - postalCode
       properties:
-        label: { type: string, enum: [HOME, WORK, OTHER] }
-        recipientName: { type: string, maxLength: 80 }
-        recipientPhone: { type: string }
-        addressLine1: { type: string, maxLength: 160 }
-        addressLine2: { type: string, nullable: true, maxLength: 160 }
-        landmark: { type: string, nullable: true, maxLength: 120 }
-        city: { type: string, maxLength: 80 }
-        state: { type: string, maxLength: 80 }
-        postalCode: { type: string, pattern: '^[1-9][0-9]{5}$' }
-        latitude: { type: number, format: double, nullable: true }
-        longitude: { type: number, format: double, nullable: true }
+        label:
+          type: string
+          enum:
+          - HOME
+          - WORK
+          - OTHER
+        recipientName:
+          type: string
+          maxLength: 80
+        recipientPhone:
+          type: string
+        addressLine1:
+          type: string
+          maxLength: 160
+        addressLine2:
+          type: string
+          nullable: true
+          maxLength: 160
+        landmark:
+          type: string
+          nullable: true
+          maxLength: 120
+        city:
+          type: string
+          maxLength: 80
+        state:
+          type: string
+          maxLength: 80
+        postalCode:
+          type: string
+          pattern: ^[1-9][0-9]{5}$
+        latitude:
+          type: number
+          format: double
+          nullable: true
+        longitude:
+          type: number
+          format: double
+          nullable: true
     CustomerAddressPatchRequest:
       type: object
-      description: >
-        True partial-update semantics: a field OMITTED is left untouched; addressLine2/landmark
-        PRESENT with JSON null CLEAR it; every other field is required and can never be set null.
-        latitude/longitude are a pair -- both keys present (each may be null to clear both) or both
-        omitted; exactly one key present is 400. Cannot change addressId/customerId/version/
-        createdAt/updatedAt/isDefault (use PUT .../default for the last one).
+      description: 'True partial-update semantics: a field OMITTED is left untouched; addressLine2/landmark PRESENT with JSON null CLEAR it; every other field is required and can never be set null. latitude/longitude are a pair -- both keys present (each may be null to clear both) or both omitted; exactly one key present is 400. Cannot change addressId/customerId/version/ createdAt/updatedAt/isDefault (use PUT .../default for the last one).
+
+        '
       properties:
-        label: { type: string, enum: [HOME, WORK, OTHER] }
-        recipientName: { type: string, maxLength: 80 }
-        recipientPhone: { type: string }
-        addressLine1: { type: string, maxLength: 160 }
-        addressLine2: { type: string, nullable: true, maxLength: 160 }
-        landmark: { type: string, nullable: true, maxLength: 120 }
-        city: { type: string, maxLength: 80 }
-        state: { type: string, maxLength: 80 }
-        postalCode: { type: string, pattern: '^[1-9][0-9]{5}$' }
-        latitude: { type: number, format: double, nullable: true }
-        longitude: { type: number, format: double, nullable: true }
+        label:
+          type: string
+          enum:
+          - HOME
+          - WORK
+          - OTHER
+        recipientName:
+          type: string
+          maxLength: 80
+        recipientPhone:
+          type: string
+        addressLine1:
+          type: string
+          maxLength: 160
+        addressLine2:
+          type: string
+          nullable: true
+          maxLength: 160
+        landmark:
+          type: string
+          nullable: true
+          maxLength: 120
+        city:
+          type: string
+          maxLength: 80
+        state:
+          type: string
+          maxLength: 80
+        postalCode:
+          type: string
+          pattern: ^[1-9][0-9]{5}$
+        latitude:
+          type: number
+          format: double
+          nullable: true
+        longitude:
+          type: number
+          format: double
+          nullable: true
     CustomerAddressErrorEnvelope:
       type: object
-      description: >
-        Covers BOTH failure sources on this path: the pre-existing CustomerAuthFilter boundary
-        (UNAUTHENTICATED/SERVICE_UNAVAILABLE) and this domain's own controller (INVALID_REQUEST/
-        NOT_FOUND/PRECONDITION_REQUIRED/PRECONDITION_FAILED/ADDRESS_LIMIT_REACHED/
-        SERVICE_UNAVAILABLE/INTERNAL). Same flat shape either way. An unknown address id and
-        another customer's address return the IDENTICAL NOT_FOUND -- no ownership enumeration.
-      required: [code, message, requestId]
+      description: 'Covers BOTH failure sources on this path: the pre-existing CustomerAuthFilter boundary (UNAUTHENTICATED/SERVICE_UNAVAILABLE) and this domain''s own controller (INVALID_REQUEST/ NOT_FOUND/PRECONDITION_REQUIRED/PRECONDITION_FAILED/ADDRESS_LIMIT_REACHED/ SERVICE_UNAVAILABLE/INTERNAL). Same flat shape either way. An unknown address id and another customer''s address return the IDENTICAL NOT_FOUND -- no ownership enumeration.
+
+        '
+      required:
+      - code
+      - message
+      - requestId
       properties:
         code:
           type: string
-          enum: [INVALID_REQUEST, UNAUTHENTICATED, NOT_FOUND, PRECONDITION_REQUIRED,
-                 PRECONDITION_FAILED, ADDRESS_LIMIT_REACHED, SERVICE_UNAVAILABLE, INTERNAL]
-        message: { type: string, description: "Safe, generic. No internals, no PII." }
-        requestId: { type: string }
+          enum:
+          - INVALID_REQUEST
+          - UNAUTHENTICATED
+          - NOT_FOUND
+          - PRECONDITION_REQUIRED
+          - PRECONDITION_FAILED
+          - ADDRESS_LIMIT_REACHED
+          - SERVICE_UNAVAILABLE
+          - INTERNAL
+        message:
+          type: string
+          description: Safe, generic. No internals, no PII.
+        requestId:
+          type: string
     CustomerCartSetQuantityRequest:
       type: object
-      required: [quantity]
+      required:
+      - quantity
       properties:
-        quantity: { type: integer, format: int32, minimum: 1, maximum: 20, description: "Exact desired quantity (max is configurable)." }
+        quantity:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 20
+          description: Exact desired quantity (max is configurable).
     CustomerCartResponse:
       type: object
-      required: [version, items, itemCount, distinctItemCount, subtotalPaise, requestId]
+      required:
+      - version
+      - items
+      - itemCount
+      - distinctItemCount
+      - subtotalPaise
+      - requestId
       properties:
-        version: { type: integer, format: int64, minimum: 0, description: "0 = no cart yet. Monotonic; never resets." }
+        version:
+          type: integer
+          format: int64
+          minimum: 0
+          description: 0 = no cart yet. Monotonic; never resets.
         items:
           type: array
-          items: { $ref: '#/components/schemas/CustomerCartItem' }
-        itemCount: { type: integer, format: int32, description: "Sum of quantities." }
-        distinctItemCount: { type: integer, format: int32 }
+          items:
+            $ref: '#/components/schemas/CustomerCartItem'
+        itemCount:
+          type: integer
+          format: int32
+          description: Sum of quantities.
+        distinctItemCount:
+          type: integer
+          format: int32
         subtotalPaise:
           type: integer
           format: int64
-          description: "Sum of CURRENT priced line totals. NOT a final payable total; not locked."
-        expiresAt: { type: string, format: date-time, nullable: true, description: "Last mutation + 7 days; null for an empty cart." }
-        requestId: { type: string }
+          description: Sum of CURRENT priced line totals. NOT a final payable total; not locked.
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Last mutation + 7 days; null for an empty cart.
+        requestId:
+          type: string
     CustomerCartItem:
       type: object
-      required: [skuId, quantity, addedAt, updatedAt, buyable, issues]
+      required:
+      - skuId
+      - quantity
+      - addedAt
+      - updatedAt
+      - buyable
+      - issues
       properties:
-        skuId: { type: string }
-        quantity: { type: integer, format: int32 }
-        addedAt: { type: string, format: date-time }
-        updatedAt: { type: string, format: date-time }
+        skuId:
+          type: string
+        quantity:
+          type: integer
+          format: int32
+        addedAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
         product:
           nullable: true
           type: object
           properties:
-            title: { type: string }
-            brandCode: { type: string, nullable: true }
-            imageUrl: { type: string, nullable: true }
+            title:
+              type: string
+            brandCode:
+              type: string
+              nullable: true
+            imageUrl:
+              type: string
+              nullable: true
         price:
           nullable: true
-          description: "CURRENT price (not locked). Null when unavailable."
+          description: CURRENT price (not locked). Null when unavailable.
           type: object
           properties:
-            unitPricePaise: { type: integer, format: int64 }
-            mrpPaise: { type: integer, format: int64 }
-            currency: { type: string, enum: [INR] }
+            unitPricePaise:
+              type: integer
+              format: int64
+            mrpPaise:
+              type: integer
+              format: int64
+            currency:
+              type: string
+              enum:
+              - INR
         availability:
           type: object
           properties:
-            stockState: { type: string, enum: [IN_STOCK, LOW_STOCK, OUT_OF_STOCK, UNKNOWN] }
-            maxOrderQuantity: { type: integer, format: int32 }
-            serviceable: { type: boolean, nullable: true, description: "null when no location context was supplied." }
-        lineTotalPaise: { type: integer, format: int64, nullable: true }
+            stockState:
+              type: string
+              enum:
+              - IN_STOCK
+              - LOW_STOCK
+              - OUT_OF_STOCK
+              - UNKNOWN
+            maxOrderQuantity:
+              type: integer
+              format: int32
+            serviceable:
+              type: boolean
+              nullable: true
+              description: null when no location context was supplied.
+        lineTotalPaise:
+          type: integer
+          format: int64
+          nullable: true
         buyable:
           type: boolean
-          description: "Derived by the existing commerce buyable logic for the requested quantity. Informational; checkout revalidates."
+          description: Derived by the existing commerce buyable logic for the requested quantity. Informational; checkout revalidates.
         issues:
           type: array
           items:
             type: string
-            enum: [PRODUCT_UNAVAILABLE, PRICE_UNAVAILABLE, LOCATION_REQUIRED, UNSERVICEABLE, OUT_OF_STOCK,
-                   INSUFFICIENT_STOCK, STOCK_UNKNOWN, ENRICHMENT_UNAVAILABLE]
+            enum:
+            - PRODUCT_UNAVAILABLE
+            - PRICE_UNAVAILABLE
+            - LOCATION_REQUIRED
+            - UNSERVICEABLE
+            - OUT_OF_STOCK
+            - INSUFFICIENT_STOCK
+            - STOCK_UNKNOWN
+            - ENRICHMENT_UNAVAILABLE
     CustomerCartErrorEnvelope:
       type: object
-      description: >
-        Covers CustomerAuthFilter failures (UNAUTHENTICATED/SERVICE_UNAVAILABLE) and this domain's
-        own (INVALID_REQUEST/UNSUPPORTED_MEDIA_TYPE/NOT_FOUND/PRECONDITION_REQUIRED/
-        PRECONDITION_FAILED/CART_ITEM_LIMIT_REACHED/SERVICE_UNAVAILABLE/INTERNAL). Unknown SKU, hidden SKU, absent line
-        and foreign/unknown addressId are all the IDENTICAL NOT_FOUND.
-      required: [code, message, requestId]
+      description: 'Covers CustomerAuthFilter failures (UNAUTHENTICATED/SERVICE_UNAVAILABLE) and this domain''s own (INVALID_REQUEST/UNSUPPORTED_MEDIA_TYPE/NOT_FOUND/PRECONDITION_REQUIRED/ PRECONDITION_FAILED/CART_ITEM_LIMIT_REACHED/SERVICE_UNAVAILABLE/INTERNAL). Unknown SKU, hidden SKU, absent line and foreign/unknown addressId are all the IDENTICAL NOT_FOUND.
+
+        '
+      required:
+      - code
+      - message
+      - requestId
       properties:
         code:
           type: string
-          enum: [INVALID_REQUEST, UNSUPPORTED_MEDIA_TYPE, UNAUTHENTICATED, NOT_FOUND, PRECONDITION_REQUIRED,
-                 PRECONDITION_FAILED, CART_ITEM_LIMIT_REACHED, SERVICE_UNAVAILABLE, INTERNAL]
-        message: { type: string, description: "Safe, generic. No internals, no PII." }
-        requestId: { type: string }
+          enum:
+          - INVALID_REQUEST
+          - UNSUPPORTED_MEDIA_TYPE
+          - UNAUTHENTICATED
+          - NOT_FOUND
+          - PRECONDITION_REQUIRED
+          - PRECONDITION_FAILED
+          - CART_ITEM_LIMIT_REACHED
+          - SERVICE_UNAVAILABLE
+          - INTERNAL
+        message:
+          type: string
+          description: Safe, generic. No internals, no PII.
+        requestId:
+          type: string
     CustomerCheckoutQuoteRequest:
       type: object
-      required: [addressId]
+      required:
+      - addressId
       description: Only `addressId` is read. Any other field (price, totals, customerId, routing) is ignored and never stored.
       properties:
-        addressId: { type: string, maxLength: 64, example: ADDR_0123456789abcdef }
+        addressId:
+          type: string
+          maxLength: 64
+          example: ADDR_0123456789abcdef
     CustomerCheckoutQuote:
       type: object
-      description: >
-        A validated snapshot at `createdAt`, valid until `expiresAt`. NOT a stock reservation, NOT a
-        permanent price lock, NOT a guaranteed final amount. `subtotalPaise` is the canonical merchandise subtotal.
-        `moneyPreview`, when present, is the advisory commerce money stored with the quote.
-      required: [quoteId, cartVersion, addressId, items, itemCount, distinctItemCount, subtotalPaise, currency,
-                 createdAt, expiresAt, requestId]
+      description: 'A validated snapshot at `createdAt`, valid until `expiresAt`. NOT a stock reservation, NOT a permanent price lock, NOT a guaranteed final amount. `subtotalPaise` is the canonical merchandise subtotal. `moneyPreview`, when present, is the advisory commerce money stored with the quote.
+
+        '
+      required:
+      - quoteId
+      - cartVersion
+      - addressId
+      - items
+      - itemCount
+      - distinctItemCount
+      - subtotalPaise
+      - currency
+      - createdAt
+      - expiresAt
+      - requestId
       properties:
-        quoteId: { type: string, pattern: '^CHKQ_[A-Za-z0-9_-]{6,64}$' }
-        cartVersion: { type: integer, format: int64 }
-        addressId: { type: string }
+        quoteId:
+          type: string
+          pattern: ^CHKQ_[A-Za-z0-9_-]{6,64}$
+        cartVersion:
+          type: integer
+          format: int64
+        addressId:
+          type: string
         items:
           type: array
           items:
             type: object
-            required: [skuId, quantity, unitPricePaise, lineTotalPaise]
+            required:
+            - skuId
+            - quantity
+            - unitPricePaise
+            - lineTotalPaise
             properties:
-              skuId: { type: string }
-              quantity: { type: integer }
-              unitPricePaise: { type: integer, format: int64 }
-              lineTotalPaise: { type: integer, format: int64 }
-        itemCount: { type: integer }
-        distinctItemCount: { type: integer }
-        subtotalPaise: { type: integer, format: int64 }
-        currency: { type: string, enum: [INR] }
-        createdAt: { type: string, format: date-time }
-        expiresAt: { type: string, format: date-time }
+              skuId:
+                type: string
+              quantity:
+                type: integer
+              unitPricePaise:
+                type: integer
+                format: int64
+              lineTotalPaise:
+                type: integer
+                format: int64
+        itemCount:
+          type: integer
+        distinctItemCount:
+          type: integer
+        subtotalPaise:
+          type: integer
+          format: int64
+        currency:
+          type: string
+          enum:
+          - INR
+        createdAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
         benefitPreview:
-          description: >
-            ADVISORY Benefits result stored with this quote. It is NOT final payable authority, NOT a price lock and NOT
-            an Order commitment: Order placement re-evaluates Benefits authoritatively, and the Order result can differ
-            if Membership state or Benefits configuration changes before placement. `subtotalPaise` remains the
-            canonical merchandise subtotal the preview was evaluated against; this object does not make the quote a
-            price lock or a final payable amount. The field is ABSENT on a quote created before Benefits preview
-            existed, which is NOT the same as `applied: false` (`applied: false` means Benefits was evaluated and no
-            benefit applied; no reason is given). Replaying a quote or reading it returns the stored preview unchanged.
-            The examples are illustrative only.
+          description: 'ADVISORY Benefits result stored with this quote. It is NOT final payable authority, NOT a price lock and NOT an Order commitment: Order placement re-evaluates Benefits authoritatively, and the Order result can differ if Membership state or Benefits configuration changes before placement. `subtotalPaise` remains the canonical merchandise subtotal the preview was evaluated against; this object does not make the quote a price lock or a final payable amount. The field is ABSENT on a quote created before Benefits preview existed, which is NOT the same as `applied: false` (`applied: false` means Benefits was evaluated and no benefit applied; no reason is given). Replaying a quote or reading it returns the stored preview unchanged. The examples are illustrative only.
+
+            '
           oneOf:
-            - type: object
-              additionalProperties: false
-              required: [applied]
-              properties:
-                applied: { type: boolean, enum: [false], example: false }
-            - type: object
-              additionalProperties: false
-              required: [applied, discountPaise, discountBps]
-              properties:
-                applied: { type: boolean, enum: [true], example: true }
-                discountPaise: { type: integer, format: int64, minimum: 1, example: 500 }
-                discountBps: { type: integer, minimum: 1, maximum: 10000, example: 500 }
+          - type: object
+            additionalProperties: false
+            required:
+            - applied
+            properties:
+              applied:
+                type: boolean
+                enum:
+                - false
+                example: false
+          - type: object
+            additionalProperties: false
+            required:
+            - applied
+            - discountPaise
+            - discountBps
+            properties:
+              applied:
+                type: boolean
+                enum:
+                - true
+                example: true
+              discountPaise:
+                type: integer
+                format: int64
+                minimum: 1
+                example: 500
+              discountBps:
+                type: integer
+                minimum: 1
+                maximum: 10000
+                example: 500
         moneyPreview:
           type: object
           additionalProperties: false
-          required: [merchandiseSubtotalPaise, benefitDiscountPaise, payablePaise]
-          description: >
-            ADVISORY commerce money stored with this quote: `payablePaise = merchandiseSubtotalPaise -
-            benefitDiscountPaise`. `merchandiseSubtotalPaise` equals the quote's `subtotalPaise`;
-            `benefitDiscountPaise` equals `benefitPreview.discountPaise` when `benefitPreview.applied` is true and is 0
-            otherwise; `0 <= benefitDiscountPaise <= merchandiseSubtotalPaise`, so `payablePaise` is never negative
-            and 0 is valid (a full discount). It reflects this stored quote only. It is NOT Payment authority, NOT a
-            price lock and NOT a guarantee for Order placement: Order placement revalidates and computes its own
-            authoritative money independently, and the Order's payable may differ if Membership, Benefits
-            configuration, Pricing or other authoritative inputs change before placement. No tax, fee, coupon, Coins
-            or wallet component is included. The field is ABSENT on a quote created before this money preview
-            existed, which is NOT a zero payable. Replaying a quote or reading it returns the stored values
-            unchanged. The examples are illustrative only.
+          required:
+          - merchandiseSubtotalPaise
+          - benefitDiscountPaise
+          - payablePaise
+          description: 'ADVISORY commerce money stored with this quote: `payablePaise = merchandiseSubtotalPaise - benefitDiscountPaise`. `merchandiseSubtotalPaise` equals the quote''s `subtotalPaise`; `benefitDiscountPaise` equals `benefitPreview.discountPaise` when `benefitPreview.applied` is true and is 0 otherwise; `0 <= benefitDiscountPaise <= merchandiseSubtotalPaise`, so `payablePaise` is never negative and 0 is valid (a full discount). It reflects this stored quote only. It is NOT Payment authority, NOT a price lock and NOT a guarantee for Order placement: Order placement revalidates and computes its own authoritative money independently, and the Order''s payable may differ if Membership, Benefits configuration, Pricing or other authoritative inputs change before placement. No tax, fee, coupon, Coins or wallet component is included. The field is ABSENT on a quote created before this money preview existed, which is NOT a zero payable. Replaying a quote or reading it returns the stored values unchanged. The examples are illustrative only.
+
+            '
           properties:
-            merchandiseSubtotalPaise: { type: integer, format: int64, minimum: 0, example: 10000 }
-            benefitDiscountPaise: { type: integer, format: int64, minimum: 0, example: 500 }
-            payablePaise: { type: integer, format: int64, minimum: 0, example: 9500 }
-        requestId: { type: string }
+            merchandiseSubtotalPaise:
+              type: integer
+              format: int64
+              minimum: 0
+              example: 10000
+            benefitDiscountPaise:
+              type: integer
+              format: int64
+              minimum: 0
+              example: 500
+            payablePaise:
+              type: integer
+              format: int64
+              minimum: 0
+              example: 9500
+        requestId:
+          type: string
     CustomerCheckoutErrorEnvelope:
       type: object
-      description: >
-        Safe, generic. `items` is present only for CHECKOUT_ITEM_UNAVAILABLE and lists the blocking lines
-        with a closed reason. Never carries routing, inventory internals or PII.
-      required: [code, message, requestId]
+      description: 'Safe, generic. `items` is present only for CHECKOUT_ITEM_UNAVAILABLE and lists the blocking lines with a closed reason. Never carries routing, inventory internals or PII.
+
+        '
+      required:
+      - code
+      - message
+      - requestId
       properties:
         code:
           type: string
-          enum: [INVALID_REQUEST, UNSUPPORTED_MEDIA_TYPE, UNAUTHENTICATED, NOT_FOUND, PRECONDITION_REQUIRED,
-                 PRECONDITION_FAILED, IDEMPOTENCY_REQUIRED, IDEMPOTENCY_CONFLICT, CHECKOUT_CART_EMPTY,
-                 CHECKOUT_ITEM_UNAVAILABLE, CHECKOUT_UNSERVICEABLE, QUOTE_EXPIRED, SERVICE_UNAVAILABLE, INTERNAL]
-        message: { type: string }
-        requestId: { type: string }
+          enum:
+          - INVALID_REQUEST
+          - UNSUPPORTED_MEDIA_TYPE
+          - UNAUTHENTICATED
+          - NOT_FOUND
+          - PRECONDITION_REQUIRED
+          - PRECONDITION_FAILED
+          - IDEMPOTENCY_REQUIRED
+          - IDEMPOTENCY_CONFLICT
+          - CHECKOUT_CART_EMPTY
+          - CHECKOUT_ITEM_UNAVAILABLE
+          - CHECKOUT_UNSERVICEABLE
+          - QUOTE_EXPIRED
+          - SERVICE_UNAVAILABLE
+          - INTERNAL
+        message:
+          type: string
+        requestId:
+          type: string
         items:
           type: array
           items:
             type: object
-            required: [skuId, reason]
+            required:
+            - skuId
+            - reason
             properties:
-              skuId: { type: string }
+              skuId:
+                type: string
               reason:
                 type: string
-                enum: [PRODUCT_UNAVAILABLE, PRICE_UNAVAILABLE, OUT_OF_STOCK, INSUFFICIENT_STOCK, STOCK_UNKNOWN, NOT_BUYABLE]
+                enum:
+                - PRODUCT_UNAVAILABLE
+                - PRICE_UNAVAILABLE
+                - OUT_OF_STOCK
+                - INSUFFICIENT_STOCK
+                - STOCK_UNKNOWN
+                - NOT_BUYABLE
     CustomerOrderPlaceRequest:
       type: object
-      required: [quoteId, paymentMethod]
-      description: >
-        Only `quoteId` and `paymentMethod` are read. Any other field (status, payment condition, customerId,
-        reservation, inventory location, price ...) is ignored and never used.
+      required:
+      - quoteId
+      - paymentMethod
+      description: 'Only `quoteId` and `paymentMethod` are read. Any other field (status, payment condition, customerId, reservation, inventory location, price ...) is ignored and never used.
+
+        '
       properties:
-        quoteId: { type: string, maxLength: 64, example: CHKQ_0123456789abcdef }
+        quoteId:
+          type: string
+          maxLength: 64
+          example: CHKQ_0123456789abcdef
         paymentMethod:
           type: string
-          enum: [COD]
+          enum:
+          - COD
           description: Cash on delivery is the only supported payment method. Anything else is 400 PAYMENT_METHOD_UNSUPPORTED.
     CustomerOrderLine:
       type: object
-      required: [skuId, title, brandCode, quantity, unitPricePaise, lineTotalPaise]
+      required:
+      - skuId
+      - title
+      - brandCode
+      - quantity
+      - unitPricePaise
+      - lineTotalPaise
       description: Title, brand and price as they were when the order was placed.
       properties:
-        skuId: { type: string }
-        title: { type: string }
-        brandCode: { type: string }
-        quantity: { type: integer }
-        unitPricePaise: { type: integer, format: int64 }
-        lineTotalPaise: { type: integer, format: int64 }
+        skuId:
+          type: string
+        title:
+          type: string
+        brandCode:
+          type: string
+        quantity:
+          type: integer
+        unitPricePaise:
+          type: integer
+          format: int64
+        lineTotalPaise:
+          type: integer
+          format: int64
     CustomerOrderAddress:
       type: object
-      required: [label, recipientName, recipientPhone, addressLine1, city, state, postalCode]
-      description: >
-        The delivery address as it was when the order was placed (a snapshot — later address edits do not
-        change it). Never carries coordinates or an address id/version.
+      required:
+      - label
+      - recipientName
+      - recipientPhone
+      - addressLine1
+      - city
+      - state
+      - postalCode
+      description: 'The delivery address as it was when the order was placed (a snapshot — later address edits do not change it). Never carries coordinates or an address id/version.
+
+        '
       properties:
-        label: { type: string }
-        recipientName: { type: string }
-        recipientPhone: { type: string }
-        addressLine1: { type: string }
-        addressLine2: { type: string }
-        landmark: { type: string }
-        city: { type: string }
-        state: { type: string }
-        postalCode: { type: string }
+        label:
+          type: string
+        recipientName:
+          type: string
+        recipientPhone:
+          type: string
+        addressLine1:
+          type: string
+        addressLine2:
+          type: string
+        landmark:
+          type: string
+        city:
+          type: string
+        state:
+          type: string
+        postalCode:
+          type: string
     CustomerOrder:
       type: object
-      description: >
-        A placed order. `status` is always `CONFIRMED`. `paymentCondition` `COD_DUE` means the order is
-        confirmed and payment is owed on delivery; nothing has been collected. `money.payablePaise` is the amount
-        due on delivery (it is never a statement that anything was paid); it is `0` for a fully discounted order,
-        in which case nothing is due.
-      required: [orderId, status, paymentMethod, paymentCondition, items, itemCount, subtotalPaise, currency,
-                 deliveryAddress, createdAt, confirmedAt, requestId]
+      description: 'A placed order. `status` is always `CONFIRMED`. `paymentCondition` `COD_DUE` means the order is confirmed and payment is owed on delivery; nothing has been collected. `money.payablePaise` is the amount due on delivery (it is never a statement that anything was paid); it is `0` for a fully discounted order, in which case nothing is due.
+
+        '
+      required:
+      - orderId
+      - status
+      - paymentMethod
+      - paymentCondition
+      - items
+      - itemCount
+      - subtotalPaise
+      - currency
+      - deliveryAddress
+      - createdAt
+      - confirmedAt
+      - requestId
       properties:
-        orderId: { type: string, pattern: '^ORD_[A-Za-z0-9_-]{6,64}$' }
-        status: { type: string, enum: [CONFIRMED] }
-        paymentMethod: { type: string, enum: [COD] }
-        paymentCondition: { type: string, enum: [COD_DUE] }
+        orderId:
+          type: string
+          pattern: ^ORD_[A-Za-z0-9_-]{6,64}$
+        status:
+          type: string
+          enum:
+          - CONFIRMED
+        paymentMethod:
+          type: string
+          enum:
+          - COD
+        paymentCondition:
+          type: string
+          enum:
+          - COD_DUE
         items:
           type: array
-          items: { $ref: '#/components/schemas/CustomerOrderLine' }
-        itemCount: { type: integer }
-        subtotalPaise: { type: integer, format: int64 }
-        currency: { type: string, enum: [INR] }
-        deliveryAddress: { $ref: '#/components/schemas/CustomerOrderAddress' }
-        createdAt: { type: string, format: date-time }
-        confirmedAt: { type: string, format: date-time }
-        money: { $ref: '#/components/schemas/CustomerOrderMoney' }
-        requestId: { type: string }
+          items:
+            $ref: '#/components/schemas/CustomerOrderLine'
+        itemCount:
+          type: integer
+        subtotalPaise:
+          type: integer
+          format: int64
+        currency:
+          type: string
+          enum:
+          - INR
+        deliveryAddress:
+          $ref: '#/components/schemas/CustomerOrderAddress'
+        createdAt:
+          type: string
+          format: date-time
+        confirmedAt:
+          type: string
+          format: date-time
+        money:
+          $ref: '#/components/schemas/CustomerOrderMoney'
+        requestId:
+          type: string
     CustomerOrderMoney:
       type: object
       additionalProperties: false
-      required: [merchandiseSubtotalPaise, benefitDiscountPaise, payablePaise]
-      description: >
-        The AUTHORITATIVE money of this order, projected from what was persisted at placement (never recomputed when
-        read): `payablePaise = merchandiseSubtotalPaise - benefitDiscountPaise`, and `merchandiseSubtotalPaise` equals
-        `subtotalPaise`. The order computes it independently at placement, so it may differ from the quote's
-        advisory `moneyPreview`. It is the commerce amount owed, not a payment fact: nothing is authorized,
-        captured or collected.
-        `0 <= benefitDiscountPaise <= merchandiseSubtotalPaise`; `payablePaise` is never negative and `0` is valid.
-        The field is ABSENT on an order created before the money model existed; absence is NEVER a zero payable.
-        Replaying the placement or reading the order returns the same values.
+      required:
+      - merchandiseSubtotalPaise
+      - benefitDiscountPaise
+      - payablePaise
+      description: 'The AUTHORITATIVE money of this order, projected from what was persisted at placement (never recomputed when read): `payablePaise = merchandiseSubtotalPaise - benefitDiscountPaise`, and `merchandiseSubtotalPaise` equals `subtotalPaise`. The order computes it independently at placement, so it may differ from the quote''s advisory `moneyPreview`. It is the commerce amount owed, not a payment fact: nothing is authorized, captured or collected. `0 <= benefitDiscountPaise <= merchandiseSubtotalPaise`; `payablePaise` is never negative and `0` is valid. The field is ABSENT on an order created before the money model existed; absence is NEVER a zero payable. Replaying the placement or reading the order returns the same values.
+
+        '
       properties:
-        merchandiseSubtotalPaise: { type: integer, format: int64, minimum: 0, example: 10000 }
-        benefitDiscountPaise: { type: integer, format: int64, minimum: 0, example: 500 }
-        payablePaise: { type: integer, format: int64, minimum: 0, example: 9500 }
+        merchandiseSubtotalPaise:
+          type: integer
+          format: int64
+          minimum: 0
+          example: 10000
+        benefitDiscountPaise:
+          type: integer
+          format: int64
+          minimum: 0
+          example: 500
+        payablePaise:
+          type: integer
+          format: int64
+          minimum: 0
+          example: 9500
     CustomerOrderErrorEnvelope:
       type: object
       description: Safe, generic. Never carries routing, inventory internals, Mongo text or PII.
-      required: [code, message, requestId]
+      required:
+      - code
+      - message
+      - requestId
       properties:
         code:
           type: string
-          enum: [INVALID_REQUEST, PAYMENT_METHOD_UNSUPPORTED, UNSUPPORTED_MEDIA_TYPE, UNAUTHENTICATED, NOT_FOUND,
-                 QUOTE_EXPIRED, ADDRESS_CHANGED, NOT_SERVICEABLE, PRICE_CHANGED, PRODUCT_UNAVAILABLE,
-                 STOCK_UNAVAILABLE, RESERVATION_EXPIRED, CART_VERSION_ALREADY_PURCHASED, SERVICE_UNAVAILABLE,
-                 INTERNAL]
-        message: { type: string }
-        requestId: { type: string }
+          enum:
+          - INVALID_REQUEST
+          - PAYMENT_METHOD_UNSUPPORTED
+          - UNSUPPORTED_MEDIA_TYPE
+          - UNAUTHENTICATED
+          - NOT_FOUND
+          - QUOTE_EXPIRED
+          - ADDRESS_CHANGED
+          - NOT_SERVICEABLE
+          - PRICE_CHANGED
+          - PRODUCT_UNAVAILABLE
+          - STOCK_UNAVAILABLE
+          - RESERVATION_EXPIRED
+          - CART_VERSION_ALREADY_PURCHASED
+          - SERVICE_UNAVAILABLE
+          - INTERNAL
+        message:
+          type: string
+        requestId:
+          type: string
   responses:
     BadRequest:
       description: Invalid request or cursor
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
     NotFound:
       description: Resource not found (indistinguishable from hidden/inactive by design)
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
     RateLimited:
       description: Rate limited
       headers:
-        Retry-After: { schema: { type: integer }, description: seconds }
+        Retry-After:
+          schema:
+            type: integer
+          description: seconds
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
     Unavailable:
       description: Service temporarily unavailable
       headers:
-        Retry-After: { schema: { type: integer }, description: seconds }
+        Retry-After:
+          schema:
+            type: integer
+          description: seconds
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
     OtpBadRequest:
       description: Malformed request, or an invalid/expired/locked/unknown/superseded challenge.
       headers:
-        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/OtpErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/OtpErrorEnvelope'
     OtpRateLimited:
       description: Rate limited
       headers:
-        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
-        Retry-After: { schema: { type: integer }, description: seconds }
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+        Retry-After:
+          schema:
+            type: integer
+          description: seconds
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/OtpErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/OtpErrorEnvelope'
     OtpUnavailable:
       description: OTP signing key, provider, or rate limiter not configured/ready, or delivery failed.
       headers:
-        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/OtpErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/OtpErrorEnvelope'
     SessionBadRequest:
       description: Malformed grantId/refreshToken shape.
       headers:
-        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/SessionErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/SessionErrorEnvelope'
     SessionUnauthenticated:
-      description: >
-        Generic authentication failure — an invalid/consumed/expired/wrong-purpose grant, an
-        invalid/expired/revoked/rotated-away/digest-mismatched refresh token, or (logout only) a
-        missing/invalid customer access token. Never distinguishes which.
+      description: 'Generic authentication failure — an invalid/consumed/expired/wrong-purpose grant, an invalid/expired/revoked/rotated-away/digest-mismatched refresh token, or (logout only) a missing/invalid customer access token. Never distinguishes which.
+
+        '
       headers:
-        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
-        WWW-Authenticate: { schema: { type: string, example: "Bearer" } }
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+        WWW-Authenticate:
+          schema:
+            type: string
+            example: Bearer
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/SessionErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/SessionErrorEnvelope'
     SessionUnavailable:
       description: Access-token/refresh-token signing key or a required dependency not ready.
       headers:
-        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/SessionErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/SessionErrorEnvelope'
     ProfileBadRequest:
       description: Malformed request shape, an invalid displayName/email, or an empty patch.
       headers:
-        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/CustomerProfileErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/CustomerProfileErrorEnvelope'
     ProfilePreconditionRequired:
       description: PATCH was sent without an If-Match header.
       headers:
-        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/CustomerProfileErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/CustomerProfileErrorEnvelope'
     ProfilePreconditionFailed:
-      description: >
-        The presented If-Match no longer matches the current version — the profile changed (or was
-        created) since it was last read. Persisted state is left unchanged; retry after a fresh GET.
+      description: 'The presented If-Match no longer matches the current version — the profile changed (or was created) since it was last read. Persisted state is left unchanged; retry after a fresh GET.
+
+        '
       headers:
-        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/CustomerProfileErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/CustomerProfileErrorEnvelope'
     ProfileUnauthenticated:
-      description: >
-        Generic customer-authentication failure (owned by CustomerAuthFilter, not this domain) — a
-        missing/malformed/expired/revoked access token. Never distinguishes which.
+      description: 'Generic customer-authentication failure (owned by CustomerAuthFilter, not this domain) — a missing/malformed/expired/revoked access token. Never distinguishes which.
+
+        '
       headers:
-        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
-        WWW-Authenticate: { schema: { type: string, example: "Bearer" } }
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+        WWW-Authenticate:
+          schema:
+            type: string
+            example: Bearer
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/CustomerProfileErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/CustomerProfileErrorEnvelope'
     ProfileUnavailable:
-      description: >
-        Either the customer-auth signing key/session authority is not ready (CustomerAuthFilter), or
-        the profile store itself is unavailable (this domain). Never distinguishes which.
+      description: 'Either the customer-auth signing key/session authority is not ready (CustomerAuthFilter), or the profile store itself is unavailable (this domain). Never distinguishes which.
+
+        '
       headers:
-        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/CustomerProfileErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/CustomerProfileErrorEnvelope'
     AddressBadRequest:
       description: Malformed request shape, or an invalid field value (PIN, phone, text, lat/lng pair).
       headers:
-        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/CustomerAddressErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/CustomerAddressErrorEnvelope'
     AddressNotFound:
-      description: >
-        Unknown address id, OR an address belonging to another customer -- the IDENTICAL response
-        either way. No ownership enumeration.
+      description: 'Unknown address id, OR an address belonging to another customer -- the IDENTICAL response either way. No ownership enumeration.
+
+        '
       headers:
-        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/CustomerAddressErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/CustomerAddressErrorEnvelope'
     AddressLimitReached:
       description: The caller's saved-address limit has been reached.
       headers:
-        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/CustomerAddressErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/CustomerAddressErrorEnvelope'
     AddressPreconditionRequired:
       description: PATCH/DELETE was sent without an If-Match header.
       headers:
-        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/CustomerAddressErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/CustomerAddressErrorEnvelope'
     AddressPreconditionFailed:
-      description: >
-        The presented If-Match no longer matches the current version. Persisted state is left
-        unchanged; retry after a fresh GET.
+      description: 'The presented If-Match no longer matches the current version. Persisted state is left unchanged; retry after a fresh GET.
+
+        '
       headers:
-        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/CustomerAddressErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/CustomerAddressErrorEnvelope'
     AddressUnauthenticated:
-      description: >
-        Generic customer-authentication failure (owned by CustomerAuthFilter, not this domain).
-        Never distinguishes which.
+      description: 'Generic customer-authentication failure (owned by CustomerAuthFilter, not this domain). Never distinguishes which.
+
+        '
       headers:
-        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
-        WWW-Authenticate: { schema: { type: string, example: "Bearer" } }
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+        WWW-Authenticate:
+          schema:
+            type: string
+            example: Bearer
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/CustomerAddressErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/CustomerAddressErrorEnvelope'
     AddressUnavailable:
-      description: >
-        Either the customer-auth signing key/session authority is not ready (CustomerAuthFilter),
-        the customer identity authority failed, or the address store itself is unavailable. Never
-        distinguishes which.
+      description: 'Either the customer-auth signing key/session authority is not ready (CustomerAuthFilter), the customer identity authority failed, or the address store itself is unavailable. Never distinguishes which.
+
+        '
       headers:
-        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/CustomerAddressErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/CustomerAddressErrorEnvelope'
     CartBadRequest:
-      description: >
-        Malformed If-Match, invalid quantity, or malformed body.
+      description: 'Malformed If-Match, invalid quantity, or malformed body.
+
+        '
       headers:
-        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/CustomerCartErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/CustomerCartErrorEnvelope'
     CartNotFound:
-      description: >
-        Unknown/hidden SKU, absent cart line, or foreign/unknown addressId -- the IDENTICAL response. No existence or ownership enumeration.
+      description: 'Unknown/hidden SKU, absent cart line, or foreign/unknown addressId -- the IDENTICAL response. No existence or ownership enumeration.
+
+        '
       headers:
-        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/CustomerCartErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/CustomerCartErrorEnvelope'
     CartItemLimitReached:
-      description: >
-        Adding this SKU would exceed the distinct-item limit (default 50).
+      description: 'Adding this SKU would exceed the distinct-item limit (default 50).
+
+        '
       headers:
-        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/CustomerCartErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/CustomerCartErrorEnvelope'
     CartPreconditionRequired:
-      description: >
-        A mutation was sent without If-Match.
+      description: 'A mutation was sent without If-Match.
+
+        '
       headers:
-        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/CustomerCartErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/CustomerCartErrorEnvelope'
     CartPreconditionFailed:
-      description: >
-        If-Match no longer matches the current cart version (including a stale cart-0 after any write). State is unchanged; GET and retry.
+      description: 'If-Match no longer matches the current cart version (including a stale cart-0 after any write). State is unchanged; GET and retry.
+
+        '
       headers:
-        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/CustomerCartErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/CustomerCartErrorEnvelope'
     CartUnauthenticated:
-      description: >
-        Generic customer-authentication failure (owned by CustomerAuthFilter).
+      description: 'Generic customer-authentication failure (owned by CustomerAuthFilter).
+
+        '
       headers:
-        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
-        WWW-Authenticate: { schema: { type: string, example: "Bearer" } }
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+        WWW-Authenticate:
+          schema:
+            type: string
+            example: Bearer
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/CustomerCartErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/CustomerCartErrorEnvelope'
     CartUnsupportedMediaType:
-      description: >
-        The request body was not sent as `application/json`. Safe generic error; nothing was changed.
+      description: 'The request body was not sent as `application/json`. Safe generic error; nothing was changed.
+
+        '
       headers:
-        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/CustomerCartErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/CustomerCartErrorEnvelope'
     CartUnavailable:
-      description: >
-        Customer-auth not ready, the identity authority failed, or the cart store is unavailable. Never distinguishes which.
+      description: 'Customer-auth not ready, the identity authority failed, or the cart store is unavailable. Never distinguishes which.
+
+        '
       headers:
-        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/CustomerCartErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/CustomerCartErrorEnvelope'
     CheckoutBadRequest:
-      description: >
-        Malformed If-Match, Idempotency-Key or body (INVALID_REQUEST).
+      description: 'Malformed If-Match, Idempotency-Key or body (INVALID_REQUEST).
+
+        '
       headers:
-        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/CustomerCheckoutErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/CustomerCheckoutErrorEnvelope'
     CheckoutUnauthenticated:
-      description: >
-        Missing/invalid customer access token (UNAUTHENTICATED).
+      description: 'Missing/invalid customer access token (UNAUTHENTICATED).
+
+        '
       headers:
-        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/CustomerCheckoutErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/CustomerCheckoutErrorEnvelope'
     CheckoutNotFound:
-      description: >
-        Unknown, foreign or malformed address / quote id (identical NOT_FOUND).
+      description: 'Unknown, foreign or malformed address / quote id (identical NOT_FOUND).
+
+        '
       headers:
-        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/CustomerCheckoutErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/CustomerCheckoutErrorEnvelope'
     CheckoutConflict:
-      description: >
-        CHECKOUT_CART_EMPTY, CHECKOUT_ITEM_UNAVAILABLE (with `items`), CHECKOUT_UNSERVICEABLE or IDEMPOTENCY_CONFLICT. Nothing was created.
+      description: 'CHECKOUT_CART_EMPTY, CHECKOUT_ITEM_UNAVAILABLE (with `items`), CHECKOUT_UNSERVICEABLE or IDEMPOTENCY_CONFLICT. Nothing was created.
+
+        '
       headers:
-        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/CustomerCheckoutErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/CustomerCheckoutErrorEnvelope'
     CheckoutPreconditionFailed:
-      description: >
-        The cart changed since the reviewed version (also re-checked inside the persisting transaction).
+      description: 'The cart changed since the reviewed version (also re-checked inside the persisting transaction).
+
+        '
       headers:
-        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/CustomerCheckoutErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/CustomerCheckoutErrorEnvelope'
     CheckoutUnsupportedMediaType:
-      description: >
-        Body was not `application/json` (UNSUPPORTED_MEDIA_TYPE).
+      description: 'Body was not `application/json` (UNSUPPORTED_MEDIA_TYPE).
+
+        '
       headers:
-        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/CustomerCheckoutErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/CustomerCheckoutErrorEnvelope'
     CheckoutPreconditionRequired:
-      description: >
-        If-Match (PRECONDITION_REQUIRED) or Idempotency-Key (IDEMPOTENCY_REQUIRED) missing.
+      description: 'If-Match (PRECONDITION_REQUIRED) or Idempotency-Key (IDEMPOTENCY_REQUIRED) missing.
+
+        '
       headers:
-        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/CustomerCheckoutErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/CustomerCheckoutErrorEnvelope'
     CheckoutQuoteExpired:
-      description: >
-        The quote exists but its validity window has passed (QUOTE_EXPIRED). Create a new quote with a new Idempotency-Key.
+      description: 'The quote exists but its validity window has passed (QUOTE_EXPIRED). Create a new quote with a new Idempotency-Key.
+
+        '
       headers:
-        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/CustomerCheckoutErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/CustomerCheckoutErrorEnvelope'
     CheckoutUnavailable:
-      description: >
-        Commerce or datastore dependency unavailable (never reported as unserviceable/out-of-stock).
+      description: 'Commerce or datastore dependency unavailable (never reported as unserviceable/out-of-stock).
+
+        '
       headers:
-        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/CustomerCheckoutErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/CustomerCheckoutErrorEnvelope'
     OrderBadRequest:
-      description: >
-        Malformed body, missing `quoteId` or `paymentMethod` (INVALID_REQUEST), or a payment method other than COD (PAYMENT_METHOD_UNSUPPORTED).
+      description: 'Malformed body, missing `quoteId` or `paymentMethod` (INVALID_REQUEST), or a payment method other than COD (PAYMENT_METHOD_UNSUPPORTED).
+
+        '
       headers:
-        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/CustomerOrderErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/CustomerOrderErrorEnvelope'
     OrderUnauthenticated:
-      description: >
-        Missing/invalid customer access token (UNAUTHENTICATED).
+      description: 'Missing/invalid customer access token (UNAUTHENTICATED).
+
+        '
       headers:
-        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/CustomerOrderErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/CustomerOrderErrorEnvelope'
     OrderNotFound:
-      description: >
-        Unknown, foreign or malformed quote / order id (identical NOT_FOUND).
+      description: 'Unknown, foreign or malformed quote / order id (identical NOT_FOUND).
+
+        '
       headers:
-        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/CustomerOrderErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/CustomerOrderErrorEnvelope'
     OrderConflict:
-      description: >
-        The order could not be placed: ADDRESS_CHANGED, NOT_SERVICEABLE, PRICE_CHANGED, PRODUCT_UNAVAILABLE, STOCK_UNAVAILABLE, RESERVATION_EXPIRED, or CART_VERSION_ALREADY_PURCHASED (a different quote from this cart was already ordered). Nothing was created, reserved or cleared.
+      description: 'The order could not be placed: ADDRESS_CHANGED, NOT_SERVICEABLE, PRICE_CHANGED, PRODUCT_UNAVAILABLE, STOCK_UNAVAILABLE, RESERVATION_EXPIRED, or CART_VERSION_ALREADY_PURCHASED (a different quote from this cart was already ordered). Nothing was created, reserved or cleared.
+
+        '
       headers:
-        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/CustomerOrderErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/CustomerOrderErrorEnvelope'
     OrderQuoteExpired:
-      description: >
-        The quote's validity window has passed (QUOTE_EXPIRED). Create a new quote.
+      description: 'The quote''s validity window has passed (QUOTE_EXPIRED). Create a new quote.
+
+        '
       headers:
-        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/CustomerOrderErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/CustomerOrderErrorEnvelope'
     OrderUnsupportedMediaType:
-      description: >
-        Body was not `application/json` (UNSUPPORTED_MEDIA_TYPE).
+      description: 'Body was not `application/json` (UNSUPPORTED_MEDIA_TYPE).
+
+        '
       headers:
-        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/CustomerOrderErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/CustomerOrderErrorEnvelope'
     OrderInternalError:
-      description: >
-        A safe, generic server error (INTERNAL). No internal detail is exposed.
+      description: 'A safe, generic server error (INTERNAL). No internal detail is exposed.
+
+        '
       headers:
-        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/CustomerOrderErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/CustomerOrderErrorEnvelope'
     OrderUnavailable:
-      description: >
-        A datastore dependency was unavailable (SERVICE_UNAVAILABLE); safe to retry the same request.
+      description: 'A datastore dependency was unavailable (SERVICE_UNAVAILABLE); safe to retry the same request.
+
+        '
       headers:
-        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/CustomerOrderErrorEnvelope' }
+          schema:
+            $ref: '#/components/schemas/CustomerOrderErrorEnvelope'
   securitySchemes:
     customerBearerAuth:
       type: http
       scheme: bearer
-      description: >
-        A customer access token issued by POST /v1/auth/session or POST /v1/auth/refresh. Used by
-        POST /v1/auth/logout and the /v1/customer/** endpoints in this document — no other endpoint
-        here requires it, and this scheme is NOT applied globally (adding it here does not mark any
-        existing PUBLIC /v1 route as authenticated).
+      description: 'A customer access token issued by POST /v1/auth/session or POST /v1/auth/refresh. Used by POST /v1/auth/logout and the /v1/customer/** endpoints in this document — no other endpoint here requires it, and this scheme is NOT applied globally (adding it here does not mark any existing PUBLIC /v1 route as authenticated).
+
+        '
