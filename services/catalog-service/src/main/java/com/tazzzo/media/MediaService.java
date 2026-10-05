@@ -92,6 +92,14 @@ public class MediaService implements MediaReadPort {
      * @return the new version.
      */
     public long upsertMediaSet(UpsertMediaSetCommand cmd) {
+        return upsertMediaSet(cmd, null);
+    }
+
+    /**
+     * As {@link #upsertMediaSet(UpsertMediaSetCommand)}, attributed to {@code actor}. The admin API always uses this
+     * form; the actor-less form is a fixture/seed seam no production class may call (pinned by ModuleBoundaryTest).
+     */
+    public long upsertMediaSet(UpsertMediaSetCommand cmd, com.tazzzo.common.audit.Actor actor) {
         MediaSet validated = validateCommand(cmd);
         long newVersion;
         try {
@@ -101,7 +109,7 @@ public class MediaService implements MediaReadPort {
         }
         Date now = Date.from(clock.instant());
         EventPayload event = new EventPayload("MEDIA_SET_UPDATED", cmd.ownerId(),
-                auditDetail(cmd, newVersion));
+                auditDetail(cmd, newVersion), actor);
 
         try {
             tx.run(session -> {

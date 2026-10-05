@@ -58,7 +58,8 @@ public class ConsumerObservability {
         // measured separately.
         COMMERCE_CATEGORIES("commerce_categories"), COMMERCE_CHILDREN("commerce_children"),
         COMMERCE_LIST("commerce_list"), COMMERCE_PDP("commerce_pdp"),
-        COMMERCE_SERVICEABILITY("commerce_serviceability");
+        COMMERCE_SERVICEABILITY("commerce_serviceability"),
+        COMMERCE_SEARCH("commerce_search");
 
         private final String tag;
 
