@@ -118,19 +118,12 @@
         }
       }
     },
-    "/api/v1/admin/media/{ownerType}/{ownerId}" : {
+    "/api/v1/admin/service-areas/{pincode}" : {
       "get" : {
-        "tags" : [ "media-admin-controller" ],
+        "tags" : [ "service-area-admin-controller" ],
         "operationId" : "get_5",
         "parameters" : [ {
-          "name" : "ownerType",
-          "in" : "path",
-          "required" : true,
-          "schema" : {
-            "type" : "string"
-          }
-        }, {
-          "name" : "ownerId",
+          "name" : "pincode",
           "in" : "path",
           "required" : true,
           "schema" : {
@@ -143,7 +136,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/SetResponse"
+                  "$ref" : "#/components/schemas/AreaResponse"
                 }
               }
             }
@@ -151,17 +144,10 @@
         }
       },
       "put" : {
-        "tags" : [ "media-admin-controller" ],
-        "operationId" : "put",
+        "tags" : [ "service-area-admin-controller" ],
+        "operationId" : "upsert",
         "parameters" : [ {
-          "name" : "ownerType",
-          "in" : "path",
-          "required" : true,
-          "schema" : {
-            "type" : "string"
-          }
-        }, {
-          "name" : "ownerId",
+          "name" : "pincode",
           "in" : "path",
           "required" : true,
           "schema" : {
@@ -172,7 +158,7 @@
           "content" : {
             "application/json" : {
               "schema" : {
-                "$ref" : "#/components/schemas/SetRequest"
+                "$ref" : "#/components/schemas/UpsertRequest"
               }
             }
           },
@@ -184,7 +170,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/SetResponse"
+                  "$ref" : "#/components/schemas/AreaResponse"
                 }
               }
             }
@@ -1212,15 +1198,23 @@
         }
       }
     },
-    "/api/v1/admin/media/uploads" : {
+    "/api/v1/admin/service-areas/{pincode}/deactivate" : {
       "post" : {
-        "tags" : [ "media-admin-controller" ],
-        "operationId" : "upload",
+        "tags" : [ "service-area-admin-controller" ],
+        "operationId" : "deactivate",
+        "parameters" : [ {
+          "name" : "pincode",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
         "requestBody" : {
           "content" : {
             "application/json" : {
               "schema" : {
-                "$ref" : "#/components/schemas/UploadRequest"
+                "$ref" : "#/components/schemas/VersionRequest"
               }
             }
           },
@@ -1232,7 +1226,43 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/UploadResponse"
+                  "$ref" : "#/components/schemas/AreaResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/service-areas/{pincode}/activate" : {
+      "post" : {
+        "tags" : [ "service-area-admin-controller" ],
+        "operationId" : "activate_1",
+        "parameters" : [ {
+          "name" : "pincode",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/VersionRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AreaResponse"
                 }
               }
             }
@@ -2074,6 +2104,40 @@
         }
       }
     },
+    "/api/v1/admin/service-areas" : {
+      "get" : {
+        "tags" : [ "service-area-admin-controller" ],
+        "operationId" : "list_1",
+        "parameters" : [ {
+          "name" : "limit",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }, {
+          "name" : "after",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/PageResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/me" : {
       "get" : {
         "tags" : [ "admin-me-controller" ],
@@ -2095,7 +2159,7 @@
     "/api/v1/admin/audit-events" : {
       "get" : {
         "tags" : [ "admin-audit-events-controller" ],
-        "operationId" : "list_1",
+        "operationId" : "list_2",
         "responses" : {
           "200" : {
             "description" : "OK",
@@ -2299,45 +2363,31 @@
           }
         }
       },
-      "AssetDto" : {
+      "RouteDto" : {
         "type" : "object",
         "properties" : {
-          "assetId" : {
+          "fulfillmentLocationId" : {
             "type" : "string"
           },
-          "assetKey" : {
-            "type" : "string"
-          },
-          "role" : {
-            "type" : "string"
-          },
-          "sortOrder" : {
+          "priority" : {
             "type" : "integer",
             "format" : "int32"
           },
-          "altText" : {
-            "type" : "string"
-          },
-          "width" : {
-            "type" : "integer",
-            "format" : "int32"
-          },
-          "height" : {
-            "type" : "integer",
-            "format" : "int32"
-          },
-          "contentType" : {
-            "type" : "string"
+          "active" : {
+            "type" : "boolean"
           }
         }
       },
-      "SetRequest" : {
+      "UpsertRequest" : {
         "type" : "object",
         "properties" : {
-          "assets" : {
+          "serviceAreaId" : {
+            "type" : "string"
+          },
+          "routes" : {
             "type" : "array",
             "items" : {
-              "$ref" : "#/components/schemas/AssetDto"
+              "$ref" : "#/components/schemas/RouteDto"
             }
           },
           "expectedVersion" : {
@@ -2346,26 +2396,26 @@
           }
         }
       },
-      "SetResponse" : {
+      "AreaResponse" : {
         "type" : "object",
         "properties" : {
-          "ownerType" : {
+          "pincode" : {
             "type" : "string"
           },
-          "ownerId" : {
+          "serviceAreaId" : {
             "type" : "string"
+          },
+          "active" : {
+            "type" : "boolean"
           },
           "version" : {
             "type" : "integer",
             "format" : "int64"
           },
-          "active" : {
-            "type" : "boolean"
-          },
-          "assets" : {
+          "routes" : {
             "type" : "array",
             "items" : {
-              "$ref" : "#/components/schemas/AssetDto"
+              "$ref" : "#/components/schemas/RouteDto"
             }
           }
         }
@@ -3167,46 +3217,10 @@
           }
         }
       },
-      "UploadRequest" : {
+      "VersionRequest" : {
         "type" : "object",
         "properties" : {
-          "ownerType" : {
-            "type" : "string"
-          },
-          "ownerId" : {
-            "type" : "string"
-          },
-          "contentType" : {
-            "type" : "string"
-          },
-          "sizeBytes" : {
-            "type" : "integer",
-            "format" : "int64"
-          }
-        }
-      },
-      "UploadResponse" : {
-        "type" : "object",
-        "properties" : {
-          "assetKey" : {
-            "type" : "string"
-          },
-          "method" : {
-            "type" : "string"
-          },
-          "url" : {
-            "type" : "string"
-          },
-          "headers" : {
-            "type" : "object",
-            "additionalProperties" : {
-              "type" : "string"
-            }
-          },
-          "expiresAt" : {
-            "type" : "string"
-          },
-          "maxBytes" : {
+          "expectedVersion" : {
             "type" : "integer",
             "format" : "int64"
           }
@@ -3729,6 +3743,20 @@
             }
           },
           "status" : {
+            "type" : "string"
+          }
+        }
+      },
+      "PageResponse" : {
+        "type" : "object",
+        "properties" : {
+          "items" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/AreaResponse"
+            }
+          },
+          "nextCursor" : {
             "type" : "string"
           }
         }
