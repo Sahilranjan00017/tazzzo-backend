@@ -241,7 +241,7 @@ public class OrderService {
             throw new OrderFailure(OrderFailure.Reason.ORDER_NOT_FOUND);
         }
         Order order = OrderRepository.toOrder(stored);
-        if (order.status() != OrderStatus.CONFIRMED && order.status() != OrderStatus.CANCELLED) {
+        if (order.status() == OrderStatus.CREATED) {
             throw new OrderFailure(OrderFailure.Reason.ORDER_NOT_FOUND);   // CREATED is internal
         }
         return order;
@@ -328,8 +328,7 @@ public class OrderService {
      *  never silently converted — it fails closed. */
     private static Order replay(Order existing, Mode mode) {
         // a CANCELLED order is the honest, idempotent answer for a re-sent placement of the same quote (never re-created)
-        if (mode == Mode.PLACE_COD && existing.status() != OrderStatus.CONFIRMED
-                && existing.status() != OrderStatus.CANCELLED) {
+        if (mode == Mode.PLACE_COD && existing.status() == OrderStatus.CREATED) {
             throw new OrderFailure(OrderFailure.Reason.INTEGRITY_FAILURE,
                     "existing order for this quote is not CONFIRMED; COD placement does not convert it");
         }

@@ -832,7 +832,7 @@ paths:
                       required: [orderId, status, paymentMethod, itemCount, subtotalPaise, createdAt]
                       properties:
                         orderId: { type: string }
-                        status: { type: string, enum: [CONFIRMED, CANCELLED] }
+                        status: { type: string, enum: [CONFIRMED, OUT_FOR_DELIVERY, DELIVERED, CANCELLED] }
                         paymentMethod: { type: string, enum: [COD] }
                         itemCount: { type: integer }
                         subtotalPaise: { type: integer, format: int64 }
@@ -1638,7 +1638,7 @@ components:
     CustomerOrder:
       type: object
       description: >
-        A placed order. `status` is `CONFIRMED`, or `CANCELLED` once cancelled (then `cancelledAt` is present and there is no
+        A placed order. `status` is `CONFIRMED`, then `OUT_FOR_DELIVERY` and `DELIVERED` as staff fulfil it (with `outForDeliveryAt`/`deliveredAt`), or `CANCELLED` once cancelled (then `cancelledAt` is present and there is no
         `paymentCondition`: nothing is due). `paymentCondition` `COD_DUE` means the order is
         confirmed and payment is owed on delivery; nothing has been collected. `money.payablePaise` is the amount
         due on delivery (it is never a statement that anything was paid); it is `0` for a fully discounted order,
@@ -1647,10 +1647,12 @@ components:
                  deliveryAddress, createdAt, confirmedAt, requestId]
       properties:
         orderId: { type: string, pattern: '^ORD_[A-Za-z0-9_-]{6,64}$' }
-        status: { type: string, enum: [CONFIRMED, CANCELLED] }
+        status: { type: string, enum: [CONFIRMED, OUT_FOR_DELIVERY, DELIVERED, CANCELLED] }
         paymentMethod: { type: string, enum: [COD] }
         paymentCondition: { type: string, enum: [COD_DUE] }
         cancelledAt: { type: string, format: date-time }
+        outForDeliveryAt: { type: string, format: date-time }
+        deliveredAt: { type: string, format: date-time }
         items:
           type: array
           items: { $ref: '#/components/schemas/CustomerOrderLine' }

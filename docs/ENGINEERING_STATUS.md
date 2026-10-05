@@ -1453,6 +1453,11 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-10-05** — Staff order operations + fulfilment statuses (backend completion PR-M2; STACKED on PR-M #64 with PR-P #66 merged in): `GET /api/v1/admin/orders[?status]` (newest first, keyset; V0012 indexes), `GET /{id}` (with the delivery
+  address — fulfilment needs it), `POST /{id}/transition` in the orders namespace (order-ops writes, support-agent reads; catalogue roles/shared tokens never reach it). State machine: CONFIRMED(v2) → OUT_FOR_DELIVERY(v3) → DELIVERED(v4); CANCELLED
+  from CONFIRMED (v3) or OUT_FOR_DELIVERY (v4, a failed/refused delivery) with a closed staff reason set; every transition is a CAS on (status, version) with the audit row (authenticated actor) in the SAME transaction; a staff cancel returns the
+  stock (exactly-once) and releases the slot hold. A DELIVERED order is never cancelled (returns are not modelled); a customer can no longer cancel once the order is out for delivery (409). Customers see the new statuses with
+  `outForDeliveryAt`/`deliveredAt`. Cash collection on delivery is a payment concern and is NOT recorded.
 - **2026-10-05** — Customer order history and cancellation (backend completion PR-M; STACKED on PR-K/L #63 → PR-E #58): `GET /v1/customer/orders` (newest first, keyset by `(createdAt, _id)`, CONFIRMED + CANCELLED only, summaries
   without address/lines, index `order_by_customer_recent` via migration `V0010`) and `POST /v1/customer/orders/{id}/cancel` (`{"reason": CHANGED_MIND|ORDERED_BY_MISTAKE|OTHER}`). Cancel is ONE transaction: CAS `CONFIRMED(v2)→CANCELLED(v3)` with who/when/why,
   then — only if that call won the CAS — release the delivery slot hold and return the consumed stock through the new exactly-once `InventoryReservationPort.restockConsumed` (one-shot `restockedAt` marker on the reservation header; its status stays

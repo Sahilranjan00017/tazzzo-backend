@@ -121,7 +121,7 @@
     "/api/v1/admin/delivery-slots/{serviceAreaId}/{windowId}" : {
       "get" : {
         "tags" : [ "delivery-slot-admin-controller" ],
-        "operationId" : "get_5",
+        "operationId" : "get_6",
         "parameters" : [ {
           "name" : "serviceAreaId",
           "in" : "path",
@@ -1278,6 +1278,41 @@
         }
       }
     },
+    "/api/v1/admin/orders/{orderId}/transition" : {
+      "post" : {
+        "tags" : [ "staff-order-controller" ],
+        "operationId" : "transition",
+        "parameters" : [ {
+          "name" : "orderId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/JsonNode"
+              }
+            }
+          }
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/StaffOrder"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/delivery-slots/{serviceAreaId}/{windowId}/deactivate" : {
       "post" : {
         "tags" : [ "delivery-slot-admin-controller" ],
@@ -2231,6 +2266,72 @@
         }
       }
     },
+    "/api/v1/admin/orders" : {
+      "get" : {
+        "tags" : [ "staff-order-controller" ],
+        "operationId" : "list_3",
+        "parameters" : [ {
+          "name" : "status",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "page_size",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "cursor",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/StaffPage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/orders/{orderId}" : {
+      "get" : {
+        "tags" : [ "staff-order-controller" ],
+        "operationId" : "get_5",
+        "parameters" : [ {
+          "name" : "orderId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/StaffOrder"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/me" : {
       "get" : {
         "tags" : [ "admin-me-controller" ],
@@ -2252,7 +2353,7 @@
     "/api/v1/admin/delivery-slots/{serviceAreaId}" : {
       "get" : {
         "tags" : [ "delivery-slot-admin-controller" ],
-        "operationId" : "list_3",
+        "operationId" : "list_4",
         "parameters" : [ {
           "name" : "serviceAreaId",
           "in" : "path",
@@ -2278,7 +2379,7 @@
     "/api/v1/admin/audit-events" : {
       "get" : {
         "tags" : [ "admin-audit-events-controller" ],
-        "operationId" : "list_4",
+        "operationId" : "list_5",
         "responses" : {
           "200" : {
             "description" : "OK",
@@ -2611,6 +2712,12 @@
             "$ref" : "#/components/schemas/DeliverySlot"
           },
           "cancelledAt" : {
+            "type" : "string"
+          },
+          "outForDeliveryAt" : {
+            "type" : "string"
+          },
+          "deliveredAt" : {
             "type" : "string"
           },
           "requestId" : {
@@ -3383,6 +3490,138 @@
           }
         }
       },
+      "Line" : {
+        "type" : "object",
+        "properties" : {
+          "skuId" : {
+            "type" : "string"
+          },
+          "title" : {
+            "type" : "string"
+          },
+          "quantity" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "unitPricePaise" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "lineTotalPaise" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }
+      },
+      "OrderAddressSnapshot" : {
+        "type" : "object",
+        "properties" : {
+          "label" : {
+            "type" : "string"
+          },
+          "recipientName" : {
+            "type" : "string"
+          },
+          "recipientPhone" : {
+            "type" : "string"
+          },
+          "addressLine1" : {
+            "type" : "string"
+          },
+          "addressLine2" : {
+            "type" : "string"
+          },
+          "landmark" : {
+            "type" : "string"
+          },
+          "city" : {
+            "type" : "string"
+          },
+          "state" : {
+            "type" : "string"
+          },
+          "postalCode" : {
+            "type" : "string"
+          },
+          "latitude" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "longitude" : {
+            "type" : "number",
+            "format" : "double"
+          }
+        }
+      },
+      "StaffOrder" : {
+        "type" : "object",
+        "properties" : {
+          "orderId" : {
+            "type" : "string"
+          },
+          "customerId" : {
+            "type" : "string"
+          },
+          "status" : {
+            "type" : "string"
+          },
+          "version" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "paymentMethod" : {
+            "type" : "string"
+          },
+          "paymentCondition" : {
+            "type" : "string"
+          },
+          "lines" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/Line"
+            }
+          },
+          "itemCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "subtotalPaise" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "payablePaise" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "deliveryAddress" : {
+            "$ref" : "#/components/schemas/OrderAddressSnapshot"
+          },
+          "deliverySlot" : {
+            "$ref" : "#/components/schemas/DeliverySlot"
+          },
+          "createdAt" : {
+            "type" : "string"
+          },
+          "confirmedAt" : {
+            "type" : "string"
+          },
+          "outForDeliveryAt" : {
+            "type" : "string"
+          },
+          "deliveredAt" : {
+            "type" : "string"
+          },
+          "cancelledAt" : {
+            "type" : "string"
+          },
+          "cancelledBy" : {
+            "type" : "string"
+          },
+          "cancelReason" : {
+            "type" : "string"
+          }
+        }
+      },
       "VersionRequest" : {
         "type" : "object",
         "properties" : {
@@ -4004,6 +4243,20 @@
             }
           },
           "status" : {
+            "type" : "string"
+          }
+        }
+      },
+      "StaffPage" : {
+        "type" : "object",
+        "properties" : {
+          "items" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/StaffOrder"
+            }
+          },
+          "nextCursor" : {
             "type" : "string"
           }
         }

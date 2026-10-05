@@ -45,7 +45,19 @@ public record Order(OrderId orderId, String customerId, String quoteId, OrderSta
                     long subtotalPaise, String currency, String reservationId,
                     ConfirmedPaymentCondition confirmedPaymentCondition, Instant createdAt, Instant confirmedAt,
                     Instant updatedAt, OrderBenefitSnapshot benefitSnapshot, OrderMoneySnapshot moneySnapshot,
-                    OrderDeliverySlot deliverySlot, OrderCancellation cancellation) {
+                    OrderDeliverySlot deliverySlot, OrderCancellation cancellation, OrderFulfilment fulfilment) {
+
+    /** Without fulfilment timestamps (every order before fulfilment statuses existed). */
+    public Order(OrderId orderId, String customerId, String quoteId, OrderStatus status, PaymentMethod paymentMethod,
+                 long version, String addressId, long addressVersion, OrderAddressSnapshot addressSnapshot,
+                 List<OrderLine> lines, int itemCount, long subtotalPaise, String currency, String reservationId,
+                 ConfirmedPaymentCondition confirmedPaymentCondition, Instant createdAt, Instant confirmedAt,
+                 Instant updatedAt, OrderBenefitSnapshot benefitSnapshot, OrderMoneySnapshot moneySnapshot,
+                 OrderDeliverySlot deliverySlot, OrderCancellation cancellation) {
+        this(orderId, customerId, quoteId, status, paymentMethod, version, addressId, addressVersion, addressSnapshot, lines,
+                itemCount, subtotalPaise, currency, reservationId, confirmedPaymentCondition, createdAt, confirmedAt, updatedAt,
+                benefitSnapshot, moneySnapshot, deliverySlot, cancellation, OrderFulfilment.NONE);
+    }
 
     /** An order that was never cancelled and carries the given slot (or none). */
     public Order(OrderId orderId, String customerId, String quoteId, OrderStatus status, PaymentMethod paymentMethod,
@@ -71,6 +83,9 @@ public record Order(OrderId orderId, String customerId, String quoteId, OrderSta
     }
 
     public Order {
+        if (fulfilment == null) {
+            fulfilment = OrderFulfilment.NONE;
+        }
         if (orderId == null) {
             throw new IllegalArgumentException("orderId required");
         }
@@ -160,8 +175,12 @@ public record Order(OrderId orderId, String customerId, String quoteId, OrderSta
         }
         switch (status) {
             case CANCELLED -> {
-                if (version != 3) {
-                    throw new IllegalArgumentException("CANCELLED order must be version 3: " + version);
+                long expected = fulfilment.outForDeliveryAt() == null ? 3 : 4;
+                if (version != expected) {
+                    throw new IllegalArgumentException("CANCELLED order must be version " + expected + ": " + version);
+                }
+                if (fulfilment.deliveredAt() != null) {
+                    throw new IllegalArgumentException("a delivered order is never cancelled");
                 }
                 if (paymentMethod != PaymentMethod.COD || confirmedAt == null || confirmedPaymentCondition != ConfirmedPaymentCondition.COD_DUE) {
                     throw new IllegalArgumentException("CANCELLED order must have been a confirmed COD order");
@@ -173,15 +192,35 @@ public record Order(OrderId orderId, String customerId, String quoteId, OrderSta
                     throw new IllegalArgumentException("updatedAt must not precede cancelledAt");
                 }
             }
+            case OUT_FOR_DELIVERY, DELIVERED -> {
+                boolean delivered = status == OrderStatus.DELIVERED;
+                if (version != (delivered ? 4 : 3)) {
+                    throw new IllegalArgumentException(status + " order must be version " + (delivered ? 4 : 3) + ": " + version);
+                }
+                if (paymentMethod != PaymentMethod.COD || confirmedAt == null || confirmedPaymentCondition != ConfirmedPaymentCondition.COD_DUE) {
+                    throw new IllegalArgumentException(status + " order must have been a confirmed COD order");
+                }
+                if (fulfilment.outForDeliveryAt() == null || fulfilment.outForDeliveryAt().isBefore(confirmedAt)
+                        || (delivered != (fulfilment.deliveredAt() != null))) {
+                    throw new IllegalArgumentException(status + " order has inconsistent fulfilment timestamps");
+                }
+                Instant last = delivered ? fulfilment.deliveredAt() : fulfilment.outForDeliveryAt();
+                if (updatedAt.isBefore(last)) {
+                    throw new IllegalArgumentException("updatedAt must not precede the last fulfilment step");
+                }
+            }
             case CREATED -> {
                 if (version != 1) {
                     throw new IllegalArgumentException("CREATED order must be version 1: " + version);
                 }
-                if (confirmedAt != null || confirmedPaymentCondition != null) {
-                    throw new IllegalArgumentException("CREATED order must not carry confirmation fields");
+                if (confirmedAt != null || confirmedPaymentCondition != null || fulfilment.outForDeliveryAt() != null) {
+                    throw new IllegalArgumentException("CREATED order must not carry confirmation or fulfilment fields");
                 }
             }
             case CONFIRMED -> {
+                if (fulfilment.outForDeliveryAt() != null) {
+                    throw new IllegalArgumentException("CONFIRMED order carries no fulfilment step");
+                }
                 if (version != 2) {
                     throw new IllegalArgumentException("CONFIRMED order must be version 2: " + version);
                 }
