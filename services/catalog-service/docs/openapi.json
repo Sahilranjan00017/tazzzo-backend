@@ -193,9 +193,75 @@
       }
     },
     "/v1/customer/orders" : {
+      "get" : {
+        "tags" : [ "order-controller" ],
+        "operationId" : "list",
+        "parameters" : [ {
+          "name" : "page_size",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "cursor",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Page"
+                }
+              }
+            }
+          }
+        }
+      },
       "post" : {
         "tags" : [ "order-controller" ],
         "operationId" : "place",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/JsonNode"
+              }
+            }
+          }
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/CustomerOrderDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/customer/orders/{orderId}/cancel" : {
+      "post" : {
+        "tags" : [ "order-controller" ],
+        "operationId" : "cancel",
+        "parameters" : [ {
+          "name" : "orderId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
         "requestBody" : {
           "content" : {
             "application/json" : {
@@ -264,7 +330,7 @@
     "/v1/customer/addresses" : {
       "get" : {
         "tags" : [ "address-controller" ],
-        "operationId" : "list_1",
+        "operationId" : "list_2",
         "responses" : {
           "200" : {
             "description" : "OK",
@@ -1698,7 +1764,7 @@
     "/v1/customer/delivery/slots" : {
       "get" : {
         "tags" : [ "delivery-slot-controller" ],
-        "operationId" : "list",
+        "operationId" : "list_1",
         "parameters" : [ {
           "name" : "pin",
           "in" : "query",
@@ -2254,7 +2320,7 @@
     "/api/v1/admin/delivery-slots/{serviceAreaId}" : {
       "get" : {
         "tags" : [ "delivery-slot-admin-controller" ],
-        "operationId" : "list_2",
+        "operationId" : "list_3",
         "parameters" : [ {
           "name" : "serviceAreaId",
           "in" : "path",
@@ -2280,7 +2346,7 @@
     "/api/v1/admin/audit-events" : {
       "get" : {
         "tags" : [ "admin-audit-events-controller" ],
-        "operationId" : "list_3",
+        "operationId" : "list_4",
         "responses" : {
           "200" : {
             "description" : "OK",
@@ -2611,6 +2677,9 @@
           },
           "deliverySlot" : {
             "$ref" : "#/components/schemas/DeliverySlot"
+          },
+          "cancelledAt" : {
+            "type" : "string"
           },
           "requestId" : {
             "type" : "string"
@@ -3705,6 +3774,58 @@
             "type" : "string"
           },
           "unit" : {
+            "type" : "string"
+          }
+        }
+      },
+      "Page" : {
+        "type" : "object",
+        "properties" : {
+          "items" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/Summary"
+            }
+          },
+          "nextCursor" : {
+            "type" : "string"
+          },
+          "requestId" : {
+            "type" : "string"
+          }
+        }
+      },
+      "Summary" : {
+        "type" : "object",
+        "properties" : {
+          "orderId" : {
+            "type" : "string"
+          },
+          "status" : {
+            "type" : "string"
+          },
+          "paymentMethod" : {
+            "type" : "string"
+          },
+          "itemCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "subtotalPaise" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "payablePaise" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "createdAt" : {
+            "type" : "string"
+          },
+          "deliverySlot" : {
+            "$ref" : "#/components/schemas/DeliverySlot"
+          },
+          "cancelledAt" : {
             "type" : "string"
           }
         }

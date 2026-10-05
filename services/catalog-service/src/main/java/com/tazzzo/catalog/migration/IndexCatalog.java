@@ -95,6 +95,13 @@ public final class IndexCatalog {
 
     public static final List<IndexSpec> DELIVERY_SLOT_SPECS = List.of(DELIVERY_WINDOW_BY_AREA_SPEC, DELIVERY_USAGE_TTL_SPEC);
 
+    /**
+     * Customer order history (PR-M): the caller's own orders newest first, keyset-paged by {@code (createdAt, _id)}.
+     * Migration-only (V0010); the existing unique {@code (customerId, quoteId)} index cannot serve the sort.
+     */
+    public static final IndexSpec ORDER_BY_CUSTOMER_RECENT_SPEC = named("orders", "order_by_customer_recent",
+            k("customerId", 1, "createdAt", -1, "_id", -1), false, null, null);
+
     /** Indexes created only by explicit migrations (never by the baseline migration). */
     public static final List<IndexSpec> MANAGED;
 
@@ -104,6 +111,7 @@ public final class IndexCatalog {
         m.addAll(AUDIT_READ_SPECS);
         m.add(PRODUCT_CARD_SEARCH_SPEC);
         m.addAll(DELIVERY_SLOT_SPECS);
+        m.add(ORDER_BY_CUSTOMER_RECENT_SPEC);
         MANAGED = List.copyOf(m);
     }
 

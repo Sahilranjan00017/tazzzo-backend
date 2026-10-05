@@ -45,7 +45,19 @@ public record Order(OrderId orderId, String customerId, String quoteId, OrderSta
                     long subtotalPaise, String currency, String reservationId,
                     ConfirmedPaymentCondition confirmedPaymentCondition, Instant createdAt, Instant confirmedAt,
                     Instant updatedAt, OrderBenefitSnapshot benefitSnapshot, OrderMoneySnapshot moneySnapshot,
-                    OrderDeliverySlot deliverySlot) {
+                    OrderDeliverySlot deliverySlot, OrderCancellation cancellation) {
+
+    /** An order that was never cancelled and carries the given slot (or none). */
+    public Order(OrderId orderId, String customerId, String quoteId, OrderStatus status, PaymentMethod paymentMethod,
+                 long version, String addressId, long addressVersion, OrderAddressSnapshot addressSnapshot,
+                 List<OrderLine> lines, int itemCount, long subtotalPaise, String currency, String reservationId,
+                 ConfirmedPaymentCondition confirmedPaymentCondition, Instant createdAt, Instant confirmedAt,
+                 Instant updatedAt, OrderBenefitSnapshot benefitSnapshot, OrderMoneySnapshot moneySnapshot,
+                 OrderDeliverySlot deliverySlot) {
+        this(orderId, customerId, quoteId, status, paymentMethod, version, addressId, addressVersion, addressSnapshot, lines,
+                itemCount, subtotalPaise, currency, reservationId, confirmedPaymentCondition, createdAt, confirmedAt, updatedAt,
+                benefitSnapshot, moneySnapshot, deliverySlot, null);
+    }
 
     /** An order without a delivery slot (every order placed before slots existed, and any placement that chose none). */
     public Order(OrderId orderId, String customerId, String quoteId, OrderStatus status, PaymentMethod paymentMethod,
@@ -55,7 +67,7 @@ public record Order(OrderId orderId, String customerId, String quoteId, OrderSta
                  Instant updatedAt, OrderBenefitSnapshot benefitSnapshot, OrderMoneySnapshot moneySnapshot) {
         this(orderId, customerId, quoteId, status, paymentMethod, version, addressId, addressVersion, addressSnapshot, lines,
                 itemCount, subtotalPaise, currency, reservationId, confirmedPaymentCondition, createdAt, confirmedAt, updatedAt,
-                benefitSnapshot, moneySnapshot, null);
+                benefitSnapshot, moneySnapshot, null, null);
     }
 
     public Order {
@@ -143,7 +155,24 @@ public record Order(OrderId orderId, String customerId, String quoteId, OrderSta
         if (updatedAt.isBefore(createdAt)) {
             throw new IllegalArgumentException("updatedAt must not precede createdAt");
         }
+        if ((status == OrderStatus.CANCELLED) != (cancellation != null)) {
+            throw new IllegalArgumentException("a cancellation is present exactly on a CANCELLED order");
+        }
         switch (status) {
+            case CANCELLED -> {
+                if (version != 3) {
+                    throw new IllegalArgumentException("CANCELLED order must be version 3: " + version);
+                }
+                if (paymentMethod != PaymentMethod.COD || confirmedAt == null || confirmedPaymentCondition != ConfirmedPaymentCondition.COD_DUE) {
+                    throw new IllegalArgumentException("CANCELLED order must have been a confirmed COD order");
+                }
+                if (cancellation.cancelledAt().isBefore(confirmedAt)) {
+                    throw new IllegalArgumentException("cancelledAt must not precede confirmedAt");
+                }
+                if (updatedAt.isBefore(cancellation.cancelledAt())) {
+                    throw new IllegalArgumentException("updatedAt must not precede cancelledAt");
+                }
+            }
             case CREATED -> {
                 if (version != 1) {
                     throw new IllegalArgumentException("CREATED order must be version 1: " + version);

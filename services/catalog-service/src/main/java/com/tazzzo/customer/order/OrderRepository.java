@@ -7,6 +7,7 @@ import com.mongodb.client.model.Filters;
 import org.bson.Document;
 import org.springframework.stereotype.Component;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -54,6 +55,45 @@ public class OrderRepository {
                 .first();
     }
 
+    /** Session-aware owned read (the cancellation transaction must observe its own snapshot). */
+    public Document findOwnedById(ClientSession session, String orderId, String customerId) {
+        return collection().find(session, Filters.and(Filters.eq("_id", orderId), Filters.eq("customerId", customerId)))
+                .first();
+    }
+
+    /**
+     * CAS CONFIRMED(v2) -> CANCELLED(v3), recording the cancellation. {@code true} iff THIS call applied it: the caller
+     * then, and only then, releases the slot and returns the stock, so a lost race can never restock twice.
+     */
+    public boolean cancelConfirmed(ClientSession session, String orderId, String customerId, OrderCancellation c) {
+        return collection().updateOne(session,
+                Filters.and(Filters.eq("_id", orderId), Filters.eq("customerId", customerId),
+                        Filters.eq("status", OrderStatus.CONFIRMED.name()), Filters.eq("version", 2L)),
+                com.mongodb.client.model.Updates.combine(
+                        com.mongodb.client.model.Updates.set("status", OrderStatus.CANCELLED.name()),
+                        com.mongodb.client.model.Updates.set("version", 3L),
+                        com.mongodb.client.model.Updates.set("cancellation", new Document("cancelledAt", Date.from(c.cancelledAt()))
+                                .append("cancelledBy", c.cancelledBy().name()).append("reasonCode", c.reasonCode())),
+                        com.mongodb.client.model.Updates.set("updatedAt", Date.from(c.cancelledAt()))))
+                .getModifiedCount() == 1;
+    }
+
+    /**
+     * One page of a customer's customer-visible orders (CONFIRMED and CANCELLED; never the internal CREATED), newest first,
+     * strictly after the {@code (beforeCreatedAt, beforeId)} position. Served by {@code order_by_customer_recent}.
+     */
+    public List<Document> findPage(String customerId, Instant beforeCreatedAt, String beforeId, int limit) {
+        List<org.bson.conversions.Bson> filters = new ArrayList<>();
+        filters.add(Filters.eq("customerId", customerId));
+        filters.add(Filters.in("status", OrderStatus.CONFIRMED.name(), OrderStatus.CANCELLED.name()));
+        if (beforeCreatedAt != null) {
+            filters.add(Filters.or(Filters.lt("createdAt", Date.from(beforeCreatedAt)),
+                    Filters.and(Filters.eq("createdAt", Date.from(beforeCreatedAt)), Filters.lt("_id", beforeId))));
+        }
+        return collection().find(Filters.and(filters))
+                .sort(new Document("createdAt", -1).append("_id", -1)).limit(limit).into(new ArrayList<>());
+    }
+
     public void insert(ClientSession session, Order order) {
         collection().insertOne(session, toDocument(order));
     }
@@ -94,6 +134,11 @@ public class OrderRepository {
             d.append("deliverySlot", new Document("serviceAreaId", slot.serviceAreaId()).append("windowId", slot.windowId())
                     .append("date", slot.date().toString()).append("label", slot.label())
                     .append("startsAt", Date.from(slot.startsAt())).append("endsAt", Date.from(slot.endsAt())));
+        }
+        if (o.cancellation() != null) { // present ONLY on a CANCELLED order
+            OrderCancellation c = o.cancellation();
+            d.append("cancellation", new Document("cancelledAt", Date.from(c.cancelledAt()))
+                    .append("cancelledBy", c.cancelledBy().name()).append("reasonCode", c.reasonCode()));
         }
         if (o.confirmedAt() != null) { // present ONLY on a CONFIRMED order (Order's constructor enforces it)
             d.append("confirmedPaymentCondition", o.confirmedPaymentCondition().name())
@@ -138,6 +183,12 @@ public class OrderRepository {
                     java.time.LocalDate.parse(requireString(slot, "date")), requireString(slot, "label"),
                     slot.getDate("startsAt").toInstant(), slot.getDate("endsAt").toInstant());
         }
+        OrderCancellation cancellation = null;
+        if (d.containsKey("cancellation")) {
+            Document c = d.get("cancellation", Document.class);
+            cancellation = new OrderCancellation(c.getDate("cancelledAt").toInstant(),
+                    OrderCancellation.CancelledBy.valueOf(requireString(c, "cancelledBy")), requireString(c, "reasonCode"));
+        }
         return new Order(new OrderId(d.getString("_id")), d.getString("customerId"), d.getString("quoteId"),
                 status, PaymentMethod.valueOf(requireString(d, "paymentMethod")), requireLong(d, "version"),
                 d.getString("addressId"), d.get("addressVersion", Number.class).longValue(), addressSnapshot,
@@ -147,7 +198,7 @@ public class OrderRepository {
                 rawCondition == null ? null : ConfirmedPaymentCondition.valueOf(requireString(d, "confirmedPaymentCondition")),
                 d.getDate("createdAt").toInstant(),
                 rawConfirmedAt == null ? null : d.getDate("confirmedAt").toInstant(),
-                d.getDate("updatedAt").toInstant(), benefitSnapshot, moneySnapshot, deliverySlot);
+                d.getDate("updatedAt").toInstant(), benefitSnapshot, moneySnapshot, deliverySlot, cancellation);
     }
 
     /** PR-15A-2 — coordinates are nullable as a PAIR (enforced by {@link OrderAddressSnapshot}); a present

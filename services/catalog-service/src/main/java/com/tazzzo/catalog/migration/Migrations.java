@@ -40,6 +40,9 @@ public final class Migrations {
                 new CreateIndexMigration("V0008__delivery_slot_indexes",
                         "delivery_slot_windows (service_area_id) by-area lookup and delivery_slot_usage TTL on expire_at (PR-E delivery slots)",
                         IndexCatalog.DELIVERY_SLOT_SPECS, null),
+                new CreateIndexMigration("V0010__orders_by_customer_recent_index",
+                        "orders (customerId, createdAt desc, _id desc): the customer order history, newest first (PR-M)",
+                        List.of(IndexCatalog.ORDER_BY_CUSTOMER_RECENT_SPEC), null),
                 // DROP-CANDIDATES: registered but DISABLED. They run only when named in tazzzo.migration.enabled-migrations
                 // after the owner approves (docs/database/DATABASE_MIGRATION_RUNBOOK.md, unused-index decisions).
                 new DropIndexMigration("V0101__drop_unused_session_by_customer_index",

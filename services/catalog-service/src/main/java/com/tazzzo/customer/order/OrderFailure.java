@@ -30,7 +30,11 @@ public final class OrderFailure extends RuntimeException {
          *  indistinguishable outcome by design. The placement path never raises it. */
         ORDER_NOT_FOUND,
         /** The requested delivery slot is full, closed or not offered for the address (409; nothing was written). */
-        SLOT_UNAVAILABLE
+        SLOT_UNAVAILABLE,
+        /** Cancellation: the order is not in a state a customer may cancel from (409). */
+        NOT_CANCELLABLE,
+        /** Cancellation: the customer cancellation window is closed, or no window is configured (409). */
+        CANCELLATION_WINDOW_CLOSED
     }
 
     private final Reason reason;
