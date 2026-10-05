@@ -59,8 +59,9 @@ class ApiContractParityIT extends AbstractApiIT {
         Map<String, Object> doc = new Yaml().load(Files.readString(CONTRACT));
         Map<String, Object> paths = (Map<String, Object>) doc.get("paths");
         Set<String> out = new TreeSet<>();
-        paths.forEach((path, item) -> ((Map<String, Object>) item).keySet().stream().filter(HTTP::contains)
-                .forEach(m -> out.add(m.toUpperCase(Locale.ROOT) + " " + norm(path))));
+        paths.entrySet().stream().filter(e -> e.getKey().startsWith("/v1/")).forEach(e -> ((Map<String, Object>) e.getValue())
+                .keySet().stream().filter(HTTP::contains)
+                .forEach(m -> out.add(m.toUpperCase(Locale.ROOT) + " " + norm(e.getKey()))));
         return out;
     }
 
@@ -100,6 +101,7 @@ class ApiContractParityIT extends AbstractApiIT {
         Set<String> bad = new TreeSet<>();
         int checked = 0;
         for (Map.Entry<String, Object> path : ((Map<String, Object>) doc.get("paths")).entrySet()) {
+            if (!path.getKey().startsWith("/v1/")) continue;   // infrastructure probes (e.g. /health/*) have their own bodies
             for (Map.Entry<String, Object> op : ((Map<String, Object>) path.getValue()).entrySet()) {
                 if (!HTTP.contains(op.getKey())) continue;
                 Map<String, Object> responses = (Map<String, Object>) ((Map<String, Object>) op.getValue()).get("responses");
