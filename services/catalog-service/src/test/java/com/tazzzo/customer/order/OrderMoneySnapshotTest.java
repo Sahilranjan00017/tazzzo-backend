@@ -171,7 +171,7 @@ class OrderMoneySnapshotTest {
     void the_public_order_dto_exposes_the_persisted_money_with_exactly_the_three_v1_amounts() {
         assertThat(Arrays.stream(CustomerOrderDto.class.getRecordComponents()).map(c -> c.getName()).toList())
                 .containsExactly("orderId", "status", "paymentMethod", "paymentCondition", "items", "itemCount",
-                        "subtotalPaise", "currency", "deliveryAddress", "createdAt", "confirmedAt", "money", "deliverySlot", "requestId");
+                        "subtotalPaise", "currency", "deliveryAddress", "createdAt", "confirmedAt", "money", "deliverySlot", "cancelledAt", "requestId");
         // V1 has NO fee, tax, COD charge, coupon, coin or wallet component -- not even as a zero placeholder
         assertThat(Arrays.stream(CustomerOrderDto.OrderMoney.class.getRecordComponents()).map(c -> c.getName()).toList())
                 .containsExactly("merchandiseSubtotalPaise", "benefitDiscountPaise", "payablePaise");

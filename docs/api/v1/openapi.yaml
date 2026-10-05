@@ -803,6 +803,55 @@ paths:
         '410': { $ref: '#/components/responses/CheckoutQuoteExpired' }
         '503': { $ref: '#/components/responses/CheckoutUnavailable' }
   /v1/customer/orders:
+    get:
+      tags: [customer-orders]
+      operationId: listCustomerOrders
+      summary: >
+        The caller's OWN order history, newest first (CONFIRMED and CANCELLED). Keyset-paged: pass the previous
+        `nextCursor` as `cursor` (opaque; malformed is 400). Only `page_size` (1..50, default 20) and `cursor` are accepted.
+      security:
+        - customerBearerAuth: []
+      parameters:
+        - { name: page_size, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 50 } }
+        - { name: cursor, in: query, required: false, schema: { type: string, maxLength: 128 } }
+      responses:
+        '200':
+          description: One page of order summaries. Never cached.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, requestId]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [orderId, status, paymentMethod, itemCount, subtotalPaise, createdAt]
+                      properties:
+                        orderId: { type: string }
+                        status: { type: string, enum: [CONFIRMED, CANCELLED] }
+                        paymentMethod: { type: string, enum: [COD] }
+                        itemCount: { type: integer }
+                        subtotalPaise: { type: integer, format: int64 }
+                        payablePaise: { type: integer, format: int64 }
+                        createdAt: { type: string, format: date-time }
+                        cancelledAt: { type: string, format: date-time }
+                        deliverySlot:
+                          type: object
+                          required: [slotId, label, startsAt, endsAt]
+                          properties:
+                            slotId: { type: string }
+                            label: { type: string }
+                            startsAt: { type: string, format: date-time }
+                            endsAt: { type: string, format: date-time }
+                  nextCursor: { type: string }
+                  requestId: { type: string }
+        '400': { $ref: '#/components/responses/OrderBadRequest' }
+        '401': { $ref: '#/components/responses/OrderUnauthenticated' }
+        '503': { $ref: '#/components/responses/OrderUnavailable' }
     post:
       tags: [customer-orders]
       operationId: placeCustomerOrder
@@ -837,6 +886,42 @@ paths:
         '409': { $ref: '#/components/responses/OrderConflict' }
         '410': { $ref: '#/components/responses/OrderQuoteExpired' }
         '415': { $ref: '#/components/responses/OrderUnsupportedMediaType' }
+        '500': { $ref: '#/components/responses/OrderInternalError' }
+        '503': { $ref: '#/components/responses/OrderUnavailable' }
+  /v1/customer/orders/{orderId}/cancel:
+    post:
+      tags: [customer-orders]
+      operationId: cancelCustomerOrder
+      summary: >
+        Cancel one of the caller's OWN confirmed orders, within the cancellation window the operator configured
+        (`tazzzo.orders.customer-cancel-window-seconds`; the default 0 means customer cancellation is closed:
+        409 `CANCELLATION_WINDOW_CLOSED`). One transaction returns the stock, releases the delivery slot and records who and why.
+        Idempotent: cancelling a cancelled order is 200 with no second restock. Only `reason` is read from the body.
+      security:
+        - customerBearerAuth: []
+      parameters:
+        - { name: orderId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string, enum: [CHANGED_MIND, ORDERED_BY_MISTAKE, OTHER] }
+      responses:
+        '200':
+          description: The order, now `CANCELLED` (or already was).
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerOrder' }
+        '400': { $ref: '#/components/responses/OrderBadRequest' }
+        '401': { $ref: '#/components/responses/OrderUnauthenticated' }
+        '404': { $ref: '#/components/responses/OrderNotFound' }
+        '409': { $ref: '#/components/responses/OrderConflict' }
         '500': { $ref: '#/components/responses/OrderInternalError' }
         '503': { $ref: '#/components/responses/OrderUnavailable' }
   /v1/customer/orders/{orderId}:
@@ -1553,17 +1638,19 @@ components:
     CustomerOrder:
       type: object
       description: >
-        A placed order. `status` is always `CONFIRMED`. `paymentCondition` `COD_DUE` means the order is
+        A placed order. `status` is `CONFIRMED`, or `CANCELLED` once cancelled (then `cancelledAt` is present and there is no
+        `paymentCondition`: nothing is due). `paymentCondition` `COD_DUE` means the order is
         confirmed and payment is owed on delivery; nothing has been collected. `money.payablePaise` is the amount
         due on delivery (it is never a statement that anything was paid); it is `0` for a fully discounted order,
         in which case nothing is due.
-      required: [orderId, status, paymentMethod, paymentCondition, items, itemCount, subtotalPaise, currency,
+      required: [orderId, status, paymentMethod, items, itemCount, subtotalPaise, currency,
                  deliveryAddress, createdAt, confirmedAt, requestId]
       properties:
         orderId: { type: string, pattern: '^ORD_[A-Za-z0-9_-]{6,64}$' }
-        status: { type: string, enum: [CONFIRMED] }
+        status: { type: string, enum: [CONFIRMED, CANCELLED] }
         paymentMethod: { type: string, enum: [COD] }
         paymentCondition: { type: string, enum: [COD_DUE] }
+        cancelledAt: { type: string, format: date-time }
         items:
           type: array
           items: { $ref: '#/components/schemas/CustomerOrderLine' }

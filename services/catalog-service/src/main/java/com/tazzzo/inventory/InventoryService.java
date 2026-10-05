@@ -284,6 +284,27 @@ public class InventoryService implements InventoryReadPort {
     }
 
     /**
+     * Cancellation restock: put {@code qty} units of a CONSUMED reservation back on hand for one SKU row, session-aware,
+     * in the caller's transaction. Guarded so the row can never exceed {@link #MAX_QUANTITY}. Idempotency is NOT decided
+     * here: the caller proves "first and only restock" through the reservation header's one-shot marker.
+     */
+    boolean restockOneSkuInSession(ClientSession session, String skuId, String fulfillmentLocationId, long qty,
+                                   Instant now) {
+        new InventoryKey(skuId, fulfillmentLocationId);
+        if (qty < 1) {
+            throw new IllegalArgumentException("restock quantity must be positive: " + qty);
+        }
+        EventPayload event = new EventPayload("INVENTORY_RESTOCKED", skuId,
+                Map.of("fulfillment_location_id", fulfillmentLocationId, "qty", qty));
+        UpdateResult[] r = new UpdateResult[1];
+        writePath.auxWrite(session, COLLECTION, event, c -> r[0] = c.updateOne(session,
+                Filters.and(keyFilter(skuId, fulfillmentLocationId), Filters.lte("on_hand", MAX_QUANTITY - qty)),
+                Updates.combine(Updates.inc("on_hand", qty), Updates.inc("version", 1L),
+                        Updates.set("updated_at", Date.from(now)))));
+        return r[0].getModifiedCount() > 0;
+    }
+
+    /**
      * ONE query for a page of SKUs at one location (PR-08, STEP 19/20). INDEX-SHAPE REASONING
      * (no explain() was captured — this is design reasoning, not a measured query plan): the
      * filter {@code sku_id IN (...) AND fulfillment_location_id = X} matches the existing unique

@@ -25,7 +25,7 @@ public class OrderHttpObservability {
 
     private static final Logger log = LoggerFactory.getLogger(OrderHttpObservability.class);
 
-    public enum Operation { PLACE, READ }
+    public enum Operation { PLACE, READ, CANCEL }
 
     public enum Reason { INVALID_REQUEST, PAYMENT_METHOD_UNSUPPORTED, UNSUPPORTED_MEDIA_TYPE, NOT_FOUND,
         UNAVAILABLE, INTERNAL }

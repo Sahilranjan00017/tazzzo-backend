@@ -1453,6 +1453,12 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-10-05** — Customer order history and cancellation (backend completion PR-M; STACKED on PR-K/L #63 → PR-E #58): `GET /v1/customer/orders` (newest first, keyset by `(createdAt, _id)`, CONFIRMED + CANCELLED only, summaries
+  without address/lines, index `order_by_customer_recent` via migration `V0010`) and `POST /v1/customer/orders/{id}/cancel` (`{"reason": CHANGED_MIND|ORDERED_BY_MISTAKE|OTHER}`). Cancel is ONE transaction: CAS `CONFIRMED(v2)→CANCELLED(v3)` with who/when/why,
+  then — only if that call won the CAS — release the delivery slot hold and return the consumed stock through the new exactly-once `InventoryReservationPort.restockConsumed` (one-shot `restockedAt` marker on the reservation header; its status stays
+  CONSUMED), plus an `ORDER_CANCELLED` audit event; any failure rolls back the lot, a repeat cancel is an idempotent 200, concurrent cancels restock exactly once. Customer cancellation is bounded by
+  `tazzzo.orders.customer-cancel-window-seconds` — the DEFAULT 0 DISABLES it (409 `CANCELLATION_WINDOW_CLOSED`) until the business sets a window (a policy decision, not invented here). A re-sent placement of a cancelled quote returns the
+  cancelled order and never re-orders. **Not built (needs the staff-role model, PR-P):** admin order list/read/transition and the fulfilment statuses (out for delivery, delivered); cancel-by-staff.
 - **2026-10-05** — Delivery slot at order placement (backend completion PR-K/L; STACKED on PR-E #58 — retarget to `main` after it merges): `POST /v1/customer/orders` accepts an optional `deliverySlotId`
   (`<window>~<yyyy-MM-dd>`, from `GET /v1/customer/delivery/slots`). It is reserved in the SAME transaction as the COD placement through `DeliverySlotService.reserveForOrder` (PIN → service area → atomic hold keyed by the order id): a full,
   closed, unknown or out-of-horizon slot is `409 DELIVERY_SLOT_UNAVAILABLE` and the whole placement rolls back (stock, cart marker, order, hold); a malformed id is 400; a replay returns the original order and never re-reserves. The
