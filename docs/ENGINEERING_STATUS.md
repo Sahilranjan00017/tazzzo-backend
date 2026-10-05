@@ -1453,6 +1453,11 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-10-05** — CMS home content + app operational config (backend completion PR-Q; base `main` `484d42c`): admin `POST/GET/PUT /api/v1/admin/content/blocks[/{id}]` + `POST /{id}/status` (DRAFT → PUBLISHED ↔ DRAFT → ARCHIVED, final; CAS;
+  audit with the authenticated actor in the SAME transaction) for BANNER (safe asset key + a link from a closed grammar: product/category/search — never an arbitrary URL), PRODUCT_RAIL (1..20 product ids) and CATEGORY_GRID (1..12 node ids),
+  with optional time windows; public `GET /v1/content/home` (PUBLISHED blocks inside their window by the server clock, display order, banner image URLs resolved through the media CDN base — a banner is dropped, never shown broken, when no base is
+  configured; `public, max-age=60`; admission-charged on its own bounded route). App config: admin `GET/PUT /api/v1/admin/app-config` (CAS; create with version 0) and public `GET /v1/app-config` (store open, maintenance message, min/latest
+  Android & iOS versions, support contacts). New collection `content_blocks` (roster, role file, docs — 50 collections) with migration `V0013`; the app config is the `system_config` document `app_config` (no new collection).
 - **2026-10-04** — DB-4 final proxy-detector fix (narrow re-review of `4e19e5e`: the MongoDB driver accepts `;` as well as `&` between URI options, and the raw text scan only split on `&`, so `?w=majority;proxyHost=evil.example.net` kept a loopback target "local" and bypassed `PROXY_FORBIDDEN`):
   proxy use now comes from the driver's own parse (effective `ProxySettings`), not a second text parser; the dead raw-scan helper was removed. Mutations, each killed: DB4-P1 detector sees only `&`, P2 `isLocalTarget` ignores proxies, P3 contract does not reject the proxy,
   P4 `MigrationTarget` loses the proxy decision, P5 detector fails open on an unparseable string, P6 detector blind. `./mvnw clean test` on Java 21 + Docker: **BUILD SUCCESS**, 2850 tests (1274 unit, 1576 integration), 0 failures / 0 errors / 0 skipped (+7); `ModuleBoundaryTest` 73/73, `IndexContractIT` 12/12. V0001 checksum unchanged (`3b703e4a…`); R1 unchanged and open.

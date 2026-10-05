@@ -169,6 +169,18 @@
     {
       "resource": {
         "db": "tazzzo_staging",
+        "collection": "content_blocks"
+      },
+      "actions": [
+        "find",
+        "insert",
+        "remove",
+        "update"
+      ]
+    },
+    {
+      "resource": {
+        "db": "tazzzo_staging",
         "collection": "customer_address_state"
       },
       "actions": [
