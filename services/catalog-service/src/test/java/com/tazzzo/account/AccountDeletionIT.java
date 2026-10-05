@@ -106,9 +106,14 @@ class AccountDeletionIT extends AbstractMongoIT {
     void deleting_an_account_erases_every_customer_linked_collection_and_leaves_other_customers_untouched() {
         CustomerId victim = seedCustomer("+919000000001", 2);
         CustomerId other = seedCustomer("+919000000002", 1);
+        for (CustomerId c : List.of(victim, other)) {
+            db.getCollection("customer_address_idempotency").insertOne(new Document("_id", c.value() + "|abc")
+                    .append("customer_id", c.value()).append("request_hash", "h").append("address_id", "ADR_x"));
+        }
 
         assertThat(service.delete(victim)).isEqualTo(AccountDeletionService.Outcome.DELETED);
         String v = victim.value();
+        assertThat(count("customer_address_idempotency", "customer_id", v)).as("idempotency rows go with the addresses").isZero();
 
         // identity: tombstone, no phone, no login timestamp
         Document row = db.getCollection("customers").find(Filters.eq("_id", v)).first();
@@ -166,6 +171,7 @@ class AccountDeletionIT extends AbstractMongoIT {
         assertThat(db.getCollection("customer_sessions").countDocuments(Filters.and(Filters.eq("customerId", o), Filters.eq("revokedAt", null)))).isEqualTo(2);
         assertThat(db.getCollection("orders").find(Filters.eq("customerId", o)).first().get("addressSnapshot", Document.class).getString("recipientPhone")).isEqualTo("+919000000002");
         assertThat(db.getCollection("memberships").find(Filters.eq("customerId", o)).first().getString("status")).isEqualTo("ACTIVE");
+        assertThat(count("customer_address_idempotency", "customer_id", o)).isEqualTo(1);
     }
 
     @Test

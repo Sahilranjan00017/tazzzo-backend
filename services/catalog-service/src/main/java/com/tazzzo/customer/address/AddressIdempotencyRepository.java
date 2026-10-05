@@ -65,9 +65,6 @@ public class AddressIdempotencyRepository {
     }
 
     /** Account erasure: every row of one customer (wired into the erasure orchestrator at merge time). */
-    public long eraseForCustomer(String customerId) {
-        return rows().deleteMany(Filters.eq("customer_id", customerId)).getDeletedCount();
-    }
 
     static String sha256Hex(String value) {
         try {
