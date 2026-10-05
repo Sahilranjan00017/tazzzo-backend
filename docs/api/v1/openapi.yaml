@@ -329,6 +329,7 @@ paths:
       security:
         - customerBearerAuth: []
       responses:
+        '429': { $ref: '#/components/responses/CustomerRateLimited' }
         '200':
           description: OK (a default, never-persisted projection if no profile exists yet).
           headers:
@@ -364,6 +365,7 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/CustomerProfilePatchRequest' }
       responses:
+        '429': { $ref: '#/components/responses/CustomerRateLimited' }
         '200':
           description: Updated (or lazily created). Returns the full current profile projection.
           headers:
@@ -389,6 +391,7 @@ paths:
       security:
         - customerBearerAuth: []
       responses:
+        '429': { $ref: '#/components/responses/CustomerRateLimited' }
         '200':
           description: OK. Each item's `serviceability` is evaluated fresh, not stored state.
           headers:
@@ -415,6 +418,7 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/CustomerAddressCreateRequest' }
       responses:
+        '429': { $ref: '#/components/responses/CustomerRateLimited' }
         '201':
           description: Created, at version 1.
           headers:
@@ -439,6 +443,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/AddressIdParam'
       responses:
+        '429': { $ref: '#/components/responses/CustomerRateLimited' }
         '200':
           description: OK.
           headers:
@@ -473,6 +478,7 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/CustomerAddressPatchRequest' }
       responses:
+        '429': { $ref: '#/components/responses/CustomerRateLimited' }
         '200':
           description: Updated. Returns the full current address projection with a new ETag.
           headers:
@@ -504,6 +510,7 @@ paths:
           required: true
           schema: { type: string, maxLength: 40, example: '"address-1"' }
       responses:
+        '429': { $ref: '#/components/responses/CustomerRateLimited' }
         '204':
           description: Deleted.
           headers:
@@ -526,6 +533,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/AddressIdParam'
       responses:
+        '429': { $ref: '#/components/responses/CustomerRateLimited' }
         '200':
           description: OK. Returns the full current address projection (now the default).
           headers:
@@ -554,6 +562,7 @@ paths:
             the caller's own; a foreign, unknown or malformed id returns the IDENTICAL 404.
           schema: { type: string, maxLength: 64, example: ADDR_0123456789abcdef }
       responses:
+        '429': { $ref: '#/components/responses/CustomerRateLimited' }
         '200':
           description: OK.
           headers:
@@ -585,6 +594,7 @@ paths:
             the caller's own; a foreign, unknown or malformed id returns the IDENTICAL 404.
           schema: { type: string, maxLength: 64, example: ADDR_0123456789abcdef }
       responses:
+        '429': { $ref: '#/components/responses/CustomerRateLimited' }
         '200':
           description: Cleared. Returns the empty cart with its new ETag.
           headers:
@@ -629,6 +639,7 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/CustomerCartSetQuantityRequest' }
       responses:
+        '429': { $ref: '#/components/responses/CustomerRateLimited' }
         '200':
           description: Updated. Returns the full cart with its new ETag.
           headers:
@@ -669,6 +680,7 @@ paths:
             the caller's own; a foreign, unknown or malformed id returns the IDENTICAL 404.
           schema: { type: string, maxLength: 64, example: ADDR_0123456789abcdef }
       responses:
+        '429': { $ref: '#/components/responses/CustomerRateLimited' }
         '200':
           description: Removed. Returns the full cart with its new ETag.
           headers:
@@ -713,6 +725,7 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/CustomerCheckoutQuoteRequest' }
       responses:
+        '429': { $ref: '#/components/responses/CustomerRateLimited' }
         '200':
           description: The committed quote (created now, or the original on an idempotent replay).
           headers:
@@ -745,6 +758,7 @@ paths:
           required: true
           schema: { type: string, pattern: '^CHKQ_[A-Za-z0-9_-]{6,64}$' }
       responses:
+        '429': { $ref: '#/components/responses/CustomerRateLimited' }
         '200':
           description: The quote as it was committed, still within its validity window.
           headers:
@@ -776,6 +790,7 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/CustomerOrderPlaceRequest' }
       responses:
+        '429': { $ref: '#/components/responses/CustomerRateLimited' }
         '200':
           description: The confirmed order (placed now, or the same order on an idempotent replay).
           headers:
@@ -807,6 +822,7 @@ paths:
           required: true
           schema: { type: string, pattern: '^ORD_[A-Za-z0-9_-]{6,64}$' }
       responses:
+        '429': { $ref: '#/components/responses/CustomerRateLimited' }
         '200':
           description: The order exactly as it was placed.
           headers:
@@ -1552,6 +1568,22 @@ components:
         message: { type: string }
         requestId: { type: string }
   responses:
+    CustomerRateLimited:
+      description: >
+        Per-customer budget exhausted (RATE_LIMITED). Reads (GET/HEAD) and writes have separate buckets keyed by the
+        verified customer id; enforced only when `tazzzo.customer-rate-limit.*` is configured. Retry after the given seconds.
+      headers:
+        Retry-After: { schema: { type: integer, minimum: 1 }, description: seconds }
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [code, message, requestId]
+            properties:
+              code: { type: string, enum: [RATE_LIMITED] }
+              message: { type: string }
+              requestId: { type: string }
     BadRequest:
       description: Invalid request or cursor
       content:
