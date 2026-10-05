@@ -151,6 +151,8 @@ class IndexContractIT extends AbstractMongoIT {
             named("domain_events", "audit_read_recent", k("at", -1, "_id", -1), false, ATTRIBUTED, null),
             named("domain_events", "audit_read_actor", k("actor.id", 1, "at", -1, "_id", -1), false, ATTRIBUTED, null),
             named("domain_events", "audit_read_request", k("actor.request_id", 1, "at", -1, "_id", -1), false, ATTRIBUTED, null),
+            // public search (PR-G, V0009): multikey prefix matches over a card's tokens, keyset by sku
+            named("product_card_base", "card_search_tokens", k("search_tokens", 1, "sku_id", 1), false, null, null),
             // delivery slots (PR-E, V0008): window definitions by area; capacity counters purged a week after their date
             named("delivery_slot_windows", "delivery_window_by_area", k("service_area_id", 1), false, null, null),
             named("delivery_slot_usage", "delivery_usage_expiry_ttl", k("expire_at", 1), false, null, 0L),

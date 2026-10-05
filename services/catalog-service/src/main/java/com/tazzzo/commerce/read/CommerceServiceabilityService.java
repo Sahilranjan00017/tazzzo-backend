@@ -30,7 +30,19 @@ public class CommerceServiceabilityService {
     }
 
     public View resolve(Pincode pin, ConsumerIdentity identity) {
+        return resolve(() -> pin, identity);
+    }
+
+    /**
+     * Charges admission FIRST, then obtains the PIN (so an unauthenticated flood cannot reach an external geo provider
+     * ahead of the limiter). A {@code null} PIN is a coordinate outside every PIN: not serviceable, no area.
+     */
+    public View resolve(java.util.function.Supplier<Pincode> pinSource, ConsumerIdentity identity) {
         gate.charge(ConsumerObservability.Route.COMMERCE_SERVICEABILITY, identity, 1);
+        Pincode pin = pinSource.get();
+        if (pin == null) {
+            return new View(false, null, null);
+        }
         PublicServiceability r = DomainReadGuard.guard(() -> serviceability.resolvePublic(pin));
         return new View(r.serviceable(), r.serviceAreaId(), r.serviceAreaVersion());
     }

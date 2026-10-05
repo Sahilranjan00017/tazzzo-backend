@@ -76,6 +76,13 @@ public final class IndexCatalog {
     }
 
     /**
+     * Public search (PR-G): the multikey index that serves the anchored-prefix {@code $all} over a card's
+     * {@code search_tokens}, with {@code sku_id} for the keyset order. Migration-only (V0009).
+     */
+    public static final IndexSpec PRODUCT_CARD_SEARCH_SPEC = named("product_card_base", "card_search_tokens",
+            k("search_tokens", 1, "sku_id", 1), false, null, null);
+
+    /**
      * Delivery slots (backend completion PR-E): the by-area lookup of window definitions and the TTL that purges a
      * per-occurrence capacity counter a week after its slot date. Migration-only (V0008): bootstrap never creates them,
      * which keeps the dev/test bootstrap equal to baseline + audit-read as IndexContractIT pins.
@@ -102,6 +109,7 @@ public final class IndexCatalog {
         List<IndexSpec> m = new ArrayList<>(List.of(
                 PRODUCT_VERTICAL_CURSOR_SPEC, EVIDENCE_LINK_UNIQUE_SPEC, TAXONOMY_SIBLING_UNIQUE_SPEC));
         m.addAll(AUDIT_READ_SPECS);
+        m.add(PRODUCT_CARD_SEARCH_SPEC);
         m.addAll(DELIVERY_SLOT_SPECS);
         m.add(ORDER_BY_CUSTOMER_RECENT_SPEC);
         MANAGED = List.copyOf(m);

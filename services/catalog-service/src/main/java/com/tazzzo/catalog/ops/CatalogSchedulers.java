@@ -25,7 +25,7 @@ import org.springframework.stereotype.Component;
  *  - lease-claimed items (merge finalizer, taint, stamp) → concurrent runs cannot collide;
  *  - deterministic work-item ids → repeated execution is idempotent;
  *  - checkpoints → a run interrupted mid-scan resumes, it does not restart;
- *  - rolled-flag purge → a stalled rollup can never lose price history.
+ *  - the price ledger is never purged → a stalled or failed rollup can never lose price history (R1).
  * Each tick is therefore safe to run repeatedly, on any instance, at any time.
  *
  * Exceptions are caught and logged per tick: a failing worker must not kill the scheduler
@@ -83,14 +83,10 @@ public class CatalogSchedulers {
         guard("ck-backfill", () -> canonicalKeyBackfillService.runBackfillWorker(stampBatchSize));
     }
 
-    /** Aggregates price events, then purges ONLY those durably marked rolled. */
+    /** Aggregates legacy offer price events into price_rollups. The price ledger is RETAINED: nothing is deleted (R1). */
     @Scheduled(fixedDelayString = "${tazzzo.scheduler.rollup-ms:3600000}")
     public void priceRollup() {
-        guard("price-rollup", () -> {
-            rollupService.rollup();              // M3: boundary owned by the domain
-            long purged = rollupService.purge();
-            if (purged > 0) log.info("price rollup purged {} rolled events", purged);
-        });
+        guard("price-rollup", rollupService::rollup); // M3: boundary owned by the domain
     }
 
     private void guard(String name, Runnable task) {

@@ -58,8 +58,8 @@ class AdminActorFailClosedIT extends AbstractApiIT {
             ProductLifecycleService.class, MergeService.class, TaxonomyChangeService.class,
             AttributeAuthoringService.class, EvidenceService.class, TaintService.class);
 
-    /** 25 controller-invoked entry points + BundleService.activate, the batch activateRelease overload, recordBaseline. */
-    static final int ACTOR_TAKING_ENTRY_POINTS = 28;
+    /** 26 controller-invoked entry points (incl. createNode) + BundleService.activate, the batch activateRelease overload, recordBaseline. */
+    static final int ACTOR_TAKING_ENTRY_POINTS = 29;
 
     @Autowired ApplicationContext context;
     @Autowired TaxonomyLoader loader;
