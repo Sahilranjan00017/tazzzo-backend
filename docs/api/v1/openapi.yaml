@@ -59,8 +59,11 @@ tags:
       (every response shows CURRENT catalog price, stock and serviceability), and checkout MUST
       revalidate everything. Optimistic concurrency via ETag `"cart-<version>"` and a REQUIRED
       If-Match on every mutation; a customer with no cart is logical version 0 (`"cart-0"`).
-      Carts expire 7 days after the last mutation (expiry is evaluated at runtime, the version
-      never resets). `subtotalPaise` is the sum of current line totals of buyable-priced lines and
+      Age policy, by time since the last mutation: under 24 hours the cart is FRESH; from 24 hours
+      up to and including 7 days it is kept and presented as `freshness: REVALIDATE` (lines also
+      carry `PRICE_CHANGED` when the current price differs from the price observed when the line was
+      set; a revalidate read never writes); strictly older than 7 days it expires (evaluated at
+      runtime, presented empty, the version never resets). `subtotalPaise` is the sum of current line totals of buyable-priced lines and
       is NOT a final payable total (no fees, tax, discount or delivery). Without the optional
       `addressId` location context, stock is UNKNOWN, `serviceable` is null and nothing is buyable.
       fulfillmentLocationId / warehouse identifiers are never exposed. Does NOT cover checkout,
@@ -1287,7 +1290,7 @@ components:
         quantity: { type: integer, format: int32, minimum: 1, maximum: 20, description: "Exact desired quantity (max is configurable)." }
     CustomerCartResponse:
       type: object
-      required: [version, items, itemCount, distinctItemCount, subtotalPaise, requestId]
+      required: [version, items, itemCount, distinctItemCount, subtotalPaise, freshness, requestId]
       properties:
         version: { type: integer, format: int64, minimum: 0, description: "0 = no cart yet. Monotonic; never resets." }
         items:
@@ -1299,7 +1302,11 @@ components:
           type: integer
           format: int64
           description: "Sum of CURRENT priced line totals. NOT a final payable total; not locked."
-        expiresAt: { type: string, format: date-time, nullable: true, description: "Last mutation + 7 days; null for an empty cart." }
+        expiresAt: { type: string, format: date-time, nullable: true, description: "Last mutation + 7 days (still kept at exactly this instant, expired after it); null for an empty cart." }
+        freshness:
+          type: string
+          enum: [FRESH, REVALIDATE]
+          description: "Cart age band: FRESH under 24 h since the last mutation; REVALIDATE from 24 h through 7 days (review prices, PRICE_CHANGED lines). An empty cart is FRESH."
         requestId: { type: string }
     CustomerCartItem:
       type: object
@@ -1339,7 +1346,8 @@ components:
           items:
             type: string
             enum: [PRODUCT_UNAVAILABLE, PRICE_UNAVAILABLE, LOCATION_REQUIRED, UNSERVICEABLE, OUT_OF_STOCK,
-                   INSUFFICIENT_STOCK, STOCK_UNKNOWN, ENRICHMENT_UNAVAILABLE]
+                   INSUFFICIENT_STOCK, STOCK_UNKNOWN, ENRICHMENT_UNAVAILABLE, PRICE_CHANGED]
+          description: "PRICE_CHANGED is informational (REVALIDATE band only): the line is priced and totalled at the CURRENT price and stays buyable; checkout never rejects on it."
     CustomerCartErrorEnvelope:
       type: object
       description: >
