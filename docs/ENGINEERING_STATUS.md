@@ -1455,6 +1455,12 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-10-05** — Delivery slots (backend completion PR-E; base `main` `484d42c`): new `com.tazzzo.delivery` slice. Admin API `GET/PUT /api/v1/admin/delivery-slots/{serviceAreaId}[/{windowId}]` +
+  `POST …/activate|deactivate` (recurring windows per service area: local start/end minute, cutoff, capacity, ISO weekdays; CAS `expectedVersion`; audit-before-state with the AUTHENTICATED actor; area must exist), customer
+  `GET /v1/customer/delivery/slots?pin=&days=` (fresh availability in the configured zone `tazzzo.delivery.zone`, default `Asia/Kolkata`, horizon `tazzzo.delivery.horizon-days`, default 3; status only, never counts), and the
+  atomic hold primitives `reserve`/`release` that checkout/order placement (PR-L/M) will call inside THEIR transaction: idempotent per hold id, `used < capacity` conditional increment is the sole "full" decision (24-way
+  concurrency test: exactly capacity holds). Two collections added to the roster (`delivery_slot_windows`, `delivery_slot_usage`), migration `V0008` (by-area index + the only durable-collection TTL: counters purged a week
+  after the slot date), runtime role regenerated, DB docs/pins updated (51 collections, 62 indexes). Not wired into checkout yet (PR-L).
 - **2026-10-05** — R1 price-history retention (backend completion PR #1; base `main` `4b27f32`): `./mvnw clean test` on Java 21 + Docker: **BUILD SUCCESS**, 2864 tests (1277 unit, 1587 integration), 0 failures / 0 errors / 0 skipped (+14 over 2850:
   `PriceHistoryRetentionIT` 13, `PriceHistoryRetentionSourceTest` 3, minus the 2 `RollupStallIT` tests that pinned the purge); `ModuleBoundaryTest` 73/73, `IndexContractIT` 12/12. Evidence (real MongoDB 7, real writers): a paise ledger written by
   `PricingService` survives the roll-up byte-identical and is never aggregated; legacy offer events are all retained and flagged once; second run, new event, out-of-order older event, restart and four overlapping runs never double-count; a failed projection

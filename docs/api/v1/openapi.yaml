@@ -39,6 +39,10 @@ tags:
   description: 'PR-15A-2 — Cash-on-Delivery order placement for the authenticated customer. One operation places an order from one of the caller''s OWN checkout quotes: it confirms the order, consumes the held stock and finalizes the source cart in one atomic step, so a successful placement is directly `CONFIRMED` (there is no intermediate state to observe). `customerId` always comes from the token, never from the request. Cash on delivery is the only payment method. `paymentCondition` `COD_DUE` means the order is confirmed and payment is OWED ON DELIVERY — nothing has been collected. Placement is idempotent by `quoteId` (no `Idempotency-Key`): replaying the same quote returns the same order. The order is the immutable snapshot taken at placement — title, brand, price and address never change with later catalog, pricing or address edits. The order carries its AUTHORITATIVE `money` (merchandise subtotal, benefit discount, payable), computed at placement by revalidating Pricing, Membership and Benefits. It may differ from the quote''s ADVISORY `moneyPreview` (for example a benefit was gained or lost since the quote); that is not an error and the order''s money is the one that holds. Internal identifiers (customer, quote, reservation, address, fulfillment/routing, coordinates) are never exposed. Responses are no-store.
 
     '
+- name: customer-delivery
+  description: 'Delivery windows for a PIN (customer-authenticated). Computed fresh per request in the configured delivery time zone; capacity is shown only as a status, never a count. Reserving a window happens inside checkout/order placement (a later contract), not here.
+
+    '
 paths:
   /v1/categories:
     get:
@@ -1006,6 +1010,92 @@ paths:
           $ref: '#/components/responses/OrderInternalError'
         '503':
           $ref: '#/components/responses/OrderUnavailable'
+  /v1/customer/delivery/slots:
+    get:
+      tags:
+      - customer-delivery
+      operationId: listDeliverySlots
+      summary: 'The delivery windows a signed-in customer can choose for a PIN over the next `days` local days (default and maximum: the configured horizon). An unserviceable PIN is 200 with `serviceable:false` and no slots.
+
+        '
+      security:
+      - customerBearerAuth: []
+      parameters:
+      - name: pin
+        in: query
+        required: true
+        schema:
+          type: string
+          pattern: ^[1-9][0-9]{5}$
+      - name: days
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 14
+      responses:
+        '200':
+          description: OK. Never cached.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - serviceable
+                - timezone
+                - slots
+                - requestId
+                properties:
+                  serviceable:
+                    type: boolean
+                  timezone:
+                    type: string
+                    example: Asia/Kolkata
+                  requestId:
+                    type: string
+                  slots:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                      - slotId
+                      - date
+                      - startsAt
+                      - endsAt
+                      - label
+                      - status
+                      properties:
+                        slotId:
+                          type: string
+                          example: morning~2026-10-06
+                          description: Opaque and stable id of this occurrence
+                        date:
+                          type: string
+                          format: date
+                        startsAt:
+                          type: string
+                          format: date-time
+                        endsAt:
+                          type: string
+                          format: date-time
+                        label:
+                          type: string
+                        status:
+                          type: string
+                          enum:
+                          - AVAILABLE
+                          - FULL
+                          - CLOSED
+        '400':
+          $ref: '#/components/responses/DeliverySlot400'
+        '401':
+          $ref: '#/components/responses/ProfileUnauthenticated'
+        '503':
+          $ref: '#/components/responses/DeliverySlot503'
 components:
   parameters:
     AddressIdParam:
@@ -2438,6 +2528,24 @@ components:
           type: string
         requestId:
           type: string
+    DeliverySlotErrorEnvelope:
+      type: object
+      description: The flat customer error envelope shared by every /v1/customer domain.
+      required:
+      - code
+      - message
+      - requestId
+      properties:
+        code:
+          type: string
+          enum:
+          - INVALID_REQUEST
+          - SERVICE_UNAVAILABLE
+          - INTERNAL
+        message:
+          type: string
+        requestId:
+          type: string
   responses:
     BadRequest:
       description: Invalid request or cursor
@@ -2946,6 +3054,24 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/CustomerOrderErrorEnvelope'
+    DeliverySlot400:
+      description: Missing or malformed pin, or days outside 1..horizon (INVALID_REQUEST)
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/DeliverySlotErrorEnvelope'
+    DeliverySlot503:
+      description: Dependency unavailable (SERVICE_UNAVAILABLE)
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/DeliverySlotErrorEnvelope'
   securitySchemes:
     customerBearerAuth:
       type: http
