@@ -111,7 +111,10 @@ public class SchemaBootstrap {
             // PR-16A-1: one document per Membership TERM (entitlement window under one immutable plan
             // version), _id the opaque MBR_* id. Deliberately NO TTL, NO customer-history index and NO
             // validUntil expiry-scan index -- no query needs one yet; each arrives with its query.
-            "memberships");
+            "memberships",
+            // PR-O support cases: one document per case, messages embedded and bounded. Free text is personal data
+            // (deleted by account erasure). Indexes are migration-only (V0011).
+            "support_cases");
 
     /**
      * PAG-2-SORT-1 transport support: the equality prefix the consumer-eligibility predicate uses,

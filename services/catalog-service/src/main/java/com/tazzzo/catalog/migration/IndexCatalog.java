@@ -75,6 +75,12 @@ public final class IndexCatalog {
         AUDIT_READ_SPECS = List.copyOf(a);
     }
 
+    /** Support cases (PR-O): the customer's own cases, the staff queue by status, and the unfiltered staff queue -- each newest-updated first. */
+    public static final List<IndexSpec> SUPPORT_CASE_SPECS = List.of(
+            named("support_cases", "support_by_customer_recent", k("customerId", 1, "updatedAt", -1, "_id", -1), false, null, null),
+            named("support_cases", "support_by_status_recent", k("status", 1, "updatedAt", -1, "_id", -1), false, null, null),
+            named("support_cases", "support_recent", k("updatedAt", -1, "_id", -1), false, null, null));
+
     /** Indexes created only by explicit migrations (never by the baseline migration). */
     public static final List<IndexSpec> MANAGED;
 
@@ -82,6 +88,7 @@ public final class IndexCatalog {
         List<IndexSpec> m = new ArrayList<>(List.of(
                 PRODUCT_VERTICAL_CURSOR_SPEC, EVIDENCE_LINK_UNIQUE_SPEC, TAXONOMY_SIBLING_UNIQUE_SPEC));
         m.addAll(AUDIT_READ_SPECS);
+        m.addAll(SUPPORT_CASE_SPECS);
         MANAGED = List.copyOf(m);
     }
 

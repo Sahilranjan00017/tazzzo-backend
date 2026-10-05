@@ -541,6 +541,18 @@
     {
       "resource": {
         "db": "tazzzo_staging",
+        "collection": "support_cases"
+      },
+      "actions": [
+        "find",
+        "insert",
+        "remove",
+        "update"
+      ]
+    },
+    {
+      "resource": {
+        "db": "tazzzo_staging",
         "collection": "system_config"
       },
       "actions": [

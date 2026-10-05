@@ -30,6 +30,7 @@ class MigrationRegistryTest {
         RELEASED.put("V0005__evidence_links_unique_link", "SCHEMA|true|6c9f4fb5ede31c4e1e38b650f6d7ddb62d8d0918da62ad46d6c5d2aed6768ec2");
         RELEASED.put("V0006__taxonomy_nodes_unique_active_sibling_name", "SCHEMA|true|3e944ae4e2a17733dbb262d3aadb8140fe533917e82793e986516e1cc9c8ec4f");
         RELEASED.put("V0007__audit_read_partial_indexes", "SCHEMA|true|3bbe2d9a67dfb44ed348f43a87b389cfa18598005879763c542b13dbe547f43d");
+        RELEASED.put("V0011__support_case_indexes", "SCHEMA|true|8583b8f1a4f01a72d9405e82acbe3fde53af0145c9becc373414b3ad91d666d4");
         RELEASED.put("V0101__drop_unused_session_by_customer_index", "SCHEMA|false|0ed42be55eda44aa3b60891e4e52ef394aac6c94293a253da23d5de9e18b606d");
         RELEASED.put("V0102__drop_unused_canonical_keys_product_id_index", "SCHEMA|false|f846da155273d5338fa0ac4285c3cad0478cbc0b40bfe7dca8859136f8b15e36");
     }

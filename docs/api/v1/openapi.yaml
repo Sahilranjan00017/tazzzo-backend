@@ -14,6 +14,10 @@ servers:
 tags:
   - name: commerce-read
     description: Composed, consumer-ready browse contract (ADR-001, ADR-003.1).
+  - name: customer-support
+    description: >
+      The signed-in customer's own support cases. Ownership is always the access token; no identifier, status or role
+      is accepted from a body. Case text is personal data and is deleted with the account.
   - name: customer-auth-otp
     description: >
       PR-11B — OTP challenge lifecycle only. Public (no bearer token required or honoured).
@@ -318,6 +322,144 @@ paths:
           headers:
             Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
         '401': { $ref: '#/components/responses/SessionUnauthenticated' }
+  /v1/customer/support/cases:
+    post:
+      tags: [customer-support]
+      operationId: openSupportCase
+      summary: Open a case. `orderId` (optional) must be one of the caller's own orders. At most 5 cases may be open at once.
+      security:
+        - customerBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [category, subject, message]
+              properties:
+                category: { type: string, enum: [ORDER_ISSUE, DELIVERY, PRODUCT, ACCOUNT, OTHER] }
+                orderId: { type: string }
+                subject: { type: string, minLength: 1, maxLength: 120 }
+                message: { type: string, minLength: 1, maxLength: 2000, description: "Plain text; newlines allowed, no other control characters" }
+      responses:
+        '201':
+          description: The new case (status OPEN). Never cached.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SupportCase' }
+        '400': { description: "Malformed body or parameters (INVALID_REQUEST)" }
+        '401': { description: "Missing, invalid or revoked customer token" }
+        '404': { description: "Unknown or someone else's case (NOT_FOUND)" }
+        '409': { description: "STATE_CONFLICT (closed case), TOO_MANY_OPEN (5 open cases) or MESSAGE_LIMIT (100 messages)" }
+        '503': { description: "Dependency unavailable (UNAVAILABLE)" }
+    get:
+      tags: [customer-support]
+      operationId: listSupportCases
+      summary: The caller's own cases, newest-updated first, keyset-paged. Only `page_size` (1..50) and `cursor` are accepted.
+      security:
+        - customerBearerAuth: []
+      parameters:
+        - { name: page_size, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 50 } }
+        - { name: cursor, in: query, required: false, schema: { type: string, maxLength: 128 } }
+      responses:
+        '200':
+          description: One page of case summaries.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, requestId]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [caseId, category, subject, status, messageCount, updatedAt]
+                      properties:
+                        caseId: { type: string }
+                        category: { type: string }
+                        subject: { type: string }
+                        status: { type: string, enum: [OPEN, IN_PROGRESS, RESOLVED, CLOSED] }
+                        messageCount: { type: integer }
+                        updatedAt: { type: string, format: date-time }
+                  nextCursor: { type: string }
+                  requestId: { type: string }
+        '400': { description: "Malformed body or parameters (INVALID_REQUEST)" }
+        '401': { description: "Missing, invalid or revoked customer token" }
+        '404': { description: "Unknown or someone else's case (NOT_FOUND)" }
+        '409': { description: "STATE_CONFLICT (closed case), TOO_MANY_OPEN (5 open cases) or MESSAGE_LIMIT (100 messages)" }
+        '503': { description: "Dependency unavailable (UNAVAILABLE)" }
+  /v1/customer/support/cases/{caseId}:
+    get:
+      tags: [customer-support]
+      operationId: getSupportCase
+      summary: One of the caller's own cases with its messages (staff identities are never shown).
+      security:
+        - customerBearerAuth: []
+      parameters:
+        - { name: caseId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: The case.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SupportCase' }
+        '400': { description: "Malformed body or parameters (INVALID_REQUEST)" }
+        '401': { description: "Missing, invalid or revoked customer token" }
+        '404': { description: "Unknown or someone else's case (NOT_FOUND)" }
+        '409': { description: "STATE_CONFLICT (closed case), TOO_MANY_OPEN (5 open cases) or MESSAGE_LIMIT (100 messages)" }
+        '503': { description: "Dependency unavailable (UNAVAILABLE)" }
+  /v1/customer/support/cases/{caseId}/messages:
+    post:
+      tags: [customer-support]
+      operationId: replySupportCase
+      summary: Add a message. A RESOLVED case reopens (OPEN); a CLOSED case is final (409).
+      security:
+        - customerBearerAuth: []
+      parameters:
+        - { name: caseId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [message]
+              properties:
+                message: { type: string, minLength: 1, maxLength: 2000 }
+      responses:
+        '200':
+          description: The case after the message.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SupportCase' }
+        '400': { description: "Malformed body or parameters (INVALID_REQUEST)" }
+        '401': { description: "Missing, invalid or revoked customer token" }
+        '404': { description: "Unknown or someone else's case (NOT_FOUND)" }
+        '409': { description: "STATE_CONFLICT (closed case), TOO_MANY_OPEN (5 open cases) or MESSAGE_LIMIT (100 messages)" }
+        '503': { description: "Dependency unavailable (UNAVAILABLE)" }
+  /v1/customer/support/cases/{caseId}/close:
+    post:
+      tags: [customer-support]
+      operationId: closeSupportCase
+      summary: Close the case (idempotent).
+      security:
+        - customerBearerAuth: []
+      parameters:
+        - { name: caseId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: The closed case.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SupportCase' }
+        '400': { description: "Malformed body or parameters (INVALID_REQUEST)" }
+        '401': { description: "Missing, invalid or revoked customer token" }
+        '404': { description: "Unknown or someone else's case (NOT_FOUND)" }
+        '409': { description: "STATE_CONFLICT (closed case), TOO_MANY_OPEN (5 open cases) or MESSAGE_LIMIT (100 messages)" }
+        '503': { description: "Dependency unavailable (UNAVAILABLE)" }
   /v1/customer/profile:
     get:
       tags: [customer-profile]
@@ -890,6 +1032,28 @@ components:
       description: Per-request auth state; never cacheable by any intermediary.
       schema: { type: string, example: "no-store" }
   schemas:
+    SupportCase:
+      type: object
+      required: [caseId, category, subject, status, messages, createdAt, updatedAt, requestId]
+      properties:
+        caseId: { type: string }
+        category: { type: string, enum: [ORDER_ISSUE, DELIVERY, PRODUCT, ACCOUNT, OTHER] }
+        orderId: { type: string }
+        subject: { type: string }
+        status: { type: string, enum: [OPEN, IN_PROGRESS, RESOLVED, CLOSED] }
+        messages:
+          type: array
+          items:
+            type: object
+            required: [id, author, text, at]
+            properties:
+              id: { type: integer }
+              author: { type: string, enum: [CUSTOMER, STAFF] }
+              text: { type: string }
+              at: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        requestId: { type: string }
     Node:
       type: object
       required: [id, name]
