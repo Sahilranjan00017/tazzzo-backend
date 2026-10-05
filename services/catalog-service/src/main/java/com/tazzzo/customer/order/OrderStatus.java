@@ -1,19 +1,18 @@
 package com.tazzzo.customer.order;
 
 /**
- * PR-15A-1 — the Order state machine, exactly two reachable statuses, each with a real producer:
+ * The Order state machine. {@code version} is the state-machine position, not a count of Mongo writes.
  * <ul>
- *   <li>{@code CREATED} (version 1) — produced ONLY by the internal create-only path
- *       ({@code OrderService.createOrder}, paired with a {@code RESERVED} reservation). No customer-
- *       reachable operation produces it; it exists so a future prepaid flow can compose it.</li>
- *   <li>{@code CONFIRMED} (version 2) — produced by COD placement
- *       ({@code OrderService.placeCodOrder}), born confirmed in ONE transaction alongside a
- *       {@code CONSUMED} reservation. {@code version} is the state-machine position, not a count of
- *       Mongo writes: a direct COD placement never commits {@code CREATED}, yet is still version 2 so a
- *       future {@code CREATED -> CONFIRMED} CAS ({@code 1 -> 2}) yields the same coherent model.</li>
+ *   <li>{@code CREATED} (version 1) -- produced ONLY by the internal create-only path
+ *       ({@code OrderService.createOrder}); no customer-reachable operation produces it.</li>
+ *   <li>{@code CONFIRMED} (version 2) -- produced by COD placement, born confirmed in ONE transaction alongside a
+ *       {@code CONSUMED} reservation.</li>
+ *   <li>{@code CANCELLED} (version 3) -- produced ONLY by {@code OrderLifecycleService.cancel} from {@code CONFIRMED}, in
+ *       one transaction that also returns the stock, releases the delivery slot hold and records who cancelled and why.
+ *       Terminal.</li>
  * </ul>
- * No {@code CANCELLED}/{@code SHIPPED}/... — nothing produces them yet.
+ * Fulfilment statuses (out for delivery, delivered) are not modelled yet: they need the staff-role model (admin RBAC).
  */
 public enum OrderStatus {
-    CREATED, CONFIRMED
+    CREATED, CONFIRMED, CANCELLED
 }

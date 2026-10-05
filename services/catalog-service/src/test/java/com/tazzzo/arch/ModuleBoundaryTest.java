@@ -65,6 +65,44 @@ class ModuleBoundaryTest {
             "com.tazzzo.serviceability.."
     };
 
+    /**
+     * Commerce writes are attributed: no production class may call the actor-less price/stock write overloads (they are
+     * fixture seams kept for tests). The admin HTTP layer and any future caller must pass the authenticated actor.
+     */
+    @ArchTest
+    static final ArchRule production_code_never_writes_prices_unattributed =
+            noClasses().should().callMethod(com.tazzzo.pricing.PricingService.class, "upsertPrice",
+                    com.tazzzo.pricing.UpsertPriceCommand.class);
+
+    @ArchTest
+    static final ArchRule production_code_never_writes_stock_unattributed =
+            noClasses().should().callMethod(com.tazzzo.inventory.InventoryService.class, "setInventory",
+                    com.tazzzo.inventory.SetInventoryCommand.class);
+
+    /** Media writes are attributed too: the actor-less set write is a fixture seam no production class may call. */
+    @ArchTest
+    static final ArchRule production_code_never_writes_media_unattributed =
+            noClasses().should().callMethod(com.tazzzo.media.MediaService.class, "upsertMediaSet",
+                    com.tazzzo.media.UpsertMediaSetCommand.class);
+
+    /** The geo port is a leaf: it names no other module (the PIN travels as a string), so it can never close a cycle. */
+    @ArchTest
+    static final ArchRule location_is_a_leaf =
+            noClasses().that().resideInAPackage("com.tazzzo.location..")
+                    .should().dependOnClassesThat().resideInAnyPackage(
+                            "com.tazzzo.catalog..", "com.tazzzo.commerce..", "com.tazzzo.serviceability..",
+                            "com.tazzzo.customer..", "com.tazzzo.auth..", "com.tazzzo.admin..", "com.tazzzo.account..")
+                    .allowEmptyShould(true);
+
+    /** Delivery slots sit above serviceability and never reach into commerce read/api, orders, cart or checkout (those call IN). */
+    @ArchTest
+    static final ArchRule delivery_does_not_depend_on_the_customer_commerce_flow =
+            noClasses().that().resideInAPackage("com.tazzzo.delivery..")
+                    .should().dependOnClassesThat().resideInAnyPackage(
+                            "com.tazzzo.commerce.read..", "com.tazzzo.commerce.api..", "com.tazzzo.customer..",
+                            "com.tazzzo.membership..", "com.tazzzo.pricing..", "com.tazzzo.inventory..", "com.tazzzo.media..")
+                    .allowEmptyShould(true);
+
     /** Catalog is a domain peer: it must not depend on other domains or on the commerce layers. */
     @ArchTest
     static final ArchRule catalog_does_not_depend_on_other_modules =

@@ -118,10 +118,150 @@
         }
       }
     },
+    "/api/v1/admin/delivery-slots/{serviceAreaId}/{windowId}" : {
+      "get" : {
+        "tags" : [ "delivery-slot-admin-controller" ],
+        "operationId" : "get_5",
+        "parameters" : [ {
+          "name" : "serviceAreaId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "windowId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/WindowResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put" : {
+        "tags" : [ "delivery-slot-admin-controller" ],
+        "operationId" : "upsert",
+        "parameters" : [ {
+          "name" : "serviceAreaId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "windowId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/WindowRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/WindowResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/customer/orders" : {
+      "get" : {
+        "tags" : [ "order-controller" ],
+        "operationId" : "list",
+        "parameters" : [ {
+          "name" : "page_size",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "cursor",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Page"
+                }
+              }
+            }
+          }
+        }
+      },
       "post" : {
         "tags" : [ "order-controller" ],
         "operationId" : "place",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/JsonNode"
+              }
+            }
+          }
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/CustomerOrderDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/customer/orders/{orderId}/cancel" : {
+      "post" : {
+        "tags" : [ "order-controller" ],
+        "operationId" : "cancel",
+        "parameters" : [ {
+          "name" : "orderId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
         "requestBody" : {
           "content" : {
             "application/json" : {
@@ -190,7 +330,7 @@
     "/v1/customer/addresses" : {
       "get" : {
         "tags" : [ "address-controller" ],
-        "operationId" : "list",
+        "operationId" : "list_2",
         "responses" : {
           "200" : {
             "description" : "OK",
@@ -1138,6 +1278,92 @@
         }
       }
     },
+    "/api/v1/admin/delivery-slots/{serviceAreaId}/{windowId}/deactivate" : {
+      "post" : {
+        "tags" : [ "delivery-slot-admin-controller" ],
+        "operationId" : "deactivate",
+        "parameters" : [ {
+          "name" : "serviceAreaId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "windowId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/VersionRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/WindowResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/delivery-slots/{serviceAreaId}/{windowId}/activate" : {
+      "post" : {
+        "tags" : [ "delivery-slot-admin-controller" ],
+        "operationId" : "activate_1",
+        "parameters" : [ {
+          "name" : "serviceAreaId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "windowId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/VersionRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/WindowResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/customer/profile" : {
       "get" : {
         "tags" : [ "customer-profile-controller" ],
@@ -1387,6 +1613,74 @@
         }
       }
     },
+    "/v1/search" : {
+      "get" : {
+        "tags" : [ "commerce-read-controller" ],
+        "operationId" : "search",
+        "parameters" : [ {
+          "name" : "q",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "release",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "page_size",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "cursor",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "pin",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "lat",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "lng",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/PagedProductResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/products/{id}" : {
       "get" : {
         "tags" : [ "commerce-read-controller" ],
@@ -1460,6 +1754,39 @@
               "*/*" : {
                 "schema" : {
                   "$ref" : "#/components/schemas/CustomerOrderDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/customer/delivery/slots" : {
+      "get" : {
+        "tags" : [ "delivery-slot-controller" ],
+        "operationId" : "list_1",
+        "parameters" : [ {
+          "name" : "pin",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "days",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SlotsResponse"
                 }
               }
             }
@@ -1990,10 +2317,36 @@
         }
       }
     },
+    "/api/v1/admin/delivery-slots/{serviceAreaId}" : {
+      "get" : {
+        "tags" : [ "delivery-slot-admin-controller" ],
+        "operationId" : "list_3",
+        "parameters" : [ {
+          "name" : "serviceAreaId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/audit-events" : {
       "get" : {
         "tags" : [ "admin-audit-events-controller" ],
-        "operationId" : "list_1",
+        "operationId" : "list_4",
         "responses" : {
           "200" : {
             "description" : "OK",
@@ -2197,6 +2550,87 @@
           }
         }
       },
+      "WindowRequest" : {
+        "type" : "object",
+        "properties" : {
+          "label" : {
+            "type" : "string"
+          },
+          "startMinute" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "endMinute" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "cutoffMinutes" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "capacity" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "days" : {
+            "uniqueItems" : true,
+            "type" : "array",
+            "items" : {
+              "type" : "integer",
+              "format" : "int32"
+            }
+          },
+          "expectedVersion" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }
+      },
+      "WindowResponse" : {
+        "type" : "object",
+        "properties" : {
+          "serviceAreaId" : {
+            "type" : "string"
+          },
+          "windowId" : {
+            "type" : "string"
+          },
+          "label" : {
+            "type" : "string"
+          },
+          "startMinute" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "endMinute" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "cutoffMinutes" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "capacity" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "days" : {
+            "uniqueItems" : true,
+            "type" : "array",
+            "items" : {
+              "type" : "integer",
+              "format" : "int32"
+            }
+          },
+          "active" : {
+            "type" : "boolean"
+          },
+          "version" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }
+      },
       "CustomerOrderDto" : {
         "type" : "object",
         "properties" : {
@@ -2241,6 +2675,12 @@
           "money" : {
             "$ref" : "#/components/schemas/OrderMoney"
           },
+          "deliverySlot" : {
+            "$ref" : "#/components/schemas/DeliverySlot"
+          },
+          "cancelledAt" : {
+            "type" : "string"
+          },
           "requestId" : {
             "type" : "string"
           }
@@ -2274,6 +2714,23 @@
             "type" : "string"
           },
           "postalCode" : {
+            "type" : "string"
+          }
+        }
+      },
+      "DeliverySlot" : {
+        "type" : "object",
+        "properties" : {
+          "slotId" : {
+            "type" : "string"
+          },
+          "label" : {
+            "type" : "string"
+          },
+          "startsAt" : {
+            "type" : "string"
+          },
+          "endsAt" : {
             "type" : "string"
           }
         }
@@ -2994,6 +3451,15 @@
           }
         }
       },
+      "VersionRequest" : {
+        "type" : "object",
+        "properties" : {
+          "expectedVersion" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }
+      },
       "CustomerProfileResponseDto" : {
         "type" : "object",
         "properties" : {
@@ -3049,39 +3515,28 @@
           }
         }
       },
-      "LegalInformationDto" : {
+      "PagedProductResponse" : {
         "type" : "object",
         "properties" : {
-          "manufacturer" : {
+          "resolvedReleaseId" : {
             "type" : "string"
           },
-          "countryOfOrigin" : {
+          "serviceArea" : {
+            "$ref" : "#/components/schemas/ServiceAreaSummaryDto"
+          },
+          "items" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/ProductCardDto"
+            }
+          },
+          "nextCursor" : {
             "type" : "string"
           },
-          "netQuantity" : {
-            "type" : "string"
+          "hasMore" : {
+            "type" : "boolean"
           },
-          "fssai" : {
-            "type" : "string"
-          },
-          "importer" : {
-            "type" : "string"
-          }
-        }
-      },
-      "ProductAttributeDto" : {
-        "type" : "object",
-        "properties" : {
-          "key" : {
-            "type" : "string"
-          },
-          "label" : {
-            "type" : "string"
-          },
-          "value" : {
-            "type" : "object"
-          },
-          "unit" : {
+          "requestId" : {
             "type" : "string"
           }
         }
@@ -3187,6 +3642,54 @@
           }
         }
       },
+      "ServiceAreaSummaryDto" : {
+        "type" : "object",
+        "properties" : {
+          "serviceAreaId" : {
+            "type" : "string"
+          },
+          "serviceable" : {
+            "type" : "boolean"
+          }
+        }
+      },
+      "LegalInformationDto" : {
+        "type" : "object",
+        "properties" : {
+          "manufacturer" : {
+            "type" : "string"
+          },
+          "countryOfOrigin" : {
+            "type" : "string"
+          },
+          "netQuantity" : {
+            "type" : "string"
+          },
+          "fssai" : {
+            "type" : "string"
+          },
+          "importer" : {
+            "type" : "string"
+          }
+        }
+      },
+      "ProductAttributeDto" : {
+        "type" : "object",
+        "properties" : {
+          "key" : {
+            "type" : "string"
+          },
+          "label" : {
+            "type" : "string"
+          },
+          "value" : {
+            "type" : "object"
+          },
+          "unit" : {
+            "type" : "string"
+          }
+        }
+      },
       "ProductDetailDto" : {
         "type" : "object",
         "properties" : {
@@ -3275,6 +3778,101 @@
           }
         }
       },
+      "Page" : {
+        "type" : "object",
+        "properties" : {
+          "items" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/Summary"
+            }
+          },
+          "nextCursor" : {
+            "type" : "string"
+          },
+          "requestId" : {
+            "type" : "string"
+          }
+        }
+      },
+      "Summary" : {
+        "type" : "object",
+        "properties" : {
+          "orderId" : {
+            "type" : "string"
+          },
+          "status" : {
+            "type" : "string"
+          },
+          "paymentMethod" : {
+            "type" : "string"
+          },
+          "itemCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "subtotalPaise" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "payablePaise" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "createdAt" : {
+            "type" : "string"
+          },
+          "deliverySlot" : {
+            "$ref" : "#/components/schemas/DeliverySlot"
+          },
+          "cancelledAt" : {
+            "type" : "string"
+          }
+        }
+      },
+      "SlotDto" : {
+        "type" : "object",
+        "properties" : {
+          "slotId" : {
+            "type" : "string"
+          },
+          "date" : {
+            "type" : "string"
+          },
+          "startsAt" : {
+            "type" : "string"
+          },
+          "endsAt" : {
+            "type" : "string"
+          },
+          "label" : {
+            "type" : "string"
+          },
+          "status" : {
+            "type" : "string"
+          }
+        }
+      },
+      "SlotsResponse" : {
+        "type" : "object",
+        "properties" : {
+          "serviceable" : {
+            "type" : "boolean"
+          },
+          "timezone" : {
+            "type" : "string"
+          },
+          "slots" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/SlotDto"
+            }
+          },
+          "requestId" : {
+            "type" : "string"
+          }
+        }
+      },
       "AddressListResponseDto" : {
         "type" : "object",
         "properties" : {
@@ -3314,43 +3912,6 @@
           },
           "requestId" : {
             "type" : "string"
-          }
-        }
-      },
-      "PagedProductResponse" : {
-        "type" : "object",
-        "properties" : {
-          "resolvedReleaseId" : {
-            "type" : "string"
-          },
-          "serviceArea" : {
-            "$ref" : "#/components/schemas/ServiceAreaSummaryDto"
-          },
-          "items" : {
-            "type" : "array",
-            "items" : {
-              "$ref" : "#/components/schemas/ProductCardDto"
-            }
-          },
-          "nextCursor" : {
-            "type" : "string"
-          },
-          "hasMore" : {
-            "type" : "boolean"
-          },
-          "requestId" : {
-            "type" : "string"
-          }
-        }
-      },
-      "ServiceAreaSummaryDto" : {
-        "type" : "object",
-        "properties" : {
-          "serviceAreaId" : {
-            "type" : "string"
-          },
-          "serviceable" : {
-            "type" : "boolean"
           }
         }
       },
@@ -3531,6 +4092,17 @@
             "type" : "array",
             "items" : {
               "type" : "string"
+            }
+          }
+        }
+      },
+      "ListResponse" : {
+        "type" : "object",
+        "properties" : {
+          "items" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/WindowResponse"
             }
           }
         }
