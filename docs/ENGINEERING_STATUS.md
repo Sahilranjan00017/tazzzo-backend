@@ -1453,6 +1453,11 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-10-05** — OTP delivery gateway adapter (backend completion PR-N1; base `main` `484d42c`): `tazzzo.customer-auth.otp.provider-mode=HTTP` wires `HttpOtpDeliveryProvider`, a vendor-neutral HTTPS adapter behind the existing
+  `OtpDeliveryProvider` port (POST JSON `{to,message,sender}` with a credential header; any 2xx = accepted). Validated fail-closed at STARTUP (https only except loopback, credential present and never printed, template carries `{otp}`, timeouts
+  fit inside `delivery-timeout-seconds`); redirects never followed; bounded timeouts; the code, phone, URL, credential and response body appear in no log/exception/metric; one bounded metric `otp_gateway_send{outcome}`. A gateway failure is 503
+  with no challenge activated (a prior working code is untouched). `docs/ops/OTP_GATEWAY.md` documents the contract. **External gate (UNVERIFIED):** no real SMS vendor was contacted — vendor choice, India DLT template registration, delivery
+  receipts, failover vendor and spend caps remain open. Not built here: the notification outbox for order events (a separate PR).
 - **2026-10-04** — DB-4 final proxy-detector fix (narrow re-review of `4e19e5e`: the MongoDB driver accepts `;` as well as `&` between URI options, and the raw text scan only split on `&`, so `?w=majority;proxyHost=evil.example.net` kept a loopback target "local" and bypassed `PROXY_FORBIDDEN`):
   proxy use now comes from the driver's own parse (effective `ProxySettings`), not a second text parser; the dead raw-scan helper was removed. Mutations, each killed: DB4-P1 detector sees only `&`, P2 `isLocalTarget` ignores proxies, P3 contract does not reject the proxy,
   P4 `MigrationTarget` loses the proxy decision, P5 detector fails open on an unparseable string, P6 detector blind. `./mvnw clean test` on Java 21 + Docker: **BUILD SUCCESS**, 2850 tests (1274 unit, 1576 integration), 0 failures / 0 errors / 0 skipped (+7); `ModuleBoundaryTest` 73/73, `IndexContractIT` 12/12. V0001 checksum unchanged (`3b703e4a…`); R1 unchanged and open.
