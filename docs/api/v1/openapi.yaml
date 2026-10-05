@@ -47,6 +47,8 @@ tags:
   description: 'The signed-in customer''s own support cases. Ownership is always the access token; no identifier, status or role is accepted from a body. Case text is personal data and is deleted with the account.
 
     '
+- name: customer-account
+  description: Account lifecycle of the authenticated customer (deletion / erasure).
 paths:
   /v1/categories:
     get:
@@ -1493,6 +1495,55 @@ paths:
           $ref: '#/components/responses/SupportCase409'
         '503':
           $ref: '#/components/responses/SupportCase503'
+  /v1/customer/account/deletion:
+    post:
+      tags:
+      - customer-account
+      summary: Delete (erase) the authenticated customer's account
+      description: 'One transaction: every session is revoked (all tokens stop working at the next request), profile, saved addresses, cart and checkout quotes are deleted, orders are retained as commercial records with the address snapshot anonymised, an entitling membership term is revoked, the customer row becomes a tombstone (the phone may register again as a new customer) and the phone''s OTP rows are removed. The customer is always the bearer of the token; no identifier is accepted from the body. Idempotent; a retry after completion meets 401.
+
+        '
+      security:
+      - customerBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - confirm
+              properties:
+                confirm:
+                  type: string
+                  enum:
+                  - DELETE
+                  description: Explicit intent; exactly DELETE.
+      responses:
+        '200':
+          description: Deleted (also for a repeat within the same session)
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - status
+                - requestId
+                properties:
+                  status:
+                    type: string
+                    enum:
+                    - DELETED
+                  requestId:
+                    type: string
+        '400':
+          $ref: '#/components/responses/AccountDeletionBadRequest'
+        '401':
+          $ref: '#/components/responses/ProfileUnauthenticated'
+        '500':
+          $ref: '#/components/responses/AccountDeletionInternalError'
+        '503':
+          $ref: '#/components/responses/AccountDeletionUnavailable'
 components:
   parameters:
     AddressIdParam:
@@ -3062,6 +3113,24 @@ components:
           format: date-time
         requestId:
           type: string
+    AccountDeletionErrorEnvelope:
+      type: object
+      description: The flat customer error envelope, same shape as every other /v1/customer domain.
+      required:
+      - code
+      - message
+      - requestId
+      properties:
+        code:
+          type: string
+          enum:
+          - INVALID_REQUEST
+          - SERVICE_UNAVAILABLE
+          - INTERNAL
+        message:
+          type: string
+        requestId:
+          type: string
   responses:
     BadRequest:
       description: Invalid request or cursor
@@ -3624,6 +3693,33 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/SupportCaseErrorEnvelope'
+    AccountDeletionBadRequest:
+      description: Missing or wrong confirmation (INVALID_REQUEST); nothing was deleted.
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/AccountDeletionErrorEnvelope'
+    AccountDeletionUnavailable:
+      description: Dependency unavailable or identity integrity failure (SERVICE_UNAVAILABLE); nothing was deleted.
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/AccountDeletionErrorEnvelope'
+    AccountDeletionInternalError:
+      description: Unexpected failure (INTERNAL); the deletion transaction rolled back.
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/AccountDeletionErrorEnvelope'
   securitySchemes:
     customerBearerAuth:
       type: http
