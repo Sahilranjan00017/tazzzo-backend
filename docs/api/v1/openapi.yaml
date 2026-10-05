@@ -45,6 +45,10 @@ tags:
   description: 'Delivery windows for a PIN (customer-authenticated). Computed fresh per request in the configured delivery time zone; capacity is shown only as a status, never a count. Reserving a window happens inside checkout/order placement (a later contract), not here.
 
     '
+- name: customer-support
+  description: 'The signed-in customer''s own support cases. Ownership is always the access token; no identifier, status or role is accepted from a body. Case text is personal data and is deleted with the account.
+
+    '
 paths:
   /v1/categories:
     get:
@@ -1325,6 +1329,245 @@ paths:
           $ref: '#/components/responses/OrderInternalError'
         '503':
           $ref: '#/components/responses/OrderUnavailable'
+  /v1/customer/support/cases:
+    post:
+      tags:
+      - customer-support
+      operationId: openSupportCase
+      summary: Open a case. `orderId` (optional) must be one of the caller's own orders. At most 5 cases may be open at once.
+      security:
+      - customerBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - category
+              - subject
+              - message
+              properties:
+                category:
+                  type: string
+                  enum:
+                  - ORDER_ISSUE
+                  - DELIVERY
+                  - PRODUCT
+                  - ACCOUNT
+                  - OTHER
+                orderId:
+                  type: string
+                subject:
+                  type: string
+                  minLength: 1
+                  maxLength: 120
+                message:
+                  type: string
+                  minLength: 1
+                  maxLength: 2000
+                  description: Plain text; newlines allowed, no other control characters
+      responses:
+        '201':
+          description: The new case (status OPEN). Never cached.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupportCase'
+        '400':
+          $ref: '#/components/responses/SupportCase400'
+        '401':
+          $ref: '#/components/responses/ProfileUnauthenticated'
+        '404':
+          $ref: '#/components/responses/SupportCase404'
+        '409':
+          $ref: '#/components/responses/SupportCase409'
+        '503':
+          $ref: '#/components/responses/SupportCase503'
+    get:
+      tags:
+      - customer-support
+      operationId: listSupportCases
+      summary: The caller's own cases, newest-updated first, keyset-paged. Only `page_size` (1..50) and `cursor` are accepted.
+      security:
+      - customerBearerAuth: []
+      parameters:
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 50
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+          maxLength: 128
+      responses:
+        '200':
+          description: One page of case summaries.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - items
+                - requestId
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                      - caseId
+                      - category
+                      - subject
+                      - status
+                      - messageCount
+                      - updatedAt
+                      properties:
+                        caseId:
+                          type: string
+                        category:
+                          type: string
+                        subject:
+                          type: string
+                        status:
+                          type: string
+                          enum:
+                          - OPEN
+                          - IN_PROGRESS
+                          - RESOLVED
+                          - CLOSED
+                        messageCount:
+                          type: integer
+                        updatedAt:
+                          type: string
+                          format: date-time
+                  nextCursor:
+                    type: string
+                  requestId:
+                    type: string
+        '400':
+          $ref: '#/components/responses/SupportCase400'
+        '401':
+          $ref: '#/components/responses/ProfileUnauthenticated'
+        '404':
+          $ref: '#/components/responses/SupportCase404'
+        '409':
+          $ref: '#/components/responses/SupportCase409'
+        '503':
+          $ref: '#/components/responses/SupportCase503'
+  /v1/customer/support/cases/{caseId}:
+    get:
+      tags:
+      - customer-support
+      operationId: getSupportCase
+      summary: One of the caller's own cases with its messages (staff identities are never shown).
+      security:
+      - customerBearerAuth: []
+      parameters:
+      - name: caseId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: The case.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupportCase'
+        '400':
+          $ref: '#/components/responses/SupportCase400'
+        '401':
+          $ref: '#/components/responses/ProfileUnauthenticated'
+        '404':
+          $ref: '#/components/responses/SupportCase404'
+        '409':
+          $ref: '#/components/responses/SupportCase409'
+        '503':
+          $ref: '#/components/responses/SupportCase503'
+  /v1/customer/support/cases/{caseId}/messages:
+    post:
+      tags:
+      - customer-support
+      operationId: replySupportCase
+      summary: Add a message. A RESOLVED case reopens (OPEN); a CLOSED case is final (409).
+      security:
+      - customerBearerAuth: []
+      parameters:
+      - name: caseId
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - message
+              properties:
+                message:
+                  type: string
+                  minLength: 1
+                  maxLength: 2000
+      responses:
+        '200':
+          description: The case after the message.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupportCase'
+        '400':
+          $ref: '#/components/responses/SupportCase400'
+        '401':
+          $ref: '#/components/responses/ProfileUnauthenticated'
+        '404':
+          $ref: '#/components/responses/SupportCase404'
+        '409':
+          $ref: '#/components/responses/SupportCase409'
+        '503':
+          $ref: '#/components/responses/SupportCase503'
+  /v1/customer/support/cases/{caseId}/close:
+    post:
+      tags:
+      - customer-support
+      operationId: closeSupportCase
+      summary: Close the case (idempotent).
+      security:
+      - customerBearerAuth: []
+      parameters:
+      - name: caseId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: The closed case.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupportCase'
+        '400':
+          $ref: '#/components/responses/SupportCase400'
+        '401':
+          $ref: '#/components/responses/ProfileUnauthenticated'
+        '404':
+          $ref: '#/components/responses/SupportCase404'
+        '409':
+          $ref: '#/components/responses/SupportCase409'
+        '503':
+          $ref: '#/components/responses/SupportCase503'
 components:
   parameters:
     AddressIdParam:
@@ -2843,6 +3086,91 @@ components:
           type: string
         requestId:
           type: string
+    SupportCaseErrorEnvelope:
+      type: object
+      description: The flat customer error envelope shared by every /v1/customer domain.
+      required:
+      - code
+      - message
+      - requestId
+      properties:
+        code:
+          type: string
+          enum:
+          - INVALID_REQUEST
+          - NOT_FOUND
+          - STATE_CONFLICT
+          - TOO_MANY_OPEN
+          - MESSAGE_LIMIT
+          - SERVICE_UNAVAILABLE
+          - INTERNAL
+        message:
+          type: string
+        requestId:
+          type: string
+    SupportCase:
+      type: object
+      required:
+      - caseId
+      - category
+      - subject
+      - status
+      - messages
+      - createdAt
+      - updatedAt
+      - requestId
+      properties:
+        caseId:
+          type: string
+        category:
+          type: string
+          enum:
+          - ORDER_ISSUE
+          - DELIVERY
+          - PRODUCT
+          - ACCOUNT
+          - OTHER
+        orderId:
+          type: string
+        subject:
+          type: string
+        status:
+          type: string
+          enum:
+          - OPEN
+          - IN_PROGRESS
+          - RESOLVED
+          - CLOSED
+        messages:
+          type: array
+          items:
+            type: object
+            required:
+            - id
+            - author
+            - text
+            - at
+            properties:
+              id:
+                type: integer
+              author:
+                type: string
+                enum:
+                - CUSTOMER
+                - STAFF
+              text:
+                type: string
+              at:
+                type: string
+                format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        requestId:
+          type: string
   responses:
     BadRequest:
       description: Invalid request or cursor
@@ -3369,6 +3697,42 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/DeliverySlotErrorEnvelope'
+    SupportCase400:
+      description: Malformed body or parameters (INVALID_REQUEST)
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/SupportCaseErrorEnvelope'
+    SupportCase404:
+      description: Unknown or someone else's case (NOT_FOUND)
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/SupportCaseErrorEnvelope'
+    SupportCase409:
+      description: STATE_CONFLICT (closed case), TOO_MANY_OPEN (5 open cases) or MESSAGE_LIMIT (100 messages)
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/SupportCaseErrorEnvelope'
+    SupportCase503:
+      description: Dependency unavailable (SERVICE_UNAVAILABLE)
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/SupportCaseErrorEnvelope'
   securitySchemes:
     customerBearerAuth:
       type: http

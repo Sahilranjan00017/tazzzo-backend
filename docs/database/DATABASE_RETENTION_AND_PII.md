@@ -1,6 +1,6 @@
 # DATABASE_RETENTION_AND_PII — tazzzo-backend (DB-4)
 
-The retention matrix and the personal-data map for the 51 application collections of `SchemaBootstrap.COLLECTIONS`
+The retention matrix and the personal-data map for the 52 application collections of `SchemaBootstrap.COLLECTIONS`
 (plus the two migration bookkeeping collections, §4). **It records what the code and the database do today and marks every
 unresolved policy `TBD — PRODUCTION POLICY`. No retention period, legal basis or deletion promise is invented here.** Owner, class and the
 "none" retention values are taken from `DATABASE_COLLECTION_CONTRACTS.md` §5 (single source); TTL indexes from
@@ -73,6 +73,7 @@ unresolved policy `TBD — PRODUCTION POLICY`. No retention period, legal basis 
 | `checkout_quotes` | customer.checkout | snapshot | durable | none | TBD — PRODUCTION POLICY | customer link: `customerId`, `addressId` (the raw `Idempotency-Key` is never stored, only its SHA-256) | linked data: TBD — PRODUCTION POLICY | TBD — PRODUCTION POLICY | included |
 | `orders` | customer.order | authoritative + snapshot | durable | none | TBD — PRODUCTION POLICY | **DIRECT PII**: `addressSnapshot.*` (`recipientName`, `recipientPhone`, address lines, `landmark`, `city`, `state`, `postalCode`, coordinates); customer link: `customerId` | no erasure/anonymisation path exists in the backend; design: TBD — PRODUCTION POLICY | TBD — PRODUCTION POLICY | included — **a restore re-introduces erased personal data** |
 | `memberships` | membership | authoritative | durable | none | TBD — PRODUCTION POLICY | customer link: `customerId` | linked data: TBD — PRODUCTION POLICY | TBD — PRODUCTION POLICY | included |
+| `support_cases` | support | authoritative | durable (customer service record) | none | TBD — PRODUCTION POLICY; deleted with the customer's account (erasure) | **free text written by the customer and staff**; customer link: `customerId`; staff identifier on staff messages: `staffId` | deleted on account erasure (`SupportService.eraseForCustomer`) | TBD — PRODUCTION POLICY | included |
 | `delivery_slot_windows` | delivery | authoritative (config) | durable | none | retain (current commercial config); no deletion path (deactivate instead) | none known | n/a (no personal data) | n/a (reference/catalogue data) | included |
 | `delivery_slot_usage` | delivery | operational (counter) | durable (counters; orders are the record) | TTL `expire_at` (a week after the slot date) | purged by TTL; no deletion path | none known | n/a (no personal data: opaque hold ids only) | n/a | included but disposable; a restore may omit it |
 

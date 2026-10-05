@@ -8,7 +8,7 @@ Index, uniqueness and TTL contract derived from real query paths and business in
 |---|---|
 | Repository | `Sahilranjan00017/tazzzo-backend` |
 | Base | `origin/main` `e3a0db6d47bc556472b42f169223eb89684d67a8` (DB-1 merged; DB-0 `52ab530`; audited source `f5b2cdd`) |
-| Index count today | **48** non-`_id` indexes on 34 collections (DB-0 §8: 31 + 17). After DB-2: **49**. After DB-3 and PR #49: **60** — the 48 baseline indexes (created by `SchemaBootstrap`/migration `V0001`) plus 3 created **only by explicit migrations** (`V0002`, `V0005`, `V0006`) plus the 9 audit-read indexes (`V0007`; also created by the legacy test/dev `bootstrap`) plus the migration-only indexes of the backend completion program: 2 delivery-slot (`V0008`), 1 search-token (`V0009`), 1 order history (`V0010`) — **64** in total; `docs/database/DATABASE_MIGRATION_RUNBOOK.md`) |
+| Index count today | **48** non-`_id` indexes on 34 collections (DB-0 §8: 31 + 17). After DB-2: **49**. After DB-3 and PR #49: **60** — the 48 baseline indexes (created by `SchemaBootstrap`/migration `V0001`) plus 3 created **only by explicit migrations** (`V0002`, `V0005`, `V0006`) plus the 9 audit-read indexes (`V0007`; also created by the legacy test/dev `bootstrap`) plus the migration-only indexes of the backend completion program: 2 delivery-slot (`V0008`), 1 search-token (`V0009`), 1 order history (`V0010`), 3 support-case (`V0011`) — **67** in total; `docs/database/DATABASE_MIGRATION_RUNBOOK.md`) |
 | Evidence | (a) three read-only query-path audits of every Mongo operation on every collection, with path:line cites; (b) a **one-off, uncommitted** `explain(executionStats)` experiment on `mongo:7` (Testcontainers replica set, synthetic data, single node) — see §3; this PR does not reproduce those figures; (c) the **committed** `IndexContractIT`, which runs against a real MongoDB 7 Testcontainers server and pins plan *shape* and index specs, not the experiment's numbers |
 | In-flight work | none on indexes. Admin audit-read (PR #49) **merged** as `8227286`; its nine `audit_read_*` indexes are now pinned (§10) and created by migration `V0007` |
 | Database access | none beyond local Testcontainers. No Atlas/production connection. No data or live-schema mutation |
@@ -206,6 +206,15 @@ Requirements/recommendations for PR #49 (not changed by DB-2): (1) either add pe
 | Any unique index creation | only migrations behind a duplicate preflight; `bootstrap` creates only the baseline indexes that already existed | DB-3 (R5, done) |
 | Audit-read nine indexes | DONE: pinned in `IndexContractIT`, created by `V0007` | done |
 
+## 11e. Support-case indexes (PR-O) — migration `V0011`, migration-only
+
+| Collection | Index | Keys | Why |
+|---|---|---|---|
+| `support_cases` | `support_by_customer_recent` | `customerId` ↑, `updatedAt` ↓, `_id` ↓ | the customer's own cases, newest-updated first, keyset-paged |
+| `support_cases` | `support_by_status_recent` | `status` ↑, `updatedAt` ↓, `_id` ↓ | the staff queue filtered by status |
+| `support_cases` | `support_recent` | `updatedAt` ↓, `_id` ↓ | the unfiltered staff queue |
+
+`support_cases` is in `SchemaBootstrap.COLLECTIONS` (roster, runtime role, verifier) but not in the frozen V0001 baseline; V0011 creates the indexes (and the collection on a migrated database). Pinned in `IndexContractIT` and `IndexCatalog.MANAGED`.
 ## 11c. Public search index (PR-G) — migration `V0009`, migration-only
 
 | Collection | Index | Keys | Why |
