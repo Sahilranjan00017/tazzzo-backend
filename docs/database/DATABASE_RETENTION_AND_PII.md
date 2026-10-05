@@ -1,6 +1,6 @@
 # DATABASE_RETENTION_AND_PII — tazzzo-backend (DB-4)
 
-The retention matrix and the personal-data map for the 49 application collections of `SchemaBootstrap.COLLECTIONS`
+The retention matrix and the personal-data map for the 50 application collections of `SchemaBootstrap.COLLECTIONS`
 (plus the two migration bookkeeping collections, §4). **It records what the code and the database do today and marks every
 unresolved policy `TBD — PRODUCTION POLICY`. No retention period, legal basis or deletion promise is invented here.** Owner, class and the
 "none" retention values are taken from `DATABASE_COLLECTION_CONTRACTS.md` §5 (single source); TTL indexes from
@@ -73,6 +73,7 @@ unresolved policy `TBD — PRODUCTION POLICY`. No retention period, legal basis 
 | `checkout_quotes` | customer.checkout | snapshot | durable | none | TBD — PRODUCTION POLICY | customer link: `customerId`, `addressId` (the raw `Idempotency-Key` is never stored, only its SHA-256) | linked data: TBD — PRODUCTION POLICY | TBD — PRODUCTION POLICY | included |
 | `orders` | customer.order | authoritative + snapshot | durable | none | TBD — PRODUCTION POLICY | **DIRECT PII**: `addressSnapshot.*` (`recipientName`, `recipientPhone`, address lines, `landmark`, `city`, `state`, `postalCode`, coordinates); customer link: `customerId` | no erasure/anonymisation path exists in the backend; design: TBD — PRODUCTION POLICY | TBD — PRODUCTION POLICY | included — **a restore re-introduces erased personal data** |
 | `memberships` | membership | authoritative | durable | none | TBD — PRODUCTION POLICY | customer link: `customerId` | linked data: TBD — PRODUCTION POLICY | TBD — PRODUCTION POLICY | included |
+| `notification_outbox` | notification | operational (outbox) | temporary | TTL `notification_expiry_ttl` on `expire_at` (creation + `NotificationOutbox.RETENTION`, whatever the state; the value is a code default pending the production retention policy) | removed by TTL; `NotificationOutbox.eraseForCustomer` deletes a customer's rows (wired into account erasure at merge) | customer link: `customer_id`; NO contact data (phone/push token resolved by the provider adapter at send time); params are bounded non-PII template values (order id, item count, amount) | erasure deletes every row for the customer | n/a | included; rows can reappear in a restored copy until the TTL monitor runs |
 
 ## 3. Personal-data map (summary)
 

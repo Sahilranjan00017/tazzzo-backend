@@ -7,6 +7,9 @@ import com.tazzzo.benefits.TransactionalBenefitsEvaluationPort;
 import com.tazzzo.auth.CustomerId;
 import com.tazzzo.auth.CustomerIdentityAuthority;
 import com.tazzzo.catalog.tx.Tx;
+import com.tazzzo.notification.NotificationEnqueuer;
+import com.tazzzo.notification.NotificationRequest;
+import com.tazzzo.notification.NotificationType;
 import com.tazzzo.commerce.read.TransactionalCatalogCardReadPort;
 import com.tazzzo.customer.address.AddressRepository;
 import com.tazzzo.customer.cart.CartPurchaseIntegrityException;
@@ -133,14 +136,27 @@ public class OrderService {
     private final Clock clock;
     private final Tx tx;
     private final OrderObservability observability;
+    private final NotificationEnqueuer notifications;
     private final OrderDraftAssembler assembler;
 
+    /** Narrow fixtures that construct the service by hand: no notification is enqueued. */
+    OrderService(OrderRepository orders, CheckoutQuoteRepository checkoutQuotes, AddressRepository addresses,
+                 TransactionalServiceabilityReadPort serviceability, TransactionalPriceReadPort pricing,
+                 TransactionalCatalogCardReadPort catalog, TransactionalBenefitsEvaluationPort benefits,
+                 InventoryReservationPort reservationPort, CartPurchasePort cartPurchase, Clock clock,
+                 ObjectProvider<CustomerIdentityAuthority> identityAuthority, Tx tx,
+                 OrderObservability observability) {
+        this(orders, checkoutQuotes, addresses, serviceability, pricing, catalog, benefits, reservationPort, cartPurchase,
+                clock, identityAuthority, tx, observability, NotificationEnqueuer.NONE);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
     public OrderService(OrderRepository orders, CheckoutQuoteRepository checkoutQuotes, AddressRepository addresses,
                         TransactionalServiceabilityReadPort serviceability, TransactionalPriceReadPort pricing,
                         TransactionalCatalogCardReadPort catalog, TransactionalBenefitsEvaluationPort benefits,
                         InventoryReservationPort reservationPort, CartPurchasePort cartPurchase, Clock clock,
                         ObjectProvider<CustomerIdentityAuthority> identityAuthority, Tx tx,
-                        OrderObservability observability) {
+                        OrderObservability observability, NotificationEnqueuer notifications) {
         this.orders = orders;
         this.checkoutQuotes = checkoutQuotes;
         this.reservationPort = reservationPort;
@@ -150,6 +166,7 @@ public class OrderService {
         this.observability = observability;
         this.assembler = new OrderDraftAssembler(addresses, serviceability, pricing, catalog, benefits,
                 reservationPort, clock, identityAuthority);
+        this.notifications = notifications;
     }
 
     /**
@@ -369,6 +386,10 @@ public class OrderService {
                 ConfirmedPaymentCondition.COD_DUE, createdAt, confirmedAt, confirmedAt, draft.benefitSnapshot(),
                 draft.moneySnapshot());
         orders.insert(session, order);
+        // the confirmation notification commits or rolls back WITH the order (transactional outbox)
+        notifications.enqueue(session, new NotificationRequest(NotificationType.ORDER_CONFIRMED, customerId.value(),
+                orderId.value(), java.util.Map.of("item_count", String.valueOf(quote.itemCount()),
+                        "payable_paise", String.valueOf(order.moneySnapshot().payablePaise()))));
         return order;
     }
 }

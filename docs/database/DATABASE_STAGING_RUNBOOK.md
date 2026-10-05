@@ -203,7 +203,7 @@ without touching anything if the answer is no. The gate is closed at the first i
 | `REFUSED` | the verifier refused startup | blocked, terminal |
 | `JOB` | mode `DRY_RUN` or `APPLY` | blocked, terminal: a migration job runs no business workers whatever `TAZZZO_SCHEDULER_ENABLED` says |
 
-This does **not** depend on `TAZZZO_SCHEDULER_ENABLED=false`, on runner order or on timing. All eight `@Scheduled` methods (`CatalogSchedulers` ×5, `CommerceProjectionScheduler` ×2, `InventoryReservationScheduler` ×1) are covered, and
+This does **not** depend on `TAZZZO_SCHEDULER_ENABLED=false`, on runner order or on timing. All nine `@Scheduled` methods (`CatalogSchedulers` ×5, `CommerceProjectionScheduler` ×2, `InventoryReservationScheduler` ×1, `NotificationConfig.Dispatch` ×1: the notification outbox dispatcher, idempotent through leased claims with token-conditional completion, off unless `tazzzo.scheduler.notification-dispatch-enabled` and a provider exists) are covered, and
 `ScheduledWorkerGateTest` fails if a ninth appears without being inventoried, if a second scheduler or timer is introduced, or if a scheduling entry point of the gated scheduler is not wrapped.
 `StartupSchedulerGateIT` proves it against a real MongoDB with the scheduler **enabled** and periods of 10 ms: a verifier refusal, a later migration-runner refusal and a `DRY_RUN` job each leave the price ledger and the
 whole database untouched; a healthy start opens the gate.

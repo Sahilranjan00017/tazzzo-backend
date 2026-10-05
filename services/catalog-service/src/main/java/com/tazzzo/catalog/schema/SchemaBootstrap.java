@@ -111,7 +111,11 @@ public class SchemaBootstrap {
             // PR-16A-1: one document per Membership TERM (entitlement window under one immutable plan
             // version), _id the opaque MBR_* id. Deliberately NO TTL, NO customer-history index and NO
             // validUntil expiry-scan index -- no query needs one yet; each arrives with its query.
-            "memberships");
+            "memberships",
+            // N2 transactional notification outbox: one row per (type, subject), _id the dedupe key; recipient is the
+            // opaque customer id only (contact resolved at send time). Indexes (due scan, by-customer erasure, TTL) are
+            // migration-only (V0014); bootstrap creates only the collection.
+            "notification_outbox");
 
     /**
      * PAG-2-SORT-1 transport support: the equality prefix the consumer-eligibility predicate uses,
