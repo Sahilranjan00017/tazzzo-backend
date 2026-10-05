@@ -27,9 +27,10 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Public reads: {@code GET /v1/content/home} (the live HOME blocks) and {@code GET /v1/app-config} (store open, maintenance,
- * force-update versions, support contacts). Admission is charged like every public read; the answers are short-lived
- * cacheable ({@code public, max-age=60}) because they are the same for every caller. Query parameters are refused.
+ * Public reads: {@code GET /v1/content/home} (the live HOME blocks), {@code GET /v1/content/faqs} (the live help-centre FAQ,
+ * optionally one {@code category}) and {@code GET /v1/app-config} (store open, maintenance, force-update versions, support
+ * contacts, legal links). Admission is charged like every public read; the answers are short-lived cacheable
+ * ({@code public, max-age=60}) because they are the same for every caller. Any other query parameter is refused.
  */
 @RestController
 public class PublicContentController {
@@ -51,7 +52,15 @@ public class PublicContentController {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     record Support(String phone, String email) { }
 
-    record Config(boolean storeOpen, Maintenance maintenance, Versions android, Versions ios, Support support, String requestId) { }
+    /** Approved legal documents as https links; a null link means "not published yet" (the app hides it). */
+    record Legal(String termsUrl, String privacyUrl, String refundPolicyUrl) { }
+
+    record Config(boolean storeOpen, Maintenance maintenance, Versions android, Versions ios, Support support, Legal legal,
+                  String requestId) { }
+
+    record Faq(String faqId, String category, String question, String answer) { }
+
+    record Faqs(List<Faq> faqs, String requestId) { }
 
     private final ContentService content;
     private final MediaUrlResolver urls;
@@ -86,6 +95,30 @@ public class PublicContentController {
         return ResponseEntity.ok().header(HttpHeaders.CACHE_CONTROL, CACHE).body(new Home(out, requestId(request)));
     }
 
+    @GetMapping("/v1/content/faqs")
+    public ResponseEntity<Faqs> faqs(HttpServletRequest request) {
+        ContentBlock.FaqCategory category = onlyCategory(request);
+        gate.charge(ConsumerObservability.Route.CONTENT_FAQS, identity(request), 1);
+        List<Faq> out = new ArrayList<>();
+        for (ContentBlock b : content.liveFaqs(category)) {
+            out.add(new Faq(b.blockId(), b.payload().faqCategory(), b.payload().question(), b.payload().answer()));
+        }
+        return ResponseEntity.ok().header(HttpHeaders.CACHE_CONTROL, CACHE).body(new Faqs(out, requestId(request)));
+    }
+
+    /** Exactly one optional parameter, {@code category}, given once, from the closed set; anything else is a 400. */
+    private static ContentBlock.FaqCategory onlyCategory(HttpServletRequest request) {
+        java.util.Map<String, String[]> params = request.getParameterMap();
+        if (params.isEmpty()) return null;
+        String[] values = params.get("category");
+        if (params.size() != 1 || values == null || values.length != 1) throw new ConsumerFailures.InvalidRequest("only category is accepted");
+        try {
+            return ContentBlock.faqCategory(values[0]);
+        } catch (IllegalArgumentException e) {
+            throw new ConsumerFailures.InvalidRequest("unknown category");
+        }
+    }
+
     @GetMapping("/v1/app-config")
     public ResponseEntity<Config> appConfig(HttpServletRequest request) {
         refuseQuery(request);
@@ -93,7 +126,8 @@ public class PublicContentController {
         AppConfig c = content.appConfig();
         Config body = new Config(c.storeOpen(), new Maintenance(c.maintenance(), c.maintenance() ? c.maintenanceMessage() : null),
                 new Versions(c.minAndroid(), c.latestAndroid()), new Versions(c.minIos(), c.latestIos()),
-                new Support(c.supportPhone(), c.supportEmail()), requestId(request));
+                new Support(c.supportPhone(), c.supportEmail()), new Legal(c.termsUrl(), c.privacyUrl(), c.refundPolicyUrl()),
+                requestId(request));
         return ResponseEntity.ok().header(HttpHeaders.CACHE_CONTROL, CACHE).body(body);
     }
 

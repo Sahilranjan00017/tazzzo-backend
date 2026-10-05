@@ -90,4 +90,56 @@ class ContentModelTest {
             assertThatThrownBy(bad::validate).as(bad.toString()).isInstanceOf(IllegalArgumentException.class);
         }
     }
+
+    static ContentBlock.Payload faq(String category, String q, String a) {
+        return ContentBlock.Payload.faq(category, q, a);
+    }
+
+    @Test
+    void faq_payloads_are_plain_text_in_a_closed_category() {
+        ok(ContentBlock.Type.FAQ, faq("DELIVERY", "When will my order arrive?", "Within the slot you chose.\nWe call before arriving."));
+        for (String c : new String[]{"DELIVERY", "PRODUCT", "CLUB", "PAYMENT", "REFUND", "ACCOUNT"}) ok(ContentBlock.Type.FAQ, faq(c, "Q?", "A."));
+        bad("unknown category", ContentBlock.Type.FAQ, "T", 1, null, null, faq("SHIPPING", "Q?", "A."));
+        bad("missing category", ContentBlock.Type.FAQ, "T", 1, null, null, faq(null, "Q?", "A."));
+        bad("blank question", ContentBlock.Type.FAQ, "T", 1, null, null, faq("CLUB", " ", "A."));
+        bad("long question", ContentBlock.Type.FAQ, "T", 1, null, null, faq("CLUB", "q".repeat(201), "A."));
+        bad("newline in question", ContentBlock.Type.FAQ, "T", 1, null, null, faq("CLUB", "a\nb", "A."));
+        bad("markup in answer", ContentBlock.Type.FAQ, "T", 1, null, null, faq("CLUB", "Q?", "<script>x</script>"));
+        bad("control char in answer", ContentBlock.Type.FAQ, "T", 1, null, null, faq("CLUB", "Q?", "a\u0007b"));
+        bad("long answer", ContentBlock.Type.FAQ, "T", 1, null, null, faq("CLUB", "Q?", "a".repeat(2001)));
+        ok(ContentBlock.Type.FAQ, faq("CLUB", "q".repeat(200), "a".repeat(2000)));
+        bad("faq with a link", ContentBlock.Type.FAQ, "T", 1, null, null,
+                new ContentBlock.Payload(null, "product:TZP-1", null, "CLUB", "Q?", "A."));
+        bad("a banner with faq text", ContentBlock.Type.BANNER, "T", 1, null, null,
+                new ContentBlock.Payload("cms/home/a.webp", "product:TZP-1", null, null, "Q?", null));
+    }
+
+    @Test
+    void each_type_belongs_to_exactly_one_placement() {
+        ContentBlock.requirePlacement(ContentBlock.Placement.HELP, ContentBlock.Type.FAQ);
+        ContentBlock.requirePlacement(ContentBlock.Placement.HOME, ContentBlock.Type.BANNER);
+        assertThatThrownBy(() -> ContentBlock.requirePlacement(ContentBlock.Placement.HOME, ContentBlock.Type.FAQ))
+                .isInstanceOf(IllegalArgumentException.class);
+        for (ContentBlock.Type t : new ContentBlock.Type[]{ContentBlock.Type.BANNER, ContentBlock.Type.PRODUCT_RAIL, ContentBlock.Type.CATEGORY_GRID}) {
+            assertThatThrownBy(() -> ContentBlock.requirePlacement(ContentBlock.Placement.HELP, t)).as(t.name())
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+    }
+
+    static AppConfig legal(String terms, String privacy, String refund) {
+        return new AppConfig(true, false, null, null, null, null, null, null, null, terms, privacy, refund, 0);
+    }
+
+    @Test
+    void legal_links_are_absolute_https_urls_or_absent() {
+        legal(null, null, null).validate();
+        legal("https://tazzzo.com/terms", "https://tazzzo.com/privacy?v=2", "https://help.tazzzo.com/refunds#policy").validate();
+        for (String bad : new String[]{"http://tazzzo.com/terms", "tazzzo.com/terms", "//tazzzo.com/terms", "https://", "https:///x",
+                "javascript:alert(1)", "https://user:pw@tazzzo.com/terms", "https://tazzzo.com/te rms", "https://tazzzo.com/\nx",
+                "ftp://tazzzo.com/terms", "https://tazzzo.com/" + "x".repeat(500), ""}) {
+            assertThatThrownBy(() -> legal(bad, null, null).validate()).as("terms " + bad).isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() -> legal(null, bad, null).validate()).as("privacy " + bad).isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() -> legal(null, null, bad).validate()).as("refund " + bad).isInstanceOf(IllegalArgumentException.class);
+        }
+    }
 }

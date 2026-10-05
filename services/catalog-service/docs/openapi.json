@@ -1768,6 +1768,24 @@
         }
       }
     },
+    "/v1/content/faqs" : {
+      "get" : {
+        "tags" : [ "public-content-controller" ],
+        "operationId" : "faqs",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Faqs"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/categories" : {
       "get" : {
         "tags" : [ "commerce-read-controller" ],
@@ -2478,6 +2496,15 @@
             "items" : {
               "type" : "string"
             }
+          },
+          "faqCategory" : {
+            "type" : "string"
+          },
+          "question" : {
+            "type" : "string"
+          },
+          "answer" : {
+            "type" : "string"
           }
         }
       },
@@ -2554,6 +2581,15 @@
           "supportEmail" : {
             "type" : "string"
           },
+          "termsUrl" : {
+            "type" : "string"
+          },
+          "privacyUrl" : {
+            "type" : "string"
+          },
+          "refundPolicyUrl" : {
+            "type" : "string"
+          },
           "expectedVersion" : {
             "type" : "integer",
             "format" : "int64"
@@ -2588,6 +2624,15 @@
             "type" : "string"
           },
           "supportEmail" : {
+            "type" : "string"
+          },
+          "termsUrl" : {
+            "type" : "string"
+          },
+          "privacyUrl" : {
+            "type" : "string"
+          },
+          "refundPolicyUrl" : {
             "type" : "string"
           },
           "version" : {
@@ -3740,6 +3785,37 @@
           }
         }
       },
+      "Faq" : {
+        "type" : "object",
+        "properties" : {
+          "faqId" : {
+            "type" : "string"
+          },
+          "category" : {
+            "type" : "string"
+          },
+          "question" : {
+            "type" : "string"
+          },
+          "answer" : {
+            "type" : "string"
+          }
+        }
+      },
+      "Faqs" : {
+        "type" : "object",
+        "properties" : {
+          "faqs" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/Faq"
+            }
+          },
+          "requestId" : {
+            "type" : "string"
+          }
+        }
+      },
       "NodeDto" : {
         "type" : "object",
         "properties" : {
@@ -3823,7 +3899,24 @@
           "support" : {
             "$ref" : "#/components/schemas/Support"
           },
+          "legal" : {
+            "$ref" : "#/components/schemas/Legal"
+          },
           "requestId" : {
+            "type" : "string"
+          }
+        }
+      },
+      "Legal" : {
+        "type" : "object",
+        "properties" : {
+          "termsUrl" : {
+            "type" : "string"
+          },
+          "privacyUrl" : {
+            "type" : "string"
+          },
+          "refundPolicyUrl" : {
             "type" : "string"
           }
         }

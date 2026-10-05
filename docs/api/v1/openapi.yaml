@@ -221,13 +221,19 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '429': { $ref: '#/components/responses/RateLimited' }
         '503': { $ref: '#/components/responses/Unavailable' }
-  /v1/app-config:
+  /v1/content/faqs:
     get:
       tags: [content]
-      operationId: getAppConfig
+      operationId: getHelpFaqs
       summary: >
-        Operational configuration read at app start: whether the store takes orders, a maintenance banner, the minimum
-        supported and latest app versions per platform (force/soft update), and support contacts. Absent values mean "no constraint".
+        The live help-centre FAQ (PUBLISHED FAQ blocks on the HELP placement, inside their time window), ordered by category
+        (DELIVERY, PRODUCT, CLUB, PAYMENT, REFUND, ACCOUNT) then display order. Answers are plain text; `\n` separates paragraphs.
+        The only accepted query parameter is `category`, once; anything else is 400.
+      parameters:
+        - name: category
+          in: query
+          required: false
+          schema: { type: string, enum: [DELIVERY, PRODUCT, CLUB, PAYMENT, REFUND, ACCOUNT] }
       responses:
         '200':
           description: "OK. `Cache-Control: public, max-age=60`."
@@ -235,7 +241,38 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [storeOpen, maintenance, android, ios, support, requestId]
+                required: [faqs, requestId]
+                properties:
+                  faqs:
+                    type: array
+                    items:
+                      type: object
+                      required: [faqId, category, question, answer]
+                      properties:
+                        faqId: { type: string }
+                        category: { type: string, enum: [DELIVERY, PRODUCT, CLUB, PAYMENT, REFUND, ACCOUNT] }
+                        question: { type: string, maxLength: 200 }
+                        answer: { type: string, maxLength: 2000 }
+                  requestId: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /v1/app-config:
+    get:
+      tags: [content]
+      operationId: getAppConfig
+      summary: >
+        Operational configuration read at app start: whether the store takes orders, a maintenance banner, the minimum
+        supported and latest app versions per platform (force/soft update), support contacts, and the approved legal documents
+        as https links (a null link means "not published yet"). Absent values mean "no constraint".
+      responses:
+        '200':
+          description: "OK. `Cache-Control: public, max-age=60`."
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [storeOpen, maintenance, android, ios, support, legal, requestId]
                 properties:
                   storeOpen: { type: boolean }
                   maintenance:
@@ -259,6 +296,13 @@ paths:
                     properties:
                       phone: { type: string }
                       email: { type: string }
+                  legal:
+                    type: object
+                    required: [termsUrl, privacyUrl, refundPolicyUrl]
+                    properties:
+                      termsUrl: { type: string, format: uri, nullable: true }
+                      privacyUrl: { type: string, format: uri, nullable: true }
+                      refundPolicyUrl: { type: string, format: uri, nullable: true }
                   requestId: { type: string }
         '400': { $ref: '#/components/responses/BadRequest' }
         '429': { $ref: '#/components/responses/RateLimited' }

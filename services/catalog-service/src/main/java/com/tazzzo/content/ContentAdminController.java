@@ -32,7 +32,8 @@ import java.util.Map;
 @RestController
 public class ContentAdminController {
 
-    record PayloadDto(String imageAssetKey, String link, List<String> ids) { }
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    record PayloadDto(String imageAssetKey, String link, List<String> ids, String faqCategory, String question, String answer) { }
 
     record BlockRequest(String placement, String type, String title, Integer sort, String startsAt, String endsAt, PayloadDto payload,
                         Long expectedVersion) { }
@@ -45,7 +46,8 @@ public class ContentAdminController {
         static BlockResponse of(ContentBlock b) {
             return new BlockResponse(b.blockId(), b.placement().name(), b.type().name(), b.title(), b.sort(), b.status().name(),
                     b.startsAt() == null ? null : b.startsAt().toString(), b.endsAt() == null ? null : b.endsAt().toString(),
-                    new PayloadDto(b.payload().imageAssetKey(), b.payload().link(), b.payload().ids().isEmpty() ? null : b.payload().ids()),
+                    new PayloadDto(b.payload().imageAssetKey(), b.payload().link(), b.payload().ids().isEmpty() ? null : b.payload().ids(),
+                            b.payload().faqCategory(), b.payload().question(), b.payload().answer()),
                     b.version(), b.createdAt().toString(), b.updatedAt().toString());
         }
     }
@@ -53,7 +55,8 @@ public class ContentAdminController {
     record BlockList(List<BlockResponse> items) { }
 
     record ConfigRequest(Boolean storeOpen, Boolean maintenance, String maintenanceMessage, String minAndroid, String latestAndroid,
-                         String minIos, String latestIos, String supportPhone, String supportEmail, Long expectedVersion) { }
+                         String minIos, String latestIos, String supportPhone, String supportEmail, String termsUrl, String privacyUrl,
+                         String refundPolicyUrl, Long expectedVersion) { }
 
     private final ContentService content;
 
@@ -108,7 +111,7 @@ public class ContentAdminController {
         }
         return content.putAppConfig(AdminActors.require(request), body.expectedVersion(), new AppConfig(body.storeOpen(), body.maintenance(),
                 body.maintenanceMessage(), body.minAndroid(), body.latestAndroid(), body.minIos(), body.latestIos(), body.supportPhone(),
-                body.supportEmail(), body.expectedVersion()));
+                body.supportEmail(), body.termsUrl(), body.privacyUrl(), body.refundPolicyUrl(), body.expectedVersion()));
     }
 
     private static Instant instant(String raw) {
@@ -121,7 +124,7 @@ public class ContentAdminController {
     }
 
     private static ContentBlock.Payload payload(PayloadDto p) {
-        return new ContentBlock.Payload(p.imageAssetKey(), p.link(), p.ids());
+        return new ContentBlock.Payload(p.imageAssetKey(), p.link(), p.ids(), p.faqCategory(), p.question(), p.answer());
     }
 
     /** The admin envelope for this controller only. */

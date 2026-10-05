@@ -232,4 +232,108 @@ class ContentIT extends AbstractConsumerIT {
         assertThat(charged(home) - h0).isEqualTo(2);
         assertThat(charged(config) - c0).isEqualTo(1);
     }
+
+    // ------------------------------------------------------------------ help centre and legal links
+
+    private JsonNode faq(String category, String question, int sort) {
+        Map<String, Object> b = block("FAQ", "FAQ " + question, sort,
+                Map.of("faqCategory", category, "question", question, "answer", "Answer to " + question));
+        b.put("placement", "HELP");
+        return create(b);
+    }
+
+    private ResponseEntity<JsonNode> faqs(String query) {
+        return get("/v1/content/faqs" + query, JsonNode.class);
+    }
+
+    @Test
+    void faqs_are_typed_help_blocks_live_only_when_published_ordered_by_category_then_sort() {
+        JsonNode refundLate = publish(faq("REFUND", "Refund two?", 5));
+        JsonNode delivery = publish(faq("DELIVERY", "When does it arrive?", 9));
+        JsonNode refundEarly = publish(faq("REFUND", "Refund one?", 1));
+        faq("CLUB", "Draft only?", 1);                                      // never published
+
+        ResponseEntity<JsonNode> all = faqs("");
+        assertThat(all.getStatusCode().value()).isEqualTo(200);
+        assertThat(all.getHeaders().getCacheControl()).isEqualTo("public, max-age=60");
+        List<String> order = new ArrayList<>();
+        all.getBody().get("faqs").forEach(f -> order.add(f.get("faqId").asText()));
+        assertThat(order).as("DELIVERY before REFUND (enum order), then sort").containsExactly(delivery.get("blockId").asText(),
+                refundEarly.get("blockId").asText(), refundLate.get("blockId").asText());
+        JsonNode first = all.getBody().get("faqs").get(0);
+        assertThat(first.get("category").asText()).isEqualTo("DELIVERY");
+        assertThat(first.get("question").asText()).isEqualTo("When does it arrive?");
+        assertThat(first.get("answer").asText()).isEqualTo("Answer to When does it arrive?");
+        assertThat(first.has("status") || first.has("version")).as("no admin fields leak").isFalse();
+
+        JsonNode refunds = faqs("?category=REFUND").getBody();
+        assertThat(refunds.get("faqs")).hasSize(2);
+        assertThat(faqs("?category=CLUB").getBody().get("faqs")).as("a draft is not live").isEmpty();
+
+        for (String bad : new String[]{"?category=SHIPPING", "?category=refund", "?category=", "?x=1", "?category=REFUND&category=CLUB",
+                "?category=REFUND&x=1"}) {
+            ResponseEntity<JsonNode> r = faqs(bad);
+            assertThat(r.getStatusCode().value()).as(bad).isEqualTo(400);
+            assertThat(r.getBody().get("code").asText()).isEqualTo("INVALID_REQUEST");
+        }
+        // FAQ never shows on HOME, and the home list never includes help blocks
+        assertThat(homeIds()).doesNotContain(delivery.get("blockId").asText());
+    }
+
+    @Test
+    void faq_placement_and_type_must_match_and_writes_are_audited() {
+        Map<String, Object> onHome = block("FAQ", "Wrong place", 1, Map.of("faqCategory", "CLUB", "question", "Q?", "answer", "A."));
+        assertThat(send(HttpMethod.POST, BLOCKS, W, onHome).getStatusCode().value()).isEqualTo(422);
+        Map<String, Object> bannerOnHelp = block("BANNER", "Wrong place", 1, Map.of("imageAssetKey", "cms/home/a.webp", "link", "product:TZP-1"));
+        bannerOnHelp.put("placement", "HELP");
+        assertThat(send(HttpMethod.POST, BLOCKS, W, bannerOnHelp).getStatusCode().value()).isEqualTo(422);
+        Map<String, Object> markup = block("FAQ", "Bad", 1, Map.of("faqCategory", "CLUB", "question", "Q?", "answer", "<b>A</b>"));
+        markup.put("placement", "HELP");
+        assertThat(send(HttpMethod.POST, BLOCKS, W, markup).getStatusCode().value()).isEqualTo(422);
+        assertThat(send(HttpMethod.POST, BLOCKS, R, onHome).getStatusCode().value()).as("reader cannot write").isEqualTo(403);
+        assertThat(db.getCollection("content_blocks").countDocuments()).isZero();
+
+        JsonNode f = faq("ACCOUNT", "How do I delete my account?", 1);
+        JsonNode listed = send(HttpMethod.GET, BLOCKS + "?placement=HELP", R, null).getBody();
+        assertThat(listed.get("items")).hasSize(1);
+        assertThat(listed.get("items").get(0).at("/payload/faqCategory").asText()).isEqualTo("ACCOUNT");
+        assertThat(db.getCollection("domain_events").countDocuments(new Document("aggregate_id", f.get("blockId").asText())
+                .append("type", "CONTENT_BLOCK_CREATED"))).isEqualTo(1);
+    }
+
+    @Test
+    void the_faq_read_is_admission_charged_on_its_own_route() {
+        var route = com.tazzzo.catalog.consumer.ConsumerObservability.Route.CONTENT_FAQS;
+        long before = charged(route);
+        faqs("");
+        faqs("?category=CLUB");
+        assertThat(charged(route) - before).isEqualTo(2);
+        long home = charged(com.tazzzo.catalog.consumer.ConsumerObservability.Route.CONTENT_HOME);
+        faqs("");
+        assertThat(charged(com.tazzzo.catalog.consumer.ConsumerObservability.Route.CONTENT_HOME)).isEqualTo(home);
+    }
+
+    @Test
+    void legal_links_round_trip_and_only_https_is_accepted() {
+        JsonNode none = get("/v1/app-config", JsonNode.class).getBody();
+        assertThat(none.get("legal").get("termsUrl").isNull()).as("unset link is null").isTrue();
+        Map<String, Object> cfg = new LinkedHashMap<>();
+        cfg.put("storeOpen", true);
+        cfg.put("maintenance", false);
+        cfg.put("termsUrl", "https://tazzzo.com/terms");
+        cfg.put("privacyUrl", "https://tazzzo.com/privacy");
+        cfg.put("refundPolicyUrl", "https://tazzzo.com/refunds");
+        cfg.put("expectedVersion", 0);
+        assertThat(send(HttpMethod.PUT, "/api/v1/admin/app-config", W, cfg).getStatusCode().value()).isEqualTo(200);
+        JsonNode legal = get("/v1/app-config", JsonNode.class).getBody().get("legal");
+        assertThat(legal.get("termsUrl").asText()).isEqualTo("https://tazzzo.com/terms");
+        assertThat(legal.get("privacyUrl").asText()).isEqualTo("https://tazzzo.com/privacy");
+        assertThat(legal.get("refundPolicyUrl").asText()).isEqualTo("https://tazzzo.com/refunds");
+
+        cfg.put("expectedVersion", 1);
+        cfg.put("privacyUrl", "http://tazzzo.com/privacy");
+        ResponseEntity<JsonNode> refused = send(HttpMethod.PUT, "/api/v1/admin/app-config", W, cfg);
+        assertThat(refused.getStatusCode().value()).isEqualTo(422);
+        assertThat(get("/v1/app-config", JsonNode.class).getBody().at("/legal/privacyUrl").asText()).isEqualTo("https://tazzzo.com/privacy");
+    }
 }
