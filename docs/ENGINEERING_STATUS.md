@@ -1453,6 +1453,8 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-10-05** — Bulk price/stock import PR-T (`feature/bulk-price-stock-import`, stacked on #61): `POST /api/v1/admin/imports/{prices,inventory}`, 1–500 rows, whole-file validation (422 with every row error, nothing written), dry run, per-row attributed CAS writes through the single-row service path, stop-on-datastore-failure with NOT_ATTEMPTED rows, one summary audit row per run. See `docs/ops/BULK_IMPORT.md`.
+
 - **2026-10-05** — Price and stock admin APIs (backend completion PR-H/PR-I; base `main` `484d42c`): INTERNAL `GET/PUT /api/v1/admin/prices/{sku}` (explicit paise, `expectedVersion` absent = create / present = CAS, sanity ceiling and
   MRP >= selling enforced by `PricingService`, no effective windows offered) and `GET/PUT /api/v1/admin/inventory/{sku}/{location}` + `POST …/activate|deactivate` (ABSOLUTE stock set, CAS, can never push `onHand` below live
   reservations, never touches `reserved`; delist keeps the counters). Both require an existing product, record the AUTHENTICATED actor (ledger row / product event; a body field is ignored) and are read-only for read credentials.
