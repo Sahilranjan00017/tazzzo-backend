@@ -1677,6 +1677,48 @@
         }
       }
     },
+    "/health/ready" : {
+      "get" : {
+        "tags" : [ "health-controller" ],
+        "operationId" : "ready",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "object",
+                  "additionalProperties" : {
+                    "type" : "object"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health/live" : {
+      "get" : {
+        "tags" : [ "health-controller" ],
+        "operationId" : "live",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "object",
+                  "additionalProperties" : {
+                    "type" : "object"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/catalog/v1/products/{productId}" : {
       "get" : {
         "tags" : [ "consumer-taxonomy-controller" ],
