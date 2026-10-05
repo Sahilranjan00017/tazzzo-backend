@@ -811,8 +811,10 @@ paths:
         `CONFIRMED` with `paymentCondition` `COD_DUE`. Idempotent by `quoteId`: the first placement and any
         replay of the same quote both return 200 with the same order (and never reserve, consume or clear
         the cart again), and a replay is never re-judged: it returns the stored order and its stored money even if
-        the benefit state has changed since. Only `quoteId` and `paymentMethod` are read from the body; any other
-        field is ignored. The order's `money` is computed authoritatively at placement and may differ from the quote's
+        the benefit state has changed since. Only `quoteId`, `paymentMethod` and the optional `deliverySlotId` are read from
+        the body; any other field is ignored. A `deliverySlotId` (an id from `GET /v1/customer/delivery/slots`) is reserved in
+        the SAME transaction as the order: a full, closed or unknown slot is `409 DELIVERY_SLOT_UNAVAILABLE` and nothing is
+        written; a replay never reserves again. The order's `money` is computed authoritatively at placement and may differ from the quote's
         advisory `moneyPreview`; a difference is not an error. Fails as a whole — a failed placement leaves stock, cart and orders untouched.
       security:
         - customerBearerAuth: []
@@ -1507,14 +1509,20 @@ components:
       type: object
       required: [quoteId, paymentMethod]
       description: >
-        Only `quoteId` and `paymentMethod` are read. Any other field (status, payment condition, customerId,
-        reservation, inventory location, price ...) is ignored and never used.
+        Only `quoteId`, `paymentMethod` and the optional `deliverySlotId` are read. Any other field (status, payment
+        condition, customerId, reservation, inventory location, price ...) is ignored and never used.
       properties:
         quoteId: { type: string, maxLength: 64, example: CHKQ_0123456789abcdef }
         paymentMethod:
           type: string
           enum: [COD]
           description: Cash on delivery is the only supported payment method. Anything else is 400 PAYMENT_METHOD_UNSUPPORTED.
+        deliverySlotId:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9-]{0,31}~[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+          description: >
+            Optional (required when the deployment sets `tazzzo.checkout.delivery-slot-required`). A malformed value is
+            400 INVALID_REQUEST; a valid one that is full, closed, unknown or outside the horizon is 409 DELIVERY_SLOT_UNAVAILABLE.
     CustomerOrderLine:
       type: object
       required: [skuId, title, brandCode, quantity, unitPricePaise, lineTotalPaise]
@@ -1566,6 +1574,16 @@ components:
         createdAt: { type: string, format: date-time }
         confirmedAt: { type: string, format: date-time }
         money: { $ref: '#/components/schemas/CustomerOrderMoney' }
+        deliverySlot:
+          type: object
+          additionalProperties: false
+          required: [slotId, label, startsAt, endsAt]
+          description: The delivery window the order reserved; absent when none was chosen. Never carries capacity or internal ids.
+          properties:
+            slotId: { type: string, example: 'early~2026-10-06' }
+            label: { type: string }
+            startsAt: { type: string, format: date-time }
+            endsAt: { type: string, format: date-time }
         requestId: { type: string }
     CustomerOrderMoney:
       type: object

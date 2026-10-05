@@ -89,6 +89,12 @@ public class OrderRepository {
         if (o.moneySnapshot() != null) { // absent ONLY on a legacy (pre-money-model) Order; never written as null
             d.append(OrderMoneySnapshotCodec.FIELD, OrderMoneySnapshotCodec.toDocument(o.moneySnapshot()));
         }
+        if (o.deliverySlot() != null) { // absent when no slot was chosen; never written as null
+            OrderDeliverySlot slot = o.deliverySlot();
+            d.append("deliverySlot", new Document("serviceAreaId", slot.serviceAreaId()).append("windowId", slot.windowId())
+                    .append("date", slot.date().toString()).append("label", slot.label())
+                    .append("startsAt", Date.from(slot.startsAt())).append("endsAt", Date.from(slot.endsAt())));
+        }
         if (o.confirmedAt() != null) { // present ONLY on a CONFIRMED order (Order's constructor enforces it)
             d.append("confirmedPaymentCondition", o.confirmedPaymentCondition().name())
                     .append("confirmedAt", Date.from(o.confirmedAt()));
@@ -124,6 +130,14 @@ public class OrderRepository {
         // synthesized payable
         OrderMoneySnapshot moneySnapshot = d.containsKey(OrderMoneySnapshotCodec.FIELD)
                 ? OrderMoneySnapshotCodec.fromDocument(d.get(OrderMoneySnapshotCodec.FIELD)) : null;
+        // PRESENT => strictly reconstructed; ABSENT => an order placed without a slot
+        OrderDeliverySlot deliverySlot = null;
+        if (d.containsKey("deliverySlot")) {
+            Document slot = d.get("deliverySlot", Document.class);
+            deliverySlot = new OrderDeliverySlot(requireString(slot, "serviceAreaId"), requireString(slot, "windowId"),
+                    java.time.LocalDate.parse(requireString(slot, "date")), requireString(slot, "label"),
+                    slot.getDate("startsAt").toInstant(), slot.getDate("endsAt").toInstant());
+        }
         return new Order(new OrderId(d.getString("_id")), d.getString("customerId"), d.getString("quoteId"),
                 status, PaymentMethod.valueOf(requireString(d, "paymentMethod")), requireLong(d, "version"),
                 d.getString("addressId"), d.get("addressVersion", Number.class).longValue(), addressSnapshot,
@@ -133,7 +147,7 @@ public class OrderRepository {
                 rawCondition == null ? null : ConfirmedPaymentCondition.valueOf(requireString(d, "confirmedPaymentCondition")),
                 d.getDate("createdAt").toInstant(),
                 rawConfirmedAt == null ? null : d.getDate("confirmedAt").toInstant(),
-                d.getDate("updatedAt").toInstant(), benefitSnapshot, moneySnapshot);
+                d.getDate("updatedAt").toInstant(), benefitSnapshot, moneySnapshot, deliverySlot);
     }
 
     /** PR-15A-2 — coordinates are nullable as a PAIR (enforced by {@link OrderAddressSnapshot}); a present

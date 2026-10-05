@@ -15,7 +15,11 @@ import java.util.List;
 public record CustomerOrderDto(String orderId, String status, String paymentMethod, String paymentCondition,
                                List<Item> items, int itemCount, long subtotalPaise, String currency,
                                DeliveryAddress deliveryAddress, String createdAt, String confirmedAt,
-                               @JsonInclude(JsonInclude.Include.NON_NULL) OrderMoney money, String requestId) {
+                               @JsonInclude(JsonInclude.Include.NON_NULL) OrderMoney money,
+                               @JsonInclude(JsonInclude.Include.NON_NULL) DeliverySlot deliverySlot, String requestId) {
+
+    /** The delivery window the customer chose: only what they need to see (never the area, the window id or any capacity). */
+    public record DeliverySlot(String slotId, String label, String startsAt, String endsAt) { }
 
     public record Item(String skuId, String title, String brandCode, int quantity, long unitPricePaise,
                        long lineTotalPaise) {
@@ -65,6 +69,9 @@ public record CustomerOrderDto(String orderId, String status, String paymentMeth
                 new DeliveryAddress(a.label(), a.recipientName(), a.recipientPhone(), a.addressLine1(),
                         a.addressLine2(), a.landmark(), a.city(), a.state(), a.postalCode()),
                 o.createdAt().toString(), o.confirmedAt().toString(),
-                o.moneyView().map(OrderMoney::of).orElse(null), requestId);
+                o.moneyView().map(OrderMoney::of).orElse(null),
+                o.deliverySlot() == null ? null : new DeliverySlot(o.deliverySlot().slotId(), o.deliverySlot().label(),
+                        o.deliverySlot().startsAt().toString(), o.deliverySlot().endsAt().toString()),
+                requestId);
     }
 }

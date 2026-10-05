@@ -1453,6 +1453,11 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-10-05** — Delivery slot at order placement (backend completion PR-K/L; STACKED on PR-E #58 — retarget to `main` after it merges): `POST /v1/customer/orders` accepts an optional `deliverySlotId`
+  (`<window>~<yyyy-MM-dd>`, from `GET /v1/customer/delivery/slots`). It is reserved in the SAME transaction as the COD placement through `DeliverySlotService.reserveForOrder` (PIN → service area → atomic hold keyed by the order id): a full,
+  closed, unknown or out-of-horizon slot is `409 DELIVERY_SLOT_UNAVAILABLE` and the whole placement rolls back (stock, cart marker, order, hold); a malformed id is 400; a replay returns the original order and never re-reserves. The
+  order stores an `OrderDeliverySlot` snapshot (internal area/window/date for the later release on cancellation; the customer sees only `slotId`, `label`, `startsAt`, `endsAt`). `tazzzo.checkout.delivery-slot-required` (default false)
+  makes a slot mandatory. Orders placed without a slot are unchanged. The cart and checkout-quote contracts are untouched (no quote fingerprint change). Releasing the hold on cancellation is PR-M.
 - **2026-10-05** — Delivery slots (backend completion PR-E; base `main` `484d42c`): new `com.tazzzo.delivery` slice. Admin API `GET/PUT /api/v1/admin/delivery-slots/{serviceAreaId}[/{windowId}]` +
   `POST …/activate|deactivate` (recurring windows per service area: local start/end minute, cutoff, capacity, ISO weekdays; CAS `expectedVersion`; audit-before-state with the AUTHENTICATED actor; area must exist), customer
   `GET /v1/customer/delivery/slots?pin=&days=` (fresh availability in the configured zone `tazzzo.delivery.zone`, default `Asia/Kolkata`, horizon `tazzzo.delivery.horizon-days`, default 3; status only, never counts), and the
