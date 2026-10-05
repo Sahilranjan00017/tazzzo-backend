@@ -162,6 +162,12 @@ public class ApiExceptionHandler {
      */
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<?> unreadable(HttpMessageNotReadableException ex, HttpServletRequest req) {
+        for (Throwable t = ex; t != null; t = t.getCause()) {
+            if (t instanceof RequestBodyLimitFilter.BodyTooLargeException) {
+                // a chunked bulk-import body that passed authentication and then exceeded its bound while being read
+                return envelope(HttpStatus.PAYLOAD_TOO_LARGE, RequestBodyLimitFilter.CODE, RequestBodyLimitFilter.MESSAGE, req);
+            }
+        }
         return envelope(HttpStatus.BAD_REQUEST, "MALFORMED_REQUEST", "request body is malformed or unreadable", req);
     }
 

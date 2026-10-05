@@ -60,19 +60,24 @@ public class RequestBodyLimitFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
             throws ServletException, IOException {
         // the bulk-import routes (exact prefix, internal surface only) take files of up to 500 rows; everything else is small.
-        // Only a DECLARED length earns the larger bound: it is checked without reading a byte. A chunked body would be
-        // buffered here, before authentication, so it keeps the API default (no anonymous 2 MiB buffers).
         String uri = req.getRequestURI();
+        boolean bulk = uri != null && uri.startsWith(HttpPlatformProperties.BULK_IMPORT_PREFIX) && !uri.contains("..")
+                && SurfaceClassifier.classify(uri) == SurfaceClassifier.Surface.INTERNAL;
+        long limitBytes = bulk ? bulkImportLimitBytes : this.limitBytes;
         long declared = req.getContentLengthLong();
-        long limitBytes = declared >= 0 && uri != null && uri.startsWith(HttpPlatformProperties.BULK_IMPORT_PREFIX)
-                && !uri.contains("..") && SurfaceClassifier.classify(uri) == SurfaceClassifier.Surface.INTERNAL
-                ? bulkImportLimitBytes : this.limitBytes;
         if (declared > limitBytes) {
             reject(req, res);
             return;
         }
         if (declared >= 0 || !mayCarryBody(req)) {
             chain.doFilter(req, res);
+            return;
+        }
+        if (bulk) {
+            // A chunked import is NOT buffered here (this filter runs before authentication): its stream is counted as the
+            // controller reads it -- after authentication -- and fails past the bulk bound (mapped to 413 by
+            // ApiExceptionHandler). An unauthenticated request is refused before a single byte is read.
+            chain.doFilter(new LimitedStreamRequest(req, limitBytes), res);
             return;
         }
         byte[] body = readBounded(req.getInputStream(), limitBytes);
@@ -115,6 +120,62 @@ public class RequestBodyLimitFilter extends OncePerRequestFilter {
     }
 
     /** The already-bounded body, served to the application as the request's input. */
+    /** Thrown by {@link LimitedStreamRequest} once a lazily-read body exceeds its bound. */
+    public static final class BodyTooLargeException extends IOException {
+        public BodyTooLargeException() {
+            super(MESSAGE);
+        }
+    }
+
+    /** A request whose body stream fails as soon as more than {@code limit} bytes are read; nothing is read up front. */
+    public static final class LimitedStreamRequest extends HttpServletRequestWrapper {
+        private final long limit;
+        private ServletInputStream stream;
+
+        public LimitedStreamRequest(HttpServletRequest request, long limit) {
+            super(request);
+            this.limit = limit;
+        }
+
+        @Override
+        public ServletInputStream getInputStream() throws IOException {
+            if (stream == null) {
+                ServletInputStream in = super.getInputStream();
+                stream = new ServletInputStream() {
+                    private long count;
+
+                    private void add(long n) throws BodyTooLargeException {
+                        count += n;
+                        if (count > limit) throw new BodyTooLargeException();
+                    }
+
+                    @Override public int read() throws IOException {
+                        int b = in.read();
+                        if (b >= 0) add(1);
+                        return b;
+                    }
+
+                    @Override public int read(byte[] b, int off, int len) throws IOException {
+                        int n = in.read(b, off, len);
+                        if (n > 0) add(n);
+                        return n;
+                    }
+
+                    @Override public boolean isFinished() { return in.isFinished(); }
+                    @Override public boolean isReady() { return in.isReady(); }
+                    @Override public void setReadListener(ReadListener listener) { in.setReadListener(listener); }
+                };
+            }
+            return stream;
+        }
+
+        @Override
+        public BufferedReader getReader() throws IOException {
+            return new BufferedReader(new java.io.InputStreamReader(getInputStream(),
+                    getCharacterEncoding() == null ? "UTF-8" : getCharacterEncoding()));
+        }
+    }
+
     static final class BufferedBodyRequest extends HttpServletRequestWrapper {
         private final byte[] body;
         private ServletInputStream stream;

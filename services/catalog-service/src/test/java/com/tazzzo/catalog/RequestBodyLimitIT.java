@@ -100,14 +100,34 @@ class RequestBodyLimitIT extends AbstractApiIT {
                 .as("exact prefix only").isEqualTo(413);
     }
 
-    @Test
-    void a_chunked_body_never_earns_the_bulk_bound_because_it_would_be_buffered_before_authentication() throws Exception {
-        byte[] body = jsonOfSize(100 * 1024).getBytes(StandardCharsets.UTF_8);       // above the API default, under the bulk bound
+    private int chunkedPost(String path, String token, int bytes) throws Exception {
+        byte[] body = jsonOfSize(bytes).getBytes(StandardCharsets.UTF_8);
         HttpClient client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build();
-        HttpRequest req = HttpRequest.newBuilder(URI.create(url("/api/v1/admin/imports/products")))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofInputStream(() -> new ByteArrayInputStream(body))) // no Content-Length: chunked
-                .build();
-        assertThat(client.send(req, HttpResponse.BodyHandlers.ofString()).statusCode()).isEqualTo(413);
+        HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(url(path))).header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofInputStream(() -> new ByteArrayInputStream(body)));  // no Content-Length: chunked
+        if (token != null) b.header("Authorization", "Bearer " + token);
+        return client.send(b.build(), HttpResponse.BodyHandlers.ofString()).statusCode();
+    }
+
+    @Test
+    void a_chunked_import_is_never_read_before_authentication_and_is_bounded_while_it_is_read() throws Exception {
+        assertThat(chunkedPost("/api/v1/admin/imports/products", null, 100 * 1024))
+                .as("refused for missing credentials before any byte is read: 401, not 413").isEqualTo(401);
+        assertThat(chunkedPost("/api/v1/admin/imports/products", CMS_TOKEN, 100 * 1024))
+                .as("authenticated, under the bulk bound: not refused for size (no such route on this branch)").isNotEqualTo(413);
+        assertThat(chunkedPost("/api/v1/products", CMS_TOKEN, 100 * 1024)).as("other routes keep the buffered default").isEqualTo(413);
+    }
+
+    @Test
+    void the_lazy_bound_fails_exactly_past_the_limit() throws Exception {
+        org.springframework.mock.web.MockHttpServletRequest raw = new org.springframework.mock.web.MockHttpServletRequest();
+        raw.setContent(new byte[10]);
+        com.tazzzo.catalog.api.RequestBodyLimitFilter.LimitedStreamRequest limited = new com.tazzzo.catalog.api.RequestBodyLimitFilter.LimitedStreamRequest(raw, 9);
+        jakarta.servlet.ServletInputStream in = limited.getInputStream();
+        assertThat(in.read(new byte[9], 0, 9)).isEqualTo(9);
+        org.assertj.core.api.Assertions.assertThatThrownBy(in::read).isInstanceOf(com.tazzzo.catalog.api.RequestBodyLimitFilter.BodyTooLargeException.class);
+        com.tazzzo.catalog.api.RequestBodyLimitFilter.LimitedStreamRequest exact = new com.tazzzo.catalog.api.RequestBodyLimitFilter.LimitedStreamRequest(raw, 10);
+        raw.setContent(new byte[10]);
+        assertThat(exact.getInputStream().readAllBytes()).hasSize(10);
     }
 }
