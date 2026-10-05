@@ -27,6 +27,8 @@ tags:
       establishment and refresh are PUBLIC (no bearer required — that is how a client obtains one);
       logout REQUIRES a valid customer access token. Does NOT cover customer profile, addresses,
       cart, checkout, or orders — those are future phases.
+  - name: customer-account
+    description: Account lifecycle of the authenticated customer (deletion / erasure).
   - name: customer-profile
     description: >
       PR-12A — authenticated read/update of a customer's OWN profile (displayName, email only).
@@ -318,6 +320,42 @@ paths:
           headers:
             Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
         '401': { $ref: '#/components/responses/SessionUnauthenticated' }
+  /v1/customer/account/deletion:
+    post:
+      tags: [customer-account]
+      summary: Delete (erase) the authenticated customer's account
+      description: >
+        One transaction: every session is revoked (all tokens stop working at the next request), profile, saved
+        addresses, cart and checkout quotes are deleted, orders are retained as commercial records with the address
+        snapshot anonymised, an entitling membership term is revoked, the customer row becomes a tombstone (the phone
+        may register again as a new customer) and the phone's OTP rows are removed. The customer is always the bearer
+        of the token; no identifier is accepted from the body. Idempotent; a retry after completion meets 401.
+      security:
+        - customerBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [confirm]
+              properties:
+                confirm: { type: string, enum: [DELETE], description: Explicit intent; exactly DELETE. }
+      responses:
+        '200':
+          description: Deleted (also for a repeat within the same session)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, requestId]
+                properties:
+                  status: { type: string, enum: [DELETED] }
+                  requestId: { type: string }
+        '400': { $ref: '#/components/responses/AccountDeletionBadRequest' }
+        '401': { $ref: '#/components/responses/ProfileUnauthenticated' }
+        '500': { $ref: '#/components/responses/AccountDeletionInternalError' }
+        '503': { $ref: '#/components/responses/AccountDeletionUnavailable' }
   /v1/customer/profile:
     get:
       tags: [customer-profile]
@@ -901,6 +939,14 @@ components:
       description: Per-request auth state; never cacheable by any intermediary.
       schema: { type: string, example: "no-store" }
   schemas:
+    AccountDeletionErrorEnvelope:
+      type: object
+      description: The flat customer error envelope, same shape as every other /v1/customer domain.
+      required: [code, message, requestId]
+      properties:
+        code: { type: string, enum: [INVALID_REQUEST, SERVICE_UNAVAILABLE, INTERNAL] }
+        message: { type: string }
+        requestId: { type: string }
     Node:
       type: object
       required: [id, name]
@@ -1563,6 +1609,27 @@ components:
         message: { type: string }
         requestId: { type: string }
   responses:
+    AccountDeletionBadRequest:
+      description: Missing or wrong confirmation (INVALID_REQUEST); nothing was deleted.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/AccountDeletionErrorEnvelope' }
+    AccountDeletionUnavailable:
+      description: Dependency unavailable or identity integrity failure (SERVICE_UNAVAILABLE); nothing was deleted.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/AccountDeletionErrorEnvelope' }
+    AccountDeletionInternalError:
+      description: Unexpected failure (INTERNAL); the deletion transaction rolled back.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/AccountDeletionErrorEnvelope' }
     BadRequest:
       description: Invalid request or cursor
       content:
