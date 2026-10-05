@@ -229,6 +229,15 @@ Not created by `bootstrap` (dev/test bootstrap stays baseline + audit-read); pin
 |---|---|---|---|
 | `orders` | `order_by_status_recent` | `status` ↑, `createdAt` ↓, `_id` ↓ | `GET /api/v1/admin/orders?status=...`, newest first |
 | `orders` | `order_recent` | `createdAt` ↓, `_id` ↓ | the unfiltered staff queue |
+## 11e. Support-case indexes (PR-O) — migration `V0011`, migration-only
+
+| Collection | Index | Keys | Why |
+|---|---|---|---|
+| `support_cases` | `support_by_customer_recent` | `customerId` ↑, `updatedAt` ↓, `_id` ↓ | the customer's own cases, newest-updated first, keyset-paged |
+| `support_cases` | `support_by_status_recent` | `status` ↑, `updatedAt` ↓, `_id` ↓ | the staff queue filtered by status |
+| `support_cases` | `support_recent` | `updatedAt` ↓, `_id` ↓ | the unfiltered staff queue |
+
+`support_cases` is in `SchemaBootstrap.COLLECTIONS` (roster, runtime role, verifier) but not in the frozen V0001 baseline; V0011 creates the indexes (and the collection on a migrated database). Pinned in `IndexContractIT` and `IndexCatalog.MANAGED`.
 
 ## 12. Test coverage
 

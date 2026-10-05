@@ -116,7 +116,10 @@ public class SchemaBootstrap {
             // "<area>|<window>", CAS version) and lazily-created per-occurrence capacity counters (_id
             // "<area>|<window>|<date>"). Their indexes (by-area lookup, TTL purge a week after the date)
             // are migration-only (V0008); bootstrap creates only the collections.
-            "delivery_slot_windows", "delivery_slot_usage");
+            "delivery_slot_windows", "delivery_slot_usage",
+            // PR-O support cases: one document per case, messages embedded and bounded. Free text is personal data
+            // (deleted by account erasure). Indexes are migration-only (V0011).
+            "support_cases");
 
     /**
      * PAG-2-SORT-1 transport support: the equality prefix the consumer-eligibility predicate uses,

@@ -158,7 +158,11 @@ class IndexContractIT extends AbstractMongoIT {
             named("orders", "order_by_customer_recent", k("customerId", 1, "createdAt", -1, "_id", -1), false, null, null),
             // staff order queue (PR-M2, V0012)
             named("orders", "order_by_status_recent", k("status", 1, "createdAt", -1, "_id", -1), false, null, null),
-            named("orders", "order_recent", k("createdAt", -1, "_id", -1), false, null, null)
+            named("orders", "order_recent", k("createdAt", -1, "_id", -1), false, null, null),
+            // support cases (PR-O, V0011)
+            named("support_cases", "support_by_customer_recent", k("customerId", 1, "updatedAt", -1, "_id", -1), false, null, null),
+            named("support_cases", "support_by_status_recent", k("status", 1, "updatedAt", -1, "_id", -1), false, null, null),
+            named("support_cases", "support_recent", k("updatedAt", -1, "_id", -1), false, null, null)
     );
 
     // ---- helpers -----------------------------------------------------------------------------

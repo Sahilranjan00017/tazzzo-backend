@@ -112,6 +112,7 @@ applied migration is detected, never silently ignored.
 | `V0008__delivery_slot_indexes` | SCHEMA | on | `delivery_slot_windows (service_area_id)` by-area lookup and `delivery_slot_usage` TTL on `expire_at` (0 s: purged a week after the slot date); creates both collections on a migrated database (they are NOT in the frozen V0001 baseline) for the delivery-slot admin/customer APIs (PR-E) | conflicting definition on the same keys; neither is unique, so no duplicate preflight |
 | `V0010__orders_by_customer_recent_index` | SCHEMA | on | `orders (customerId, createdAt desc, _id desc)` for the customer order history `GET /v1/customer/orders` (PR-M); the existing unique `(customerId, quoteId)` index cannot serve the newest-first sort | conflicting definition on the same keys; not unique, so no duplicate preflight |
 | `V0012__orders_staff_queue_indexes` | SCHEMA | on | `orders (status, createdAt desc, _id desc)` and `orders (createdAt desc, _id desc)` for the staff order queue (PR-M2) | conflicting definition on the same keys; not unique, so no duplicate preflight |
+| `V0011__support_case_indexes` | SCHEMA | on | the three `support_cases` indexes (by customer, by status, overall; newest-updated first) for the support APIs (PR-O); creates the collection on a migrated database | conflicting definition on the same keys; none unique, so no duplicate preflight |
 | `V0101__drop_unused_session_by_customer_index` | SCHEMA | **off** | drops `customer_sessions.session_by_customer` | live index is not the exact reviewed definition |
 | `V0102__drop_unused_canonical_keys_product_id_index` | SCHEMA | **off** | drops `canonical_keys (product_id)` | same |
 
@@ -233,7 +234,7 @@ If duplicates exist the migration records `BLOCKED` with a sample of the keys, t
 
 ### 12.1 Existing database created by the legacy bootstrap (adoption)
 
-1. `DRY_RUN` and review: `V0001` should report `WOULD_ADOPT`; `V0002`/`V0005`/`V0006`/`V0007`/`V0008`/`V0010`/`V0012` report what they would create or block.
+1. `DRY_RUN` and review: `V0001` should report `WOULD_ADOPT`; `V0002`/`V0005`/`V0006`/`V0007`/`V0008`/`V0010`/`V0011`/`V0012` report what they would create or block.
 2. Run the §9.1 and §9.2 preflight queries.
 3. `APPLY` (with approvals/enables if intended). Adopted migrations are recorded without changing data.
 4. Start the application in `VERIFY` mode.
