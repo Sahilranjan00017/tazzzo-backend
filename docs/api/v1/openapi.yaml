@@ -348,13 +348,14 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [status, request_id]
+                required: [status, requestId]
                 properties:
                   status: { type: string, enum: [DELETED] }
-                  request_id: { type: string }
-        '400': { description: Missing or wrong confirmation (INVALID_REQUEST) }
-        '401': { description: "Missing, invalid or revoked customer token" }
-        '503': { description: Dependency unavailable or identity integrity failure (SERVICE_UNAVAILABLE) }
+                  requestId: { type: string }
+        '400': { $ref: '#/components/responses/AccountDeletionBadRequest' }
+        '401': { $ref: '#/components/responses/ProfileUnauthenticated' }
+        '500': { $ref: '#/components/responses/AccountDeletionInternalError' }
+        '503': { $ref: '#/components/responses/AccountDeletionUnavailable' }
   /v1/customer/profile:
     get:
       tags: [customer-profile]
@@ -927,6 +928,14 @@ components:
       description: Per-request auth state; never cacheable by any intermediary.
       schema: { type: string, example: "no-store" }
   schemas:
+    AccountDeletionErrorEnvelope:
+      type: object
+      description: The flat customer error envelope, same shape as every other /v1/customer domain.
+      required: [code, message, requestId]
+      properties:
+        code: { type: string, enum: [INVALID_REQUEST, SERVICE_UNAVAILABLE, INTERNAL] }
+        message: { type: string }
+        requestId: { type: string }
     Node:
       type: object
       required: [id, name]
@@ -1589,6 +1598,27 @@ components:
         message: { type: string }
         requestId: { type: string }
   responses:
+    AccountDeletionBadRequest:
+      description: Missing or wrong confirmation (INVALID_REQUEST); nothing was deleted.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/AccountDeletionErrorEnvelope' }
+    AccountDeletionUnavailable:
+      description: Dependency unavailable or identity integrity failure (SERVICE_UNAVAILABLE); nothing was deleted.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/AccountDeletionErrorEnvelope' }
+    AccountDeletionInternalError:
+      description: Unexpected failure (INTERNAL); the deletion transaction rolled back.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/AccountDeletionErrorEnvelope' }
     BadRequest:
       description: Invalid request or cursor
       content:

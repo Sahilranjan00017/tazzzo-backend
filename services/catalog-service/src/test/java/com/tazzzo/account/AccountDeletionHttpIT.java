@@ -62,7 +62,7 @@ class AccountDeletionHttpIT extends AbstractApiIT {
         ResponseEntity<JsonNode> res = deletion(token, Map.of("confirm", "DELETE"));
         assertThat(res.getStatusCode().value()).isEqualTo(200);
         assertThat(res.getBody().get("status").asText()).isEqualTo("DELETED");
-        assertThat(res.getBody().get("request_id").asText()).startsWith("req_");
+        assertThat(res.getBody().get("requestId").asText()).startsWith("req_");
         assertThat(res.getHeaders().getCacheControl()).contains("no-store");
 
         assertThat(get("/v1/customer/profile", token, JsonNode.class).getStatusCode().value()).as("every session revoked").isEqualTo(401);
