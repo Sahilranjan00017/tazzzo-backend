@@ -361,9 +361,9 @@ paths:
                         endsAt: { type: string, format: date-time }
                         label: { type: string }
                         status: { type: string, enum: [AVAILABLE, FULL, CLOSED] }
-        '400': { description: "Missing or malformed pin, or days outside 1..horizon (INVALID_REQUEST)" }
-        '401': { description: "Missing, invalid or revoked customer token" }
-        '503': { description: "Dependency unavailable (SERVICE_UNAVAILABLE)" }
+        '400': { $ref: '#/components/responses/DeliverySlot400' }
+        '401': { $ref: '#/components/responses/ProfileUnauthenticated' }
+        '503': { $ref: '#/components/responses/DeliverySlot503' }
   /v1/customer/profile:
     get:
       tags: [customer-profile]
@@ -938,6 +938,14 @@ components:
       description: Per-request auth state; never cacheable by any intermediary.
       schema: { type: string, example: "no-store" }
   schemas:
+    DeliverySlotErrorEnvelope:
+      type: object
+      description: The flat customer error envelope shared by every /v1/customer domain.
+      required: [code, message, requestId]
+      properties:
+        code: { type: string, enum: [INVALID_REQUEST, SERVICE_UNAVAILABLE, INTERNAL] }
+        message: { type: string }
+        requestId: { type: string }
     Node:
       type: object
       required: [id, name]
@@ -1616,6 +1624,20 @@ components:
         message: { type: string }
         requestId: { type: string }
   responses:
+    DeliverySlot400:
+      description: "Missing or malformed pin, or days outside 1..horizon (INVALID_REQUEST)"
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/DeliverySlotErrorEnvelope' }
+    DeliverySlot503:
+      description: "Dependency unavailable (SERVICE_UNAVAILABLE)"
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/DeliverySlotErrorEnvelope' }
     BadRequest:
       description: Invalid request or cursor
       content:
