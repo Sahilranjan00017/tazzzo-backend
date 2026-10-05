@@ -118,12 +118,19 @@
         }
       }
     },
-    "/api/v1/admin/prices/{skuId}" : {
+    "/api/v1/admin/media/{ownerType}/{ownerId}" : {
       "get" : {
-        "tags" : [ "price-admin-controller" ],
+        "tags" : [ "media-admin-controller" ],
         "operationId" : "get_5",
         "parameters" : [ {
-          "name" : "skuId",
+          "name" : "ownerType",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "ownerId",
           "in" : "path",
           "required" : true,
           "schema" : {
@@ -136,7 +143,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/PriceResponse"
+                  "$ref" : "#/components/schemas/SetResponse"
                 }
               }
             }
@@ -144,10 +151,17 @@
         }
       },
       "put" : {
-        "tags" : [ "price-admin-controller" ],
+        "tags" : [ "media-admin-controller" ],
         "operationId" : "put",
         "parameters" : [ {
-          "name" : "skuId",
+          "name" : "ownerType",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "ownerId",
           "in" : "path",
           "required" : true,
           "schema" : {
@@ -158,7 +172,7 @@
           "content" : {
             "application/json" : {
               "schema" : {
-                "$ref" : "#/components/schemas/PriceRequest"
+                "$ref" : "#/components/schemas/SetRequest"
               }
             }
           },
@@ -170,81 +184,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/PriceResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/admin/inventory/{skuId}/{locationId}" : {
-      "get" : {
-        "tags" : [ "inventory-admin-controller" ],
-        "operationId" : "get_6",
-        "parameters" : [ {
-          "name" : "skuId",
-          "in" : "path",
-          "required" : true,
-          "schema" : {
-            "type" : "string"
-          }
-        }, {
-          "name" : "locationId",
-          "in" : "path",
-          "required" : true,
-          "schema" : {
-            "type" : "string"
-          }
-        } ],
-        "responses" : {
-          "200" : {
-            "description" : "OK",
-            "content" : {
-              "*/*" : {
-                "schema" : {
-                  "$ref" : "#/components/schemas/StockResponse"
-                }
-              }
-            }
-          }
-        }
-      },
-      "put" : {
-        "tags" : [ "inventory-admin-controller" ],
-        "operationId" : "put_1",
-        "parameters" : [ {
-          "name" : "skuId",
-          "in" : "path",
-          "required" : true,
-          "schema" : {
-            "type" : "string"
-          }
-        }, {
-          "name" : "locationId",
-          "in" : "path",
-          "required" : true,
-          "schema" : {
-            "type" : "string"
-          }
-        } ],
-        "requestBody" : {
-          "content" : {
-            "application/json" : {
-              "schema" : {
-                "$ref" : "#/components/schemas/StockRequest"
-              }
-            }
-          },
-          "required" : true
-        },
-        "responses" : {
-          "200" : {
-            "description" : "OK",
-            "content" : {
-              "*/*" : {
-                "schema" : {
-                  "$ref" : "#/components/schemas/StockResponse"
+                  "$ref" : "#/components/schemas/SetResponse"
                 }
               }
             }
@@ -1272,30 +1212,15 @@
         }
       }
     },
-    "/api/v1/admin/inventory/{skuId}/{locationId}/deactivate" : {
+    "/api/v1/admin/media/uploads" : {
       "post" : {
-        "tags" : [ "inventory-admin-controller" ],
-        "operationId" : "deactivate",
-        "parameters" : [ {
-          "name" : "skuId",
-          "in" : "path",
-          "required" : true,
-          "schema" : {
-            "type" : "string"
-          }
-        }, {
-          "name" : "locationId",
-          "in" : "path",
-          "required" : true,
-          "schema" : {
-            "type" : "string"
-          }
-        } ],
+        "tags" : [ "media-admin-controller" ],
+        "operationId" : "upload",
         "requestBody" : {
           "content" : {
             "application/json" : {
               "schema" : {
-                "$ref" : "#/components/schemas/VersionRequest"
+                "$ref" : "#/components/schemas/UploadRequest"
               }
             }
           },
@@ -1307,106 +1232,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/StockResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/admin/inventory/{skuId}/{locationId}/activate" : {
-      "post" : {
-        "tags" : [ "inventory-admin-controller" ],
-        "operationId" : "activate_1",
-        "parameters" : [ {
-          "name" : "skuId",
-          "in" : "path",
-          "required" : true,
-          "schema" : {
-            "type" : "string"
-          }
-        }, {
-          "name" : "locationId",
-          "in" : "path",
-          "required" : true,
-          "schema" : {
-            "type" : "string"
-          }
-        } ],
-        "requestBody" : {
-          "content" : {
-            "application/json" : {
-              "schema" : {
-                "$ref" : "#/components/schemas/VersionRequest"
-              }
-            }
-          },
-          "required" : true
-        },
-        "responses" : {
-          "200" : {
-            "description" : "OK",
-            "content" : {
-              "*/*" : {
-                "schema" : {
-                  "$ref" : "#/components/schemas/StockResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/admin/imports/prices" : {
-      "post" : {
-        "tags" : [ "bulk-import-controller" ],
-        "operationId" : "prices",
-        "requestBody" : {
-          "content" : {
-            "application/json" : {
-              "schema" : {
-                "$ref" : "#/components/schemas/PriceImportRequest"
-              }
-            }
-          },
-          "required" : true
-        },
-        "responses" : {
-          "200" : {
-            "description" : "OK",
-            "content" : {
-              "*/*" : {
-                "schema" : {
-                  "$ref" : "#/components/schemas/ImportReport"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/admin/imports/inventory" : {
-      "post" : {
-        "tags" : [ "bulk-import-controller" ],
-        "operationId" : "inventory",
-        "requestBody" : {
-          "content" : {
-            "application/json" : {
-              "schema" : {
-                "$ref" : "#/components/schemas/StockImportRequest"
-              }
-            }
-          },
-          "required" : true
-        },
-        "responses" : {
-          "200" : {
-            "description" : "OK",
-            "content" : {
-              "*/*" : {
-                "schema" : {
-                  "$ref" : "#/components/schemas/ImportReport"
+                  "$ref" : "#/components/schemas/UploadResponse"
                 }
               }
             }
@@ -2473,19 +2299,46 @@
           }
         }
       },
-      "PriceRequest" : {
+      "AssetDto" : {
         "type" : "object",
         "properties" : {
-          "sellingPricePaise" : {
-            "type" : "integer",
-            "format" : "int64"
-          },
-          "mrpPaise" : {
-            "type" : "integer",
-            "format" : "int64"
-          },
-          "currency" : {
+          "assetId" : {
             "type" : "string"
+          },
+          "assetKey" : {
+            "type" : "string"
+          },
+          "role" : {
+            "type" : "string"
+          },
+          "sortOrder" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "altText" : {
+            "type" : "string"
+          },
+          "width" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "height" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "contentType" : {
+            "type" : "string"
+          }
+        }
+      },
+      "SetRequest" : {
+        "type" : "object",
+        "properties" : {
+          "assets" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/AssetDto"
+            }
           },
           "expectedVersion" : {
             "type" : "integer",
@@ -2493,22 +2346,14 @@
           }
         }
       },
-      "PriceResponse" : {
+      "SetResponse" : {
         "type" : "object",
         "properties" : {
-          "skuId" : {
+          "ownerType" : {
             "type" : "string"
           },
-          "currency" : {
+          "ownerId" : {
             "type" : "string"
-          },
-          "sellingPricePaise" : {
-            "type" : "integer",
-            "format" : "int64"
-          },
-          "mrpPaise" : {
-            "type" : "integer",
-            "format" : "int64"
           },
           "version" : {
             "type" : "integer",
@@ -2517,67 +2362,11 @@
           "active" : {
             "type" : "boolean"
           },
-          "status" : {
-            "type" : "string"
-          }
-        }
-      },
-      "StockRequest" : {
-        "type" : "object",
-        "properties" : {
-          "onHand" : {
-            "type" : "integer",
-            "format" : "int64"
-          },
-          "lowStockThreshold" : {
-            "type" : "integer",
-            "format" : "int64"
-          },
-          "maxPurchasable" : {
-            "type" : "integer",
-            "format" : "int64"
-          },
-          "expectedVersion" : {
-            "type" : "integer",
-            "format" : "int64"
-          }
-        }
-      },
-      "StockResponse" : {
-        "type" : "object",
-        "properties" : {
-          "skuId" : {
-            "type" : "string"
-          },
-          "fulfillmentLocationId" : {
-            "type" : "string"
-          },
-          "onHand" : {
-            "type" : "integer",
-            "format" : "int64"
-          },
-          "reserved" : {
-            "type" : "integer",
-            "format" : "int64"
-          },
-          "available" : {
-            "type" : "integer",
-            "format" : "int64"
-          },
-          "lowStockThreshold" : {
-            "type" : "integer",
-            "format" : "int64"
-          },
-          "maxPurchasable" : {
-            "type" : "integer",
-            "format" : "int64"
-          },
-          "version" : {
-            "type" : "integer",
-            "format" : "int64"
-          },
-          "active" : {
-            "type" : "boolean"
+          "assets" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/AssetDto"
+            }
           }
         }
       },
@@ -3378,149 +3167,46 @@
           }
         }
       },
-      "VersionRequest" : {
+      "UploadRequest" : {
         "type" : "object",
         "properties" : {
-          "expectedVersion" : {
+          "ownerType" : {
+            "type" : "string"
+          },
+          "ownerId" : {
+            "type" : "string"
+          },
+          "contentType" : {
+            "type" : "string"
+          },
+          "sizeBytes" : {
             "type" : "integer",
             "format" : "int64"
           }
         }
       },
-      "PriceImportRequest" : {
+      "UploadResponse" : {
         "type" : "object",
         "properties" : {
-          "dryRun" : {
-            "type" : "boolean"
+          "assetKey" : {
+            "type" : "string"
           },
-          "rows" : {
-            "type" : "array",
-            "items" : {
-              "$ref" : "#/components/schemas/PriceRow"
+          "method" : {
+            "type" : "string"
+          },
+          "url" : {
+            "type" : "string"
+          },
+          "headers" : {
+            "type" : "object",
+            "additionalProperties" : {
+              "type" : "string"
             }
-          }
-        }
-      },
-      "PriceRow" : {
-        "type" : "object",
-        "properties" : {
-          "skuId" : {
+          },
+          "expiresAt" : {
             "type" : "string"
           },
-          "sellingPricePaise" : {
-            "type" : "integer",
-            "format" : "int64"
-          },
-          "mrpPaise" : {
-            "type" : "integer",
-            "format" : "int64"
-          },
-          "currency" : {
-            "type" : "string"
-          },
-          "expectedVersion" : {
-            "type" : "integer",
-            "format" : "int64"
-          }
-        }
-      },
-      "ImportReport" : {
-        "type" : "object",
-        "properties" : {
-          "importId" : {
-            "type" : "string"
-          },
-          "kind" : {
-            "type" : "string"
-          },
-          "dryRun" : {
-            "type" : "boolean"
-          },
-          "rows" : {
-            "type" : "integer",
-            "format" : "int32"
-          },
-          "applied" : {
-            "type" : "integer",
-            "format" : "int32"
-          },
-          "failed" : {
-            "type" : "integer",
-            "format" : "int32"
-          },
-          "notAttempted" : {
-            "type" : "integer",
-            "format" : "int32"
-          },
-          "results" : {
-            "type" : "array",
-            "items" : {
-              "$ref" : "#/components/schemas/RowResult"
-            }
-          }
-        }
-      },
-      "RowResult" : {
-        "type" : "object",
-        "properties" : {
-          "row" : {
-            "type" : "integer",
-            "format" : "int32"
-          },
-          "key" : {
-            "type" : "string"
-          },
-          "outcome" : {
-            "type" : "string"
-          },
-          "version" : {
-            "type" : "integer",
-            "format" : "int64"
-          },
-          "code" : {
-            "type" : "string"
-          },
-          "message" : {
-            "type" : "string"
-          }
-        }
-      },
-      "StockImportRequest" : {
-        "type" : "object",
-        "properties" : {
-          "dryRun" : {
-            "type" : "boolean"
-          },
-          "rows" : {
-            "type" : "array",
-            "items" : {
-              "$ref" : "#/components/schemas/StockRow"
-            }
-          }
-        }
-      },
-      "StockRow" : {
-        "type" : "object",
-        "properties" : {
-          "skuId" : {
-            "type" : "string"
-          },
-          "locationId" : {
-            "type" : "string"
-          },
-          "onHand" : {
-            "type" : "integer",
-            "format" : "int64"
-          },
-          "lowStockThreshold" : {
-            "type" : "integer",
-            "format" : "int64"
-          },
-          "maxPurchasable" : {
-            "type" : "integer",
-            "format" : "int64"
-          },
-          "expectedVersion" : {
+          "maxBytes" : {
             "type" : "integer",
             "format" : "int64"
           }

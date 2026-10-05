@@ -78,6 +78,11 @@ class ModuleBoundaryTest {
     static final ArchRule production_code_never_writes_stock_unattributed =
             noClasses().should().callMethod(com.tazzzo.inventory.InventoryService.class, "setInventory",
                     com.tazzzo.inventory.SetInventoryCommand.class);
+    /** Media writes are attributed too: the actor-less set write is a fixture seam no production class may call. */
+    @ArchTest
+    static final ArchRule production_code_never_writes_media_unattributed =
+            noClasses().should().callMethod(com.tazzzo.media.MediaService.class, "upsertMediaSet",
+                    com.tazzzo.media.UpsertMediaSetCommand.class);
 
     /** Catalog is a domain peer: it must not depend on other domains or on the commerce layers. */
     @ArchTest
