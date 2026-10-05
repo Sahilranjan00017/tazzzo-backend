@@ -1,12 +1,13 @@
 openapi: 3.0.3
 info:
-  title: Tazzzo Commerce Read API
+  title: Tazzzo App API
   version: "1.0.0-draft"
   description: >
-    Production customer-facing commerce READ contract (Phase 3.1 freeze).
-    This document is a FROZEN CONTRACT ONLY — it is NOT yet implemented.
-    The existing internal/consumer API under `/catalog/v1` and `/api/v1`
-    (see docs/openapi.json) is unchanged and documented separately.
+    The app-facing `/v1/**` contract: public commerce reads, customer OTP/session auth and the
+    customer-authenticated surface. Every operation here is served, and every served `/v1/**`
+    operation is here (`ApiContractParityIT` fails the build on drift in either direction); every
+    documented 4xx/5xx is a JSON body requiring `code` and `message`. The admin/internal API under
+    `/api/v1` is generated from the controllers into `services/catalog-service/docs/openapi.json`.
     All monetary amounts are integer paise (int64), currency INR.
 servers:
   - url: https://api.tazzzo.com
