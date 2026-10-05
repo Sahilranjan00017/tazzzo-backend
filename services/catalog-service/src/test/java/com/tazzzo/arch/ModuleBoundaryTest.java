@@ -65,6 +65,19 @@ class ModuleBoundaryTest {
             "com.tazzzo.serviceability.."
     };
 
+    /**
+     * Commerce writes are attributed: no production class may call the actor-less price/stock write overloads (they are
+     * fixture seams kept for tests). The admin HTTP layer and any future caller must pass the authenticated actor.
+     */
+    @ArchTest
+    static final ArchRule production_code_never_writes_prices_unattributed =
+            noClasses().should().callMethod(com.tazzzo.pricing.PricingService.class, "upsertPrice",
+                    com.tazzzo.pricing.UpsertPriceCommand.class);
+
+    @ArchTest
+    static final ArchRule production_code_never_writes_stock_unattributed =
+            noClasses().should().callMethod(com.tazzzo.inventory.InventoryService.class, "setInventory",
+                    com.tazzzo.inventory.SetInventoryCommand.class);
     /** Media writes are attributed too: the actor-less set write is a fixture seam no production class may call. */
     @ArchTest
     static final ArchRule production_code_never_writes_media_unattributed =
