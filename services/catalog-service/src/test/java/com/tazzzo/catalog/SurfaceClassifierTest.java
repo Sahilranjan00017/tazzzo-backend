@@ -6,6 +6,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import static com.tazzzo.catalog.api.SurfaceClassifier.Surface.CUSTOMER_AUTHENTICATED;
+import static com.tazzzo.catalog.api.SurfaceClassifier.Surface.HEALTH;
 import static com.tazzzo.catalog.api.SurfaceClassifier.Surface.INTERNAL;
 import static com.tazzzo.catalog.api.SurfaceClassifier.Surface.PUBLIC_CONSUMER;
 import static com.tazzzo.catalog.api.SurfaceClassifier.Surface.UNKNOWN;
@@ -174,5 +175,20 @@ class SurfaceClassifierTest {
                 .as("must be CUSTOMER_AUTHENTICATED, not PUBLIC_CONSUMER")
                 .isEqualTo(CUSTOMER_AUTHENTICATED)
                 .isNotEqualTo(PUBLIC_CONSUMER);
+    }
+
+    // ---------- platform baseline: the two probe paths, exact ----------
+
+    @ParameterizedTest
+    @ValueSource(strings = {"/health/live", "/health/ready"})
+    void the_two_probe_paths_are_the_health_surface(String uri) {
+        assertThat(SurfaceClassifier.classify(uri)).isEqualTo(HEALTH);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"/health", "/health/", "/health/live/", "/health/ready/", "/health/livex", "/health/readiness",
+            "/healthz", "/health/live/../ready", "/Health/live", "/actuator/health", "/health/live?x=1"})
+    void anything_else_under_health_is_unknown(String uri) {
+        assertThat(SurfaceClassifier.classify(uri)).as(uri).isEqualTo(UNKNOWN);
     }
 }

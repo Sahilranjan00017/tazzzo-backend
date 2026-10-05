@@ -173,16 +173,20 @@ class SchedulerIT {
     }
 
     @Test @org.junit.jupiter.api.Order(6)
-    void price_rollup_runs_and_purges_only_rolled_events() {
+    void price_rollup_runs_and_retains_every_price_event() {
         offersService.upsertOffer("TZP-SCH-2", "tazzzo", "S1", "retail", 100, true);
         offersService.upsertOffer("TZP-SCH-2", "tazzzo", "S1", "retail", 110, true);
         Awaitility.await().atMost(Duration.ofSeconds(20)).pollInterval(Duration.ofMillis(200))
                 .untilAsserted(() -> assertThat(db.getCollection("price_rollups")
                         .find(and(eq("product_id", "TZP-SCH-2"), eq("seller", "S1"))).first())
                         .isNotNull());
-        // current state survives; only rolled ledger rows are purged
+        // R1: current state survives AND the ledger is retained: both events are still there, flagged as rolled
         assertThat(db.getCollection("offers_current").find(eq("product_id", "TZP-SCH-2")).first()
                 .getInteger("price")).isEqualTo(110);
+        assertThat(db.getCollection("price_events").countDocuments(eq("product_id", "TZP-SCH-2")))
+                .as("price history is never purged by the scheduler").isEqualTo(2);
+        assertThat(db.getCollection("price_rollups").find(and(eq("product_id", "TZP-SCH-2"), eq("seller", "S1"))).first()
+                .getInteger("count")).as("each event aggregated exactly once across repeated scheduler runs").isEqualTo(2);
     }
 
     /**
