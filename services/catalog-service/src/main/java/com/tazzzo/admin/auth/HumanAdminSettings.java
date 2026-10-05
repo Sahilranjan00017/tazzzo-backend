@@ -29,7 +29,7 @@ public record HumanAdminSettings(Optional<GoogleOidcSettings> oidc, HumanAdminAl
     public static final URI GOOGLE_JWKS_URI = URI.create("https://www.googleapis.com/oauth2/v3/certs");
     public static final String PROVIDER_GOOGLE = "google";
     static final Set<String> KNOWN_ROLES = Set.of(AdminPrincipal.READER, AdminPrincipal.CMS_WRITER,
-            AdminPrincipal.AUDIT_READER);
+            AdminPrincipal.AUDIT_READER, AdminPrincipal.ORDER_OPS, AdminPrincipal.SUPPORT_AGENT);
 
     private static final Pattern HOSTED_DOMAIN =
             Pattern.compile("^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$");
@@ -102,7 +102,7 @@ public record HumanAdminSettings(Optional<GoogleOidcSettings> oidc, HumanAdminAl
             Set<String> roleSet = new LinkedHashSet<>();
             for (String role : roles) {
                 if (!KNOWN_ROLES.contains(role)) {
-                    problems.add(at + ".roles contains an unknown role (allowed: reader, cms-writer, audit-reader)");
+                    problems.add(at + ".roles contains an unknown role (allowed: reader, cms-writer, audit-reader, order-ops, support-agent)");
                 } else {
                     roleSet.add(role);
                 }
