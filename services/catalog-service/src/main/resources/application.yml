@@ -1,4 +1,10 @@
+server:
+  # Stop accepting new requests on SIGTERM and let in-flight ones finish (bounded by the phase timeout below),
+  # so a rolling deploy never cuts a checkout mid-transaction.
+  shutdown: graceful
 spring:
+  lifecycle:
+    timeout-per-shutdown-phase: ${TAZZZO_SHUTDOWN_GRACE:25s}
   task:
     scheduling:
       pool:

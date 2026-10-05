@@ -1453,6 +1453,8 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-10-05** — Container image + deployment contract PR-V (`feature/container-image-deploy`): digest-pinned non-root layered image with no baked configuration, `.dockerignore` allowlist, graceful shutdown (`TAZZZO_SHUTDOWN_GRACE`, 25 s), CI image build (no push), `docs/ops/DEPLOYMENT.md` (roles, env, container contract, rollout, UNVERIFIED gates). Proven locally against a throwaway Mongo: migration job exit 0, runtime start on a read-only rootfs, fail-closed refusals, graceful SIGTERM.
+
 - **2026-10-04** — DB-4 final proxy-detector fix (narrow re-review of `4e19e5e`: the MongoDB driver accepts `;` as well as `&` between URI options, and the raw text scan only split on `&`, so `?w=majority;proxyHost=evil.example.net` kept a loopback target "local" and bypassed `PROXY_FORBIDDEN`):
   proxy use now comes from the driver's own parse (effective `ProxySettings`), not a second text parser; the dead raw-scan helper was removed. Mutations, each killed: DB4-P1 detector sees only `&`, P2 `isLocalTarget` ignores proxies, P3 contract does not reject the proxy,
   P4 `MigrationTarget` loses the proxy decision, P5 detector fails open on an unparseable string, P6 detector blind. `./mvnw clean test` on Java 21 + Docker: **BUILD SUCCESS**, 2850 tests (1274 unit, 1576 integration), 0 failures / 0 errors / 0 skipped (+7); `ModuleBoundaryTest` 73/73, `IndexContractIT` 12/12. V0001 checksum unchanged (`3b703e4a…`); R1 unchanged and open.
