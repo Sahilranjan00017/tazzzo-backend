@@ -11,7 +11,7 @@ public final class AddressFailure extends RuntimeException {
 
     public enum Reason {
         INVALID_REQUEST, NOT_FOUND, PRECONDITION_REQUIRED, PRECONDITION_FAILED, ADDRESS_LIMIT_REACHED,
-        UNAVAILABLE
+        IDEMPOTENCY_CONFLICT, UNAVAILABLE
     }
 
     private final Reason reason;

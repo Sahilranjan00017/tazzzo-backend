@@ -103,7 +103,7 @@ No separate attribute-value / schema-field / evidence-relationship collections e
 | `customer_profiles` | A | customerId | `displayName`, `email`(lower-cased), `version` long CAS (`0` → upsert) | PII |
 | `customer_addresses` | A | `ADDR_*` | `customerId`, label `HOME|WORK|OTHER`, address fields, `latitude/longitude` double|null, `version` long. `isDefault` not stored | PII |
 | `customer_address_state` | A (control) | customerId | `addressCount`, `defaultAddressId` (explicit null possible); limit guard via `$lt` upsert; `decrement` has no floor | — |
-| `customer_carts` | A | customerId | `items[{skuId,quantity,addedAt,updatedAt}]`, `version`, `expiresAt`(+7d), optional `purchasedThroughVersion` (absent = 0). No TTL, never deleted | — |
+| `customer_carts` | A | customerId | `items[{skuId,quantity,addedAt,updatedAt,unitPricePaiseAtUpdate?}]`, `version`, `expiresAt`(+7d; kept through exactly 7 d), optional `purchasedThroughVersion` (absent = 0). No TTL, never deleted | — |
 | `checkout_quotes` | S | `CHKQ_*` | `idempotencyKeyDigest` (SHA-256 hex; raw key not stored), `fingerprint`, `cartVersion`, `addressId/Version`, `items[]`, `subtotalPaise`, `currency`, `expiresAt`, optional `benefits`, `money`. Immutable; never deleted | — |
 | `orders` | A+S | `ORD_*` | `(customerId, quoteId)` unique; `status CREATED|CONFIRMED`, `paymentMethod COD`, `version` (1/2), `addressSnapshot`, `lines[]`, `subtotalPaise`, `currency`, `reservationId`, optional `benefits`, `money`, `confirmedPaymentCondition`/`confirmedAt` (CONFIRMED only). Immutable except the single CREATED→CONFIRMED shape | PII snapshot |
 | `memberships` | A | `MBR_*` | `(grantSource,grantRef)` unique; `openTerm:true` only while ACTIVE (`$unset`, never false/null); `status ACTIVE|EXPIRED|REVOKED`; plan snapshot `planId, planVersion, planPricePaise, planCurrency, planPeriodMonths, billingZoneId, periodCount`; `cancelRequestedAt`, `revokedAt` absent-not-null | — |
@@ -345,7 +345,7 @@ Replay: none exists. Ledger rollup/purge: **only** `price_events` (other physica
 
 ---
 
-## 13. Pricing / price-event purge finding (documented, not fixed)
+## 13. Pricing / price-event purge finding (documented; **FIXED IN CODE by the R1 price-history retention PR** — the purge and its scheduler call were removed, the roll-up now ignores paise rows, `price_events` is retained; the text below is the pre-fix record)
 
 Verified by direct read:
 

@@ -48,17 +48,33 @@ public class OtpAuthConfig {
      * NO default production provider. {@code provider-mode} unset/blank -> no bean -> the OTP
      * request endpoint fails closed with 503 rather than silently discarding an OTP.
      */
+    static final java.util.Set<String> DEV_ENVIRONMENTS = java.util.Set.of("", "local", "test", "dev");
+
     @Bean
-    public OtpDeliveryProvider otpDeliveryProvider(OtpAuthProperties properties) {
+    public OtpDeliveryProvider otpDeliveryProvider(OtpAuthProperties properties,
+                                                   ObjectProvider<io.micrometer.core.instrument.MeterRegistry> registry,
+                                                   @org.springframework.beans.factory.annotation.Value("${tazzzo.migration.environment:}")
+                                                   String environment) {
         String mode = properties.getProviderMode();
         if (mode == null || mode.isBlank()) {
             return null;
         }
         if ("LOGGING".equals(mode)) {
+            // LOGGING "delivers" by writing a log line: in a real environment every OTP request would succeed while no
+            // customer ever receives a code. Only an unset/local/test/dev environment may use it.
+            if (!DEV_ENVIRONMENTS.contains(environment == null ? "" : environment.trim())) {
+                throw new IllegalStateException("tazzzo.customer-auth.otp.provider-mode=LOGGING is refused in environment '"
+                        + environment + "' (allowed only when tazzzo.migration.environment is unset, local, test or dev)");
+            }
             return new LoggingOtpDeliveryProvider();
         }
+        if ("HTTP".equals(mode)) {
+            // fail closed at startup on an unsafe/incomplete gateway configuration (never at the first customer request)
+            return new HttpOtpDeliveryProvider(properties.getHttp(), properties.getDeliveryTimeoutSeconds(),
+                    registry.getIfAvailable(io.micrometer.core.instrument.simple.SimpleMeterRegistry::new));
+        }
         throw new IllegalStateException(
-                "tazzzo.customer-auth.otp.provider-mode must be exactly LOGGING or unset, was: '"
+                "tazzzo.customer-auth.otp.provider-mode must be exactly LOGGING, HTTP or unset, was: '"
                         + mode + "'");
     }
 }

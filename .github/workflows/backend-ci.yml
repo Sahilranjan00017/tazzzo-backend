@@ -28,6 +28,14 @@ jobs:
       - name: Validate /v1 OpenAPI (structure + $ref)
         run: npx --yes @apidevtools/swagger-cli@4 validate docs/api/v1/openapi.yaml
 
+  secret-scan:
+    name: Secret scan (tracked files)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan for committed credentials
+        run: ./scripts/secret-scan.sh
+
   build-test:
     name: Compile & test (Java 21 + Testcontainers)
     runs-on: ubuntu-latest
@@ -46,3 +54,26 @@ jobs:
         run: ./mvnw -v
       - name: Build and test
         run: ./mvnw -B clean test
+
+  image:
+    name: Build container image (no push)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/catalog-service
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Java 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Package (tests run in build-test)
+        run: ./mvnw -B -DskipTests package
+      - name: Build image
+        run: docker build -t tazzzo-catalog-service:${{ github.sha }} .
+      - name: Image runs unprivileged and carries no configuration
+        run: |
+          test "$(docker run --rm --entrypoint id tazzzo-catalog-service:${{ github.sha }} -u)" = "10001"
+          ! docker image inspect tazzzo-catalog-service:${{ github.sha }} --format '{{json .Config.Env}}' | grep -Eiq 'MONGODB|TOKEN|KEY_B64|SECRET|PASSWORD|REDIS'

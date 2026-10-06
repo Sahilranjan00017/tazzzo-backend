@@ -2,6 +2,7 @@ package com.tazzzo.catalog.api;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tazzzo.admin.auth.AdminAuthRejection;
+import com.tazzzo.admin.auth.AdminAccessPolicy;
 import com.tazzzo.admin.auth.AdminAuthentication;
 import com.tazzzo.admin.auth.AdminAuthenticatorChain;
 import com.tazzzo.admin.auth.AdminBearerCredential;
@@ -38,12 +39,15 @@ import java.util.Set;
  * filter by decision (Q4-a/b); an UNKNOWN surface is refused by default (Q4-f). Deliberately small and auditable.
  */
 @Component
-@Order(Ordered.HIGHEST_PRECEDENCE + 1)
+@Order(Ordered.HIGHEST_PRECEDENCE + 3) // after request-id, body-size limit and CORS (platform baseline), before customer auth
 public class ApiAuthFilter extends OncePerRequestFilter {
 
     /** The only routes a principal without reader/cms-writer (i.e. audit-reader alone) may reach. */
     static final Set<String> NARROW_READ_PATHS =
             Set.of("/api/v1/admin/me", "/api/v1/admin/audit-events");
+
+    /** A staff-only principal also reaches {@code /me} (and nothing else outside its own namespace). */
+    static final Set<String> STAFF_NARROW_READ_PATHS = Set.of("/api/v1/admin/me");
 
     private static final Logger log = LoggerFactory.getLogger(ApiAuthFilter.class);
     private static final String UNAUTHENTICATED_MESSAGE = "missing or unknown bearer token";
@@ -73,7 +77,8 @@ public class ApiAuthFilter extends OncePerRequestFilter {
     protected boolean shouldNotFilter(HttpServletRequest req) {
         SurfaceClassifier.Surface surface = SurfaceClassifier.classify(req.getRequestURI());
         return surface == SurfaceClassifier.Surface.PUBLIC_CONSUMER
-                || surface == SurfaceClassifier.Surface.CUSTOMER_AUTHENTICATED;
+                || surface == SurfaceClassifier.Surface.CUSTOMER_AUTHENTICATED
+                || surface == SurfaceClassifier.Surface.HEALTH; // probes carry no credential; the controller serves no data
     }
 
     @Override
@@ -105,19 +110,18 @@ public class ApiAuthFilter extends OncePerRequestFilter {
                 return;
             }
         }
-        // Stage B: operation authorization, identical for every credential family.
-        if (!"GET".equals(req.getMethod()) && !principal.canWrite()) {
+        // Stage B: operation authorization, decided in ONE place (AdminAccessPolicy), identical for every credential family.
+        AdminAccessPolicy.Decision decision = AdminAccessPolicy.decide(principal, req.getMethod(), req.getRequestURI(),
+                principal.isStaff() ? STAFF_NARROW_READ_PATHS : NARROW_READ_PATHS);
+        if (decision != AdminAccessPolicy.Decision.ALLOW) {
             observability.rejected(AdminAuthObservability.Reason.FORBIDDEN);
             log.warn("admin_auth_rejected reason=forbidden actor_type={} request_id={}", principal.actorType(),
                     req.getAttribute(RequestIdFilter.REQUEST_ID));
-            reject(req, res, 403, "FORBIDDEN", "role may not perform writes: " + AdminPrincipal.READER);
-            return;
-        }
-        if (!principal.canReadCatalog() && !NARROW_READ_PATHS.contains(req.getRequestURI())) {
-            observability.rejected(AdminAuthObservability.Reason.FORBIDDEN);
-            log.warn("admin_auth_rejected reason=forbidden actor_type={} request_id={}", principal.actorType(),
-                    req.getAttribute(RequestIdFilter.REQUEST_ID));
-            reject(req, res, 403, "FORBIDDEN", "role may not read this resource");
+            if (decision == AdminAccessPolicy.Decision.FORBIDDEN_WRITE) {
+                reject(req, res, 403, "FORBIDDEN", "role may not perform writes here");
+            } else {
+                reject(req, res, 403, "FORBIDDEN", "role may not read this resource");
+            }
             return;
         }
         AdminPrincipalResolver.attach(req, principal);

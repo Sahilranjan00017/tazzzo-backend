@@ -45,6 +45,8 @@ public class AddressExceptionHandler {
                     "address has changed since it was last read", requestId);
             case ADDRESS_LIMIT_REACHED -> body(HttpStatus.CONFLICT, "ADDRESS_LIMIT_REACHED",
                     "saved address limit reached", requestId);
+            case IDEMPOTENCY_CONFLICT -> body(HttpStatus.CONFLICT, "IDEMPOTENCY_CONFLICT",
+                    "idempotency key was already used for a different request, or its address no longer exists", requestId);
             case UNAVAILABLE -> body(HttpStatus.SERVICE_UNAVAILABLE, "SERVICE_UNAVAILABLE",
                     "service unavailable", requestId);
         };
