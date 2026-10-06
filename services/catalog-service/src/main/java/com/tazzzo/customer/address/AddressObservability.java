@@ -44,6 +44,11 @@ public class AddressObservability {
         safely(() -> Counter.builder("customer_address_create_success").register(registry).increment());
     }
 
+    /** A keyed create that returned the address an earlier request with the same key created. */
+    public void createReplayed() {
+        safely(() -> Counter.builder("customer_address_create_replayed").register(registry).increment());
+    }
+
     public void updateSuccess() {
         safely(() -> Counter.builder("customer_address_update_success").register(registry).increment());
     }
