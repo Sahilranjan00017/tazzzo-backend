@@ -64,6 +64,11 @@ public class ContentService {
         Objects.requireNonNull(actor, "actor");
         ContentBlock.Placement pl = parse(ContentBlock.Placement.class, placement);
         ContentBlock.Type ty = parse(ContentBlock.Type.class, type);
+        try {
+            ContentBlock.requirePlacement(pl, ty);
+        } catch (IllegalArgumentException e) {
+            throw new ContentFailure(ContentFailure.Reason.INVALID, e.getMessage());
+        }
         validate(ty, title, sort, startsAt, endsAt, payload);
         if (blocks().countDocuments(Filters.and(Filters.eq("placement", pl.name()), Filters.ne("status", "ARCHIVED"))) >= MAX_BLOCKS_PER_PLACEMENT) {
             throw new ContentFailure(ContentFailure.Reason.STATE_CONFLICT, "too many blocks in this placement; archive some");
@@ -143,6 +148,22 @@ public class ContentService {
         return out;
     }
 
+    /**
+     * The public help centre: live FAQ entries, by category (enum order) then display order. {@code category} null = all.
+     * Bounded by the placement cap ({@value #MAX_BLOCKS_PER_PLACEMENT}).
+     */
+    public List<ContentBlock> liveFaqs(ContentBlock.FaqCategory category) {
+        List<ContentBlock> out = new ArrayList<>();
+        for (ContentBlock b : live(ContentBlock.Placement.HELP)) {
+            if (b.type() != ContentBlock.Type.FAQ) continue;
+            if (category != null && !category.name().equals(b.payload().faqCategory())) continue;
+            out.add(b);
+        }
+        out.sort(java.util.Comparator.comparing((ContentBlock b) -> ContentBlock.FaqCategory.valueOf(b.payload().faqCategory()))
+                .thenComparingInt(ContentBlock::sort).thenComparing(ContentBlock::blockId));
+        return out;
+    }
+
     // -------------------------------------------------------------- app config
 
     public AppConfig appConfig() {
@@ -150,7 +171,8 @@ public class ContentService {
         if (d == null) return AppConfig.DEFAULT;
         return new AppConfig(d.getBoolean("storeOpen", true), d.getBoolean("maintenance", false), d.getString("maintenanceMessage"),
                 d.getString("minAndroid"), d.getString("latestAndroid"), d.getString("minIos"), d.getString("latestIos"),
-                d.getString("supportPhone"), d.getString("supportEmail"), ((Number) d.get("version")).longValue());
+                d.getString("supportPhone"), d.getString("supportEmail"), d.getString("termsUrl"), d.getString("privacyUrl"),
+                d.getString("refundPolicyUrl"), ((Number) d.get("version")).longValue());
     }
 
     /** Replace the whole config. {@code expectedVersion} 0 creates it; otherwise CAS. */
@@ -165,6 +187,7 @@ public class ContentService {
                 .append("maintenanceMessage", next.maintenanceMessage()).append("minAndroid", next.minAndroid())
                 .append("latestAndroid", next.latestAndroid()).append("minIos", next.minIos()).append("latestIos", next.latestIos())
                 .append("supportPhone", next.supportPhone()).append("supportEmail", next.supportEmail())
+                .append("termsUrl", next.termsUrl()).append("privacyUrl", next.privacyUrl()).append("refundPolicyUrl", next.refundPolicyUrl())
                 .append("version", expectedVersion + 1).append("updatedAt", Date.from(clock.instant()));
         Map<String, Object> detail = new LinkedHashMap<>();
         detail.put("storeOpen", next.storeOpen());
@@ -220,6 +243,9 @@ public class ContentService {
         if (p.imageAssetKey() != null) d.append("imageAssetKey", p.imageAssetKey());
         if (p.link() != null) d.append("link", p.link());
         if (!p.ids().isEmpty()) d.append("ids", p.ids());
+        if (p.faqCategory() != null) d.append("faqCategory", p.faqCategory());
+        if (p.question() != null) d.append("question", p.question());
+        if (p.answer() != null) d.append("answer", p.answer());
         return d;
     }
 
@@ -229,7 +255,8 @@ public class ContentService {
                 ContentBlock.Type.valueOf(d.getString("type")), d.getString("title"), d.getInteger("sort"),
                 ContentBlock.Status.valueOf(d.getString("status")), d.getDate("startsAt") == null ? null : d.getDate("startsAt").toInstant(),
                 d.getDate("endsAt") == null ? null : d.getDate("endsAt").toInstant(),
-                new ContentBlock.Payload(p.getString("imageAssetKey"), p.getString("link"), p.getList("ids", String.class)),
+                new ContentBlock.Payload(p.getString("imageAssetKey"), p.getString("link"), p.getList("ids", String.class),
+                        p.getString("faqCategory"), p.getString("question"), p.getString("answer")),
                 ((Number) d.get("version")).longValue(), d.getDate("createdAt").toInstant(), d.getDate("updatedAt").toInstant());
     }
 

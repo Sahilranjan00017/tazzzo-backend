@@ -60,7 +60,7 @@ public class ConsumerObservability {
         COMMERCE_LIST("commerce_list"), COMMERCE_PDP("commerce_pdp"),
         COMMERCE_SERVICEABILITY("commerce_serviceability"),
         COMMERCE_SEARCH("commerce_search"),
-        CONTENT_HOME("content_home"), APP_CONFIG("app_config");
+        CONTENT_HOME("content_home"), CONTENT_FAQS("content_faqs"), APP_CONFIG("app_config");
 
         private final String tag;
 
