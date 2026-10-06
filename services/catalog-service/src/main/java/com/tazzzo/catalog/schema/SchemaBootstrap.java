@@ -112,6 +112,10 @@ public class SchemaBootstrap {
             // version), _id the opaque MBR_* id. Deliberately NO TTL, NO customer-history index and NO
             // validUntil expiry-scan index -- no query needs one yet; each arrives with its query.
             "memberships",
+            // PR-Q CMS: merchandising blocks of customer screens (authoritative config, CAS version, never
+            // deleted -- archived). Its one index is migration-only (V0013). The app operational config is the
+            // system_config document "app_config", not a collection of its own.
+            "content_blocks",
             // PR-O support cases: one document per case, messages embedded and bounded. Free text is personal data
             // (deleted by account erasure). Indexes are migration-only (V0011).
             "support_cases",

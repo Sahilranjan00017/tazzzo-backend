@@ -460,6 +460,110 @@
         }
       }
     },
+    "/api/v1/admin/content/blocks/{id}" : {
+      "get" : {
+        "tags" : [ "content-admin-controller" ],
+        "operationId" : "get_13",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BlockResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put" : {
+        "tags" : [ "content-admin-controller" ],
+        "operationId" : "update",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/BlockRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BlockResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/app-config" : {
+      "get" : {
+        "tags" : [ "content-admin-controller" ],
+        "operationId" : "getConfig",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AppConfig"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put" : {
+        "tags" : [ "content-admin-controller" ],
+        "operationId" : "putConfig",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ConfigRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AppConfig"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/customer/support/cases" : {
       "get" : {
         "tags" : [ "customer-support-controller" ],
@@ -2236,6 +2340,102 @@
         }
       }
     },
+    "/api/v1/admin/content/blocks" : {
+      "get" : {
+        "tags" : [ "content-admin-controller" ],
+        "operationId" : "list_8",
+        "parameters" : [ {
+          "name" : "placement",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "default" : "HOME"
+          }
+        }, {
+          "name" : "status",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BlockList"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post" : {
+        "tags" : [ "content-admin-controller" ],
+        "operationId" : "create_4",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/BlockRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BlockResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/content/blocks/{id}/status" : {
+      "post" : {
+        "tags" : [ "content-admin-controller" ],
+        "operationId" : "status_1",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/StatusRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BlockResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/customer/profile" : {
       "get" : {
         "tags" : [ "customer-profile-controller" ],
@@ -2775,6 +2975,24 @@
         }
       }
     },
+    "/v1/content/home" : {
+      "get" : {
+        "tags" : [ "public-content-controller" ],
+        "operationId" : "home",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Home"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/categories" : {
       "get" : {
         "tags" : [ "commerce-read-controller" ],
@@ -2895,6 +3113,24 @@
               "*/*" : {
                 "schema" : {
                   "$ref" : "#/components/schemas/NodeListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/app-config" : {
+      "get" : {
+        "tags" : [ "public-content-controller" ],
+        "operationId" : "appConfig",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Config"
                 }
               }
             }
@@ -3452,7 +3688,7 @@
     "/api/v1/admin/audit-events" : {
       "get" : {
         "tags" : [ "admin-audit-events-controller" ],
-        "operationId" : "list_8",
+        "operationId" : "list_9",
         "responses" : {
           "200" : {
             "description" : "OK",
@@ -3966,6 +4202,169 @@
           },
           "active" : {
             "type" : "boolean"
+          },
+          "version" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }
+      },
+      "BlockRequest" : {
+        "type" : "object",
+        "properties" : {
+          "placement" : {
+            "type" : "string"
+          },
+          "type" : {
+            "type" : "string"
+          },
+          "title" : {
+            "type" : "string"
+          },
+          "sort" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "startsAt" : {
+            "type" : "string"
+          },
+          "endsAt" : {
+            "type" : "string"
+          },
+          "payload" : {
+            "$ref" : "#/components/schemas/PayloadDto"
+          },
+          "expectedVersion" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }
+      },
+      "PayloadDto" : {
+        "type" : "object",
+        "properties" : {
+          "imageAssetKey" : {
+            "type" : "string"
+          },
+          "link" : {
+            "type" : "string"
+          },
+          "ids" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          }
+        }
+      },
+      "BlockResponse" : {
+        "type" : "object",
+        "properties" : {
+          "blockId" : {
+            "type" : "string"
+          },
+          "placement" : {
+            "type" : "string"
+          },
+          "type" : {
+            "type" : "string"
+          },
+          "title" : {
+            "type" : "string"
+          },
+          "sort" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "status" : {
+            "type" : "string"
+          },
+          "startsAt" : {
+            "type" : "string"
+          },
+          "endsAt" : {
+            "type" : "string"
+          },
+          "payload" : {
+            "$ref" : "#/components/schemas/PayloadDto"
+          },
+          "version" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "createdAt" : {
+            "type" : "string"
+          },
+          "updatedAt" : {
+            "type" : "string"
+          }
+        }
+      },
+      "ConfigRequest" : {
+        "type" : "object",
+        "properties" : {
+          "storeOpen" : {
+            "type" : "boolean"
+          },
+          "maintenance" : {
+            "type" : "boolean"
+          },
+          "maintenanceMessage" : {
+            "type" : "string"
+          },
+          "minAndroid" : {
+            "type" : "string"
+          },
+          "latestAndroid" : {
+            "type" : "string"
+          },
+          "minIos" : {
+            "type" : "string"
+          },
+          "latestIos" : {
+            "type" : "string"
+          },
+          "supportPhone" : {
+            "type" : "string"
+          },
+          "supportEmail" : {
+            "type" : "string"
+          },
+          "expectedVersion" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }
+      },
+      "AppConfig" : {
+        "type" : "object",
+        "properties" : {
+          "storeOpen" : {
+            "type" : "boolean"
+          },
+          "maintenance" : {
+            "type" : "boolean"
+          },
+          "maintenanceMessage" : {
+            "type" : "string"
+          },
+          "minAndroid" : {
+            "type" : "string"
+          },
+          "latestAndroid" : {
+            "type" : "string"
+          },
+          "minIos" : {
+            "type" : "string"
+          },
+          "latestIos" : {
+            "type" : "string"
+          },
+          "supportPhone" : {
+            "type" : "string"
+          },
+          "supportEmail" : {
+            "type" : "string"
           },
           "version" : {
             "type" : "integer",
@@ -5286,6 +5685,18 @@
           }
         }
       },
+      "StatusRequest" : {
+        "type" : "object",
+        "properties" : {
+          "to" : {
+            "type" : "string"
+          },
+          "expectedVersion" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }
+      },
       "CustomerProfileResponseDto" : {
         "type" : "object",
         "properties" : {
@@ -5754,6 +6165,46 @@
           }
         }
       },
+      "Block" : {
+        "type" : "object",
+        "properties" : {
+          "blockId" : {
+            "type" : "string"
+          },
+          "type" : {
+            "type" : "string"
+          },
+          "title" : {
+            "type" : "string"
+          },
+          "imageUrl" : {
+            "type" : "string"
+          },
+          "link" : {
+            "type" : "string"
+          },
+          "ids" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          }
+        }
+      },
+      "Home" : {
+        "type" : "object",
+        "properties" : {
+          "blocks" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/Block"
+            }
+          },
+          "requestId" : {
+            "type" : "string"
+          }
+        }
+      },
       "NodeDto" : {
         "type" : "object",
         "properties" : {
@@ -5778,6 +6229,62 @@
             }
           },
           "requestId" : {
+            "type" : "string"
+          }
+        }
+      },
+      "Config" : {
+        "type" : "object",
+        "properties" : {
+          "storeOpen" : {
+            "type" : "boolean"
+          },
+          "maintenance" : {
+            "$ref" : "#/components/schemas/Maintenance"
+          },
+          "android" : {
+            "$ref" : "#/components/schemas/Versions"
+          },
+          "ios" : {
+            "$ref" : "#/components/schemas/Versions"
+          },
+          "support" : {
+            "$ref" : "#/components/schemas/Support"
+          },
+          "requestId" : {
+            "type" : "string"
+          }
+        }
+      },
+      "Maintenance" : {
+        "type" : "object",
+        "properties" : {
+          "enabled" : {
+            "type" : "boolean"
+          },
+          "message" : {
+            "type" : "string"
+          }
+        }
+      },
+      "Support" : {
+        "type" : "object",
+        "properties" : {
+          "phone" : {
+            "type" : "string"
+          },
+          "email" : {
+            "type" : "string"
+          }
+        }
+      },
+      "Versions" : {
+        "type" : "object",
+        "properties" : {
+          "minSupported" : {
+            "type" : "string"
+          },
+          "latest" : {
             "type" : "string"
           }
         }
@@ -6032,6 +6539,17 @@
             "type" : "array",
             "items" : {
               "$ref" : "#/components/schemas/WindowResponse"
+            }
+          }
+        }
+      },
+      "BlockList" : {
+        "type" : "object",
+        "properties" : {
+          "items" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/BlockResponse"
             }
           }
         }

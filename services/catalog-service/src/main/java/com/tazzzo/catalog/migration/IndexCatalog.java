@@ -75,6 +75,9 @@ public final class IndexCatalog {
         AUDIT_READ_SPECS = List.copyOf(a);
     }
 
+    /** CMS (PR-Q): the live/admin read of one placement in display order. Migration-only (V0013). */
+    public static final IndexSpec CONTENT_BLOCKS_SPEC = named("content_blocks", "content_by_placement_status_sort",
+            k("placement", 1, "status", 1, "sort", 1, "_id", 1), false, null, null);
     /** Support cases (PR-O): the customer's own cases, the staff queue by status, and the unfiltered staff queue -- each newest-updated first. */
     public static final List<IndexSpec> SUPPORT_CASE_SPECS = List.of(
             named("support_cases", "support_by_customer_recent", k("customerId", 1, "updatedAt", -1, "_id", -1), false, null, null),
@@ -119,6 +122,7 @@ public final class IndexCatalog {
         List<IndexSpec> m = new ArrayList<>(List.of(
                 PRODUCT_VERTICAL_CURSOR_SPEC, EVIDENCE_LINK_UNIQUE_SPEC, TAXONOMY_SIBLING_UNIQUE_SPEC));
         m.addAll(AUDIT_READ_SPECS);
+        m.add(CONTENT_BLOCKS_SPEC);
         m.addAll(SUPPORT_CASE_SPECS);
         m.add(PRODUCT_CARD_SEARCH_SPEC);
         m.addAll(DELIVERY_SLOT_SPECS);

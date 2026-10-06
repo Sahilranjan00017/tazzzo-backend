@@ -1455,6 +1455,11 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-10-05** — CMS home content + app operational config (backend completion PR-Q; base `main` `484d42c`): admin `POST/GET/PUT /api/v1/admin/content/blocks[/{id}]` + `POST /{id}/status` (DRAFT → PUBLISHED ↔ DRAFT → ARCHIVED, final; CAS;
+  audit with the authenticated actor in the SAME transaction) for BANNER (safe asset key + a link from a closed grammar: product/category/search — never an arbitrary URL), PRODUCT_RAIL (1..20 product ids) and CATEGORY_GRID (1..12 node ids),
+  with optional time windows; public `GET /v1/content/home` (PUBLISHED blocks inside their window by the server clock, display order, banner image URLs resolved through the media CDN base — a banner is dropped, never shown broken, when no base is
+  configured; `public, max-age=60`; admission-charged on its own bounded route). App config: admin `GET/PUT /api/v1/admin/app-config` (CAS; create with version 0) and public `GET /v1/app-config` (store open, maintenance message, min/latest
+  Android & iOS versions, support contacts). New collection `content_blocks` (roster, role file, docs — 50 collections) with migration `V0013`; the app config is the `system_config` document `app_config` (no new collection).
 - **2026-10-05** — Customer-surface rate limits (`feature/customer-rate-limits`): per-customer read/write buckets on `/v1/customer/**` after authentication, 429 + Retry-After, fail-closed 503 on store outage, bounded metric; off unless configured, startup failure on partial config or a missing store. See `docs/ops/CUSTOMER_RATE_LIMITS.md`. Values UNVERIFIED (deployment decision).
 
 - **2026-10-05** — Customer account deletion / erasure (backend completion PR-C; base `main` `484d42c`): `POST /v1/customer/account/deletion` with explicit `{"confirm":"DELETE"}`,

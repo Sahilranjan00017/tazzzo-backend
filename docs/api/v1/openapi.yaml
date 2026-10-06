@@ -51,6 +51,8 @@ tags:
     '
 - name: customer-account
   description: Account lifecycle of the authenticated customer (deletion / erasure).
+- name: content
+  description: Public, same-for-everyone reads for app start and the home screen. Cacheable for 60 seconds.
 paths:
   /v1/categories:
     get:
@@ -1653,6 +1655,123 @@ paths:
           $ref: '#/components/responses/AccountDeletionInternalError'
         '503':
           $ref: '#/components/responses/AccountDeletionUnavailable'
+  /v1/content/home:
+    get:
+      tags:
+      - content
+      operationId: getHomeContent
+      summary: 'The live HOME blocks (PUBLISHED and inside their time window, by the server clock), in display order. Banners carry a resolved `imageUrl` and a `link` from a closed grammar (`product:<id>`, `category:<node id>`, `search:<text>`); product rails and category grids carry `ids` the client renders with the existing product/category endpoints. No parameters.
+
+        '
+      responses:
+        '200':
+          description: 'OK. `Cache-Control: public, max-age=60`.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - blocks
+                - requestId
+                properties:
+                  blocks:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                      - blockId
+                      - type
+                      - title
+                      properties:
+                        blockId:
+                          type: string
+                        type:
+                          type: string
+                          enum:
+                          - BANNER
+                          - PRODUCT_RAIL
+                          - CATEGORY_GRID
+                        title:
+                          type: string
+                        imageUrl:
+                          type: string
+                        link:
+                          type: string
+                        ids:
+                          type: array
+                          items:
+                            type: string
+                  requestId:
+                    type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /v1/app-config:
+    get:
+      tags:
+      - content
+      operationId: getAppConfig
+      summary: 'Operational configuration read at app start: whether the store takes orders, a maintenance banner, the minimum supported and latest app versions per platform (force/soft update), and support contacts. Absent values mean "no constraint".
+
+        '
+      responses:
+        '200':
+          description: 'OK. `Cache-Control: public, max-age=60`.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - storeOpen
+                - maintenance
+                - android
+                - ios
+                - support
+                - requestId
+                properties:
+                  storeOpen:
+                    type: boolean
+                  maintenance:
+                    type: object
+                    required:
+                    - enabled
+                    properties:
+                      enabled:
+                        type: boolean
+                      message:
+                        type: string
+                  android:
+                    type: object
+                    properties:
+                      minSupported:
+                        type: string
+                      latest:
+                        type: string
+                  ios:
+                    type: object
+                    properties:
+                      minSupported:
+                        type: string
+                      latest:
+                        type: string
+                  support:
+                    type: object
+                    properties:
+                      phone:
+                        type: string
+                      email:
+                        type: string
+                  requestId:
+                    type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/Unavailable'
 components:
   parameters:
     AddressIdParam:
