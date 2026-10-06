@@ -79,4 +79,44 @@ class CartMathAndEnricherTest {
         p.setMaxQuantityPerItem(0);
         assertThatThrownBy(p::validate).isInstanceOf(IllegalStateException.class);
     }
+
+    // ---------- cart age policy: PRICE_CHANGED only in the REVALIDATE band ----------
+
+    private static com.tazzzo.commerce.read.RuntimeProductCard priced(String sku, long sellingPaise) {
+        return new com.tazzzo.commerce.read.RuntimeProductCard(sku, sku, "T " + sku, null, null, null,
+                sellingPaise, null, null, null, com.tazzzo.commerce.contract.StockState.IN_STOCK, null, 5, 1,
+                Boolean.TRUE, null, null, true);
+    }
+
+    private static CartState aged(CartState.Freshness freshness, Long observedPaise) {
+        Instant t = Instant.parse("2026-06-01T00:00:00Z");
+        return new CartState(4, List.of(new CartState.Line("TZP-1", 2, t, t, observedPaise)), t.plusSeconds(3600), false,
+                freshness);
+    }
+
+    private static CartResponseDto present(CartState state, long currentPaise) {
+        CommerceSkuBatchReader reader = Mockito.mock(CommerceSkuBatchReader.class);
+        Mockito.when(reader.readCurrent(Mockito.any(), Mockito.any()))
+                .thenReturn(java.util.Map.of("TZP-1", priced("TZP-1", currentPaise)));
+        return new CartEnricher(reader).present(state,
+                LocationQuery.ofPin(new com.tazzzo.commerce.contract.Pincode("560001")), "req_1");
+    }
+
+    @Test void a_revalidate_cart_flags_a_moved_price_but_stays_buyable_at_the_current_price() {
+        CartResponseDto dto = present(aged(CartState.Freshness.REVALIDATE, 100L), 120L);
+        CartResponseDto.Item i = dto.items().get(0);
+        assertThat(dto.freshness()).isEqualTo("REVALIDATE");
+        assertThat(i.issues()).containsExactly(CartIssue.PRICE_CHANGED);
+        assertThat(i.buyable()).as("informational: the line is priced at the current price").isTrue();
+        assertThat(i.price().unitPricePaise()).isEqualTo(120L);
+        assertThat(i.lineTotalPaise()).isEqualTo(240L);
+        assertThat(dto.subtotalPaise()).isEqualTo(240L);
+    }
+
+    @Test void price_changed_is_never_raised_for_a_fresh_cart_an_unchanged_price_or_an_unknown_observation() {
+        assertThat(present(aged(CartState.Freshness.FRESH, 100L), 120L).items().get(0).issues()).isEmpty();
+        assertThat(present(aged(CartState.Freshness.FRESH, 100L), 120L).freshness()).isEqualTo("FRESH");
+        assertThat(present(aged(CartState.Freshness.REVALIDATE, 120L), 120L).items().get(0).issues()).isEmpty();
+        assertThat(present(aged(CartState.Freshness.REVALIDATE, null), 120L).items().get(0).issues()).isEmpty();
+    }
 }

@@ -57,13 +57,16 @@ class DatabaseDocsConsistencyTest {
     }
 
     @Test
-    void only_the_three_ttl_collections_show_a_ttl_and_no_audit_ledger_or_durable_business_collection_does() throws IOException {
+    void only_the_four_ttl_collections_show_a_ttl_and_no_audit_ledger_or_durable_business_collection_does() throws IOException {
         String doc = read("database/DATABASE_RETENTION_AND_PII.md");
         Set<String> withTtl = new TreeSet<>();
         for (List<String> r : matrixRows(doc.substring(doc.indexOf("## 2. Retention matrix"), doc.indexOf("## 3. Personal-data map")))) {
             if (!r.get(4).startsWith("none")) withTtl.add(r.get(0)); // columns: name, owner, class, durable, TTL, retention, ...
         }
-        assertThat(withTtl).containsExactlyInAnyOrder("customer_otp_challenges", "customer_otp_verified_grants", "customer_sessions");
+        assertThat(withTtl).containsExactlyInAnyOrder("customer_otp_challenges", "customer_otp_verified_grants", "customer_sessions",
+                "customer_address_idempotency",
+                "notification_outbox",
+                "delivery_slot_usage");
     }
 
     @Test
@@ -72,7 +75,8 @@ class DatabaseDocsConsistencyTest {
         // the only numbers allowed next to a time unit are the TTL values that the indexes really carry
         Matcher m = Pattern.compile("(?i)\\b(\\d+)\\s*(days?|months?|years?)\\b").matcher(doc);
         assertThat(m.find()).as("no retention period in months/years/days is stated anywhere").isFalse();
-        assertThat(doc).contains("TBD — PRODUCTION POLICY").contains("NON-COMPLIANT with R1");
+        assertThat(doc).contains("TBD — PRODUCTION POLICY").contains("RETAINED (R1 fixed in code)")
+                .as("R1 is fixed: the matrix must no longer call price_events non-compliant").doesNotContain("NON-COMPLIANT with R1");
     }
 
     @Test
@@ -133,7 +137,7 @@ class DatabaseDocsConsistencyTest {
         String status = read("ENGINEERING_STATUS.md");
         assertThat(status).contains("**COMPLETE** (PR #49, squash `822728694cb5dd80a5b68c4587c6c79911222adc`")
                 .contains("37138053909")
-                .contains("OPEN CONFLICT — R1")
+                .contains("R1 — FIXED IN CODE")
                 .contains("PRE-EXISTING DEFECT — OUTSIDE THE DATABASE FOUNDATION")
                 .contains("GET /api/v1/products");
         assertThat(status).as("the six deployment gates stay unverified").contains("The six deployment gates stay **PENDING / UNVERIFIED**");

@@ -170,4 +170,22 @@ class HttpSurfaceBoundaryIT extends AbstractApiIT {
                 .as(path + " must be UNKNOWN even to the cms identity").isEqualTo(404);
         assertThat(res.getBody().at("/error/code").asText()).isEqualTo("NO_SUCH_ENDPOINT");
     }
+
+    // ---------- 6. platform baseline: probes are reachable by every identity, exact paths only ----------
+
+    @Test
+    void the_probe_paths_bypass_authentication_for_every_identity_and_never_answer_401_403_or_404() {
+        for (String token : new String[]{null, "bogus", READ_TOKEN, CMS_TOKEN}) {
+            assertThat(status("/health/live", token)).as("live, token=" + token).isEqualTo(200);
+            assertThat(status("/health/ready", token)).as("ready, token=" + token).isIn(200, 503);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"/health", "/health/", "/healthz", "/health/livex", "/health/ready/", "/health/metrics"})
+    void near_miss_health_paths_are_unknown(String path) {
+        ResponseEntity<JsonNode> res = get(path, CMS_TOKEN, JsonNode.class);
+        assertThat(res.getStatusCode().value()).as(path).isEqualTo(404);
+        assertThat(res.getBody().at("/error/code").asText()).isEqualTo("NO_SUCH_ENDPOINT");
+    }
 }

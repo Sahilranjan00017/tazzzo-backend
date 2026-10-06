@@ -59,6 +59,33 @@ public class CustomerRepository {
                 new FindOneAndUpdateOptions().upsert(true).returnDocument(ReturnDocument.AFTER));
     }
 
+    public static final String STATUS_ACTIVE = "ACTIVE";
+    public static final String STATUS_DELETED = "DELETED";
+    static final String TOMBSTONE_PHONE_PREFIX = "deleted:";
+
+    /**
+     * Account deletion: the row becomes a tombstone in the caller's transaction. The phone (the only personal datum
+     * here, and the login identity) is replaced by a value unique to this customer id, so the unique
+     * {@code customer_one_per_phone} index holds and the same phone may register again as a NEW customer; the opaque
+     * customer id itself is kept, because durable commercial records (orders) are keyed by it. Conditional on the row
+     * still being ACTIVE, so two concurrent deletions cannot both "win": the loser sees no match and reads DELETED.
+     *
+     * @return the phone the row carried before the tombstone, or empty when the row was not ACTIVE (already deleted
+     *         or unknown)
+     */
+    public java.util.Optional<String> tombstone(ClientSession session, String customerId, Instant now) {
+        Document before = collection().findOneAndUpdate(session,
+                Filters.and(Filters.eq("_id", customerId), Filters.eq("status", STATUS_ACTIVE)),
+                Updates.combine(
+                        Updates.set("status", STATUS_DELETED),
+                        Updates.set("phoneNormalized", TOMBSTONE_PHONE_PREFIX + customerId),
+                        Updates.set("deletedAt", now),
+                        Updates.set("updatedAt", now),
+                        Updates.unset("lastLoginAt")),
+                new FindOneAndUpdateOptions().returnDocument(ReturnDocument.BEFORE));
+        return before == null ? java.util.Optional.empty() : java.util.Optional.ofNullable(before.getString("phoneNormalized"));
+    }
+
     public Document findById(String customerId) {
         return collection().find(Filters.eq("_id", customerId)).first();
     }

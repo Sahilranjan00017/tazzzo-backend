@@ -20,12 +20,20 @@ import java.util.Set;
  * <p>Roles keep the existing coarse semantics: {@value #READER} may read (GET only), {@value #CMS_WRITER} may read and write.
  * {@value #AUDIT_READER} is NARROW: it grants only the admin audit-read API (and {@code /me}), only to a
  * {@link ActorType#HUMAN_ADMIN}, and confers no catalogue read and no write. Shared service tokens never carry it.
+ *
+ * <p>{@value #ORDER_OPS} and {@value #SUPPORT_AGENT} are the STAFF roles: each is valid only for a {@link ActorType#HUMAN_ADMIN}
+ * and grants access ONLY to its own namespace under {@code /api/v1/admin} (see {@link AdminAccessPolicy}); neither confers any
+ * catalogue read or write, and neither the shared tokens nor the catalogue roles reach the staff namespaces (customer personal data).
  */
 public record AdminPrincipal(ActorType actorType, String actorId, String credentialId, Set<String> roles) {
 
     public static final String READER = "reader";
     public static final String CMS_WRITER = "cms-writer";
     public static final String AUDIT_READER = "audit-reader";
+    /** STAFF role: operate customer orders (read + transition). Human admins only; sees customer personal data. */
+    public static final String ORDER_OPS = "order-ops";
+    /** STAFF role: handle customer support cases; may read orders (never change them). Human admins only. */
+    public static final String SUPPORT_AGENT = "support-agent";
 
     public AdminPrincipal {
         if (actorType == null || actorId == null || actorId.isBlank()) {
@@ -57,6 +65,11 @@ public record AdminPrincipal(ActorType actorType, String actorId, String credent
     /** May this principal read the general INTERNAL GET surface? {@value #AUDIT_READER} alone does not grant it. */
     public boolean canReadCatalog() {
         return hasRole(READER) || hasRole(CMS_WRITER);
+    }
+
+    /** Staff roles are per-person by construction: a shared service token never carries one. */
+    public boolean isStaff() {
+        return actorType == ActorType.HUMAN_ADMIN && (hasRole(ORDER_OPS) || hasRole(SUPPORT_AGENT));
     }
 
     /** May this principal read the admin audit ledger? Only a per-person human admin holding {@value #AUDIT_READER}. */

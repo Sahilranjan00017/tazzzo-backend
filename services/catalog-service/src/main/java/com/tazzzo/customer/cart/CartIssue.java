@@ -21,5 +21,10 @@ public enum CartIssue {
     /** Serviceable location but stock could not be determined (e.g. no inventory row). */
     STOCK_UNKNOWN,
     /** Commerce state could not currently be read at all; nothing is asserted about the line. */
-    ENRICHMENT_UNAVAILABLE
+    ENRICHMENT_UNAVAILABLE,
+    /**
+     * The cart is older than 24 hours (REVALIDATE band) and the current selling price differs from the price observed
+     * when the line was last set. Informational: the line stays buyable at the CURRENT price, which is what totals use.
+     */
+    PRICE_CHANGED
 }
