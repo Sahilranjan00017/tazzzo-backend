@@ -1,6 +1,6 @@
 spring:
   lifecycle:
-    timeout-per-shutdown-phase: 25s   # graceful shutdown: in-flight requests finish before the context closes
+    timeout-per-shutdown-phase: ${TAZZZO_SHUTDOWN_GRACE:25s}
   task:
     scheduling:
       pool:
@@ -182,6 +182,8 @@ server:
   tomcat:
     # Stop draining a body the application already refused with 413 (see tazzzo.http.max-request-body-bytes).
     max-swallow-size: ${TAZZZO_HTTP_MAX_BODY_BYTES:65536}
+  # Stop accepting new requests on SIGTERM and let in-flight ones finish (bounded by
+  # spring.lifecycle.timeout-per-shutdown-phase), so a rolling deploy never cuts a checkout mid-transaction.
   shutdown: graceful
 tazzzo.http:
   # Every request body on every surface is bounded (413 PAYLOAD_TOO_LARGE); the largest legitimate body in this API

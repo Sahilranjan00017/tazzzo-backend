@@ -1,0 +1,3 @@
+# Only the built jar enters the build context: no sources, no local config, no .env files, no keys.
+*
+!target/catalog-service-*.jar
