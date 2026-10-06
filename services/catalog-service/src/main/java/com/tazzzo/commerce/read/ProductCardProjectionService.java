@@ -49,6 +49,8 @@ import java.util.Optional;
 public class ProductCardProjectionService {
 
     private static final Logger log = LoggerFactory.getLogger(ProductCardProjectionService.class);
+    /** Lower-cased title/brand tokens for the public search (PR-G); derived, index-served, rebuilt with the row. */
+    public static final String SEARCH_TOKENS_FIELD = "search_tokens";
     static final String COLLECTION = "product_card_base";
     private static final int MAX_ATTEMPTS = 3;
 
@@ -132,7 +134,10 @@ public class ProductCardProjectionService {
                 }
                 ProductCardBaseProjection candidate = derive(facts, price, mediaFacts, nextVersion);
 
-                if (existing != null && candidate.contentEquals(fromDocument(existing))) {
+                // PR-G: a row written before search tokens existed is content-equal but not searchable; it is
+                // rewritten once (the reconciler's drift pass reaches every eligible product), never NOOP-ed.
+                boolean searchable = existing == null || existing.containsKey(SEARCH_TOKENS_FIELD);
+                if (existing != null && searchable && candidate.contentEquals(fromDocument(existing))) {
                     if (refreshObservedVersionsIfDrifted(skuId, observedVersion, candidate, fromDocument(existing))) {
                         log.debug("projection_rebuild_noop sku={} version={}", skuId, observedVersion);
                         return RebuildOutcome.NOOP;
@@ -282,6 +287,7 @@ public class ProductCardProjectionService {
                 .append("mrp_paise", p.mrpPaise())
                 .append("currency", p.currency())
                 .append("primary_asset_key", p.primaryAssetKey())
+                .append(SEARCH_TOKENS_FIELD, SearchTokens.of(p.title(), p.brandCode()))
                 .append("source_versions", new Document("catalog_version", p.catalogVersion())
                         .append("price_version", p.priceVersion())
                         .append("media_version", p.mediaVersion()))

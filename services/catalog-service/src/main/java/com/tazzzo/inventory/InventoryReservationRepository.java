@@ -77,6 +77,19 @@ public class InventoryReservationRepository {
         return r.getModifiedCount() > 0;
     }
 
+    /**
+     * The one-shot cancellation-restock marker: set {@code restockedAt} only on a CONSUMED header that does not carry it
+     * yet. {@code true} iff THIS call applied it (the caller then, and only then, returns the stock); the status stays
+     * CONSUMED, so the history of what happened is never rewritten.
+     */
+    public boolean markRestocked(ClientSession session, String reservationId, Instant now) {
+        UpdateResult r = collection().updateOne(session,
+                Filters.and(Filters.eq("_id", reservationId), Filters.eq("status", InventoryReservationStatus.CONSUMED.name()),
+                        Filters.exists("restockedAt", false)),
+                Updates.set("restockedAt", Date.from(now)));
+        return r.getModifiedCount() > 0;
+    }
+
     static Document toDocument(InventoryReservation r) {
         List<Document> items = new ArrayList<>(r.items().size());
         for (InventoryReservationItem i : r.items()) {

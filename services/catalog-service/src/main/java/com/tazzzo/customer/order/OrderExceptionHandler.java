@@ -61,6 +61,15 @@ public class OrderExceptionHandler {
                     "the stock hold expired before the order could be placed", requestId);
             case CART_VERSION_ALREADY_PURCHASED -> reject(op, null, HttpStatus.CONFLICT,
                     "CART_VERSION_ALREADY_PURCHASED", "this cart has already been ordered", requestId);
+            case STALE_VERSION -> reject(op, null, HttpStatus.CONFLICT, "STALE_VERSION", "the order has changed; reload it", requestId);
+            case INVALID_TRANSITION -> reject(op, null, HttpStatus.CONFLICT, "INVALID_TRANSITION",
+                    "the order's status does not allow that change", requestId);
+            case NOT_CANCELLABLE -> reject(op, null, HttpStatus.CONFLICT, "ORDER_NOT_CANCELLABLE",
+                    "this order can no longer be cancelled", requestId);
+            case CANCELLATION_WINDOW_CLOSED -> reject(op, null, HttpStatus.CONFLICT, "CANCELLATION_WINDOW_CLOSED",
+                    "the cancellation window for this order has closed", requestId);
+            case SLOT_UNAVAILABLE -> reject(op, null, HttpStatus.CONFLICT, "DELIVERY_SLOT_UNAVAILABLE",
+                    "the chosen delivery slot is not available", requestId);
             case INTEGRITY_FAILURE -> {
                 log.error("customer_order_integrity_failure request_id={}", requestId);
                 yield reject(op, OrderHttpObservability.Reason.INTERNAL, HttpStatus.INTERNAL_SERVER_ERROR,
@@ -129,8 +138,11 @@ public class OrderExceptionHandler {
     }
 
     static OrderHttpObservability.Operation operationFor(HttpServletRequest req) {
-        return "POST".equals(req.getMethod()) ? OrderHttpObservability.Operation.PLACE
-                : OrderHttpObservability.Operation.READ;
+        if ("POST".equals(req.getMethod())) {
+            return req.getRequestURI().endsWith("/cancel") ? OrderHttpObservability.Operation.CANCEL
+                    : OrderHttpObservability.Operation.PLACE;
+        }
+        return OrderHttpObservability.Operation.READ;
     }
 
     private static ResponseEntity<OrderErrorDto> body(HttpStatus status, String code, String message,

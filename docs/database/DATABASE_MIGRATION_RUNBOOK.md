@@ -109,6 +109,11 @@ applied migration is detected, never silently ignored.
 | `V0005__evidence_links_unique_link` | SCHEMA | on | unique `evidence_links (evidence_id, product_id, link_type)` | duplicates exist (§10), or conflicting definition |
 | `V0006__taxonomy_nodes_unique_active_sibling_name` | SCHEMA | on | partial unique `taxonomy_nodes (parent_id, name)` where `status=active` | active-sibling duplicates exist, or conflicting definition |
 | `V0007__audit_read_partial_indexes` | SCHEMA | on | nine partial indexes `audit_read_recent`/`_actor`/`_request` on `product_events`, `node_events`, `domain_events` (predicate `actor` is an object) for the admin audit-read API (PR #49) | conflicting definition on the same keys; none are unique, so no duplicate preflight |
+| `V0011__support_case_indexes` | SCHEMA | on | the three `support_cases` indexes (by customer, by status, overall; newest-updated first) for the support APIs (PR-O); creates the collection on a migrated database | conflicting definition on the same keys; none unique, so no duplicate preflight |
+| `V0009__product_card_search_tokens_index` | SCHEMA | on | `product_card_base (search_tokens, sku_id)` multikey index for the public product search `GET /v1/search` (PR-G); the projector writes `search_tokens` and backfills older rows on their next rebuild | conflicting definition on the same keys; not unique, so no duplicate preflight |
+| `V0008__delivery_slot_indexes` | SCHEMA | on | `delivery_slot_windows (service_area_id)` by-area lookup and `delivery_slot_usage` TTL on `expire_at` (0 s: purged a week after the slot date); creates both collections on a migrated database (they are NOT in the frozen V0001 baseline) for the delivery-slot admin/customer APIs (PR-E) | conflicting definition on the same keys; neither is unique, so no duplicate preflight |
+| `V0010__orders_by_customer_recent_index` | SCHEMA | on | `orders (customerId, createdAt desc, _id desc)` for the customer order history `GET /v1/customer/orders` (PR-M); the existing unique `(customerId, quoteId)` index cannot serve the newest-first sort | conflicting definition on the same keys; not unique, so no duplicate preflight |
+| `V0012__orders_staff_queue_indexes` | SCHEMA | on | `orders (status, createdAt desc, _id desc)` and `orders (createdAt desc, _id desc)` for the staff order queue (PR-M2) | conflicting definition on the same keys; not unique, so no duplicate preflight |
 | `V0101__drop_unused_session_by_customer_index` | SCHEMA | **off** | drops `customer_sessions.session_by_customer` | live index is not the exact reviewed definition |
 | `V0102__drop_unused_canonical_keys_product_id_index` | SCHEMA | **off** | drops `canonical_keys (product_id)` | same |
 
@@ -230,7 +235,7 @@ If duplicates exist the migration records `BLOCKED` with a sample of the keys, t
 
 ### 12.1 Existing database created by the legacy bootstrap (adoption)
 
-1. `DRY_RUN` and review: `V0001` should report `WOULD_ADOPT`; `V0002`/`V0005`/`V0006`/`V0007` report what they would create or block.
+1. `DRY_RUN` and review: `V0001` should report `WOULD_ADOPT`; `V0002`/`V0005`/`V0006`/`V0007`/`V0008`/`V0009`/`V0010`/`V0011`/`V0012` report what they would create or block.
 2. Run the §9.1 and §9.2 preflight queries.
 3. `APPLY` (with approvals/enables if intended). Adopted migrations are recorded without changing data.
 4. Start the application in `VERIFY` mode.

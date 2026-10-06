@@ -293,6 +293,32 @@ public class InventoryReservationService implements InventoryReservationPort {
         return new InventoryReservationLifecycleResult(consumed, true);
     }
 
+    @Override
+    public boolean restockConsumed(ClientSession session, InventoryReservationId reservationId) {
+        Instant now = clock.instant();
+        Document doc = reservations.findById(session, reservationId.value());
+        if (doc == null) {
+            throw new InventoryReservationFailure(InventoryReservationFailure.Reason.NOT_FOUND,
+                    "no reservation " + reservationId.value());
+        }
+        InventoryReservation current = InventoryReservationRepository.toReservation(doc);
+        if (current.status() != InventoryReservationStatus.CONSUMED) {
+            throw new InventoryReservationFailure(InventoryReservationFailure.Reason.INVALID_TRANSITION,
+                    "only a CONSUMED reservation can be restocked");
+        }
+        if (!reservations.markRestocked(session, reservationId.value(), now)) {
+            return false; // already restocked by an earlier cancellation: exactly-once
+        }
+        for (InventoryReservationItem item : current.items()) {
+            if (!inventory.restockOneSkuInSession(session, item.skuId(), current.fulfillmentLocationId(),
+                    item.quantity(), now)) {
+                throw new InventoryReservationFailure(InventoryReservationFailure.Reason.INTEGRITY_FAILURE,
+                        "reservation " + reservationId.value() + " cannot be restocked for " + item.skuId());
+            }
+        }
+        return true;
+    }
+
     // ---------- standalone wrappers (own their own Tx.call; record metrics after commit) ----------
 
     /** Convenience: {@code prepare} then reserve, in one call — the standalone entry point PR-14A

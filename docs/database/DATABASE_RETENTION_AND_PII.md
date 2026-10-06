@@ -1,6 +1,6 @@
 # DATABASE_RETENTION_AND_PII — tazzzo-backend (DB-4)
 
-The retention matrix and the personal-data map for the 49 application collections of `SchemaBootstrap.COLLECTIONS`
+The retention matrix and the personal-data map for the 52 application collections of `SchemaBootstrap.COLLECTIONS`
 (plus the two migration bookkeeping collections, §4). **It records what the code and the database do today and marks every
 unresolved policy `TBD — PRODUCTION POLICY`. No retention period, legal basis or deletion promise is invented here.** Owner, class and the
 "none" retention values are taken from `DATABASE_COLLECTION_CONTRACTS.md` §5 (single source); TTL indexes from
@@ -51,7 +51,7 @@ unresolved policy `TBD — PRODUCTION POLICY`. No retention period, legal basis 
 | `attribute_schemas` | catalog | authoritative (versioned) | durable | none | retain (versioned reference data); no deletion path | none known | n/a (no personal data) | n/a (reference/catalogue data) | included |
 | `id_sequences` | catalog | operational (counter) | durable (counters) | none | retain: counters must never be reset | none known | n/a (no personal data) | n/a (reference/catalogue data) | included |
 | `price_current` | pricing | authoritative | durable | none | retain (current commercial state); no deletion path | none known | n/a (no personal data) | n/a (reference/catalogue data) | included |
-| `price_events` | pricing/catalog | event (two shapes) | durable (two row shapes) | none | TARGET: retain (R1). **CURRENT: rolled rows are hard-deleted hourly by default — NON-COMPLIANT with R1** | none known | n/a (no personal data) | TBD — PRODUCTION POLICY | included |
+| `price_events` | pricing/catalog | event (two shapes) | durable (two row shapes) | none | **RETAINED (R1 fixed in code):** append-only; the roll-up flags legacy offer events `rolled=true` and never deletes; paise rows are never touched; no TTL | none known | n/a (no personal data) | TBD — PRODUCTION POLICY | included |
 | `price_rollups` | catalog | derived | derived (rebuildable) | none | no retention need: rebuildable | none known | n/a (no personal data) | n/a | included but rebuildable; a restore may omit it and rebuild |
 | `inventory` | inventory | authoritative | durable | none | retain (current commercial state); no deletion path | none known | n/a (no personal data) | n/a (reference/catalogue data) | included |
 | `inventory_reservations` | inventory | authoritative | durable | none | TBD — PRODUCTION POLICY | none known | n/a (no personal data) | TBD — PRODUCTION POLICY | included |
@@ -73,6 +73,9 @@ unresolved policy `TBD — PRODUCTION POLICY`. No retention period, legal basis 
 | `checkout_quotes` | customer.checkout | snapshot | durable | none | TBD — PRODUCTION POLICY | customer link: `customerId`, `addressId` (the raw `Idempotency-Key` is never stored, only its SHA-256) | linked data: TBD — PRODUCTION POLICY | TBD — PRODUCTION POLICY | included |
 | `orders` | customer.order | authoritative + snapshot | durable | none | TBD — PRODUCTION POLICY | **DIRECT PII**: `addressSnapshot.*` (`recipientName`, `recipientPhone`, address lines, `landmark`, `city`, `state`, `postalCode`, coordinates); customer link: `customerId` | no erasure/anonymisation path exists in the backend; design: TBD — PRODUCTION POLICY | TBD — PRODUCTION POLICY | included — **a restore re-introduces erased personal data** |
 | `memberships` | membership | authoritative | durable | none | TBD — PRODUCTION POLICY | customer link: `customerId` | linked data: TBD — PRODUCTION POLICY | TBD — PRODUCTION POLICY | included |
+| `support_cases` | support | authoritative | durable (customer service record) | none | TBD — PRODUCTION POLICY; deleted with the customer's account (erasure) | **free text written by the customer and staff**; customer link: `customerId`; staff identifier on staff messages: `staffId` | deleted on account erasure (`SupportService.eraseForCustomer`) | TBD — PRODUCTION POLICY | included |
+| `delivery_slot_windows` | delivery | authoritative (config) | durable | none | retain (current commercial config); no deletion path (deactivate instead) | none known | n/a (no personal data) | n/a (reference/catalogue data) | included |
+| `delivery_slot_usage` | delivery | operational (counter) | durable (counters; orders are the record) | TTL `expire_at` (a week after the slot date) | purged by TTL; no deletion path | none known | n/a (no personal data: opaque hold ids only) | n/a | included but disposable; a restore may omit it |
 
 ## 3. Personal-data map (summary)
 
@@ -88,7 +91,7 @@ Rules that hold today (verified against the code):
 
 - No password, token, API key or connection string is stored as an ordinary field. Secrets live outside the database (SSM, §`DATABASE_STAGING_RUNBOOK.md`).
 - Raw OTP codes, refresh tokens and `Idempotency-Key` values are **never persisted**; only keyed digests are.
-- **There is no erasure or anonymisation path** for a customer anywhere in the backend. The only delete paths in `main` are: offer merge (`MergeService`), the price rollup purge (`RollupService`, R1), derived-projection and rebuild-queue clean-up, and a customer deleting their **own address**. An erasure/retention design (including backups and the audit ledgers) is `TBD — PRODUCTION POLICY`.
+- **There is no erasure or anonymisation path** for a customer anywhere in the backend. The only delete paths in `main` are: offer merge (`MergeService`), derived-projection and rebuild-queue clean-up, and a customer deleting their **own address**. An erasure/retention design (including backups and the audit ledgers) is `TBD — PRODUCTION POLICY`.
 - The `detail` map of an audit event is free-form and is not constrained by any schema; the audit-read API never reads it.
 
 ## 4. Migration bookkeeping collections
