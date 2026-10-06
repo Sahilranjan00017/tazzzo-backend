@@ -85,6 +85,15 @@ public class InventoryService implements InventoryReadPort {
      * @return the new version.
      */
     public long setInventory(SetInventoryCommand cmd) {
+        return setInventory(cmd, null);
+    }
+
+    /**
+     * As {@link #setInventory(SetInventoryCommand)}, attributed to {@code actor}: the audit event records WHO changed the
+     * stock. The admin API always uses this form; the actor-less form is a fixture/seed seam that no production class
+     * may call (pinned by ModuleBoundaryTest).
+     */
+    public long setInventory(SetInventoryCommand cmd, com.tazzzo.common.audit.Actor actor) {
         validateCommand(cmd);
         long newVersion;
         try {
@@ -94,7 +103,7 @@ public class InventoryService implements InventoryReadPort {
             throw new InvalidInventoryException("expectedVersion overflow: " + cmd.expectedVersion());
         }
         Date now = Date.from(clock.instant());
-        EventPayload event = new EventPayload("INVENTORY_SET", cmd.skuId(), auditDetail(cmd, newVersion));
+        EventPayload event = new EventPayload("INVENTORY_SET", cmd.skuId(), auditDetail(cmd, newVersion), actor);
 
         try {
             tx.run(session -> {
@@ -162,6 +171,45 @@ public class InventoryService implements InventoryReadPort {
         }
         log.info("inventory_write_success sku={} loc={} version={}",
                 cmd.skuId(), cmd.fulfillmentLocationId(), newVersion);
+        return newVersion;
+    }
+
+    /**
+     * Delist or relist a SKU at one location: CAS on {@code expectedVersion}, version +1, audited with the actor. This is
+     * the explicit lifecycle command {@link SetInventoryCommand} defers to; an inactive row reads as INACTIVE (not
+     * purchasable) and keeps its counters, so relisting restores the exact stock.
+     *
+     * @return the new version
+     */
+    public long setActive(com.tazzzo.common.audit.Actor actor, String skuId, String fulfillmentLocationId,
+                          long expectedVersion, boolean active) {
+        Objects.requireNonNull(actor, "actor");
+        new InventoryKey(skuId, fulfillmentLocationId);
+        if (expectedVersion < 1) {
+            throw new InvalidInventoryException("expectedVersion must be positive: " + expectedVersion);
+        }
+        long newVersion = expectedVersion + 1;
+        Date now = Date.from(clock.instant());
+        Map<String, Object> detail = new LinkedHashMap<>();
+        detail.put("fulfillment_location_id", fulfillmentLocationId);
+        detail.put("active", active);
+        detail.put("version", newVersion);
+        EventPayload event = new EventPayload(active ? "INVENTORY_ACTIVATED" : "INVENTORY_DEACTIVATED", skuId, detail, actor);
+        tx.run(session -> {
+            UpdateResult[] r = new UpdateResult[1];
+            writePath.auxWrite(session, COLLECTION, event, c -> r[0] = c.updateOne(session,
+                    Filters.and(keyFilter(skuId, fulfillmentLocationId), Filters.eq("version", expectedVersion)),
+                    Updates.combine(Updates.set("active", active), Updates.set("version", newVersion),
+                            Updates.set("updated_at", now))));
+            if (r[0].getMatchedCount() == 0) {
+                if (db.getCollection(COLLECTION).find(session, keyFilter(skuId, fulfillmentLocationId)).first() == null) {
+                    throw new InventoryNotFoundException("no inventory row for " + skuId + "@" + fulfillmentLocationId);
+                }
+                throw new InventoryConflictException("stale update for " + skuId + "@" + fulfillmentLocationId
+                        + " expectedVersion=" + expectedVersion);
+            }
+        });
+        log.info("inventory_active_changed sku={} loc={} active={} version={}", skuId, fulfillmentLocationId, active, newVersion);
         return newVersion;
     }
 
@@ -284,6 +332,27 @@ public class InventoryService implements InventoryReadPort {
     }
 
     /**
+     * Cancellation restock: put {@code qty} units of a CONSUMED reservation back on hand for one SKU row, session-aware,
+     * in the caller's transaction. Guarded so the row can never exceed {@link #MAX_QUANTITY}. Idempotency is NOT decided
+     * here: the caller proves "first and only restock" through the reservation header's one-shot marker.
+     */
+    boolean restockOneSkuInSession(ClientSession session, String skuId, String fulfillmentLocationId, long qty,
+                                   Instant now) {
+        new InventoryKey(skuId, fulfillmentLocationId);
+        if (qty < 1) {
+            throw new IllegalArgumentException("restock quantity must be positive: " + qty);
+        }
+        EventPayload event = new EventPayload("INVENTORY_RESTOCKED", skuId,
+                Map.of("fulfillment_location_id", fulfillmentLocationId, "qty", qty));
+        UpdateResult[] r = new UpdateResult[1];
+        writePath.auxWrite(session, COLLECTION, event, c -> r[0] = c.updateOne(session,
+                Filters.and(keyFilter(skuId, fulfillmentLocationId), Filters.lte("on_hand", MAX_QUANTITY - qty)),
+                Updates.combine(Updates.inc("on_hand", qty), Updates.inc("version", 1L),
+                        Updates.set("updated_at", Date.from(now)))));
+        return r[0].getModifiedCount() > 0;
+    }
+
+    /**
      * ONE query for a page of SKUs at one location (PR-08, STEP 19/20). INDEX-SHAPE REASONING
      * (no explain() was captured — this is design reasoning, not a measured query plan): the
      * filter {@code sku_id IN (...) AND fulfillment_location_id = X} matches the existing unique
@@ -353,7 +422,8 @@ public class InventoryService implements InventoryReadPort {
 
     // --- validation (STEP 20) ---------------------------------------------------
 
-    static void validateCommand(SetInventoryCommand cmd) {
+    /** Public for dry runs (bulk import): the same checks a write performs, without touching the database. */
+    public static void validateCommand(SetInventoryCommand cmd) {
         try {
             Objects.requireNonNull(cmd, "command required");
             new InventoryKey(cmd.skuId(), cmd.fulfillmentLocationId());

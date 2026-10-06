@@ -9,10 +9,13 @@ package com.tazzzo.catalog.api;
  *   PUBLIC_CONSUMER          /catalog/v1, /catalog/v1/**,
  *                            /v1/categories, /v1/categories/**,
  *                            /v1/products, /v1/products/**,
- *                            /v1/serviceability, /v1/content/home, /v1/content/faqs, /v1/app-config (exact only),
+ *                            /v1/serviceability (exact only), /v1/search (exact only),
+ *                            /v1/content/home, /v1/content/faqs, /v1/app-config (exact only),
  *                            /v1/auth, /v1/auth/**              public BY DECISION, per-family (Q4-b)
  *   CUSTOMER_AUTHENTICATED   /v1/customer, /v1/customer/**           customer bearer boundary (PR-11A)
  *   INTERNAL                 /api, /api/**, the OpenAPI surface      service-token boundary
+ *   HEALTH                   /health/live, /health/ready (EXACT)     unauthenticated probes for the
+ *                                                                    container runtime and the load balancer
  *   UNKNOWN                  everything else, INCLUDING any other  DENIED by default (Q4-f)
  *                            /v1/** path not named above
  * </pre>
@@ -59,7 +62,11 @@ package com.tazzzo.catalog.api;
  */
 public final class SurfaceClassifier {
 
-    public enum Surface { PUBLIC_CONSUMER, CUSTOMER_AUTHENTICATED, INTERNAL, UNKNOWN }
+    public enum Surface { PUBLIC_CONSUMER, CUSTOMER_AUTHENTICATED, INTERNAL, HEALTH, UNKNOWN }
+
+    /** The two probe paths, exact. {@code /health}, {@code /health/}, {@code /healthz} and any sub-path are UNKNOWN. */
+    public static final String HEALTH_LIVE = "/health/live";
+    public static final String HEALTH_READY = "/health/ready";
 
     private SurfaceClassifier() {
     }
@@ -81,6 +88,11 @@ public final class SurfaceClassifier {
         if (uri.equals("/api") || uri.startsWith("/api/") || isOpenApiSurface(uri)) {
             return Surface.INTERNAL;
         }
+        // Platform baseline: the two probe paths are a surface of their own, EXACT match only. They carry no
+        // credential (an ALB/ECS probe has none) and no business data; anything else under /health is UNKNOWN.
+        if (uri.equals(HEALTH_LIVE) || uri.equals(HEALTH_READY)) {
+            return Surface.HEALTH;
+        }
         return Surface.UNKNOWN;
     }
 
@@ -95,6 +107,7 @@ public final class SurfaceClassifier {
         return uri.equals("/v1/categories") || uri.startsWith("/v1/categories/")
                 || uri.equals("/v1/products") || uri.startsWith("/v1/products/")
                 || uri.equals("/v1/serviceability")
+                || uri.equals("/v1/search")
                 || uri.equals("/v1/content/home") || uri.equals("/v1/content/faqs") || uri.equals("/v1/app-config")
                 || uri.equals("/v1/auth") || uri.startsWith("/v1/auth/");
     }
@@ -111,7 +124,9 @@ public final class SurfaceClassifier {
      */
     static boolean isNormalised(String uri) {
         String lower = uri.toLowerCase();
-        if (lower.contains("%2e") || lower.contains("%2f") || lower.contains("\\")) {
+        // ';' path parameters and percent escapes: Spring matches the decoded, parameter-free path while every guard here
+        // sees the raw URI, so any such URI is UNKNOWN (fail closed). No route of this service needs either.
+        if (uri.indexOf(';') >= 0 || uri.indexOf('%') >= 0 || lower.contains("\\")) {
             return false;
         }
         for (String segment : uri.split("/", -1)) {

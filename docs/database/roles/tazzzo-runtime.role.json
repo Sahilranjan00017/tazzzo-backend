@@ -277,6 +277,30 @@
     {
       "resource": {
         "db": "tazzzo_staging",
+        "collection": "delivery_slot_usage"
+      },
+      "actions": [
+        "find",
+        "insert",
+        "remove",
+        "update"
+      ]
+    },
+    {
+      "resource": {
+        "db": "tazzzo_staging",
+        "collection": "delivery_slot_windows"
+      },
+      "actions": [
+        "find",
+        "insert",
+        "remove",
+        "update"
+      ]
+    },
+    {
+      "resource": {
+        "db": "tazzzo_staging",
         "collection": "discriminating_attributes"
       },
       "actions": [
@@ -542,6 +566,18 @@
       "resource": {
         "db": "tazzzo_staging",
         "collection": "service_areas"
+      },
+      "actions": [
+        "find",
+        "insert",
+        "remove",
+        "update"
+      ]
+    },
+    {
+      "resource": {
+        "db": "tazzzo_staging",
+        "collection": "support_cases"
       },
       "actions": [
         "find",

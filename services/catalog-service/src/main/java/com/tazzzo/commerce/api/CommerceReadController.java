@@ -15,6 +15,7 @@ import com.tazzzo.commerce.contract.LocationQuery;
 import com.tazzzo.commerce.contract.Pincode;
 import com.tazzzo.commerce.read.CommerceListService;
 import com.tazzzo.commerce.read.CommercePdpService;
+import com.tazzzo.commerce.read.CommerceSearchService;
 import com.tazzzo.commerce.read.CommerceServiceabilityService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -55,18 +56,24 @@ public class CommerceReadController {
     private final CommerceListService list;
     private final CommercePdpService pdp;
     private final CommerceServiceabilityService serviceability;
+    private final CommerceSearchService search;
     private final ClientIpResolver clientIps;
     private final ConsumerObservability observe;
+    private final com.tazzzo.location.GeoPincodeResolver geo;
 
     public CommerceReadController(ConsumerTaxonomyService taxonomy, CommerceListService list,
                                   CommercePdpService pdp, CommerceServiceabilityService serviceability,
-                                  ClientIpResolver clientIps, ConsumerObservability observe) {
+                                  CommerceSearchService search,
+                                  ClientIpResolver clientIps, ConsumerObservability observe,
+                                  com.tazzzo.location.GeoPincodeResolver geo) {
         this.taxonomy = taxonomy;
         this.list = list;
         this.pdp = pdp;
         this.serviceability = serviceability;
+        this.search = search;
         this.clientIps = clientIps;
         this.observe = observe;
+        this.geo = geo;
     }
 
     @GetMapping("/categories")
@@ -131,6 +138,24 @@ public class CommerceReadController {
         });
     }
 
+    /** PR-G: public product search; PIN-only location like the list (lat/lng is 400 here too). */
+    @GetMapping("/search")
+    public PagedProductResponse search(@RequestParam(name = "q", required = false) String q,
+                                       @RequestParam(name = "release", required = false) String release,
+                                       @RequestParam(name = "page_size", required = false) String pageSize,
+                                       @RequestParam(name = "cursor", required = false) String cursor,
+                                       @RequestParam(name = "pin", required = false) String pin,
+                                       @RequestParam(name = "lat", required = false) String lat,
+                                       @RequestParam(name = "lng", required = false) String lng,
+                                       HttpServletRequest request, HttpServletResponse response) {
+        response.setHeader(HttpHeaders.CACHE_CONTROL, CACHE_PRIVATE_NO_STORE);
+        return measured(ConsumerObservability.Route.COMMERCE_SEARCH, () -> {
+            LocationQuery location = CommerceLocationParser.parse(pin, lat, lng);
+            return RuntimeToDtoMapper.page(
+                    search.search(q, release, pageSize, cursor, location, identity(request)), requestId(request));
+        });
+    }
+
     @GetMapping("/products/{id}")
     public ProductDetailDto productDetail(@PathVariable("id") String productId,
                                           @RequestParam(name = "release", required = false) String release,
@@ -157,9 +182,14 @@ public class CommerceReadController {
                                                     HttpServletRequest request, HttpServletResponse response) {
         response.setHeader(HttpHeaders.CACHE_CONTROL, CACHE_PRIVATE_NO_STORE);
         return measured(ConsumerObservability.Route.COMMERCE_SERVICEABILITY, () -> {
-            Pincode validPin = CommerceLocationParser.requirePin(pin, lat, lng);
-            return RuntimeToDtoMapper.serviceability(
-                    serviceability.resolve(validPin, identity(request)), requestId(request));
+            // PIN path: validated before admission, exactly as before. Geo path: the provider is called only AFTER
+            // admission is charged, so an unauthenticated flood cannot reach it ahead of the limiter.
+            boolean viaGeo = CommerceLocationParser.usesGeo(geo, lat, lng);
+            Pincode validPin = viaGeo ? null : CommerceLocationParser.requirePin(pin, lat, lng);
+            return RuntimeToDtoMapper.serviceability(viaGeo
+                            ? serviceability.resolve(() -> CommerceLocationParser.requirePin(pin, lat, lng, geo), identity(request))
+                            : serviceability.resolve(validPin, identity(request)),
+                    requestId(request));
         });
     }
 
