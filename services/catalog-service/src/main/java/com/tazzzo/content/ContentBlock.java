@@ -14,9 +14,52 @@ import java.util.regex.Pattern;
  * search, never at an arbitrary URL; FAQ text is plain text (no markup).
  */
 public record ContentBlock(String blockId, Placement placement, Type type, String title, int sort, Status status, Instant startsAt,
-                           Instant endsAt, Payload payload, long version, Instant createdAt, Instant updatedAt) {
+                           Instant endsAt, Payload payload, Audience audience, long version, Instant createdAt, Instant updatedAt) {
 
     public enum Placement { HOME, HELP }
+
+    /**
+     * Who may see a block (multichannel D1/D2): the app, the website, or both. A block stored before this field existed has
+     * none and reads as {@link #BOTH}, so the public API behaves exactly as before. Only HOME placement is targeted; HELP
+     * (FAQ) content is global (D3) and is always {@link #BOTH}.
+     */
+    public enum Audience {
+        APP_ONLY, WEB_ONLY, BOTH;
+
+        public boolean visibleTo(Channel channel) {
+            return this == BOTH || (channel == Channel.APP && this == APP_ONLY) || (channel == Channel.WEB && this == WEB_ONLY);
+        }
+    }
+
+    /** The customer platform asking, from the public {@code channel} query parameter ({@code app} | {@code web}). */
+    public enum Channel {
+        APP, WEB;
+
+        /** @throws IllegalArgumentException anything but {@code app} or {@code web} (case-sensitive, no whitespace) */
+        public static Channel parse(String raw) {
+            if ("app".equals(raw)) return APP;
+            if ("web".equals(raw)) return WEB;
+            throw new IllegalArgumentException("channel must be app or web");
+        }
+    }
+
+    /** {@code null} (absent on a legacy document or an older client's request) means {@link Audience#BOTH}. */
+    public static Audience audience(String raw) {
+        if (raw == null) return Audience.BOTH;
+        try {
+            return Audience.valueOf(raw);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("audience must be APP_ONLY, WEB_ONLY or BOTH");
+        }
+    }
+
+    /** @throws IllegalArgumentException a targeted audience on a placement that is global (HELP) */
+    public static void requireAudience(Placement placement, Audience audience) {
+        if (audience == null) throw new IllegalArgumentException("audience is required");
+        if (placement == Placement.HELP && audience != Audience.BOTH) {
+            throw new IllegalArgumentException("HELP content is global: audience must be BOTH");
+        }
+    }
 
     public enum Type {
         BANNER(Placement.HOME), PRODUCT_RAIL(Placement.HOME), CATEGORY_GRID(Placement.HOME), FAQ(Placement.HELP);

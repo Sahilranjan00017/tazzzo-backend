@@ -59,13 +59,17 @@ public class ContentService {
 
     // ---------------------------------------------------------------- blocks
 
+    /** {@code audience} null = BOTH (an older client); targeting is HOME-only (D3). */
     public ContentBlock create(Actor actor, String placement, String type, String title, int sort, Instant startsAt, Instant endsAt,
-                              ContentBlock.Payload payload) {
+                              ContentBlock.Payload payload, String audience) {
         Objects.requireNonNull(actor, "actor");
         ContentBlock.Placement pl = parse(ContentBlock.Placement.class, placement);
         ContentBlock.Type ty = parse(ContentBlock.Type.class, type);
+        ContentBlock.Audience au;
         try {
             ContentBlock.requirePlacement(pl, ty);
+            au = ContentBlock.audience(audience);
+            ContentBlock.requireAudience(pl, au);
         } catch (IllegalArgumentException e) {
             throw new ContentFailure(ContentFailure.Reason.INVALID, e.getMessage());
         }
@@ -77,25 +81,37 @@ public class ContentService {
         String id = newId();
         Document d = new Document("_id", id).append("placement", pl.name()).append("type", ty.name()).append("title", title)
                 .append("sort", sort).append("status", ContentBlock.Status.DRAFT.name()).append("payload", payloadDoc(payload))
+                .append("audience", au.name())
                 .append("version", 1L).append("createdAt", Date.from(now)).append("updatedAt", Date.from(now));
         if (startsAt != null) d.append("startsAt", Date.from(startsAt));
         if (endsAt != null) d.append("endsAt", Date.from(endsAt));
         tx.run(session -> {
-            audit.append(session, new DomainEvent("content_block", id, "CONTENT_BLOCK_CREATED", Map.of("type", ty.name(), "placement", pl.name()), actor));
+            audit.append(session, new DomainEvent("content_block", id, "CONTENT_BLOCK_CREATED",
+                    Map.of("type", ty.name(), "placement", pl.name(), "audience", au.name()), actor));
             blocks().insertOne(session, d);
         });
         return get(id);
     }
 
+    /** {@code audience} null = keep the current one (an older client's PUT never erases targeting, multichannel §5.2). */
     public ContentBlock update(Actor actor, String id, long expectedVersion, String title, int sort, Instant startsAt, Instant endsAt,
-                               ContentBlock.Payload payload) {
+                               ContentBlock.Payload payload, String audience) {
         Objects.requireNonNull(actor, "actor");
         ContentBlock current = get(id);
         if (current.status() == ContentBlock.Status.ARCHIVED) throw new ContentFailure(ContentFailure.Reason.STATE_CONFLICT, "an archived block is final");
         validate(current.type(), title, sort, startsAt, endsAt, payload);
+        ContentBlock.Audience au;
+        try {
+            au = audience == null ? current.audience() : ContentBlock.audience(audience);
+            ContentBlock.requireAudience(current.placement(), au);
+        } catch (IllegalArgumentException e) {
+            throw new ContentFailure(ContentFailure.Reason.INVALID, e.getMessage());
+        }
         Instant now = clock.instant().truncatedTo(ChronoUnit.MILLIS);
-        cas(actor, id, expectedVersion, List.of("DRAFT", "PUBLISHED"), "CONTENT_BLOCK_UPDATED", Map.of(), Updates.combine(
+        Map<String, Object> detail = au == current.audience() ? Map.of() : Map.of("audience", au.name(), "from", current.audience().name());
+        cas(actor, id, expectedVersion, List.of("DRAFT", "PUBLISHED"), "CONTENT_BLOCK_UPDATED", detail, Updates.combine(
                 Updates.set("title", title), Updates.set("sort", sort), Updates.set("payload", payloadDoc(payload)),
+                Updates.set("audience", au.name()),
                 startsAt == null ? Updates.unset("startsAt") : Updates.set("startsAt", Date.from(startsAt)),
                 endsAt == null ? Updates.unset("endsAt") : Updates.set("endsAt", Date.from(endsAt)),
                 Updates.set("updatedAt", Date.from(now))));
@@ -121,11 +137,12 @@ public class ContentService {
         return toBlock(d);
     }
 
-    /** Admin list of one placement (bounded), optional status, in display order. */
-    public List<ContentBlock> list(String placement, String status) {
+    /** Admin list of one placement (bounded), optional status and audience, in display order. */
+    public List<ContentBlock> list(String placement, String status, String audience) {
         ContentBlock.Placement pl = parse(ContentBlock.Placement.class, placement);
         List<Bson> f = new ArrayList<>(List.of(Filters.eq("placement", pl.name())));
         if (status != null) f.add(Filters.eq("status", parse(ContentBlock.Status.class, status).name()));
+        if (audience != null) f.add(audienceFilter(parse(ContentBlock.Audience.class, audience)));
         List<ContentBlock> out = new ArrayList<>();
         for (Document d : blocks().find(Filters.and(f)).sort(Sorts.ascending("sort", "_id")).limit(MAX_BLOCKS_PER_PLACEMENT)) {
             out.add(toBlock(d));
@@ -133,19 +150,45 @@ public class ContentService {
         return out;
     }
 
-    /** The public view: PUBLISHED blocks of the placement whose window contains "now", in display order. */
-    public List<ContentBlock> live(ContentBlock.Placement placement) {
+    /**
+     * The public view: PUBLISHED blocks of the placement whose window contains "now" and whose audience admits
+     * {@code channel}, in display order. {@code channel} null (a request without the parameter, as every client before
+     * multichannel sent) sees BOTH only, so nothing targeted ever leaks to an unidentified platform; the filter is
+     * authoritative here on the backend (D2), never on a client.
+     */
+    public List<ContentBlock> live(ContentBlock.Placement placement, ContentBlock.Channel channel) {
         Instant now = clock.instant();
         Date n = Date.from(now);
         List<ContentBlock> out = new ArrayList<>();
         for (Document d : blocks().find(Filters.and(Filters.eq("placement", placement.name()), Filters.eq("status", "PUBLISHED"),
                         Filters.or(Filters.exists("startsAt", false), Filters.lte("startsAt", n)),
-                        Filters.or(Filters.exists("endsAt", false), Filters.gt("endsAt", n))))
+                        Filters.or(Filters.exists("endsAt", false), Filters.gt("endsAt", n)),
+                        channelFilter(channel)))
                 .sort(Sorts.ascending("sort", "_id")).limit(MAX_BLOCKS_PER_PLACEMENT)) {
             ContentBlock b = toBlock(d);
-            if (b.isLiveAt(now)) out.add(b);   // the same rule, applied twice: query and domain can never disagree
+            // the same rules, applied twice: query and domain can never disagree
+            if (b.isLiveAt(now) && b.audience().visibleTo(channel)) out.add(b);
         }
         return out;
+    }
+
+    /** Global content (HELP) as every client sees it. */
+    public List<ContentBlock> live(ContentBlock.Placement placement) {
+        return live(placement, null);
+    }
+
+    /** A legacy document has no {@code audience} and means BOTH. */
+    private static Bson audienceFilter(ContentBlock.Audience audience) {
+        return audience == ContentBlock.Audience.BOTH
+                ? Filters.or(Filters.exists("audience", false), Filters.eq("audience", audience.name()))
+                : Filters.eq("audience", audience.name());
+    }
+
+    private static Bson channelFilter(ContentBlock.Channel channel) {
+        List<String> admitted = new ArrayList<>(List.of(ContentBlock.Audience.BOTH.name()));
+        if (channel == ContentBlock.Channel.APP) admitted.add(ContentBlock.Audience.APP_ONLY.name());
+        if (channel == ContentBlock.Channel.WEB) admitted.add(ContentBlock.Audience.WEB_ONLY.name());
+        return Filters.or(Filters.exists("audience", false), Filters.in("audience", admitted));
     }
 
     /**
@@ -257,6 +300,7 @@ public class ContentService {
                 d.getDate("endsAt") == null ? null : d.getDate("endsAt").toInstant(),
                 new ContentBlock.Payload(p.getString("imageAssetKey"), p.getString("link"), p.getList("ids", String.class),
                         p.getString("faqCategory"), p.getString("question"), p.getString("answer")),
+                ContentBlock.audience(d.getString("audience")),
                 ((Number) d.get("version")).longValue(), d.getDate("createdAt").toInstant(), d.getDate("updatedAt").toInstant());
     }
 

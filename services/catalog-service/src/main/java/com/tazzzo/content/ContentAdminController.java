@@ -35,20 +35,21 @@ public class ContentAdminController {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     record PayloadDto(String imageAssetKey, String link, List<String> ids, String faqCategory, String question, String answer) { }
 
+    /** {@code audience}: APP_ONLY | WEB_ONLY | BOTH; absent on create = BOTH, absent on update = unchanged. */
     record BlockRequest(String placement, String type, String title, Integer sort, String startsAt, String endsAt, PayloadDto payload,
-                        Long expectedVersion) { }
+                        Long expectedVersion, String audience) { }
 
     record StatusRequest(String to, Long expectedVersion) { }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
     record BlockResponse(String blockId, String placement, String type, String title, int sort, String status, String startsAt, String endsAt,
-                         PayloadDto payload, long version, String createdAt, String updatedAt) {
+                         PayloadDto payload, String audience, long version, String createdAt, String updatedAt) {
         static BlockResponse of(ContentBlock b) {
             return new BlockResponse(b.blockId(), b.placement().name(), b.type().name(), b.title(), b.sort(), b.status().name(),
                     b.startsAt() == null ? null : b.startsAt().toString(), b.endsAt() == null ? null : b.endsAt().toString(),
                     new PayloadDto(b.payload().imageAssetKey(), b.payload().link(), b.payload().ids().isEmpty() ? null : b.payload().ids(),
                             b.payload().faqCategory(), b.payload().question(), b.payload().answer()),
-                    b.version(), b.createdAt().toString(), b.updatedAt().toString());
+                    b.audience().name(), b.version(), b.createdAt().toString(), b.updatedAt().toString());
         }
     }
 
@@ -66,8 +67,9 @@ public class ContentAdminController {
 
     @GetMapping("/api/v1/admin/content/blocks")
     public BlockList list(@RequestParam(name = "placement", defaultValue = "HOME") String placement,
-                          @RequestParam(name = "status", required = false) String status) {
-        return new BlockList(content.list(placement, status).stream().map(BlockResponse::of).toList());
+                          @RequestParam(name = "status", required = false) String status,
+                          @RequestParam(name = "audience", required = false) String audience) {
+        return new BlockList(content.list(placement, status, audience).stream().map(BlockResponse::of).toList());
     }
 
     @GetMapping("/api/v1/admin/content/blocks/{id}")
@@ -79,7 +81,7 @@ public class ContentAdminController {
     public ResponseEntity<BlockResponse> create(@RequestBody BlockRequest body, HttpServletRequest request) {
         if (body == null || body.sort() == null || body.payload() == null) throw new ContentFailure(ContentFailure.Reason.INVALID, "sort and payload are required");
         ContentBlock b = content.create(AdminActors.require(request), body.placement() == null ? "HOME" : body.placement(), body.type(),
-                body.title(), body.sort(), instant(body.startsAt()), instant(body.endsAt()), payload(body.payload()));
+                body.title(), body.sort(), instant(body.startsAt()), instant(body.endsAt()), payload(body.payload()), body.audience());
         return ResponseEntity.status(HttpStatus.CREATED).body(BlockResponse.of(b));
     }
 
@@ -90,7 +92,7 @@ public class ContentAdminController {
         }
         if (body.type() != null || body.placement() != null) throw new ContentFailure(ContentFailure.Reason.INVALID, "type and placement are fixed at creation");
         return BlockResponse.of(content.update(AdminActors.require(request), id, body.expectedVersion(), body.title(), body.sort(),
-                instant(body.startsAt()), instant(body.endsAt()), payload(body.payload())));
+                instant(body.startsAt()), instant(body.endsAt()), payload(body.payload()), body.audience()));
     }
 
     @PostMapping("/api/v1/admin/content/blocks/{id}/status")

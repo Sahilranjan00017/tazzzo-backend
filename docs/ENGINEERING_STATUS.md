@@ -1254,6 +1254,15 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
 
 ## In review (NOT merged)
 
+- **Channel-targeted content (multichannel D1–D3)** (branch `feature/content-channel-audience`, from `main` `7d491dd`): **IN REVIEW**. `ContentBlock` gains
+  `audience` (APP_ONLY | WEB_ONLY | BOTH; a document without the field reads as BOTH, so no data migration, no validator and no index change: the
+  `content_by_placement_status_sort` index still serves the query and audience is a residual predicate over ≤200 blocks). HELP (FAQ) content is global
+  (D3): any other audience there is refused. Admin API: `audience` on create (absent = BOTH) and update (absent = unchanged, so an older CMS build can never
+  erase targeting), echoed on every response, `?audience=` list filter, audit detail carries it. Public API: `GET /v1/content/home?channel=app|web` (D2);
+  a request without `channel` sees BOTH only, so targeted content never reaches an unidentified platform; any other value or parameter is 400; filtering is
+  authoritative on the backend, applied in the query and again in the domain. OpenAPI documents the parameter. Not included: banner image variants (D4,
+  after the media storage adapter), CMS editors, app/website consumption. Evidence: `ContentChannelTargetingIT`, `ContentModelTest`.
+
 - **HTTP error-handling hardening** (branch `fix/http-error-handling-hardening`, from `main` `d790504`): **IN REVIEW**. The 12 controller-scoped `/v1` advices with an
   `Exception` catch-all (OTP, session, profile, address, account deletion, customer support, delivery slots, cart, checkout, order, commerce read, public content;
   staff support falls through to `ApiExceptionHandler`) no longer turn framework request-shape failures into a logged-as-ERROR 500. `catalog.api.ClientRequestErrors`
