@@ -51,10 +51,24 @@ public class AddressService {
     private final AddressObservability observability;
     private final ObjectProvider<CustomerIdentityAuthority> identityAuthority;
     private final Tx tx;
+    private final AddressIdempotencyRepository idempotency;
 
+    /** Accepted {@code Idempotency-Key} grammar: the same one checkout uses. */
+    private static final java.util.regex.Pattern IDEMPOTENCY_KEY = java.util.regex.Pattern.compile("^[A-Za-z0-9_-]{8,64}$");
+
+    /** Narrow fixtures that construct the service by hand: keyed (idempotent) creates are refused as unavailable. */
+    AddressService(AddressRepository addresses, CustomerAddressStateRepository state,
+                   AddressLimitProperties limits, Clock clock, AddressObservability observability,
+                   ObjectProvider<CustomerIdentityAuthority> identityAuthority, Tx tx) {
+        this(addresses, state, limits, clock, observability, identityAuthority, tx, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
     public AddressService(AddressRepository addresses, CustomerAddressStateRepository state,
                           AddressLimitProperties limits, Clock clock, AddressObservability observability,
-                          ObjectProvider<CustomerIdentityAuthority> identityAuthority, Tx tx) {
+                          ObjectProvider<CustomerIdentityAuthority> identityAuthority, Tx tx,
+                          AddressIdempotencyRepository idempotency) {
+        this.idempotency = idempotency;
         this.addresses = addresses;
         this.state = state;
         this.limits = limits;
@@ -109,6 +123,23 @@ public class AddressService {
     // ---------- create ----------
 
     public AddressView create(CustomerId customerId, CreateCommand cmd) {
+        return create(customerId, cmd, null);
+    }
+
+    /**
+     * {@code idempotencyKey} null = the original, non-idempotent create. With a key: the same customer + key + the same
+     * NORMALISED request returns the address that request created (its current state), never a second address and
+     * never a second count against the limit; the same key with a different request is IDEMPOTENCY_CONFLICT, and so is
+     * a replay whose address has since been deleted (the key is spent: create again with a new key). The key row is
+     * written in the SAME transaction as the address, so a concurrent same-key retry either sees it or collides with it.
+     */
+    public AddressView create(CustomerId customerId, CreateCommand cmd, String idempotencyKey) {
+        if (idempotencyKey != null && !IDEMPOTENCY_KEY.matcher(idempotencyKey).matches()) {
+            throw new AddressFailure(AddressFailure.Reason.INVALID_REQUEST);
+        }
+        if (idempotencyKey != null && idempotency == null) {
+            throw new AddressFailure(AddressFailure.Reason.UNAVAILABLE);
+        }
         AddressLabel label = AddressLabel.parse(cmd.label());
         String recipientName = AddressTexts.required(cmd.recipientName(), 80);
         String recipientPhone = RecipientPhone.normalize(cmd.recipientPhone());
@@ -122,10 +153,24 @@ public class AddressService {
 
         AddressId addressId = AddressId.generate(); // outside the transaction -- retry-safe (mission §34)
         Instant now = clock.instant();
+        String keyId = idempotencyKey == null ? null : AddressIdempotencyRepository.id(customerId.value(), idempotencyKey);
+        String requestHash = idempotencyKey == null ? null : AddressIdempotencyRepository.sha256Hex(String.join("\u0000",
+                label.name(), recipientName, recipientPhone, addressLine1, String.valueOf(addressLine2),
+                String.valueOf(landmark), city, stateName, postalCode, String.valueOf(coords.latitude()),
+                String.valueOf(coords.longitude())));
 
         try {
             MutationResult created = tx.call(session -> {
                 verifyIdentityExistsTransactional(session, customerId);
+                if (keyId != null) {
+                    Document prior = idempotency.find(session, keyId);
+                    if (prior != null && prior.getDate("expire_at").toInstant().isAfter(now)) {
+                        return replay(session, customerId, prior, requestHash);
+                    }
+                    if (prior != null) {
+                        idempotency.delete(session, keyId); // expired but not yet reaped by the TTL monitor
+                    }
+                }
                 Document stateDoc = state.incrementIfBelowLimit(session, customerId.value(),
                         limits.getMaxActiveAddresses(), now);
                 if (stateDoc == null) {
@@ -157,10 +202,55 @@ public class AddressService {
                 // The resulting default is known INSIDE this transaction: this address if it is the
                 // first, otherwise whatever the (same-session) state document already points at.
                 String defaultId = isFirst ? addressId.value() : stateDoc.getString("defaultAddressId");
-                return new MutationResult(doc, defaultId);
+                if (keyId != null) {
+                    idempotency.insert(session, keyId, customerId.value(), requestHash, addressId.value(), now);
+                }
+                return new MutationResult(doc, defaultId, false);
             });
-            observability.createSuccess(); // ONLY after Tx.call returns successfully (mission §33)
+            if (created.replayed()) {
+                observability.createReplayed();
+            } else {
+                observability.createSuccess(); // ONLY after Tx.call returns successfully (mission §33)
+            }
             return toView(created.address(), created.defaultAddressId()); // pure in-memory, no DB read
+        } catch (AddressFailure e) {
+            throw e;
+        } catch (com.mongodb.MongoWriteException e) {
+            if (keyId != null && e.getError().getCode() == 11000) {
+                // lost a concurrent same-key create: resolve to the winner's ONE durable address
+                return resolveLostRace(customerId, keyId, requestHash);
+            }
+            log.error("customer_address_create_failed type={}", e.getClass().getSimpleName());
+            throw new AddressFailure(AddressFailure.Reason.UNAVAILABLE);
+        } catch (RuntimeException e) {
+            log.error("customer_address_create_failed type={}", e.getClass().getSimpleName());
+            throw new AddressFailure(AddressFailure.Reason.UNAVAILABLE);
+        }
+    }
+
+    private MutationResult replay(ClientSession session, CustomerId customerId, Document prior, String requestHash) {
+        if (!requestHash.equals(prior.getString("request_hash"))) {
+            throw new AddressFailure(AddressFailure.Reason.IDEMPOTENCY_CONFLICT);
+        }
+        Document current = addresses.findOwnedById(session, customerId.value(), prior.getString("address_id"));
+        if (current == null) {
+            throw new AddressFailure(AddressFailure.Reason.IDEMPOTENCY_CONFLICT); // created, then deleted: key spent
+        }
+        Document stateDoc = state.findByCustomerId(session, customerId.value());
+        return new MutationResult(current, stateDoc == null ? null : stateDoc.getString("defaultAddressId"), true);
+    }
+
+    private AddressView resolveLostRace(CustomerId customerId, String keyId, String requestHash) {
+        try {
+            MutationResult winner = tx.call(session -> {
+                Document prior = idempotency.find(session, keyId);
+                if (prior == null) {
+                    throw new AddressFailure(AddressFailure.Reason.UNAVAILABLE);
+                }
+                return replay(session, customerId, prior, requestHash);
+            });
+            observability.createReplayed();
+            return toView(winner.address(), winner.defaultAddressId());
         } catch (AddressFailure e) {
             throw e;
         } catch (RuntimeException e) {
@@ -393,7 +483,10 @@ public class AddressService {
     }
 
     /** What a mutating transaction callback hands back so the response needs NO post-commit read. */
-    private record MutationResult(Document address, String defaultAddressId) {
+    private record MutationResult(Document address, String defaultAddressId, boolean replayed) {
+        MutationResult(Document address, String defaultAddressId) {
+            this(address, defaultAddressId, false);
+        }
     }
 
     public record CreateCommand(String label, String recipientName, String recipientPhone, String addressLine1,

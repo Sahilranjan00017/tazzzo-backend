@@ -249,7 +249,9 @@ class CartHttpIT extends AbstractApiIT {
                 "expiresAt");
         assertThat(stored.getString("_id")).isNotEqualTo("CUS_someoneelse");
         for (Document i : stored.getList("items", Document.class)) {
-            assertThat(i.keySet()).containsExactlyInAnyOrder("skuId", "quantity", "addedAt", "updatedAt");
+            // intent + the price OBSERVED when the line was set (used only for PRICE_CHANGED in the revalidate band)
+            assertThat(i.keySet()).containsExactlyInAnyOrder("skuId", "quantity", "addedAt", "updatedAt",
+                    "unitPricePaiseAtUpdate");
         }
 
         ResponseEntity<JsonNode> r3 = call(HttpMethod.DELETE, "/v1/customer/cart/items/" + a, t, tag(2), null);
@@ -418,6 +420,62 @@ class CartHttpIT extends AbstractApiIT {
         assertThat(i.get("quantity").asInt()).isEqualTo(5);
         assertThat(i.get("buyable").asBoolean()).isFalse();
         assertThat(issues(i)).containsExactly("INSUFFICIENT_STOCK");
+    }
+
+    /** The stored cart holding {@code sku} (each test uses fresh SKUs, so this is exactly one customer's cart). */
+    private Document storedCartWith(String sku) {
+        return db.getCollection("customer_carts").find(new Document("items.skuId", sku)).first();
+    }
+
+    /** Ages a stored cart without moving the server clock (which would also expire the access token). */
+    private void age(String sku, java.time.Duration age) {
+        Instant last = Instant.now().minus(age);
+        db.getCollection("customer_carts").updateOne(new Document("_id", storedCartWith(sku).getString("_id")),
+                new Document("$set", new Document("updatedAt", Date.from(last))
+                        .append("expiresAt", Date.from(last.plus(java.time.Duration.ofDays(7))))));
+    }
+
+    @Test void an_aging_cart_is_revalidated_against_current_price_product_and_stock_without_being_rewritten() {
+        String t = token();
+        String addr = address(t, PIN_OK);
+        String moved = sku(10000, 50);
+        String gone = sku(2000, 50);
+        String empty = sku(3000, 50);
+        String steady = sku(4000, 50);
+        put(t, moved, 1, tag(0));
+        put(t, gone, 1, tag(1));
+        put(t, empty, 1, tag(2));
+        put(t, steady, 1, tag(3));
+        // FRESH: a moved price is simply the current price, no PRICE_CHANGED
+        pricing.upsertPrice(new UpsertPriceCommand(moved, 12000, 15000, Currency.INR, null, null, "seed", 1L));
+        JsonNode fresh = call(HttpMethod.GET, "/v1/customer/cart?addressId=" + addr, t, null, null).getBody();
+        assertThat(fresh.get("freshness").asText()).isEqualTo("FRESH");
+        assertThat(issues(item(fresh, moved))).isEmpty();
+
+        age(moved, java.time.Duration.ofDays(3));
+        db.getCollection("products").updateOne(new Document("_id", gone),
+                new Document("$set", new Document("lifecycle", "draft")));
+        db.getCollection("inventory").updateOne(new Document("sku_id", empty).append("fulfillment_location_id", "FUL-CART-INTERNAL"),
+                new Document("$set", new Document("on_hand", 0)));
+        Document before = storedCartWith(moved);
+
+        ResponseEntity<JsonNode> res = call(HttpMethod.GET, "/v1/customer/cart?addressId=" + addr, t, null, null);
+        JsonNode body = res.getBody();
+        assertThat(body.get("freshness").asText()).isEqualTo("REVALIDATE");
+        assertThat(issues(item(body, moved))).containsExactly("PRICE_CHANGED");
+        assertThat(item(body, moved).get("buyable").asBoolean()).as("priced at the current price").isTrue();
+        assertThat(item(body, moved).get("price").get("unitPricePaise").asLong()).isEqualTo(12000);
+        assertThat(issues(item(body, gone))).contains("PRODUCT_UNAVAILABLE");
+        assertThat(issues(item(body, empty))).containsExactly("OUT_OF_STOCK");
+        assertThat(issues(item(body, steady))).isEmpty();
+        assertThat(body.get("version").asLong()).isEqualTo(4);
+        assertThat(res.getHeaders().getETag()).isEqualTo(tag(4));
+        assertThat(storedCartWith(moved)).as("a revalidate read writes nothing").isEqualTo(before);
+
+        // touching the moved line records the new observation and makes the cart FRESH again
+        JsonNode after = put(t, moved, 2, tag(4)).getBody();
+        assertThat(after.get("freshness").asText()).isEqualTo("FRESH");
+        assertThat(issues(item(after, moved))).doesNotContain("PRICE_CHANGED");
     }
 
     @Test void a_price_change_is_reflected_on_the_next_read_and_not_locked_into_the_cart() {

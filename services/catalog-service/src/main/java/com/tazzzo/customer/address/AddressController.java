@@ -62,12 +62,15 @@ public class AddressController {
 
     @PostMapping
     public ResponseEntity<AddressResponseDto> create(HttpServletRequest request,
+                                                      @RequestHeader(value = "Idempotency-Key", required = false)
+                                                      String idempotencyKey,
                                                       @RequestBody AddressCreateRequestDto body) {
         CustomerPrincipal principal = CustomerPrincipalResolver.require(request);
         AddressService.CreateCommand cmd = new AddressService.CreateCommand(body.label(), body.recipientName(),
                 body.recipientPhone(), body.addressLine1(), body.addressLine2(), body.landmark(), body.city(),
                 body.state(), body.postalCode(), body.latitude(), body.longitude());
-        AddressService.AddressView created = service.create(principal.customerId(), cmd);
+        // optional: without the header a create is not idempotent (unchanged behaviour); with it, a retry is safe
+        AddressService.AddressView created = service.create(principal.customerId(), cmd, idempotencyKey);
         return respond(created, requestId(request), 201);
     }
 

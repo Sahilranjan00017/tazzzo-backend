@@ -97,4 +97,14 @@ public interface InventoryReservationPort {
      * — checked against Inventory's OWN live clock, never a caller-supplied value.
      */
     InventoryReservation consume(ClientSession session, InventoryReservationId reservationId);
+
+    /**
+     * Return the stock of a CONSUMED reservation to {@code on_hand} (an order was cancelled), inside the caller's
+     * transaction. Exactly-once: a one-shot marker on the header decides, so a second call returns {@code false} and
+     * changes nothing. A reservation that is not CONSUMED cannot be restocked ({@code INVALID_TRANSITION}); an inventory
+     * row that cannot take the units back aborts the caller's whole transaction ({@code INTEGRITY_FAILURE}).
+     *
+     * @return {@code true} iff this call restocked
+     */
+    boolean restockConsumed(ClientSession session, InventoryReservationId reservationId);
 }

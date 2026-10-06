@@ -15,8 +15,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * The runtime privilege profile is only honest if the runtime code truly never needs schema authority. This is the
  * structural guarantee: outside the {@code catalog.migration} and {@code catalog.schema} packages no main class
- * issues DDL, lists indexes or collections, runs a collection/validator command, or reaches the schema classes. (The one
- * {@code runCommand} outside them is the readiness {@code ping}.) The real-database tests then prove the other half: the
+ * issues DDL, lists indexes or collections, runs a collection/validator command, or reaches the schema classes. (The only
+ * {@code runCommand}s outside them are the readiness and health {@code ping}s.) The real-database tests then prove the other half: the
  * runtime identity can do everything the application does with exactly the privileges of its role.
  */
 class RuntimeNoSchemaAuthorityTest {
@@ -64,8 +64,10 @@ class RuntimeNoSchemaAuthorityTest {
                 uses.add(f.getFileName() + ": " + code.substring(m.start(), end).replaceAll("\\s+", " "));
             }
         }
-        assertThat(uses).hasSize(1);
-        assertThat(uses.get(0)).startsWith("CommerceReadReadiness.java").contains("\"ping\"");
+        // the readiness seam and the health probe each ping; nothing else, and never anything but a ping
+        assertThat(uses).allSatisfy(u -> assertThat(u).contains("\"ping\""));
+        assertThat(uses.stream().map(u -> u.substring(0, u.indexOf(':'))).toList())
+                .containsExactlyInAnyOrder("CommerceReadReadiness.java", "HealthService.java");
     }
 
     @Test

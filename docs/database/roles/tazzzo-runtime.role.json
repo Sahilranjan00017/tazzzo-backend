@@ -169,6 +169,30 @@
     {
       "resource": {
         "db": "tazzzo_staging",
+        "collection": "content_blocks"
+      },
+      "actions": [
+        "find",
+        "insert",
+        "remove",
+        "update"
+      ]
+    },
+    {
+      "resource": {
+        "db": "tazzzo_staging",
+        "collection": "customer_address_idempotency"
+      },
+      "actions": [
+        "find",
+        "insert",
+        "remove",
+        "update"
+      ]
+    },
+    {
+      "resource": {
+        "db": "tazzzo_staging",
         "collection": "customer_address_state"
       },
       "actions": [
@@ -254,6 +278,30 @@
       "resource": {
         "db": "tazzzo_staging",
         "collection": "customers"
+      },
+      "actions": [
+        "find",
+        "insert",
+        "remove",
+        "update"
+      ]
+    },
+    {
+      "resource": {
+        "db": "tazzzo_staging",
+        "collection": "delivery_slot_usage"
+      },
+      "actions": [
+        "find",
+        "insert",
+        "remove",
+        "update"
+      ]
+    },
+    {
+      "resource": {
+        "db": "tazzzo_staging",
+        "collection": "delivery_slot_windows"
       },
       "actions": [
         "find",
@@ -421,6 +469,18 @@
     {
       "resource": {
         "db": "tazzzo_staging",
+        "collection": "notification_outbox"
+      },
+      "actions": [
+        "find",
+        "insert",
+        "remove",
+        "update"
+      ]
+    },
+    {
+      "resource": {
+        "db": "tazzzo_staging",
         "collection": "offers_current"
       },
       "actions": [
@@ -530,6 +590,18 @@
       "resource": {
         "db": "tazzzo_staging",
         "collection": "service_areas"
+      },
+      "actions": [
+        "find",
+        "insert",
+        "remove",
+        "update"
+      ]
+    },
+    {
+      "resource": {
+        "db": "tazzzo_staging",
+        "collection": "support_cases"
       },
       "actions": [
         "find",
