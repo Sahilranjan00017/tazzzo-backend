@@ -979,7 +979,7 @@ class OrderPlaceCodIT extends AbstractMongoIT {
     }
 
     @Test void only_the_reachable_states_and_conditions_exist() {
-        assertThat(Arrays.stream(OrderStatus.values()).map(Enum::name)).containsExactly("CREATED", "CONFIRMED");
+        assertThat(Arrays.stream(OrderStatus.values()).map(Enum::name)).containsExactly("CREATED", "CONFIRMED", "CANCELLED", "OUT_FOR_DELIVERY", "DELIVERED");
         assertThat(Arrays.stream(PaymentMethod.values()).map(Enum::name)).containsExactly("COD");
         assertThat(Arrays.stream(ConfirmedPaymentCondition.values()).map(Enum::name)).containsExactly("COD_DUE");
     }

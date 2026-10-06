@@ -105,6 +105,17 @@ public class CustomerSessionRepository {
                 Updates.set("revokedAt", now));
     }
 
+    /**
+     * Account deletion: every not-yet-revoked session of the customer is revoked in the caller's transaction, so every
+     * access token stops being honoured at the next request (the per-request {@code SessionAuthority} check reads this
+     * row). Idempotent; returns how many sessions were revoked by this call.
+     */
+    public long revokeAll(ClientSession session, CustomerId customerId, Instant now) {
+        return collection().updateMany(session,
+                Filters.and(Filters.eq("customerId", customerId.value()), Filters.eq("revokedAt", null)),
+                Updates.set("revokedAt", now)).getModifiedCount();
+    }
+
     /** The authoritative revocation check {@code SessionAuthority} consults. */
     public boolean isActive(CustomerId customerId, SessionId sessionId, Instant now) {
         Document doc = collection().find(Filters.and(Filters.eq("_id", sessionId.value()),
