@@ -1254,6 +1254,17 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
 
 ## In review (NOT merged)
 
+- **Media object storage adapter (S3-compatible)** (branch `feature/media-storage-s3`, from `main` `7d491dd`): **IN REVIEW**. `MediaStorage` gains a real
+  provider: `S3MediaStorage` (AWS SDK v2 `S3Client` + `S3Presigner`, JDK URL-connection HTTP client; the Apache and Netty SDK clients are excluded so no extra HTTP
+  stack ships) selected by `tazzzo.media.storage.provider=s3` with `MediaStorageProperties` (bucket, region default ap-south-1, optional endpoint/path-style for
+  a local store, presign TTL 30..3600 s, static credentials for a local store only, otherwise the task role). `createUpload` returns a presigned PUT whose
+  signature binds the key and `Content-Type`; `inspect` reads HeadObject size/type plus the first 64 bytes for the sniffer. The default stays `disabled`
+  (uploads 503). Evidence: `S3MediaStorageIT` and `MediaUploadEndToEndIT` (admin flow over HTTP against Adobe S3Mock: upload target → real PUT → verified
+  media set → readable; refusals for not-uploaded and mismatched type), `S3SignatureEnforcementIT` (Scality CloudServer verifies SigV4: wrong type, no type,
+  foreign key and tampered signature are refused with 403; stored type is the signed one), `MediaStoragePropertiesTest`. MinIO's public images are no longer
+  pullable (2026-10-07), hence the two alternative stores. Not included: the bucket/CloudFront Terraform (budget approval), variants/thumbnails, dedup, reaper,
+  bulk mapping, cache invalidation. Runbook: `docs/ops/MEDIA_STORAGE.md`.
+
 - **HTTP error-handling hardening** (branch `fix/http-error-handling-hardening`, from `main` `d790504`): **IN REVIEW**. The 12 controller-scoped `/v1` advices with an
   `Exception` catch-all (OTP, session, profile, address, account deletion, customer support, delivery slots, cart, checkout, order, commerce read, public content;
   staff support falls through to `ApiExceptionHandler`) no longer turn framework request-shape failures into a logged-as-ERROR 500. `catalog.api.ClientRequestErrors`

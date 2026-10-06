@@ -1,18 +1,67 @@
 package com.tazzzo.media;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.http.urlconnection.UrlConnectionHttpClient;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.S3ClientBuilder;
+import software.amazon.awssdk.services.s3.S3Configuration;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 
-/** Default (disabled) storage, the upload policy and the verifier. A provider module overrides the storage bean. */
+import java.net.URI;
+import java.time.Duration;
+
+/**
+ * The storage seam's wiring: {@code tazzzo.media.storage.provider} selects {@link DisabledMediaStorage} (default) or
+ * {@link S3MediaStorage}; the upload policy and the ingest verifier are provider-independent.
+ */
 @Configuration
+@EnableConfigurationProperties(MediaStorageProperties.class)
 class MediaStorageConfig {
 
+    private static final Logger log = LoggerFactory.getLogger(MediaStorageConfig.class);
+
     @Bean
-    @ConditionalOnMissingBean(MediaStorage.class)
+    @ConditionalOnProperty(name = "tazzzo.media.storage.provider", havingValue = "disabled", matchIfMissing = true)
     MediaStorage disabledMediaStorage() {
+        log.info("media_storage provider=disabled");
         return new DisabledMediaStorage();
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "tazzzo.media.storage.provider", havingValue = "s3")
+    MediaStorage s3MediaStorage(MediaStorageProperties properties) {
+        MediaStorageProperties.S3 p = properties.getS3();
+        p.validate();
+        AwsCredentialsProvider credentials = p.hasStaticCredentials()
+                ? StaticCredentialsProvider.create(AwsBasicCredentials.create(p.getAccessKey(), p.getSecretKey()))
+                : DefaultCredentialsProvider.create();
+        Region region = Region.of(p.getRegion());
+        URI endpoint = p.endpointUri();
+        S3Configuration serviceConfig = S3Configuration.builder().pathStyleAccessEnabled(p.isPathStyle()).build();
+        S3ClientBuilder client = S3Client.builder().region(region).credentialsProvider(credentials)
+                .httpClientBuilder(UrlConnectionHttpClient.builder()).serviceConfiguration(serviceConfig);
+        S3Presigner.Builder presigner = S3Presigner.builder().region(region).credentialsProvider(credentials)
+                .serviceConfiguration(serviceConfig);
+        if (endpoint != null) {
+            client.endpointOverride(endpoint);
+            presigner.endpointOverride(endpoint);
+        }
+        // never a credential value: bucket, region, endpoint host and the credential SOURCE only
+        log.info("media_storage provider=s3 bucket={} region={} endpoint={} path_style={} credentials={}", p.getBucket(),
+                p.getRegion(), endpoint == null ? "aws" : endpoint.getHost(), p.isPathStyle(),
+                p.hasStaticCredentials() ? "static" : "default-chain");
+        return new S3MediaStorage(client.build(), presigner.build(), p.getBucket(), Duration.ofSeconds(p.getPresignTtlSeconds()));
     }
 
     @Bean

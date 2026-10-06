@@ -53,6 +53,21 @@ tazzzo:
     rollup-lag-seconds: 120                     # never aggregate events younger than this
     taint-batch-size: 100
     stamp-batch-size: 100
+  media:
+    # Object storage for product images. provider: disabled (uploads refused, media sets metadata-only) | s3.
+    # For AWS: bucket + region; credentials from the task role. endpoint/path-style/access-key/secret-key are for an
+    # S3-compatible local store (MinIO) only. See docs/ops/MEDIA_STORAGE.md.
+    storage:
+      provider: ${TAZZZO_MEDIA_STORAGE_PROVIDER:disabled}
+      s3:
+        bucket: ${TAZZZO_MEDIA_S3_BUCKET:}
+        region: ${TAZZZO_MEDIA_S3_REGION:ap-south-1}
+        endpoint: ${TAZZZO_MEDIA_S3_ENDPOINT:}
+        path-style: ${TAZZZO_MEDIA_S3_PATH_STYLE:false}
+        presign-ttl-seconds: ${TAZZZO_MEDIA_S3_PRESIGN_TTL_SECONDS:300}
+        access-key: ${TAZZZO_MEDIA_S3_ACCESS_KEY:}
+        secret-key: ${TAZZZO_MEDIA_S3_SECRET_KEY:}
+
   auth:
     # NO DEFAULTS BY DESIGN: an unset token disables that role entirely (fail-closed).
     cms-token: ${TAZZZO_CMS_TOKEN:}
