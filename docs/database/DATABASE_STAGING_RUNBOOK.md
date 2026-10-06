@@ -20,7 +20,7 @@ does not exist yet (§1), so the live gates stay **UNVERIFIED**.
 
 ### 1.1 Open blockers carried by this phase (full list: §12)
 
-1. **R1 is violated by the running code** (ratified: price history is retained; code: hourly rollup/purge deletes rolled `price_events` rows **by default**). DB-4 neither touches nor depends on it. Until the R1 work package lands, **staging must run with `TAZZZO_SCHEDULER_ENABLED=false`** (§7 step 9). No price writer exists in `main` today, so no price row is currently at risk, but the guard stays.
+1. **R1 is FIXED IN CODE** (price-history retention PR): the hourly purge is removed and `price_events` is retained; the roll-up only aggregates legacy offer events and never touches paise ledger rows (`RollupService`, `PriceHistoryRetentionIT`). The scheduler therefore no longer has to be disabled *because of R1*. It still needs real-database proof on staging, and the other scheduler flags (card projection, freshness, reservation expiry) are separate decisions. Until staging evidence exists, keeping `TAZZZO_SCHEDULER_ENABLED=false` for the first runs is a conservative choice, not an R1 requirement.
 2. `GET /api/v1/products` without `canonicalKey` answers 500 — **PRE-EXISTING DEFECT, OUTSIDE THE DATABASE FOUNDATION**; recorded, not fixed here.
 3. Unindexed audit filters: decision pending staging evidence (§9.2).
 
@@ -160,7 +160,7 @@ Configuration reference (no value here is a secret):
 | `TAZZZO_MIGRATION_ENVIRONMENT` | `tazzzo.migration.environment` | unset | `local`/`test`/`dev`/`staging`/`production`. **A label, not a boundary:** enforcement is also decided by the connection string (§6.2) |
 | `TAZZZO_MIGRATION_MODE` | `tazzzo.migration.mode` | `VERIFY` | `VERIFY` (service), `DRY_RUN` / `APPLY` (job) |
 | `TAZZZO_DATASTORE_PRIVILEGE_VERIFICATION` | `tazzzo.datastore.privilege-verification` | `AUTO` | `AUTO` enforces for staging/production; `ENFORCE` enforces everywhere. **There is no setting that turns enforcement off for staging or production.** |
-| `TAZZZO_SCHEDULER_ENABLED` | `tazzzo.scheduler.enabled` | `true` | **`false` for staging until R1 is resolved** (the startup gate in §6.1 does not make the workers safe once running: R1 is still open) |
+| `TAZZZO_SCHEDULER_ENABLED` | `tazzzo.scheduler.enabled` | `true` | no longer forced to `false` by R1 (fixed in code); the startup gate in §6.1 holds workers back until the datastore is verified. Keep `false` for the very first staging runs if you want a conservative start |
 
 ## 6. Startup behaviour (fail-fast)
 
@@ -208,7 +208,7 @@ This does **not** depend on `TAZZZO_SCHEDULER_ENABLED=false`, on runner order or
 `StartupSchedulerGateIT` proves it against a real MongoDB with the scheduler **enabled** and periods of 10 ms: a verifier refusal, a later migration-runner refusal and a `DRY_RUN` job each leave the price ledger and the
 whole database untouched; a healthy start opens the gate.
 
-**What it does not do.** (a) It does not fix **R1**: once a serving process is verified and OPEN, the hourly `priceRollup` still purges rolled `price_events`; keep `TAZZZO_SCHEDULER_ENABLED=false` until R1 is resolved (§7 step 9).
+**What it does not do.** (a) It is not what protects price history: that is the R1 fix itself (no purge exists; `price_events` is retained), so a verified, OPEN process running `priceRollup` deletes nothing.
 (b) Beans created during context refresh may open lazy connections; none writes. (c) Business workers are held until the migration runner finishes, which for `APPLY_ON_STARTUP` (local/dev only) also keeps them from racing the migration.
 
 ### 6.2 The environment label is metadata, not a boundary
@@ -253,7 +253,7 @@ Preconditions (infrastructure track): an Atlas cluster, the runtime and migrator
 | 6 | **Second dry run** | repeat step 2 | |
 | 7 | **Zero pending** | read the report | every step `ALREADY_APPLIED` (also shown below) |
 | 8 | **Restart-safe / idempotency** | repeat step 4 once more, then start the **service** with the **runtime** URI in the default `VERIFY` mode | the re-apply changes nothing (`attempts` and `appliedAt` unchanged); the service starts and logs `datastore verified: … profile=RUNTIME … privileges=ok` |
-| 9 | **Guard** | the service runs with `TAZZZO_SCHEDULER_ENABLED=false` | until R1 is resolved (§1.1). The startup gate (§6.1) protects a refused or job process, **not** a running one |
+| 9 | **Scheduler** | decide the scheduler setting for the service (R1 no longer forces `false`) | after the first verified start, confirm on the real database that `price_events` row counts never decrease across scheduler runs. The startup gate (§6.1) protects a refused or job process |
 
 Real output on an empty database, captured from `DatastorePrivilegeIT` (read-only identity, real authenticated MongoDB 7):
 
@@ -362,7 +362,7 @@ Atlas backup is infrastructure-owned; this section is the database's requirement
 
 | # | Item | State | Owner |
 |---|---|---|---|
-| 1 | **R1 conflict**: the hourly price rollup/purge deletes rolled `price_events` rows by default, contradicting the ratified R1 | LIVE in `main`; recorded by DB-0/DB-1, **not** fixed by DB-3 or DB-4; staging runs with the scheduler off | R1 work package (owner design: durable discriminator) |
+| 1 | ~~R1 conflict: hourly price rollup/purge deleted rolled `price_events` rows~~ | **FIXED IN CODE** (purge removed, ledger retained, no migration); real-staging confirmation pending | verify on staging (§7 step 9) |
 | 2 | `GET /api/v1/products` without `canonicalKey` returns 500 (unsatisfied request-parameter condition mapped to a generic 500) | PRE-EXISTING DEFECT — OUTSIDE DB FOUNDATION; reproduced at an older head; to be fixed separately | backend |
 | 3 | Atlas staging cluster, users, secrets, allow-list, AWS-to-Atlas connectivity | not provisioned | infrastructure track |
 | 4 | M0 behaviour of transactions, `connectionStatus`, `collMod`, index DDL; Atlas action names | UNVERIFIED | step 1 of §7 |

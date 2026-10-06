@@ -5,8 +5,9 @@ package com.tazzzo.admin.audit;
  * every audited mutation writes its event, with its {@code actor} subdocument, into its domain's ledger in the SAME
  * transaction as the state change. This enum is the single mapping from a ledger's own field names to the read model.
  *
- * <p>{@code price_events} is NOT a source: rows are purged after rollup (not durable audit), and an attributed price change
- * is already recorded as a {@code PRICE_UPDATED} product event.
+ * <p>{@code price_events} is NOT a source: it is the retained price ledger (mixed legacy-offer and paise shapes, only
+ * some rows attributed), not an actor-attributed audit ledger, and an attributed price change is already recorded as a
+ * {@code PRICE_UPDATED} product event.
  *
  * <p>{@link #rank} is the cross-ledger tie-breaker for identical {@code at}: (at DESC, rank ASC, _id DESC) is a total order.
  */

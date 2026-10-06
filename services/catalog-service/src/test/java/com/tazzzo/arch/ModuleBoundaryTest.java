@@ -65,6 +65,44 @@ class ModuleBoundaryTest {
             "com.tazzzo.serviceability.."
     };
 
+    /**
+     * Commerce writes are attributed: no production class may call the actor-less price/stock write overloads (they are
+     * fixture seams kept for tests). The admin HTTP layer and any future caller must pass the authenticated actor.
+     */
+    @ArchTest
+    static final ArchRule production_code_never_writes_prices_unattributed =
+            noClasses().should().callMethod(com.tazzzo.pricing.PricingService.class, "upsertPrice",
+                    com.tazzzo.pricing.UpsertPriceCommand.class);
+
+    @ArchTest
+    static final ArchRule production_code_never_writes_stock_unattributed =
+            noClasses().should().callMethod(com.tazzzo.inventory.InventoryService.class, "setInventory",
+                    com.tazzzo.inventory.SetInventoryCommand.class);
+
+    /** Media writes are attributed too: the actor-less set write is a fixture seam no production class may call. */
+    @ArchTest
+    static final ArchRule production_code_never_writes_media_unattributed =
+            noClasses().should().callMethod(com.tazzzo.media.MediaService.class, "upsertMediaSet",
+                    com.tazzzo.media.UpsertMediaSetCommand.class);
+
+    /** The geo port is a leaf: it names no other module (the PIN travels as a string), so it can never close a cycle. */
+    @ArchTest
+    static final ArchRule location_is_a_leaf =
+            noClasses().that().resideInAPackage("com.tazzzo.location..")
+                    .should().dependOnClassesThat().resideInAnyPackage(
+                            "com.tazzzo.catalog..", "com.tazzzo.commerce..", "com.tazzzo.serviceability..",
+                            "com.tazzzo.customer..", "com.tazzzo.auth..", "com.tazzzo.admin..", "com.tazzzo.account..")
+                    .allowEmptyShould(true);
+
+    /** Delivery slots sit above serviceability and never reach into commerce read/api, orders, cart or checkout (those call IN). */
+    @ArchTest
+    static final ArchRule delivery_does_not_depend_on_the_customer_commerce_flow =
+            noClasses().that().resideInAPackage("com.tazzzo.delivery..")
+                    .should().dependOnClassesThat().resideInAnyPackage(
+                            "com.tazzzo.commerce.read..", "com.tazzzo.commerce.api..", "com.tazzzo.customer..",
+                            "com.tazzzo.membership..", "com.tazzzo.pricing..", "com.tazzzo.inventory..", "com.tazzzo.media..")
+                    .allowEmptyShould(true);
+
     /** The notification outbox is a leaf: business flows call INTO it inside their transactions, it never calls out. */
     @ArchTest
     static final ArchRule notification_does_not_depend_on_business_modules =
@@ -1058,5 +1096,40 @@ class ModuleBoundaryTest {
                             com.tngtech.archunit.base.DescribedPredicate.alwaysTrue(),
                             com.tngtech.archunit.core.domain.JavaClass.Predicates
                                     .resideInAPackage("com.tazzzo.commerce.contract.."))
+                    .allowEmptyShould(true);
+
+    // ---------------------------------------------------------------------------------------------
+    // Backend completion PR-C -- com.tazzzo.account: the customer account-deletion ORCHESTRATOR. A top-level slice that
+    // depends downward on auth, customer.*, membership and common; nothing may depend on it (no cycle, no reuse as a
+    // back door), and each module's erasure component is reachable from the orchestrator only.
+    // ---------------------------------------------------------------------------------------------
+
+    @ArchTest
+    static final ArchRule nothing_depends_on_the_account_orchestrator =
+            noClasses().that().resideOutsideOfPackage("com.tazzzo.account..")
+                    .should().dependOnClassesThat().resideInAPackage("com.tazzzo.account..")
+                    .allowEmptyShould(true);
+
+    /** The erasure components are internal domain API for the trusted orchestrator, like the membership commands. */
+    private static final Class<?>[] ERASURE_COMPONENTS = {
+            com.tazzzo.auth.session.CustomerAccountErasure.class, com.tazzzo.auth.otp.OtpErasure.class,
+            com.tazzzo.customer.profile.CustomerProfileErasure.class, com.tazzzo.customer.address.AddressErasure.class,
+            com.tazzzo.customer.cart.CartErasure.class, com.tazzzo.customer.checkout.CheckoutQuoteErasure.class,
+            com.tazzzo.customer.order.OrderErasure.class, com.tazzzo.membership.MembershipErasure.class};
+
+    @ArchTest
+    static final ArchRule erasure_components_are_used_only_by_the_account_orchestrator =
+            noClasses().that().resideOutsideOfPackage("com.tazzzo.account..")
+                    .and(DescribedPredicate.not(belongToAnyOf(ERASURE_COMPONENTS))) // a component may use its own nested types
+                    .should().dependOnClassesThat().belongToAnyOf(ERASURE_COMPONENTS)
+                    .allowEmptyShould(true);
+
+    /** The HTTP layer of the orchestrator talks to its service only (it never reaches membership or a repository). */
+    @ArchTest
+    static final ArchRule account_http_layer_delegates_to_its_service_only =
+            noClasses().that().resideInAPackage("com.tazzzo.account..")
+                    .and(selfOrEnclosingSimpleNameEndingWithAny("Controller", "ExceptionHandler", "Dto"))
+                    .should().dependOnClassesThat().resideInAnyPackage(MEMBERSHIP, "com.tazzzo.customer..",
+                            "com.tazzzo.auth.session..", "com.tazzzo.auth.otp..", "com.mongodb..")
                     .allowEmptyShould(true);
 }

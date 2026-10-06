@@ -81,7 +81,7 @@ Verification note (§1): `Order` record: `long version`, `long addressVersion`, 
 
 ## 5. Collection roster, classification and validator decision
 
-All 50 collections of `SchemaBootstrap.COLLECTIONS` (`SB:26-114`). "Unused" = created by bootstrap with no reader/writer in main. Retention "none" means no TTL and no code that removes rows.
+All 54 collections of `SchemaBootstrap.COLLECTIONS` (`SB:26-114`). "Unused" = created by bootstrap with no reader/writer in main. Retention "none" means no TTL and no code that removes rows.
 
 | # | Collection | Owner | Class | Strictness | Validator | Retention |
 |---|---|---|---|---|---|---|
@@ -112,7 +112,7 @@ All 50 collections of `SchemaBootstrap.COLLECTIONS` (`SB:26-114`). "Unused" = cr
 | 25 | `attribute_schemas` | catalog | authoritative (versioned) | C | DEFER | none |
 | 26 | `id_sequences` | catalog | operational (counter) | **D** | NO | none |
 | 27 | `price_current` | pricing | authoritative | C | **YES (PROPOSED)** | none |
-| 28 | `price_events` | pricing/catalog | event (two shapes) | C | **DEFER** (R1 discriminator first) | **TARGET: retain (R1). CURRENT: rolled rows hard-deleted hourly (non-compliant)** |
+| 28 | `price_events` | pricing/catalog | event (two shapes) | C | **DEFER** (R1 discriminator first) | **RETAINED (R1 fixed in code; the purge was removed)** |
 | 29 | `price_rollups` | catalog | derived | C | NO | none |
 | 30 | `inventory` | inventory | authoritative | C | **YES (PROPOSED)** | none |
 | 31 | `inventory_reservations` | inventory | authoritative | **A** | **YES (PROPOSED)** | none (never deleted) |
@@ -135,8 +135,12 @@ All 50 collections of `SchemaBootstrap.COLLECTIONS` (`SB:26-114`). "Unused" = cr
 | 48 | `orders` | customer.order | authoritative + snapshot | **B** | **YES (PROPOSED)** | none (forever) |
 | 49 | `memberships` | membership | authoritative | **B** | **YES (PROPOSED)** | none (by design) |
 | 50 | `notification_outbox` | notification | operational (outbox) | D | NO | TTL `expire_at` (migration `V0014`) |
+| 51 | `content_blocks` | content | authoritative (config) | C | DEFER | none |
+| 52 | `support_cases` | support | authoritative | C | DEFER | none |
+| 53 | `delivery_slot_windows` | delivery | authoritative (config) | C | DEFER | none |
+| 54 | `delivery_slot_usage` | delivery | operational (counter) | D | NO | TTL `expire_at` (migration `V0008`) |
 
-**Tallies (50):** A = 2 (`inventory_reservations`, `consumer_projection_policy`); B = 3 (`orders`, `checkout_quotes`, `memberships`); D = 5 (`work_queue`, `id_sequences`, `customer_otp_challenges`, `customer_otp_verified_grants`, `notification_outbox`); C = 40 (of which 7 are unused collections). 2 + 3 + 40 + 5 = 50. Validators: 1 exists (`products`); **YES (proposed) 6**; **DEFER 24**; **NO 19** (7 of the NOs are the unused collections); 1 + 6 + 24 + 19 = 50.
+**Tallies (54):** A = 2 (`inventory_reservations`, `consumer_projection_policy`); B = 3 (`orders`, `checkout_quotes`, `memberships`); D = 6 (`work_queue`, `id_sequences`, `customer_otp_challenges`, `customer_otp_verified_grants`, `notification_outbox`, `delivery_slot_usage`); C = 43 (of which 7 are unused collections; `content_blocks`, `support_cases` and `delivery_slot_windows` are the 41st–43rd). 2 + 3 + 43 + 6 = 54. Validators: 1 exists (`products`); **YES (proposed) 6**; **DEFER 27**; **NO 20** (7 of the NOs are the unused collections); 1 + 6 + 27 + 20 = 54.
 
 **Reclassification note (post-review):** an earlier draft classed `products`, `product_card_base` and `domain_events` as A/B. Under the §3.1 rule they are C: `products` has read-path defaults (`CatalogCardReader` missing `version`→0 and missing classification→null vertical; `ProductController.toResponse` stringifies nulls as `"null"`); `product_card_base.fromDocument` validates only `source_versions`, `catalog_version`, `projection_version` and `price_status` and silently reads a missing `price_version`/`media_version` as null; `domain_events` has no reader in main and `ActorDocuments.fromEvent` has no caller, so no reconstruction path exists to be strict. Their *write-side* contracts (the `products` validator, the strict `ActorDocuments` codec) remain as documented.
 
@@ -293,7 +297,7 @@ Remaining collections are summarised in §7.
 | `taxonomy_nodes` | `_id` `TZS/TZC/TZB/TZV-*`; `node_type`, `name`, `parent_id`, `status ∈ active|deprecated|merged`, `attribute_schema_id`, `created_in_version`, `version` Int32 (CAS `casNode`); optional `merged_into`, `origin`, `branch_status` | sibling-name uniqueness is by `countDocuments`, not an index |
 | `taxonomy_snapshot_nodes` | node copy minus `_id` plus `release_id`,`node_id`; `$setOnInsert` upsert (first write wins; re-run never refreshes) | reader fails closed on cycle/missing `node_id` (`SnapshotTopologyException`); per-release |
 | `catalogue_releases` | `_id` releaseId; `status ∈ publishing|freezing|active`; `gate:"OPEN"` (partial unique; unset on activation); `based_on`, `opened_at`, `activated_at`, `change_seq` | **no baseline release on a fresh DB**; only `gate` is unique so "exactly one historical active release" is not enforced |
-| `system_config` | only `consumer_taxonomy_release {release_id, updated_at}` is written in main; a `languages` row is read by `ValidatorGenerator` but never written | |
+| `system_config` | written in main: `consumer_taxonomy_release {release_id, updated_at}` and (PR-Q) `app_config {config_type: app, storeOpen, maintenance, maintenanceMessage, min/latest Android/iOS versions, supportPhone, supportEmail, version (CAS), updatedAt}`; a `languages` row is read by `ValidatorGenerator` but never written | |
 | `aliases` | `(alias_norm, lang, region)` unique; `node_id`, `status` | `node_id` filter has no index |
 | `id_sequences` | `_id:"TZV"`, `seq` long from 100000; lazy-created; init swallows E11000 inside a Tx (unproven) | D |
 | `attribute_definitions` | `(key, version)` unique; `type` ∈ string/number/boolean/enum_open; `governance` ∈ descriptive/claim/merchandising (merchandising refused at authoring); `status` ∈ pending/active/superseded; `known_values[]`; absent `status` ⇒ active (legacy) | write-side `valueMatchesType` accepts unknown type; consumer read fails closed |
@@ -337,6 +341,8 @@ Remaining collections are summarised in §7.
 ---
 
 ## 9. R1 contract — immutable vs purgeable price-event categories
+
+> **UPDATE — R1 FIXED IN CODE (price-history retention PR).** The statements below describe the state BEFORE that PR and are kept as the analysis record. Now: `purge()` and its scheduler call are removed; `price_events` is append-only (no delete, no TTL; `PriceHistoryRetentionSourceTest`); the roll-up aggregates only legacy offer events (string `product_id`/`seller`, int32 `price`), flags each `rolled=true` with a conditional claim in the same transaction, and never reads or writes a paise ledger row. No migration, no discriminator was needed for retention: shape is still inferred by field presence, which only decides what is *aggregated*, never what is deleted (nothing is).
 
 ### 9.1 Facts (VERIFIED; see DB-0 §13)
 

@@ -154,7 +154,23 @@ class IndexContractIT extends AbstractMongoIT {
             // notification outbox (N2, V0014): due scan, erasure lookup, and a TTL that purges every row a week after creation
             named("notification_outbox", "notification_due", k("status", 1, "next_attempt_at", 1, "_id", 1), false, null, null),
             named("notification_outbox", "notification_by_customer", k("customer_id", 1), false, null, null),
-            named("notification_outbox", "notification_expiry_ttl", k("expire_at", 1), false, null, 0L)
+            named("notification_outbox", "notification_expiry_ttl", k("expire_at", 1), false, null, 0L),
+            // CMS (PR-Q, V0013)
+            named("content_blocks", "content_by_placement_status_sort", k("placement", 1, "status", 1, "sort", 1, "_id", 1), false, null, null),
+            // support cases (PR-O, V0011)
+            named("support_cases", "support_by_customer_recent", k("customerId", 1, "updatedAt", -1, "_id", -1), false, null, null),
+            named("support_cases", "support_by_status_recent", k("status", 1, "updatedAt", -1, "_id", -1), false, null, null),
+            named("support_cases", "support_recent", k("updatedAt", -1, "_id", -1), false, null, null),
+            // public search (PR-G, V0009): multikey prefix matches over a card's tokens, keyset by sku
+            named("product_card_base", "card_search_tokens", k("search_tokens", 1, "sku_id", 1), false, null, null),
+            // delivery slots (PR-E, V0008): window definitions by area; capacity counters purged a week after their date
+            named("delivery_slot_windows", "delivery_window_by_area", k("service_area_id", 1), false, null, null),
+            named("delivery_slot_usage", "delivery_usage_expiry_ttl", k("expire_at", 1), false, null, 0L),
+            // customer order history (PR-M, V0010): newest first by (createdAt, _id)
+            named("orders", "order_by_customer_recent", k("customerId", 1, "createdAt", -1, "_id", -1), false, null, null),
+            // staff order queue (PR-M2, V0012)
+            named("orders", "order_by_status_recent", k("status", 1, "createdAt", -1, "_id", -1), false, null, null),
+            named("orders", "order_recent", k("createdAt", -1, "_id", -1), false, null, null)
     );
 
     // ---- helpers -----------------------------------------------------------------------------
@@ -280,6 +296,7 @@ class IndexContractIT extends AbstractMongoIT {
     }
 
     // ---- 3. TTL is allowed ONLY on the four temporary auth/OTP indexes and the notification outbox purge ----
+    // ---- 3. TTL is allowed ONLY on the four temporary auth/OTP indexes and the delivery-slot counter purge ----
 
     @Test
     void only_the_temporary_indexes_carry_a_ttl_and_no_durable_collection_does() {
@@ -295,7 +312,9 @@ class IndexContractIT extends AbstractMongoIT {
                 "customer_otp_verified_grants.expiresAt_1",
                 "customer_sessions.session_expiry_ttl",
                 // outbox rows are transient delivery work, never a record of what was sent
-                "notification_outbox.notification_expiry_ttl");
+                "notification_outbox.notification_expiry_ttl",
+                // capacity counters are meaningless after their slot date; holds themselves are carried by orders
+                "delivery_slot_usage.delivery_usage_expiry_ttl");
         for (String durable : List.of("orders", "checkout_quotes", "memberships", "inventory_reservations",
                 "customer_carts", "customer_profiles", "customer_addresses", "price_current", "price_events",
                 "product_events", "node_events", "domain_events", "classification_history", "products", "inventory")) {
