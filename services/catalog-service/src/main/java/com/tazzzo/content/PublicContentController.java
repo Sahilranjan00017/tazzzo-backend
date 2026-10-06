@@ -1,6 +1,7 @@
 package com.tazzzo.content;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.tazzzo.catalog.api.ClientRequestErrors;
 import com.tazzzo.catalog.api.RequestIdFilter;
 import com.tazzzo.catalog.consumer.ConsumerAdmissionGate;
 import com.tazzzo.catalog.consumer.ConsumerFailures;
@@ -17,6 +18,7 @@ import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -174,13 +176,19 @@ public class PublicContentController {
 
         @ExceptionHandler(Exception.class)
         ResponseEntity<PublicError> internal(Exception e, HttpServletRequest req) {
+            ClientRequestErrors.Kind kind = ClientRequestErrors.classify(e);
+            if (kind != null) {
+                log.warn("content_public_rejected reason={} request_id={}", kind, requestId(req));
+                return body(kind.status(), "INVALID_REQUEST", kind.message(), false, req, null);
+            }
             log.error("content_public_internal type={} request_id={}", e.getClass().getSimpleName(), requestId(req));
             return body(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL", "internal error", false, req, null);
         }
 
         private static ResponseEntity<PublicError> body(HttpStatus s, String code, String msg, boolean retryable, HttpServletRequest req,
                                                         String retryAfter) {
-            ResponseEntity.BodyBuilder b = ResponseEntity.status(s).header(HttpHeaders.CACHE_CONTROL, "no-store");
+            ResponseEntity.BodyBuilder b = ResponseEntity.status(s).contentType(MediaType.APPLICATION_JSON) // never negotiated by Accept
+                    .header(HttpHeaders.CACHE_CONTROL, "no-store");
             if (retryAfter != null) b = b.header(HttpHeaders.RETRY_AFTER, retryAfter);
             return b.body(new PublicError(code, msg, requestId(req), retryable));
         }

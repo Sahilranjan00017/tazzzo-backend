@@ -1,5 +1,6 @@
 package com.tazzzo.customer.address;
 
+import com.tazzzo.catalog.api.ClientRequestErrors;
 import com.tazzzo.catalog.api.RequestIdFilter;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -8,6 +9,7 @@ import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -65,6 +67,13 @@ public class AddressExceptionHandler {
     @ExceptionHandler(Exception.class)
     public ResponseEntity<AddressErrorDto> internal(Exception e, HttpServletRequest req) {
         String requestId = requestId(req);
+        ClientRequestErrors.Kind kind = ClientRequestErrors.classify(e);
+        if (kind != null) {
+            // a request-shape problem like a malformed body: counted once, as INVALID_REQUEST
+            log.warn("customer_address_request_rejected reason={} request_id={}", kind, requestId);
+            observability.failure(operationFor(req), AddressFailure.Reason.INVALID_REQUEST);
+            return body(kind.status(), "INVALID_REQUEST", kind.message(), requestId);
+        }
         log.error("customer_address_request_internal type={} request_id={}", e.getClass().getSimpleName(),
                 requestId);
         return body(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL", "internal error", requestId);
@@ -94,6 +103,7 @@ public class AddressExceptionHandler {
     private static ResponseEntity<AddressErrorDto> body(HttpStatus status, String code, String message,
                                                          String requestId) {
         return ResponseEntity.status(status)
+                .contentType(MediaType.APPLICATION_JSON) // never negotiated: an Accept header cannot turn an error into a 500
                 .header(HttpHeaders.CACHE_CONTROL, "no-store")
                 .body(new AddressErrorDto(code, message, requestId));
     }

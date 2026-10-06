@@ -3,6 +3,7 @@ package com.tazzzo.auth.session;
 import com.tazzzo.auth.CustomerAuthErrorDto;
 import com.tazzzo.auth.CustomerAuthFailure;
 import com.tazzzo.auth.CustomerAuthObservability;
+import com.tazzzo.catalog.api.ClientRequestErrors;
 import com.tazzzo.catalog.api.RequestIdFilter;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -11,6 +12,7 @@ import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -61,10 +63,12 @@ public class SessionExceptionHandler {
         observability.authRejected(e.reason());
         if (e.reason() == CustomerAuthFailure.Reason.NOT_READY) {
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .contentType(MediaType.APPLICATION_JSON)
                     .header(HttpHeaders.CACHE_CONTROL, "no-store")
                     .body(new CustomerAuthErrorDto("SERVICE_UNAVAILABLE", "service unavailable", requestId));
         }
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .contentType(MediaType.APPLICATION_JSON)
                 .header(HttpHeaders.WWW_AUTHENTICATE, "Bearer")
                 .header(HttpHeaders.CACHE_CONTROL, "no-store")
                 .body(new CustomerAuthErrorDto("UNAUTHENTICATED", "authentication required", requestId));
@@ -73,12 +77,18 @@ public class SessionExceptionHandler {
     @ExceptionHandler(Exception.class)
     public ResponseEntity<SessionErrorDto> internal(Exception e, HttpServletRequest req) {
         String requestId = requestId(req);
+        ClientRequestErrors.Kind kind = ClientRequestErrors.classify(e);
+        if (kind != null) {
+            log.warn("session_request_rejected reason={} request_id={}", kind, requestId);
+            return body(kind.status(), "INVALID_REQUEST", kind.message(), requestId);
+        }
         log.error("session_request_internal type={} request_id={}", e.getClass().getSimpleName(), requestId);
         return body(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL", "internal error", requestId);
     }
 
     private static ResponseEntity<SessionErrorDto> unauthenticated(String requestId) {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .contentType(MediaType.APPLICATION_JSON)
                 .header(HttpHeaders.WWW_AUTHENTICATE, "Bearer")
                 .header(HttpHeaders.CACHE_CONTROL, "no-store")
                 .body(new SessionErrorDto("UNAUTHENTICATED", "authentication required", requestId));
@@ -87,6 +97,7 @@ public class SessionExceptionHandler {
     private static ResponseEntity<SessionErrorDto> body(HttpStatus status, String code, String message,
                                                          String requestId) {
         return ResponseEntity.status(status)
+                .contentType(MediaType.APPLICATION_JSON) // never negotiated: an Accept header cannot turn an error into a 500
                 .header(HttpHeaders.CACHE_CONTROL, "no-store")
                 .body(new SessionErrorDto(code, message, requestId));
     }

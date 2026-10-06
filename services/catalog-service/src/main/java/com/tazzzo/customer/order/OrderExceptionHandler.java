@@ -1,5 +1,6 @@
 package com.tazzzo.customer.order;
 
+import com.tazzzo.catalog.api.ClientRequestErrors;
 import com.tazzzo.catalog.api.RequestIdFilter;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -7,6 +8,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.core.Ordered;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
@@ -111,6 +113,15 @@ public class OrderExceptionHandler {
     @ExceptionHandler(Exception.class)
     public ResponseEntity<OrderErrorDto> internal(Exception e, HttpServletRequest req) {
         String requestId = requestId(req);
+        ClientRequestErrors.Kind kind = ClientRequestErrors.classify(e);
+        if (kind != null) {
+            // a request-shape failure the domain never saw: counted at the HTTP boundary, never as INTERNAL
+            boolean mediaType = kind == ClientRequestErrors.Kind.UNSUPPORTED_MEDIA_TYPE;
+            log.warn("customer_order_request_rejected reason={} request_id={}", kind, requestId);
+            return httpFailure(mediaType ? OrderHttpObservability.Reason.UNSUPPORTED_MEDIA_TYPE
+                            : OrderHttpObservability.Reason.INVALID_REQUEST, kind.status(),
+                    mediaType ? "UNSUPPORTED_MEDIA_TYPE" : "INVALID_REQUEST", kind.message(), requestId, req);
+        }
         log.error("customer_order_request_internal type={} request_id={}", e.getClass().getSimpleName(), requestId);
         return httpFailure(OrderHttpObservability.Reason.INTERNAL, HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL",
                 "internal error", requestId, req);
@@ -147,7 +158,8 @@ public class OrderExceptionHandler {
 
     private static ResponseEntity<OrderErrorDto> body(HttpStatus status, String code, String message,
                                                       String requestId) {
-        return ResponseEntity.status(status).header(HttpHeaders.CACHE_CONTROL, "no-store")
+        return ResponseEntity.status(status).contentType(MediaType.APPLICATION_JSON) // never negotiated by Accept
+                .header(HttpHeaders.CACHE_CONTROL, "no-store")
                 .body(new OrderErrorDto(code, message, requestId));
     }
 
