@@ -1455,6 +1455,11 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-10-05** — OTP delivery gateway adapter (backend completion PR-N1; base `main` `484d42c`): `tazzzo.customer-auth.otp.provider-mode=HTTP` wires `HttpOtpDeliveryProvider`, a vendor-neutral HTTPS adapter behind the existing
+  `OtpDeliveryProvider` port (POST JSON `{to,message,sender}` with a credential header; any 2xx = accepted). Validated fail-closed at STARTUP (https only except loopback, credential present and never printed, template carries `{otp}`, timeouts
+  fit inside `delivery-timeout-seconds`); redirects never followed; bounded timeouts; the code, phone, URL, credential and response body appear in no log/exception/metric; one bounded metric `otp_gateway_send{outcome}`. A gateway failure is 503
+  with no challenge activated (a prior working code is untouched). `docs/ops/OTP_GATEWAY.md` documents the contract. **External gate (UNVERIFIED):** no real SMS vendor was contacted — vendor choice, India DLT template registration, delivery
+  receipts, failover vendor and spend caps remain open. Not built here: the notification outbox for order events (a separate PR).
 - **2026-10-05** — Staff order operations + fulfilment statuses (backend completion PR-M2; STACKED on PR-M #64 with PR-P #66 merged in): `GET /api/v1/admin/orders[?status]` (newest first, keyset; V0012 indexes), `GET /{id}` (with the delivery
   address — fulfilment needs it), `POST /{id}/transition` in the orders namespace (order-ops writes, support-agent reads; catalogue roles/shared tokens never reach it). State machine: CONFIRMED(v2) → OUT_FOR_DELIVERY(v3) → DELIVERED(v4); CANCELLED
   from CONFIRMED (v3) or OUT_FOR_DELIVERY (v4, a failed/refused delivery) with a closed staff reason set; every transition is a CAS on (status, version) with the audit row (authenticated actor) in the SAME transaction; a staff cancel returns the
