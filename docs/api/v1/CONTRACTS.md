@@ -1,7 +1,8 @@
 # Tazzzo `/v1` Commerce Read — Contract Reference (Phase 3.1 freeze)
 
-**Status:** FROZEN CONTRACT — not implemented. Existing `/catalog/v1` and `/api/v1`
-(`docs/openapi.json`) are unchanged. Machine-readable spec: `openapi.yaml`.
+**Status:** implemented. Machine-readable spec: `openapi.yaml`, kept in lock-step with the served `/v1/**`
+operations by `ApiContractParityIT` (drift in either direction fails the build). The admin/internal `/api/v1`
+surface is generated into `services/catalog-service/docs/openapi.json`.
 
 ## Money contract (ADR-002)
 - Amounts are **integer paise** as **int64**: `sellingPricePaise`, `mrpPaise`, `discountAmountPaise`.

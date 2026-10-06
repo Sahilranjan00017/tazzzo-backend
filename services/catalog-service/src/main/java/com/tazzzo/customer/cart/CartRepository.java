@@ -86,11 +86,12 @@ public class CartRepository {
                 Updates.max(CartPurchaseService.MARKER, sourceVersion)).getMatchedCount() > 0;
     }
 
-    /** Housekeeping CAS used by GET: clears an EXPIRED cart, advancing (never resetting) the version. */
+    /** Housekeeping CAS used by GET: clears an EXPIRED cart (strictly past {@code expiresAt}: exactly 7 days is
+     *  still kept), advancing (never resetting) the version. */
     public boolean clearExpiredIfVersion(String customerId, long seenVersion, Instant now, Instant newExpiresAt) {
         return collection().updateOne(
                 Filters.and(Filters.eq("_id", customerId), Filters.eq("version", seenVersion),
-                        Filters.lte("expiresAt", Date.from(now))),
+                        Filters.lt("expiresAt", Date.from(now))),
                 Updates.combine(Updates.set("items", List.of()), Updates.set("version", seenVersion + 1),
                         Updates.set("updatedAt", Date.from(now)), Updates.set("expiresAt", Date.from(newExpiresAt))))
                 .getModifiedCount() > 0;

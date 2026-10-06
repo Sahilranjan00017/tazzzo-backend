@@ -12,7 +12,11 @@ public enum BucketDimension {
     /** PR-11B: keyed by {@code OtpVerifierCodec.phoneBucketDigest} — never the raw phone. */
     PHONE("phone"),
     /** PR-11B: keyed by the opaque {@code OTP_*} challenge id — carries no PII itself. */
-    CHALLENGE("challenge");
+    CHALLENGE("challenge"),
+    /** Per-customer READS on the customer-authenticated surface; keyed by the opaque customer id (no PII). */
+    CUSTOMER_READ("customer_read"),
+    /** Per-customer WRITES on the customer-authenticated surface; keyed by the opaque customer id (no PII). */
+    CUSTOMER_WRITE("customer_write");
 
     private final String tag;
 

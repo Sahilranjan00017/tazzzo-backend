@@ -81,7 +81,7 @@ Verification note (§1): `Order` record: `long version`, `long addressVersion`, 
 
 ## 5. Collection roster, classification and validator decision
 
-All 49 collections of `SchemaBootstrap.COLLECTIONS` (`SB:26-114`). "Unused" = created by bootstrap with no reader/writer in main. Retention "none" means no TTL and no code that removes rows.
+All 55 collections of `SchemaBootstrap.COLLECTIONS` (`SB:26-114`). "Unused" = created by bootstrap with no reader/writer in main. Retention "none" means no TTL and no code that removes rows.
 
 | # | Collection | Owner | Class | Strictness | Validator | Retention |
 |---|---|---|---|---|---|---|
@@ -112,7 +112,7 @@ All 49 collections of `SchemaBootstrap.COLLECTIONS` (`SB:26-114`). "Unused" = cr
 | 25 | `attribute_schemas` | catalog | authoritative (versioned) | C | DEFER | none |
 | 26 | `id_sequences` | catalog | operational (counter) | **D** | NO | none |
 | 27 | `price_current` | pricing | authoritative | C | **YES (PROPOSED)** | none |
-| 28 | `price_events` | pricing/catalog | event (two shapes) | C | **DEFER** (R1 discriminator first) | **TARGET: retain (R1). CURRENT: rolled rows hard-deleted hourly (non-compliant)** |
+| 28 | `price_events` | pricing/catalog | event (two shapes) | C | **DEFER** (R1 discriminator first) | **RETAINED (R1 fixed in code; the purge was removed)** |
 | 29 | `price_rollups` | catalog | derived | C | NO | none |
 | 30 | `inventory` | inventory | authoritative | C | **YES (PROPOSED)** | none |
 | 31 | `inventory_reservations` | inventory | authoritative | **A** | **YES (PROPOSED)** | none (never deleted) |
@@ -134,8 +134,14 @@ All 49 collections of `SchemaBootstrap.COLLECTIONS` (`SB:26-114`). "Unused" = cr
 | 47 | `checkout_quotes` | customer.checkout | snapshot | **B** | **YES (PROPOSED)** | none (forever) |
 | 48 | `orders` | customer.order | authoritative + snapshot | **B** | **YES (PROPOSED)** | none (forever) |
 | 49 | `memberships` | membership | authoritative | **B** | **YES (PROPOSED)** | none (by design) |
+| 50 | `customer_address_idempotency` | customer.address | operational (idempotency) | D | NO | TTL `expire_at` (migration `V0015`) |
+| 51 | `notification_outbox` | notification | operational (outbox) | D | NO | TTL `expire_at` (migration `V0014`) |
+| 52 | `content_blocks` | content | authoritative (config) | C | DEFER | none |
+| 53 | `support_cases` | support | authoritative | C | DEFER | none |
+| 54 | `delivery_slot_windows` | delivery | authoritative (config) | C | DEFER | none |
+| 55 | `delivery_slot_usage` | delivery | operational (counter) | D | NO | TTL `expire_at` (migration `V0008`) |
 
-**Tallies (49):** A = 2 (`inventory_reservations`, `consumer_projection_policy`); B = 3 (`orders`, `checkout_quotes`, `memberships`); D = 4 (`work_queue`, `id_sequences`, `customer_otp_challenges`, `customer_otp_verified_grants`); C = 40 (of which 7 are unused collections). 2 + 3 + 40 + 4 = 49. Validators: 1 exists (`products`); **YES (proposed) 6**; **DEFER 24**; **NO 18** (7 of the NOs are the unused collections); 1 + 6 + 24 + 18 = 49.
+**Tallies (55):** A = 2 (`inventory_reservations`, `consumer_projection_policy`); B = 3 (`orders`, `checkout_quotes`, `memberships`); D = 7 (`work_queue`, `id_sequences`, `customer_otp_challenges`, `customer_otp_verified_grants`, `customer_address_idempotency`, `notification_outbox`, `delivery_slot_usage`); C = 43 (of which 7 are unused collections; `content_blocks`, `support_cases` and `delivery_slot_windows` are the 41st–43rd). 2 + 3 + 43 + 7 = 55. Validators: 1 exists (`products`); **YES (proposed) 6**; **DEFER 27**; **NO 21** (7 of the NOs are the unused collections); 1 + 6 + 27 + 21 = 55.
 
 **Reclassification note (post-review):** an earlier draft classed `products`, `product_card_base` and `domain_events` as A/B. Under the §3.1 rule they are C: `products` has read-path defaults (`CatalogCardReader` missing `version`→0 and missing classification→null vertical; `ProductController.toResponse` stringifies nulls as `"null"`); `product_card_base.fromDocument` validates only `source_versions`, `catalog_version`, `projection_version` and `price_status` and silently reads a missing `price_version`/`media_version` as null; `domain_events` has no reader in main and `ActorDocuments.fromEvent` has no caller, so no reconstruction path exists to be strict. Their *write-side* contracts (the `products` validator, the strict `ActorDocuments` codec) remain as documented.
 
@@ -248,7 +254,7 @@ See §9 for the retention contract. Row shapes (VERIFIED):
 | `customer_addresses` | `_id` `ADDR_*`; `customerId`; `label ∈ HOME/WORK/OTHER`; `recipientName ≤80`, `recipientPhone`, `addressLine1 ≤160`, `addressLine2|null`, `landmark|null`, `city`, `state`, `postalCode`; `latitude|longitude` double|null (both-or-neither); `version` long; `createdAt`,`updatedAt` Date. `isDefault` not stored. PII. | bad/missing label ⇒ 503; missing `version` ⇒ NPE; optional strings ⇒ null (C) | **DEFER** (PII, live data UNVERIFIED) |
 | `customer_address_state` | `_id` = customerId; `addressCount` long (guarded `$lt limit`); `defaultAddressId` string|null (explicit null possible); `updatedAt`. **`decrement` has no floor** (negative on corruption); no reconciliation job. | missing `addressCount` ⇒ NPE or treated as limit (C) | **DEFER** — resolve the floor/reconciliation contract first |
 | `customer_profiles` | `_id` = customerId; `displayName` string|null (≤80, blank→null), `email` string|null (lower-cased, ≤254); `createdAt` Date (`$setOnInsert`), `updatedAt`, `version` long (`0` ⇒ upsert). PII. | missing strings ⇒ null; missing `version` ⇒ NPE ⇒ 503 and breaks PATCH (C) | **DEFER** |
-| `customer_carts` | `_id` = customerId; `items[{skuId,quantity int,addedAt,updatedAt}]`, `version` long, `createdAt`,`updatedAt`,`expiresAt` (= updated + 7d); optional `purchasedThroughVersion` long (absent = 0, written only by purchase finalization via `$max`). Never deleted; no TTL by design. | missing `expiresAt` ⇒ not expired; missing `items` ⇒ empty; quantity ≤0 **not rejected on read**; marker present non-Number/negative ⇒ `CartPurchaseIntegrityException`; explicit-null marker ⇒ absent = 0 (C; marker A) | **DEFER** — `quantity ≥ 1` and `version` are good candidates, but expiry/housekeeping semantics must be settled first |
+| `customer_carts` | `_id` = customerId; `items[{skuId,quantity int,addedAt,updatedAt,unitPricePaiseAtUpdate long?}]` (the price is an observation used only to flag `PRICE_CHANGED`; absent = unknown), `version` long, `createdAt`,`updatedAt`,`expiresAt` (= updated + 7d; age policy: <24 h FRESH, 24 h–7 d inclusive REVALIDATE, >7 d expired); optional `purchasedThroughVersion` long (absent = 0, written only by purchase finalization via `$max`). Never deleted; no TTL by design. | missing `expiresAt` ⇒ not expired; missing `items` ⇒ empty; quantity ≤0 **not rejected on read**; marker present non-Number/negative ⇒ `CartPurchaseIntegrityException`; explicit-null marker ⇒ absent = 0 (C; marker A) | **DEFER** — `quantity ≥ 1` and `version` are good candidates, but expiry/housekeeping semantics must be settled first |
 | `customer_sessions` | `_id` `SES_*`; `customerId`; `createdAt`,`expiresAt` Date; `revokedAt` Date|null (null at create); `refreshTokenDigest` base64 HMAC (**sensitive**); `refreshGeneration` int; `lastRotatedAt`. TTL `session_expiry_ttl` (cleanup only; app-level expiry authoritative). | `revokedAt:null` also matches missing; non-date `expiresAt` ⇒ inactive; missing digest ⇒ NPE ⇒ 500 (C, fail-closed) | **NO** — ephemeral, TTL-managed, auth-critical write latency; correctness is by CAS filters |
 | `customer_otp_challenges` | `_id` `OTP_*`; `phoneNormalized`,`purpose=LOGIN`, `otpVerifier` (**sensitive** HMAC), `createdAt`,`deliveryDeadline`, nullable `expiresAt`/`resendAvailableAt`/`verifiedAt`/`grantId`/`lastSentAt` (explicit null at insert), `attemptCount` int, `maxAttempts` int, `status` (7 values), marker booleans `delivering`/`active` (partial-unique). Two TTL indexes. | **missing `maxAttempts` ⇒ `Integer.MAX_VALUE` (unlimited attempts)**; missing `attemptCount` ⇒ 0; bad `status`/dates ⇒ raw exception ⇒ 500 (D/C) | **NO** — D; but the `maxAttempts` default is a recorded **risk** (DB-0 R8) |
 | `customer_otp_verified_grants` | `_id` `GRANT_*`; `challengeId` (unique), `phoneNormalized`, `purpose`, `createdAt`,`expiresAt`, `consumedAt` null|Date. TTL. | missing `consumedAt` matches `== null` ⇒ consumable (D) | **NO** |
@@ -292,7 +298,7 @@ Remaining collections are summarised in §7.
 | `taxonomy_nodes` | `_id` `TZS/TZC/TZB/TZV-*`; `node_type`, `name`, `parent_id`, `status ∈ active|deprecated|merged`, `attribute_schema_id`, `created_in_version`, `version` Int32 (CAS `casNode`); optional `merged_into`, `origin`, `branch_status` | sibling-name uniqueness is by `countDocuments`, not an index |
 | `taxonomy_snapshot_nodes` | node copy minus `_id` plus `release_id`,`node_id`; `$setOnInsert` upsert (first write wins; re-run never refreshes) | reader fails closed on cycle/missing `node_id` (`SnapshotTopologyException`); per-release |
 | `catalogue_releases` | `_id` releaseId; `status ∈ publishing|freezing|active`; `gate:"OPEN"` (partial unique; unset on activation); `based_on`, `opened_at`, `activated_at`, `change_seq` | **no baseline release on a fresh DB**; only `gate` is unique so "exactly one historical active release" is not enforced |
-| `system_config` | only `consumer_taxonomy_release {release_id, updated_at}` is written in main; a `languages` row is read by `ValidatorGenerator` but never written | |
+| `system_config` | written in main: `consumer_taxonomy_release {release_id, updated_at}` and (PR-Q) `app_config {config_type: app, storeOpen, maintenance, maintenanceMessage, min/latest Android/iOS versions, supportPhone, supportEmail, version (CAS), updatedAt}`; a `languages` row is read by `ValidatorGenerator` but never written | |
 | `aliases` | `(alias_norm, lang, region)` unique; `node_id`, `status` | `node_id` filter has no index |
 | `id_sequences` | `_id:"TZV"`, `seq` long from 100000; lazy-created; init swallows E11000 inside a Tx (unproven) | D |
 | `attribute_definitions` | `(key, version)` unique; `type` ∈ string/number/boolean/enum_open; `governance` ∈ descriptive/claim/merchandising (merchandising refused at authoring); `status` ∈ pending/active/superseded; `known_values[]`; absent `status` ⇒ active (legacy) | write-side `valueMatchesType` accepts unknown type; consumer read fails closed |
@@ -336,6 +342,8 @@ Remaining collections are summarised in §7.
 ---
 
 ## 9. R1 contract — immutable vs purgeable price-event categories
+
+> **UPDATE — R1 FIXED IN CODE (price-history retention PR).** The statements below describe the state BEFORE that PR and are kept as the analysis record. Now: `purge()` and its scheduler call are removed; `price_events` is append-only (no delete, no TTL; `PriceHistoryRetentionSourceTest`); the roll-up aggregates only legacy offer events (string `product_id`/`seller`, int32 `price`), flags each `rolled=true` with a conditional claim in the same transaction, and never reads or writes a paise ledger row. No migration, no discriminator was needed for retention: shape is still inferred by field presence, which only decides what is *aggregated*, never what is deleted (nothing is).
 
 ### 9.1 Facts (VERIFIED; see DB-0 §13)
 

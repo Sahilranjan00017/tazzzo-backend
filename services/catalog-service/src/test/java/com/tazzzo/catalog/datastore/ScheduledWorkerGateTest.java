@@ -159,7 +159,7 @@ class ScheduledWorkerGateTest {
     }
 
     @Test
-    void the_eight_scheduled_workers_are_exactly_the_inventoried_ones_and_all_run_through_the_gated_scheduler() throws IOException {
+    void the_nine_scheduled_workers_are_exactly_the_inventoried_ones_and_all_run_through_the_gated_scheduler() throws IOException {
         TreeMap<String, Integer> found = new TreeMap<>();
         try (Stream<Path> s = Files.walk(MAIN)) {
             for (Path f : s.filter(p -> p.toString().endsWith(".java")).toList()) {
@@ -176,6 +176,7 @@ class ScheduledWorkerGateTest {
                     put("CatalogSchedulers.java", 5);
                     put("CommerceProjectionScheduler.java", 2);
                     put("InventoryReservationScheduler.java", 1);
+                    put("NotificationConfig.java", 1);
                 }});
     }
 

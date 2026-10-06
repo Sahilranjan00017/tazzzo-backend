@@ -1,4 +1,6 @@
 spring:
+  lifecycle:
+    timeout-per-shutdown-phase: ${TAZZZO_SHUTDOWN_GRACE:25s}
   task:
     scheduling:
       pool:
@@ -170,6 +172,38 @@ tazzzo:
     installation:
       capacity: ${TAZZZO_RATE_LIMIT_INSTALL_CAPACITY:0}
       refill-per-second: ${TAZZZO_RATE_LIMIT_INSTALL_REFILL:0}
+server:
+  # Platform baseline. The application NEVER rewrites scheme/host/port/client address from X-Forwarded-* headers:
+  # the only consumer of X-Forwarded-For is the rate limiter's ClientIpResolver, which honours it solely from the
+  # configured trusted-proxy CIDRs (tazzzo.consumer-rate-limit.trusted-proxy-cidrs) and fails closed otherwise.
+  # No absolute URL is ever built from a request, so nothing needs the proxy's scheme.
+  forward-headers-strategy: none
+  max-http-request-header-size: 16KB
+  tomcat:
+    # Stop draining a body the application already refused with 413 (see tazzzo.http.max-request-body-bytes).
+    max-swallow-size: ${TAZZZO_HTTP_MAX_BODY_BYTES:65536}
+  # Stop accepting new requests on SIGTERM and let in-flight ones finish (bounded by
+  # spring.lifecycle.timeout-per-shutdown-phase), so a rolling deploy never cuts a checkout mid-transaction.
+  shutdown: graceful
+tazzzo.http:
+  # Every request body on every surface is bounded (413 PAYLOAD_TOO_LARGE); the largest legitimate body in this API
+  # is a few KiB. Bounds: 1 KiB .. 16 MiB (startup failure outside them).
+  max-request-body-bytes: ${TAZZZO_HTTP_MAX_BODY_BYTES:65536}
+  # Admin bulk import (/api/v1/admin/imports/**): up to 500 rows per file. Bounds: max-request-body-bytes .. 16 MiB.
+  bulk-import-max-request-body-bytes: ${TAZZZO_HTTP_BULK_IMPORT_MAX_BODY_BYTES:2097152}
+  cors:
+    # CORS is OFF unless exact origins are listed (comma-separated), e.g. https://cms.tazzzo.com. Browser-only concern:
+    # the mobile app and a server-side BFF are not subject to it. No wildcard; https required (http only for localhost).
+    allowed-origins: ${TAZZZO_HTTP_CORS_ALLOWED_ORIGINS:}
+    max-age-seconds: 600
+tazzzo.health:
+  # /health/live never consults a dependency (container health check). /health/ready (load-balancer target check)
+  # requires the serving gate to be OPEN and, by default, a bounded MongoDB ping; the rate-limiter store is reported
+  # and only fails readiness when require-rate-limiter=true (a shared-store outage would otherwise take every target
+  # out at once and trigger task replacement, which cannot fix the store).
+  readiness:
+    require-mongo: ${TAZZZO_HEALTH_REQUIRE_MONGO:true}
+    require-rate-limiter: ${TAZZZO_HEALTH_REQUIRE_RATE_LIMITER:false}
 management:
   observations:
     enable:

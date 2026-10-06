@@ -52,6 +52,7 @@ public class OtpAuthConfig {
 
     @Bean
     public OtpDeliveryProvider otpDeliveryProvider(OtpAuthProperties properties,
+                                                   ObjectProvider<io.micrometer.core.instrument.MeterRegistry> registry,
                                                    @org.springframework.beans.factory.annotation.Value("${tazzzo.migration.environment:}")
                                                    String environment) {
         String mode = properties.getProviderMode();
@@ -67,8 +68,13 @@ public class OtpAuthConfig {
             }
             return new LoggingOtpDeliveryProvider();
         }
+        if ("HTTP".equals(mode)) {
+            // fail closed at startup on an unsafe/incomplete gateway configuration (never at the first customer request)
+            return new HttpOtpDeliveryProvider(properties.getHttp(), properties.getDeliveryTimeoutSeconds(),
+                    registry.getIfAvailable(io.micrometer.core.instrument.simple.SimpleMeterRegistry::new));
+        }
         throw new IllegalStateException(
-                "tazzzo.customer-auth.otp.provider-mode must be exactly LOGGING or unset, was: '"
+                "tazzzo.customer-auth.otp.provider-mode must be exactly LOGGING, HTTP or unset, was: '"
                         + mode + "'");
     }
 }

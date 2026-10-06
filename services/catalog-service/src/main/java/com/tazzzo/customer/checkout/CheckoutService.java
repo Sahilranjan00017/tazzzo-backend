@@ -349,6 +349,8 @@ public class CheckoutService {
             case STOCK_UNKNOWN -> CheckoutItemReason.STOCK_UNKNOWN;
             // handled as their own outcomes (UNSERVICEABLE) or impossible here (a PIN is always supplied)
             case UNSERVICEABLE, LOCATION_REQUIRED, ENRICHMENT_UNAVAILABLE -> null;
+            // informational (cart age band): the quote is built from CURRENT prices, so a moved price never blocks it
+            case PRICE_CHANGED -> null;
         };
     }
 
