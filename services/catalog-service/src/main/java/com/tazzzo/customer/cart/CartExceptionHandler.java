@@ -1,5 +1,6 @@
 package com.tazzzo.customer.cart;
 
+import com.tazzzo.catalog.api.ClientRequestErrors;
 import com.tazzzo.catalog.api.RequestIdFilter;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -8,6 +9,7 @@ import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
@@ -69,6 +71,15 @@ public class CartExceptionHandler {
     @ExceptionHandler(Exception.class)
     public ResponseEntity<CartErrorDto> internal(Exception e, HttpServletRequest req) {
         String requestId = requestId(req);
+        ClientRequestErrors.Kind kind = ClientRequestErrors.classify(e);
+        if (kind != null) {
+            // a request-shape failure is the client's, counted once under the closed reason set -- never as a 500
+            CartFailure.Reason reason = kind == ClientRequestErrors.Kind.UNSUPPORTED_MEDIA_TYPE
+                    ? CartFailure.Reason.UNSUPPORTED_MEDIA_TYPE : CartFailure.Reason.INVALID_REQUEST;
+            log.warn("customer_cart_request_rejected reason={} request_id={}", kind, requestId);
+            observability.failure(operationFor(req), reason);
+            return body(kind.status(), reason.name(), kind.message(), requestId);
+        }
         observability.internalFailure(operationFor(req)); // the ONLY place an unexpected 500 is counted
         log.error("customer_cart_request_internal type={} request_id={}", e.getClass().getSimpleName(), requestId);
         return body(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL", "internal error", requestId);
@@ -86,7 +97,8 @@ public class CartExceptionHandler {
 
     private static ResponseEntity<CartErrorDto> body(HttpStatus status, String code, String message,
                                                       String requestId) {
-        return ResponseEntity.status(status).header(HttpHeaders.CACHE_CONTROL, "no-store")
+        return ResponseEntity.status(status).contentType(MediaType.APPLICATION_JSON) // never negotiated by Accept
+                .header(HttpHeaders.CACHE_CONTROL, "no-store")
                 .body(new CartErrorDto(code, message, requestId));
     }
 

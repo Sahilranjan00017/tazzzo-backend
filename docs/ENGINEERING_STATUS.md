@@ -1254,6 +1254,16 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
 
 ## In review (NOT merged)
 
+- **HTTP error-handling hardening** (branch `fix/http-error-handling-hardening`, from `main` `d790504`): **IN REVIEW**. The 12 controller-scoped `/v1` advices with an
+  `Exception` catch-all (OTP, session, profile, address, account deletion, customer support, delivery slots, cart, checkout, order, commerce read, public content;
+  staff support falls through to `ApiExceptionHandler`) no longer turn framework request-shape failures into a logged-as-ERROR 500. `catalog.api.ClientRequestErrors`
+  classifies them once (unreadable body or missing/mistyped binding → 400, unsupported or absent `Content-Type` → 415, unacceptable `Accept` → 406). Each advice answers in
+  its own documented shape with a code from its existing documented set: no new error codes, and no OpenAPI or route change. Every error body's `Content-Type` is fixed to JSON, so an `Accept`
+  header can no longer turn an error into a 500 or an empty-body response. Authentication still runs first (401 before any body is read). Evidence: `MalformedRequestErrorMappingIT`
+  (15 HTTP tests, one per advice plus auth/correlation boundaries), `ClientRequestErrorsTest` (classification, negatives, and a structural guard that every catch-all advice consults
+  the classifier), 9/9 mutations detected. Not changed: the ERR-1 collapse of framework 405/415/406 to `400 INVALID_REQUEST` on unmatched public routes, and the admin/consumer
+  advices without a catch-all (see the PR's remaining findings).
+
 - **Database foundation (MongoDB, DB-0 … DB-4)** — authoritative documents in [`docs/database/`](database/):
   - **DB-0** database inventory: **COMPLETE** (PR #47, `52ab530`). **DB-1** collection contracts + validator policy: **COMPLETE** (PR #48, `e3a0db6`).
     **DB-2** index manifest, per-vertical cursor index, `IndexContractIT`: **COMPLETE** (PR #50, `f99c1fe`). **DB-3** versioned, locked migration

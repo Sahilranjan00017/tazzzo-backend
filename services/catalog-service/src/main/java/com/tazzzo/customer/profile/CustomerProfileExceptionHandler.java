@@ -1,5 +1,6 @@
 package com.tazzzo.customer.profile;
 
+import com.tazzzo.catalog.api.ClientRequestErrors;
 import com.tazzzo.catalog.api.RequestIdFilter;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -8,6 +9,7 @@ import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -42,6 +44,11 @@ public class CustomerProfileExceptionHandler {
     @ExceptionHandler(Exception.class)
     public ResponseEntity<CustomerProfileErrorDto> internal(Exception e, HttpServletRequest req) {
         String requestId = requestId(req);
+        ClientRequestErrors.Kind kind = ClientRequestErrors.classify(e);
+        if (kind != null) {
+            log.warn("customer_profile_request_rejected reason={} request_id={}", kind, requestId);
+            return body(kind.status(), "INVALID_REQUEST", kind.message(), requestId);
+        }
         log.error("customer_profile_request_internal type={} request_id={}", e.getClass().getSimpleName(),
                 requestId);
         return body(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL", "internal error", requestId);
@@ -50,6 +57,7 @@ public class CustomerProfileExceptionHandler {
     private static ResponseEntity<CustomerProfileErrorDto> body(HttpStatus status, String code, String message,
                                                                  String requestId) {
         return ResponseEntity.status(status)
+                .contentType(MediaType.APPLICATION_JSON) // never negotiated: an Accept header cannot turn an error into a 500
                 .header(HttpHeaders.CACHE_CONTROL, "no-store")
                 .body(new CustomerProfileErrorDto(code, message, requestId));
     }

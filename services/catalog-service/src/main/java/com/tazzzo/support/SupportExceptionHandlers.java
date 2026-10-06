@@ -1,6 +1,7 @@
 package com.tazzzo.support;
 
 import com.tazzzo.catalog.api.ApiExceptionHandler.ErrorBody;
+import com.tazzzo.catalog.api.ClientRequestErrors;
 import com.tazzzo.catalog.api.RequestIdFilter;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -9,6 +10,7 @@ import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -57,12 +59,18 @@ final class SupportExceptionHandlers {
 
         @ExceptionHandler(Exception.class)
         ResponseEntity<CustomerError> internal(Exception e, HttpServletRequest req) {
+            ClientRequestErrors.Kind kind = ClientRequestErrors.classify(e);
+            if (kind != null) {
+                log.warn("support_customer_rejected reason={} request_id={}", kind, rid(req));
+                return body(kind.status(), "INVALID_REQUEST", req);
+            }
             log.error("support_customer_internal type={} request_id={}", e.getClass().getSimpleName(), rid(req));
             return body(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL", req);
         }
 
         private static ResponseEntity<CustomerError> body(HttpStatus s, String code, HttpServletRequest req) {
-            return ResponseEntity.status(s).header(HttpHeaders.CACHE_CONTROL, "no-store")
+            return ResponseEntity.status(s).contentType(MediaType.APPLICATION_JSON) // never negotiated by Accept
+                    .header(HttpHeaders.CACHE_CONTROL, "no-store")
                     .body(new CustomerError(code, s.is5xxServerError() ? "service error" : "request could not be completed", rid(req)));
         }
     }
@@ -85,7 +93,7 @@ final class SupportExceptionHandlers {
             b.put("code", code);
             b.put("message", "request could not be completed");
             b.put("request_id", rid(req));
-            return ResponseEntity.status(s).body(new ErrorBody(b));
+            return ResponseEntity.status(s).contentType(MediaType.APPLICATION_JSON).body(new ErrorBody(b));
         }
     }
 }

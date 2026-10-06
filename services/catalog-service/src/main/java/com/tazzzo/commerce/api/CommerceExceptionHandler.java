@@ -1,5 +1,6 @@
 package com.tazzzo.commerce.api;
 
+import com.tazzzo.catalog.api.ClientRequestErrors;
 import com.tazzzo.catalog.api.RequestIdFilter;
 import com.tazzzo.catalog.consumer.ConsumerFailures;
 import com.tazzzo.commerce.api.dto.ErrorEnvelopeDto;
@@ -12,6 +13,7 @@ import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -55,6 +57,7 @@ public class CommerceExceptionHandler {
     public ResponseEntity<ErrorEnvelopeDto> rateLimited(ConsumerFailures.RateLimited e, HttpServletRequest req) {
         int retryAfter = (int) Math.max(1, (long) Math.ceil(e.retryAfter().toMillis() / 1000.0));
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .contentType(MediaType.APPLICATION_JSON)
                 .header(HttpHeaders.CACHE_CONTROL, CACHE_CONTROL_NO_STORE)
                 .header(HttpHeaders.RETRY_AFTER, Integer.toString(retryAfter))
                 .body(envelope(PublicErrorCode.RATE_LIMITED, "too many requests", true, retryAfter, req));
@@ -82,6 +85,11 @@ public class CommerceExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorEnvelopeDto> internal(Exception e, HttpServletRequest req) {
+        ClientRequestErrors.Kind kind = ClientRequestErrors.classify(e);
+        if (kind != null) {
+            log.warn("commerce_request_rejected reason={} request_id={}", kind, requestId(req));
+            return body(kind.status(), PublicErrorCode.INVALID_REQUEST, kind.message(), false, null, req);
+        }
         log.error("commerce_request_internal type={} request_id={}",
                 e.getClass().getSimpleName(), requestId(req));
         return body(HttpStatus.INTERNAL_SERVER_ERROR, PublicErrorCode.INTERNAL, "internal error", false, null, req);
@@ -91,6 +99,7 @@ public class CommerceExceptionHandler {
                                                   boolean retryable, Integer retryAfterSeconds,
                                                   HttpServletRequest req) {
         return ResponseEntity.status(status)
+                .contentType(MediaType.APPLICATION_JSON) // never negotiated: an Accept header cannot turn an error into a 500
                 .header(HttpHeaders.CACHE_CONTROL, CACHE_CONTROL_NO_STORE)
                 .body(envelope(code, message, retryable, retryAfterSeconds, req));
     }

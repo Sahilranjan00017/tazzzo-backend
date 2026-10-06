@@ -1,5 +1,6 @@
 package com.tazzzo.delivery;
 
+import com.tazzzo.catalog.api.ClientRequestErrors;
 import com.tazzzo.catalog.api.RequestIdFilter;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -8,6 +9,7 @@ import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -42,12 +44,18 @@ class DeliverySlotExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     ResponseEntity<ErrorDto> internal(Exception e, HttpServletRequest req) {
+        ClientRequestErrors.Kind kind = ClientRequestErrors.classify(e);
+        if (kind != null) {
+            log.warn("delivery_slots_rejected reason={} request_id={}", kind, requestId(req));
+            return body(kind.status(), "INVALID_REQUEST", kind.message(), req);
+        }
         log.error("delivery_slots_internal type={} request_id={}", e.getClass().getSimpleName(), requestId(req));
         return body(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL", "internal error", req);
     }
 
     private static ResponseEntity<ErrorDto> body(HttpStatus status, String code, String message, HttpServletRequest req) {
-        return ResponseEntity.status(status).header(HttpHeaders.CACHE_CONTROL, "no-store")
+        return ResponseEntity.status(status).contentType(MediaType.APPLICATION_JSON) // never negotiated by Accept
+                .header(HttpHeaders.CACHE_CONTROL, "no-store")
                 .body(new ErrorDto(code, message, requestId(req)));
     }
 

@@ -1,5 +1,6 @@
 package com.tazzzo.auth.otp;
 
+import com.tazzzo.catalog.api.ClientRequestErrors;
 import com.tazzzo.catalog.api.RequestIdFilter;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -8,6 +9,7 @@ import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -41,6 +43,7 @@ public class OtpExceptionHandler {
                 int retryAfter = (int) Math.max(1,
                         (long) Math.ceil(e.retryAfter().toMillis() / 1000.0));
                 yield ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                        .contentType(MediaType.APPLICATION_JSON)
                         .header(HttpHeaders.CACHE_CONTROL, "no-store")
                         .header(HttpHeaders.RETRY_AFTER, Integer.toString(retryAfter))
                         .body(new OtpErrorDto("OTP_RATE_LIMITED", "too many requests", requestId, retryAfter));
@@ -53,6 +56,11 @@ public class OtpExceptionHandler {
     @ExceptionHandler(Exception.class)
     public ResponseEntity<OtpErrorDto> internal(Exception e, HttpServletRequest req) {
         String requestId = requestId(req);
+        ClientRequestErrors.Kind kind = ClientRequestErrors.classify(e);
+        if (kind != null) {
+            log.warn("otp_request_rejected reason={} request_id={}", kind, requestId);
+            return body(kind.status(), "OTP_INVALID_REQUEST", kind.message(), requestId, null);
+        }
         log.error("otp_request_internal type={} request_id={}", e.getClass().getSimpleName(), requestId);
         return body(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL", "internal error", requestId, null);
     }
@@ -60,6 +68,7 @@ public class OtpExceptionHandler {
     private static ResponseEntity<OtpErrorDto> body(HttpStatus status, String code, String message,
                                                      String requestId, Integer retryAfterSeconds) {
         return ResponseEntity.status(status)
+                .contentType(MediaType.APPLICATION_JSON) // never negotiated: an Accept header cannot turn an error into a 500
                 .header(HttpHeaders.CACHE_CONTROL, "no-store")
                 .body(new OtpErrorDto(code, message, requestId, retryAfterSeconds));
     }
