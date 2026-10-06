@@ -345,7 +345,7 @@ Replay: none exists. Ledger rollup/purge: **only** `price_events` (other physica
 
 ---
 
-## 13. Pricing / price-event purge finding (documented, not fixed)
+## 13. Pricing / price-event purge finding (documented; **FIXED IN CODE by the R1 price-history retention PR** — the purge and its scheduler call were removed, the roll-up now ignores paise rows, `price_events` is retained; the text below is the pre-fix record)
 
 Verified by direct read:
 

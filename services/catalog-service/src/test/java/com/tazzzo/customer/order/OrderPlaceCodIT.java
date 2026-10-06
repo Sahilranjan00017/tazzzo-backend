@@ -90,7 +90,7 @@ class OrderPlaceCodIT extends AbstractMongoIT {
     @BeforeEach
     void reset() {
         for (String c : List.of("orders", "checkout_quotes", "customer_addresses", "inventory_reservations",
-                "inventory", "price_current", "service_areas", "products", "customer_carts")) {
+                "inventory", "price_current", "service_areas", "products", "customer_carts", "notification_outbox")) {
             db.getCollection(c).deleteMany(new Document());
         }
         registry = new SimpleMeterRegistry();
@@ -136,11 +136,16 @@ class OrderPlaceCodIT extends AbstractMongoIT {
 
     private OrderService service(Tx tx, Clock clock, OrderRepository orderRepo, InventoryReservationPort port,
                                  CartPurchasePort cart) {
+        return service(tx, clock, orderRepo, port, cart, new com.tazzzo.notification.NotificationOutbox(db, clock));
+    }
+
+    private OrderService service(Tx tx, Clock clock, OrderRepository orderRepo, InventoryReservationPort port,
+                                 CartPurchasePort cart, com.tazzzo.notification.NotificationEnqueuer notifications) {
         WritePath writePath = new WritePath(db);
         return new OrderService(orderRepo, new CheckoutQuoteRepository(db), new AddressRepository(db),
                 new ServiceabilityService(tx, db, new DomainAudit(db, clock), clock),
                 new PricingService(tx, writePath, clock), new com.tazzzo.commerce.read.CatalogCardReader(db), TestBenefits.NO_MEMBERSHIP, port,
-                cart, clock, ALWAYS_EXISTS, tx, new OrderObservability(registry));
+                cart, clock, ALWAYS_EXISTS, tx, new OrderObservability(registry), notifications);
     }
 
     private OrderService service() {
@@ -367,6 +372,55 @@ class OrderPlaceCodIT extends AbstractMongoIT {
         assertThat(onHand(LOC)).isEqualTo(8);                                          // no second consume
         assertThat(cart(f)).isEqualTo(cartAfterFirst);
         assertThat(counter("order_place_cod_failure", "reason", "cart_version_already_purchased")).isEqualTo(1);
+    }
+
+    // ---------- N2 transactional notification outbox ----------
+
+    @Test void a_confirmed_cod_order_enqueues_exactly_one_notification_carrying_no_contact_details() {
+        Fixture f = fixture(1);
+        Order o = service().placeCodOrder(f.customerId(), f.quoteId().value());
+        service().placeCodOrder(f.customerId(), f.quoteId().value());                  // idempotent replay
+
+        assertThat(count("notification_outbox")).isEqualTo(1);
+        Document n = db.getCollection("notification_outbox").find().first();
+        assertThat(n.getString("_id")).isEqualTo("ORDER_CONFIRMED:" + o.orderId().value());
+        assertThat(n.getString("type")).isEqualTo("ORDER_CONFIRMED");
+        assertThat(n.getString("customer_id")).isEqualTo(f.customerId().value());
+        assertThat(n.getString("subject_id")).isEqualTo(o.orderId().value());
+        assertThat(n.getString("status")).isEqualTo("PENDING");
+        assertThat(n.getInteger("attempts")).isZero();
+        assertThat(n.get("params", Document.class)).containsOnlyKeys("item_count", "payable_paise");
+        assertThat(n.get("params", Document.class).getString("payable_paise"))
+                .isEqualTo(String.valueOf(o.moneySnapshot().payablePaise()));
+        assertThat(n.keySet()).containsExactlyInAnyOrder("_id", "type", "customer_id", "subject_id", "params", "status",
+                "attempts", "next_attempt_at", "created_at", "expire_at");
+        assertThat(n.getDate("expire_at").toInstant()).isEqualTo(n.getDate("created_at").toInstant().plus(java.time.Duration.ofDays(7)));
+    }
+
+    @Test void a_rejected_placement_enqueues_nothing() {
+        Fixture f = fixture(1);
+        service().placeCodOrder(f.customerId(), f.quoteId().value());
+        CheckoutQuoteId second = anotherQuote(f, 1);
+        assertFailure(() -> service().placeCodOrder(f.customerId(), second.value()),
+                OrderFailure.Reason.CART_VERSION_ALREADY_PURCHASED);
+        assertThat(count("notification_outbox")).isEqualTo(1);
+    }
+
+    @Test void a_failure_after_the_enqueue_rolls_the_notification_back_with_the_order() {
+        Fixture f = fixture(1);
+        Tx tx = new Tx(client);
+        Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
+        com.tazzzo.notification.NotificationOutbox real = new com.tazzzo.notification.NotificationOutbox(db, clock);
+        OrderService svc = service(tx, clock, new OrderRepository(db), reservationService(tx, clock, 600), realCart(clock),
+                (session, request) -> {
+                    real.enqueue(session, request);
+                    throw new IllegalStateException("fail after the outbox write");
+                });
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> svc.placeCodOrder(f.customerId(), f.quoteId().value()))
+                .isInstanceOf(RuntimeException.class);
+        assertThat(count("notification_outbox")).isZero();
+        assertThat(count("orders")).isZero();
+        assertThat(onHand(LOC)).isEqualTo(10);
     }
 
     @Test void an_older_unplaced_quote_is_rejected_once_a_newer_cart_version_was_purchased() {
@@ -979,7 +1033,7 @@ class OrderPlaceCodIT extends AbstractMongoIT {
     }
 
     @Test void only_the_reachable_states_and_conditions_exist() {
-        assertThat(Arrays.stream(OrderStatus.values()).map(Enum::name)).containsExactly("CREATED", "CONFIRMED");
+        assertThat(Arrays.stream(OrderStatus.values()).map(Enum::name)).containsExactly("CREATED", "CONFIRMED", "CANCELLED", "OUT_FOR_DELIVERY", "DELIVERED");
         assertThat(Arrays.stream(PaymentMethod.values()).map(Enum::name)).containsExactly("COD");
         assertThat(Arrays.stream(ConfirmedPaymentCondition.values()).map(Enum::name)).containsExactly("COD_DUE");
     }

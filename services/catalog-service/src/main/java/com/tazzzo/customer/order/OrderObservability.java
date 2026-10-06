@@ -63,6 +63,16 @@ public class OrderObservability {
                 .tag("reason", reason.name().toLowerCase(Locale.ROOT)).register(registry).increment());
     }
 
+    /** Customer cancellation: recorded only by the lifecycle service after its transaction returned. */
+    public void cancelSuccess() {
+        safely(() -> Counter.builder("order_cancel_success").register(registry).increment());
+    }
+
+    public void cancelFailure(OrderFailure.Reason reason) {
+        safely(() -> Counter.builder("order_cancel_failure")
+                .tag("reason", reason.name().toLowerCase(Locale.ROOT)).register(registry).increment());
+    }
+
     private static void safely(Runnable recording) {
         try {
             recording.run();

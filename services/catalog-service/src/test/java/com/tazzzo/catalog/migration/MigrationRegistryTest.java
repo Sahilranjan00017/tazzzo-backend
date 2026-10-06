@@ -30,6 +30,13 @@ class MigrationRegistryTest {
         RELEASED.put("V0005__evidence_links_unique_link", "SCHEMA|true|6c9f4fb5ede31c4e1e38b650f6d7ddb62d8d0918da62ad46d6c5d2aed6768ec2");
         RELEASED.put("V0006__taxonomy_nodes_unique_active_sibling_name", "SCHEMA|true|3e944ae4e2a17733dbb262d3aadb8140fe533917e82793e986516e1cc9c8ec4f");
         RELEASED.put("V0007__audit_read_partial_indexes", "SCHEMA|true|3bbe2d9a67dfb44ed348f43a87b389cfa18598005879763c542b13dbe547f43d");
+        RELEASED.put("V0008__delivery_slot_indexes", "SCHEMA|true|b55296f6ecd22b9c7adc2df045cf0d5698763b511fd8e2a22f75a91a43fa9718");
+        RELEASED.put("V0009__product_card_search_tokens_index", "SCHEMA|true|01fa69cedbb1bba63706f52504c9a61ea88d8a7c6652176dd5ffac82d27fdc38");
+        RELEASED.put("V0010__orders_by_customer_recent_index", "SCHEMA|true|f06415f5a51e692b0acc154d0ae64faa66dd6c1f0f8d66350ef20e137512079a");
+        RELEASED.put("V0011__support_case_indexes", "SCHEMA|true|8583b8f1a4f01a72d9405e82acbe3fde53af0145c9becc373414b3ad91d666d4");
+        RELEASED.put("V0012__orders_staff_queue_indexes", "SCHEMA|true|d477eefcc64c2d6fb50cb37a09d662fbeed31ca45ee3704692c0bb208dfdb23f");
+        RELEASED.put("V0013__content_blocks_index", "SCHEMA|true|02a290d4061230c67507f9b79f2a7542fd2683d5eaf979cbd48aed879c861df0");
+        RELEASED.put("V0014__notification_outbox_indexes", "SCHEMA|true|98a7a8a43f3941c052877173afcd9060e3e3427f23428a8ba4f8b1aab4cf29b8");
         RELEASED.put("V0015__address_idempotency_indexes", "SCHEMA|true|e20ea8f00718f510127f92313e1fb3161b8627003ad82826dfcdfc7812dbcce0");
         RELEASED.put("V0101__drop_unused_session_by_customer_index", "SCHEMA|false|0ed42be55eda44aa3b60891e4e52ef394aac6c94293a253da23d5de9e18b606d");
         RELEASED.put("V0102__drop_unused_canonical_keys_product_id_index", "SCHEMA|false|f846da155273d5338fa0ac4285c3cad0478cbc0b40bfe7dca8859136f8b15e36");

@@ -33,9 +33,13 @@ public class OtpAuthProperties {
      * NO default. Empty/unset means no {@code OtpDeliveryProvider} bean is wired, so the OTP
      * request endpoint fails closed with 503 rather than silently discarding an OTP. {@code
      * LOGGING} wires the dev-only {@link LoggingOtpDeliveryProvider}; there is deliberately no
-     * production provider shipped in this PR.
+     * production provider shipped in this PR. {@code HTTP} wires the generic HTTPS gateway adapter
+     * ({@link HttpOtpDeliveryProvider}), validated fail-closed at startup.
      */
     private String providerMode;
+
+    /** Settings of the HTTPS gateway adapter; only read when {@code provider-mode=HTTP}. */
+    private HttpOtpGatewayProperties http = new HttpOtpGatewayProperties();
 
     private Bucket requestIp = new Bucket();
     private Bucket requestPhone = new Bucket();
@@ -121,6 +125,14 @@ public class OtpAuthProperties {
 
     public void setProviderMode(String providerMode) {
         this.providerMode = providerMode;
+    }
+
+    public HttpOtpGatewayProperties getHttp() {
+        return http;
+    }
+
+    public void setHttp(HttpOtpGatewayProperties http) {
+        this.http = http;
     }
 
     public Bucket getRequestIp() {

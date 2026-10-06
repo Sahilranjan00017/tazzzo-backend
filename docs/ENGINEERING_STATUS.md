@@ -1258,7 +1258,7 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   - **DB-0** database inventory: **COMPLETE** (PR #47, `52ab530`). **DB-1** collection contracts + validator policy: **COMPLETE** (PR #48, `e3a0db6`).
     **DB-2** index manifest, per-vertical cursor index, `IndexContractIT`: **COMPLETE** (PR #50, `f99c1fe`). **DB-3** versioned, locked migration
     framework (V0001–V0007, including the nine audit-read indexes), dry run, target guard, safe startup modes (R3, R5): **COMPLETE** (PR #51, `d9c440f`).
-  - **DB-4** staging requirements + users/security: **IN REVIEW** (branch `feature/db4-datastore-contract-and-privileges`). It adds the
+  - **DB-4** staging requirements + users/security: **COMPLETE IN CODE** (PR #52, squash `4b27f32`; Atlas staging is NOT yet connected or verified). It adds the
     explicit connection contract for staging/production (TLS, retry, `w=majority`, read concern, timeouts, pool: closes risk R7; the numeric limits are **PROPOSED — owner ratification required**), a fail-fast datastore verifier
     that runs before the migration runner, a readiness gate so no `@Scheduled` worker acts until the datastore is verified and startup has finished (a refused process or a migration job runs none), an environment label that is metadata rather than a boundary
     (a remote, proxied, wildcard or ambiguously spelled target is enforced whatever it is called; one strict classifier drives the verifier and `TargetGuard`), V0001's checksum input frozen so future schema cannot change a released migration, three least-privilege identities (runtime / migrator / read-only dry run) generated from one model
@@ -1267,9 +1267,11 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   - **Honest state:** Atlas staging is **PARTIAL** (design decisions only: no cluster, users, URI or connectivity); a staging dry run is **blocked on infrastructure**, not on code;
     nothing was run against Atlas, AWS or production. DB-5 (ingestion), DB-6 (backup/restore/retention), DB-7 (query/load verification) and DB-8 (readiness gate) are not started.
     The six deployment gates stay **PENDING / UNVERIFIED**. **The production datastore is NOT READY.**
-  - **OPEN CONFLICT — R1:** price history is ratified as retained, but `CatalogSchedulers.priceRollup()` runs hourly by default and `RollupService.purge()` hard-deletes rolled
-    `price_events` rows. Recorded by DB-0/DB-1, not fixed by DB-3 or DB-4 (needs an owner-designed durable discriminator). Until the R1 work package lands, staging must run
-    with `TAZZZO_SCHEDULER_ENABLED=false`. No price writer exists in `main` today.
+  - **R1 — FIXED IN CODE** (price-history retention PR): `price_events` is append-only history. `RollupService.purge()` and its hourly call are deleted; nothing in `main` deletes or expires a ledger row
+    (pinned by `PriceHistoryRetentionSourceTest`; no TTL index). The roll-up now aggregates ONLY legacy offer events (string `product_id` and `seller`, int32 `price`) into `price_rollups`, claims each with a conditional
+    `rolled=true` flag in the same transaction (exactly-once, restart-safe, safe under overlapping runs) and never reads or writes a paise ledger row, so the old null/invalid aggregate for paise rows is gone. No migration.
+    `TAZZZO_SCHEDULER_ENABLED=false` is **no longer required because of R1**; other scheduler blockers (projection/freshness/reservation-expiry flags, real-Atlas proof) are separate. Still to verify on a real staging database.
+    No price WRITER is exposed over HTTP yet (a downstream pricing-admin PR); `PricingService.upsertPrice(cmd)` (unattributed overload) still exists, has no caller outside tests, and is a carried LOW.
   - **PRE-EXISTING DEFECT — OUTSIDE THE DATABASE FOUNDATION:** `GET /api/v1/products` without `canonicalKey` answers a generic 500 (the route's request-parameter condition is
     unsatisfied and is mapped to `INTERNAL`). Reproduced at an older head, unrelated to the audit-read API; to be fixed separately, not in any DB PR.
 
@@ -1302,7 +1304,7 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   **A read-only, paginated, filterable view of the EXISTING persisted audit ledgers for per-person human admins holding the new
   narrow `audit-reader` role. Nothing is written; no second audit model; existing audit writes are unchanged.**
   - **Sources (no central audit collection exists, by design):** `product_events`, `node_events`, `domain_events`, attributed
-    rows only (`actor` is a document). `price_events` is NOT a source: rows are purged after rollup, and an attributed price
+    rows only (`actor` is a document). `price_events` is NOT a source: it is the retained, mixed-shape price ledger (not an actor-attributed audit ledger), and an attributed price
     change is already a `PRICE_UPDATED` product event. Unattributed historical rows are never returned.
   - **Permission:** `audit-reader` (new `HumanAdminSettings.KNOWN_ROLES` entry, allowlist only; no OIDC validation change).
     `AdminPrincipal.canReadAudit()` = HUMAN_ADMIN AND `audit-reader`. Missing/invalid credential 401; any other principal
@@ -1334,7 +1336,7 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
     `audit_read_actor` (actor.id, at -1, _id -1), `audit_read_request` (actor.request_id, at -1, _id -1). `AuditReadIndexIT`
     explains the executed queries: IXSCAN, no COLLSCAN, no blocking SORT, keys/docs examined = rows returned (default page and
     cursor page on `audit_read_recent`, request-id lookup on `audit_read_request`, actor lookup on `audit_read_actor`).
-  - **Retention:** none. The event ledgers have no TTL and nothing purges them (only `price_events` is purged). Retention policy is
+  - **Retention:** none. The event ledgers have no TTL and nothing purges them (`price_events` too, since R1 was fixed). Retention policy is
     a deployment/compliance decision, not made here.
   - **Read auditing:** none exists in this backend and none is invented. Reads are counted by a bounded metric
     `admin_audit_read{outcome=served|forbidden|invalid}` and logged with request id and result size only (no actor id, filter,
@@ -1345,7 +1347,7 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
 ## Follow-up debt (recorded)
 
 - **Non-Auth `tx.run` result-holder audit (PR-11D, no action taken):** `AttributeAuthoringService`
-  (`version[]`, two sites), `EvidenceService` (`outcome[]`), `RollupService.purge` (`deleted[]`) and
+  (`version[]`, two sites), `EvidenceService` (`outcome[]`), `RollupService.purge` (`deleted[]`, removed by R1) and
   `TaintService.processBatch` (`last[]`) share the same STRUCTURE (a one-element array written in the
   callback and read after `tx.run`) but are NOT retry bugs today: every non-throwing path of every
   attempt overwrites the holder, so the value read is always the last attempt's. They are structurally
@@ -1454,12 +1456,106 @@ is FUTURE work and not required for the production modular monolith.
 ## Last verification
 
 - **2026-10-05** — Address create idempotency (`feature/address-create-idempotency`, closure item 5, app request `BACKEND_INTEGRATION_READINESS.md:522-526`): optional `Idempotency-Key` on `POST /v1/customer/addresses` (checkout's grammar). Same customer+key+normalised body → 201 with the same address (current state), never a second address or a second count against the limit; different body or a since-deleted address → 409 `IDEMPOTENCY_CONFLICT`; keys per customer; key row written in the address's own transaction (a concurrent same-key race resolves to the winner); only a SHA-256 digest of the key is stored; rows expire (`customer_address_idempotency`, V0015 TTL + erasure lookup). Without the header, behaviour is unchanged.
+- **2026-10-05** — Closure: notification hooks + account-erasure wiring + dashboard (`feature/closure-notify-erasure`, stacked on #68 (→#64→#63→#58, #66), #67, #56, #71): ORDER_OUT_FOR_DELIVERY / ORDER_DELIVERED / ORDER_CANCELLED (staff and customer) and SUPPORT_REPLY / SUPPORT_CASE_RESOLVED enqueued inside their business transactions; account deletion now erases support cases and notification-outbox rows in its transaction (`SupportErasure`, `NotificationErasure`); bounded `GET /api/v1/admin/dashboard/summary`. Docs: `docs/ops/NOTIFICATIONS.md`, `docs/ops/ADMIN_DASHBOARD.md`.
+
+- **2026-10-05** — Notification outbox N2 (`feature/notification-outbox`): `notification_outbox` (+V0014: due scan, erasure lookup, TTL); COD placement enqueues `ORDER_CONFIRMED` in its own transaction; leased, token-conditional dispatcher with backoff, max attempts and max age; provider port with a disabled default (enabling dispatch without a provider is a startup failure). See `docs/ops/NOTIFICATIONS.md`. Provider UNVERIFIED (external decision).
+
+- **2026-10-05** — CMS help centre + legal links (`feature/cms-faq-legal`, stacked on #70): typed FAQ blocks (placement `HELP`, type `FAQ`, closed category DELIVERY/PRODUCT/CLUB/PAYMENT/REFUND/ACCOUNT, plain-text question ≤200 / answer ≤2000, no markup) on the existing content lifecycle (DRAFT→PUBLISHED→ARCHIVED, window, CAS + audit), each type bound to exactly one placement; public `GET /v1/content/faqs` (optional `category`, admission-charged on its own route, `public, max-age=60`); app config gains https-only `termsUrl`/`privacyUrl`/`refundPolicyUrl`, exposed as `legal` on `GET /v1/app-config`. No new collection or index (reuses `content_by_placement_status_sort`). The app's docs name `/support/v1/faqs`; the served path is `/v1/content/faqs`.
+
+- **2026-10-05** — CMS home content + app operational config (backend completion PR-Q; base `main` `484d42c`): admin `POST/GET/PUT /api/v1/admin/content/blocks[/{id}]` + `POST /{id}/status` (DRAFT → PUBLISHED ↔ DRAFT → ARCHIVED, final; CAS;
+  audit with the authenticated actor in the SAME transaction) for BANNER (safe asset key + a link from a closed grammar: product/category/search — never an arbitrary URL), PRODUCT_RAIL (1..20 product ids) and CATEGORY_GRID (1..12 node ids),
+  with optional time windows; public `GET /v1/content/home` (PUBLISHED blocks inside their window by the server clock, display order, banner image URLs resolved through the media CDN base — a banner is dropped, never shown broken, when no base is
+  configured; `public, max-age=60`; admission-charged on its own bounded route). App config: admin `GET/PUT /api/v1/admin/app-config` (CAS; create with version 0) and public `GET /v1/app-config` (store open, maintenance message, min/latest
+  Android & iOS versions, support contacts). New collection `content_blocks` (roster, role file, docs — 50 collections) with migration `V0013`; the app config is the `system_config` document `app_config` (no new collection).
+- **2026-10-05** — Customer-surface rate limits (`feature/customer-rate-limits`): per-customer read/write buckets on `/v1/customer/**` after authentication, 429 + Retry-After, fail-closed 503 on store outage, bounded metric; off unless configured, startup failure on partial config or a missing store. See `docs/ops/CUSTOMER_RATE_LIMITS.md`. Values UNVERIFIED (deployment decision).
 
 - **2026-10-05** — Customer account deletion / erasure (backend completion PR-C; base `main` `484d42c`): `POST /v1/customer/account/deletion` with explicit `{"confirm":"DELETE"}`,
   orchestrated by the new top-level `com.tazzzo.account` slice in ONE transaction: sessions revoked (tokens dead at the next request), profile/addresses/address state/cart/quotes deleted, order address
   snapshots anonymised (orders retained as commercial records), entitling membership term revoked in-session, customer row tombstoned (phone replaced by a per-id placeholder, so the phone can register
   again as a NEW customer), the phone's OTP rows purged, and a `CUSTOMER_ACCOUNT_DELETED` audit event with counts only. Each module erases its own data (`*Erasure` components, reachable only from the
   orchestrator — pinned by ModuleBoundaryTest). Idempotent and concurrency-safe (conditional tombstone). No retention PERIOD is invented. PII map updated (`DATABASE_RETENTION_AND_PII.md`).
+- **2026-10-05** — OTP delivery gateway adapter (backend completion PR-N1; base `main` `484d42c`): `tazzzo.customer-auth.otp.provider-mode=HTTP` wires `HttpOtpDeliveryProvider`, a vendor-neutral HTTPS adapter behind the existing
+  `OtpDeliveryProvider` port (POST JSON `{to,message,sender}` with a credential header; any 2xx = accepted). Validated fail-closed at STARTUP (https only except loopback, credential present and never printed, template carries `{otp}`, timeouts
+  fit inside `delivery-timeout-seconds`); redirects never followed; bounded timeouts; the code, phone, URL, credential and response body appear in no log/exception/metric; one bounded metric `otp_gateway_send{outcome}`. A gateway failure is 503
+  with no challenge activated (a prior working code is untouched). `docs/ops/OTP_GATEWAY.md` documents the contract. **External gate (UNVERIFIED):** no real SMS vendor was contacted — vendor choice, India DLT template registration, delivery
+  receipts, failover vendor and spend caps remain open. Not built here: the notification outbox for order events (a separate PR).
+- **2026-10-05** — Staff order operations + fulfilment statuses (backend completion PR-M2; STACKED on PR-M #64 with PR-P #66 merged in): `GET /api/v1/admin/orders[?status]` (newest first, keyset; V0012 indexes), `GET /{id}` (with the delivery
+  address — fulfilment needs it), `POST /{id}/transition` in the orders namespace (order-ops writes, support-agent reads; catalogue roles/shared tokens never reach it). State machine: CONFIRMED(v2) → OUT_FOR_DELIVERY(v3) → DELIVERED(v4); CANCELLED
+  from CONFIRMED (v3) or OUT_FOR_DELIVERY (v4, a failed/refused delivery) with a closed staff reason set; every transition is a CAS on (status, version) with the audit row (authenticated actor) in the SAME transaction; a staff cancel returns the
+  stock (exactly-once) and releases the slot hold. A DELIVERED order is never cancelled (returns are not modelled); a customer can no longer cancel once the order is out for delivery (409). Customers see the new statuses with
+  `outForDeliveryAt`/`deliveredAt`. Cash collection on delivery is a payment concern and is NOT recorded.
+- **2026-10-05** — Support cases (backend completion PR-O; STACKED on PR-P #66): customer `POST/GET /v1/customer/support/cases`, `GET /{id}`, `POST /{id}/messages`, `POST /{id}/close` (owner is always the verified principal; an
+  `orderId` must be one of the caller's own orders; at most 5 open cases; closed field set — no identifier, status or role is accepted from the body) and staff `GET /api/v1/admin/support/cases[?status]`, `GET /{id}`, `POST /{id}/messages`,
+  `/assign` (to self, CAS) and `/status` (IN_PROGRESS/RESOLVED/CLOSED, CAS) in the staff namespace (support-agent read+write, order-ops read-only). Threads are bounded (100 messages, 2000 chars, plain text) and every reply is an
+  atomic guarded append; staff actions write their audit row in the SAME transaction as the change. Collection `support_cases` (roster, role file, docs, 50 collections), migration `V0011` (3 indexes). Case text is personal data:
+  `SupportService.eraseForCustomer` deletes a customer's cases — **wiring it into the account-deletion orchestrator (PR-C #56) is a merge-time follow-up** since the two branches are independent. Retention period: TBD — production policy.
+- **2026-10-05** — Staff roles and the access policy (backend completion PR-P; base `main` `484d42c`): new roles `order-ops` and `support-agent` (human admins only, via the allowlist) and `AdminAccessPolicy`, now the ONE place that
+  authorises an INTERNAL request (`ApiAuthFilter` delegates; legacy rules for unchanged paths are identical). Two staff namespaces are reserved for the order-operations and support APIs that follow: `/api/v1/admin/orders/**`
+  (order-ops read+write, support-agent read) and `/api/v1/admin/support/**` (support-agent read+write, order-ops read); cms-writer, reader, audit-reader and the shared service tokens do NOT reach them, and a staff role confers nothing on the
+  catalogue surface (only `/me`). Exact segment-boundary matching; a staff role on a service account is refused. `docs/ops/ADMIN_ROLES.md` is the matrix. **Open (owner decision):** splitting pricing/stock/delivery writes out of the
+  broad `cms-writer` role — it would change the shared service token's existing reach.
+- **2026-10-05** — Customer order history and cancellation (backend completion PR-M; STACKED on PR-K/L #63 → PR-E #58): `GET /v1/customer/orders` (newest first, keyset by `(createdAt, _id)`, CONFIRMED + CANCELLED only, summaries
+  without address/lines, index `order_by_customer_recent` via migration `V0010`) and `POST /v1/customer/orders/{id}/cancel` (`{"reason": CHANGED_MIND|ORDERED_BY_MISTAKE|OTHER}`). Cancel is ONE transaction: CAS `CONFIRMED(v2)→CANCELLED(v3)` with who/when/why,
+  then — only if that call won the CAS — release the delivery slot hold and return the consumed stock through the new exactly-once `InventoryReservationPort.restockConsumed` (one-shot `restockedAt` marker on the reservation header; its status stays
+  CONSUMED), plus an `ORDER_CANCELLED` audit event; any failure rolls back the lot, a repeat cancel is an idempotent 200, concurrent cancels restock exactly once. Customer cancellation is bounded by
+  `tazzzo.orders.customer-cancel-window-seconds` — the DEFAULT 0 DISABLES it (409 `CANCELLATION_WINDOW_CLOSED`) until the business sets a window (a policy decision, not invented here). A re-sent placement of a cancelled quote returns the
+  cancelled order and never re-orders. **Not built (needs the staff-role model, PR-P):** admin order list/read/transition and the fulfilment statuses (out for delivery, delivered); cancel-by-staff.
+- **2026-10-05** — Delivery slot at order placement (backend completion PR-K/L; STACKED on PR-E #58 — retarget to `main` after it merges): `POST /v1/customer/orders` accepts an optional `deliverySlotId`
+  (`<window>~<yyyy-MM-dd>`, from `GET /v1/customer/delivery/slots`). It is reserved in the SAME transaction as the COD placement through `DeliverySlotService.reserveForOrder` (PIN → service area → atomic hold keyed by the order id): a full,
+  closed, unknown or out-of-horizon slot is `409 DELIVERY_SLOT_UNAVAILABLE` and the whole placement rolls back (stock, cart marker, order, hold); a malformed id is 400; a replay returns the original order and never re-reserves. The
+  order stores an `OrderDeliverySlot` snapshot (internal area/window/date for the later release on cancellation; the customer sees only `slotId`, `label`, `startsAt`, `endsAt`). `tazzzo.checkout.delivery-slot-required` (default false)
+  makes a slot mandatory. Orders placed without a slot are unchanged. The cart and checkout-quote contracts are untouched (no quote fingerprint change). Releasing the hold on cancellation is PR-M.
+- **2026-10-05** — Consumer product search (backend completion PR-G; base `main` `484d42c`): `GET /v1/search?q=&pin=&page_size=&cursor=` on the PUBLIC commerce surface. Query → lower-cased tokens (shared
+  `SearchTokens` normalisation, ≤64 chars, ≤5 tokens, ≥2 chars each); candidates from `product_card_base.search_tokens` (anchored-prefix `$all`, served by the new multikey index `card_search_tokens`, migration `V0009`)
+  restricted to the release's reachable verticals; every candidate is then re-checked against `products` with `ConsumerEligibility.within` (a stale projection row can hide a product, never show an ineligible one);
+  the page is enriched through the same composer/enricher as the category list (price, stock, serviceability), keyset-paged by sku with the same signed commerce cursor (query bound as a keyed fingerprint;
+  location bound as before). Admission charged `1 + page_size` on the new bounded route `commerce_search`. The projector writes tokens and backfills older rows on their next rebuild (explicit exception to the
+  content-NOOP rule). **Not built (product decision):** relevance ranking / synonyms / typo tolerance — results are deterministic sku order; a ranking choice (Atlas Search vs in-house scoring) needs a product ruling.
+- **2026-10-05** — Delivery slots (backend completion PR-E; base `main` `484d42c`): new `com.tazzzo.delivery` slice. Admin API `GET/PUT /api/v1/admin/delivery-slots/{serviceAreaId}[/{windowId}]` +
+  `POST …/activate|deactivate` (recurring windows per service area: local start/end minute, cutoff, capacity, ISO weekdays; CAS `expectedVersion`; audit-before-state with the AUTHENTICATED actor; area must exist), customer
+  `GET /v1/customer/delivery/slots?pin=&days=` (fresh availability in the configured zone `tazzzo.delivery.zone`, default `Asia/Kolkata`, horizon `tazzzo.delivery.horizon-days`, default 3; status only, never counts), and the
+  atomic hold primitives `reserve`/`release` that checkout/order placement (PR-L/M) will call inside THEIR transaction: idempotent per hold id, `used < capacity` conditional increment is the sole "full" decision (24-way
+  concurrency test: exactly capacity holds). Two collections added to the roster (`delivery_slot_windows`, `delivery_slot_usage`), migration `V0008` (by-area index + the only durable-collection TTL: counters purged a week
+  after the slot date), runtime role regenerated, DB docs/pins updated (51 collections, 62 indexes). Not wired into checkout yet (PR-L).
+- **2026-10-05** — R1 price-history retention (backend completion PR #1; base `main` `4b27f32`): `./mvnw clean test` on Java 21 + Docker: **BUILD SUCCESS**, 2864 tests (1277 unit, 1587 integration), 0 failures / 0 errors / 0 skipped (+14 over 2850:
+  `PriceHistoryRetentionIT` 13, `PriceHistoryRetentionSourceTest` 3, minus the 2 `RollupStallIT` tests that pinned the purge); `ModuleBoundaryTest` 73/73, `IndexContractIT` 12/12. Evidence (real MongoDB 7, real writers): a paise ledger written by
+  `PricingService` survives the roll-up byte-identical and is never aggregated; legacy offer events are all retained and flagged once; second run, new event, out-of-order older event, restart and four overlapping runs never double-count; a failed projection
+  leaves the whole history unflagged and intact and the retry succeeds; `price_current`, customer price reads and version CAS are unchanged; no TTL on `price_events`. Mutations, each killed: R1-M1 purge restored, M2 claim step consumes the event,
+  M3 already-processed filtering removed, M4a/b shape filter removed (paise row reaches the aggregate, null aggregate), M5 destructive cleanup after a projection failure. No migration; V0001–V0007 checksums unchanged. R1 is fixed in code and still to be
+  confirmed on a real staging database. Carried LOW: `PricingService.upsertPrice(cmd)` (unattributed overload) still exists, unused outside tests; the roll-up select scans non-legacy ledger rows' index entries each run (a typed partial index would remove that; it needs a migration and is deliberately not done here).
+- **2026-10-05** — Platform HTTP baseline (backend completion PR-B; base `main` `484d42c`): health probes (`GET /health/live`, `GET /health/ready`, new exact `HEALTH` surface, unauthenticated,
+  no-store, bounded words only; readiness = datastore gate OPEN + bounded Mongo ping, limiter store reported/optional), application-level request-body limit (64 KiB default, 413 before auth, chunked bodies
+  bounded by buffering), sanitized framework errors (unreadable body, type mismatch, missing/unsatisfied parameter → 400, never the 500 catch-all — this closes the `GET /api/v1/products` without `canonicalKey`
+  500 at the framework level), validated `X-Correlation-Id`, explicit CORS allowlist (off by default, exact https origins, no credentials), `forward-headers-strategy=none` + graceful shutdown. Filter chain pinned:
+  request-id → body-limit → CORS → service-token auth → customer auth. Doc: `docs/ops/HTTP_PLATFORM_BASELINE.md`. Test evidence and mutations are recorded in the PR.
+- **2026-10-05** — Catalogue/taxonomy admin completion (backend completion PR-F; base `main` `484d42c`): `GET /api/v1/products` was a **500** (the only mapping was `params="canonicalKey"`, and the unsatisfied-parameter
+  exception fell through to the catch-all). It is now a real admin list — ascending-id keyset paging (`cursor` = last id), filters `verticalId` / `lifecycle` / `status` (the latter two require a vertical so no query is a collection scan on a
+  secondary filter), closed parameter grammar (unknown/repeated/empty/oversized = 400) — and `ServletRequestBindingException` is now a 400 `MALFORMED_REQUEST`, never a 500. Taxonomy: `POST /api/v1/taxonomy/nodes` creates a
+  super_category / category / sub_category / vertical under an ACTIVE parent of the right level inside the OPEN release (so consumers see it only when that release is published), duplicate active sibling = `DUPLICATE_NODE`,
+  verticals must name an existing attribute schema, ids minted from per-prefix sequences (`TZS`/`TZC`/`TZG`/`TZV`, base 100000), audit event `created` with the authenticated actor; `GET /api/v1/taxonomy/nodes` lists nodes
+  (filters `parentId`/`nodeType`/`status`, keyset paged). **Open product decision (not built):** sibling *reorder* — the consumer taxonomy order is the ratified transport order (name, then node id) that cursors and ETags hash, so a
+  display order is a consumer-contract change (snapshot field + ordering + ETag), not an admin-only feature.
+- **2026-10-05** — Bulk product catalogue import (`feature/bulk-product-import`, stacked on #73): `POST /api/v1/admin/imports/products`, 1–500 single-create-shaped rows, whole-file validation reusing governance, canonical-key derivation and the products `$jsonSchema` validator (aborted-transaction probe) plus release/vertical existence and GS1 check digits; in-file and existing-owner identity conflicts; identical existing product = UNCHANGED (re-submit safe); apply through `MintService.mint`; a 500-row file loads in one call. `docs/ops/BULK_IMPORT.md` gains the end-to-end 500-SKU load procedure. **No 500-SKU dataset exists in any repo; none is loaded.**
+
+- **2026-10-05** — Bulk price/stock import PR-T (`feature/bulk-price-stock-import`, stacked on #61): `POST /api/v1/admin/imports/{prices,inventory}`, 1–500 rows, whole-file validation (422 with every row error, nothing written), dry run, per-row attributed CAS writes through the single-row service path, stop-on-datastore-failure with NOT_ATTEMPTED rows, one summary audit row per run. See `docs/ops/BULK_IMPORT.md`.
+
+- **2026-10-05** — Price and stock admin APIs (backend completion PR-H/PR-I; base `main` `484d42c`): INTERNAL `GET/PUT /api/v1/admin/prices/{sku}` (explicit paise, `expectedVersion` absent = create / present = CAS, sanity ceiling and
+  MRP >= selling enforced by `PricingService`, no effective windows offered) and `GET/PUT /api/v1/admin/inventory/{sku}/{location}` + `POST …/activate|deactivate` (ABSOLUTE stock set, CAS, can never push `onHand` below live
+  reservations, never touches `reserved`; delist keeps the counters). Both require an existing product, record the AUTHENTICATED actor (ledger row / product event; a body field is ignored) and are read-only for read credentials.
+  The unattributed `PricingService.upsertPrice(cmd)` and `InventoryService.setInventory(cmd)` overloads are now fixture seams that NO production class may call (two ArchUnit rules); `setInventory(cmd, actor)` and
+  `setActive(actor, …)` are new. `InventoryKey` now bounds ids like the serviceability route does (max 128, trimmed, no control chars) — previously any string was accepted. Open: fulfilment locations are still only the ids
+  inside service-area routes (no location master); the admin API does not verify a location exists.
+- **2026-10-05** — Media admin + storage abstraction (backend completion PR-J; base `main` `484d42c`): INTERNAL `POST /api/v1/admin/media/uploads` (server-generated key `p/<owner type>/<owner id>/<uuid>.<ext>`, content-type allowlist
+  jpeg/png/webp, size ceiling `tazzzo.media.max-upload-bytes` default 5 MiB, owner must be an existing product; returns a short-lived direct-to-storage target — the platform never proxies bytes), `GET/PUT /api/v1/admin/media/{product|sku}/{id}`
+  (whole-set replace, CAS; one PRIMARY at order 0, unique ids/orders, unsafe keys refused by the domain). With storage configured, every NEWLY referenced key is verified against what storage really holds (exists, within the ceiling,
+  magic bytes = declared type; svg/html/gif refused) — closing the documented gap that `contentType` was only caller-asserted. New port `MediaStorage` (default `DisabledMediaStorage`: uploads are `503 MEDIA_STORAGE_NOT_CONFIGURED`, set
+  writes stay metadata-only/unverified). Writes are attributed (`upsertMediaSet(cmd, actor)`; the actor-less overload is closed to production code by an ArchUnit rule). **External gate (UNVERIFIED):** no S3/GCS provider ships — choosing one
+  needs a decision + credential in the secret store; CDN base (`tazzzo.media.public-base-url`) and image processing/resizing remain unprovisioned. Not built: media-set activate/deactivate, delete of orphaned objects.
+- **2026-10-05** — Location + serviceability admin (backend completion PR-D; base `main` `484d42c`): INTERNAL admin API `GET/PUT /api/v1/admin/service-areas[/{pin}]` and `POST /{pin}/activate|deactivate`
+  (CAS on `expectedVersion`, create-vs-update explicit, route invariants in the domain, audit-before-state with the AUTHENTICATED actor — never the body; read-only credentials can read, not write), living in the
+  serviceability slice (`ServiceAreaAdminController`). New `com.tazzzo.location` geo port (`GeoPincodeResolver`, default `DisabledGeoPincodeResolver`): when an operator configures a provider, `lat`+`lng` on
+  `GET /v1/serviceability` resolve to a PIN (provider called only AFTER admission is charged; provider text/coordinates never echoed or logged; out-of-PIN point = not serviceable; outage = 503). List/PDP stay PIN-only.
+  No external provider ships: choosing one needs a business decision and a credential (`docs/ops/GEO_PROVIDER.md`), so that gate stays UNVERIFIED/external.
 - **2026-10-04** — DB-4 final proxy-detector fix (narrow re-review of `4e19e5e`: the MongoDB driver accepts `;` as well as `&` between URI options, and the raw text scan only split on `&`, so `?w=majority;proxyHost=evil.example.net` kept a loopback target "local" and bypassed `PROXY_FORBIDDEN`):
   proxy use now comes from the driver's own parse (effective `ProxySettings`), not a second text parser; the dead raw-scan helper was removed. Mutations, each killed: DB4-P1 detector sees only `&`, P2 `isLocalTarget` ignores proxies, P3 contract does not reject the proxy,
   P4 `MigrationTarget` loses the proxy decision, P5 detector fails open on an unparseable string, P6 detector blind. `./mvnw clean test` on Java 21 + Docker: **BUILD SUCCESS**, 2850 tests (1274 unit, 1576 integration), 0 failures / 0 errors / 0 skipped (+7); `ModuleBoundaryTest` 73/73, `IndexContractIT` 12/12. V0001 checksum unchanged (`3b703e4a…`); R1 unchanged and open.
