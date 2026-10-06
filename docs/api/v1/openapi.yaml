@@ -27,10 +27,6 @@ tags:
   description: 'PR-12B — authenticated CRUD of a customer''s OWN saved delivery addresses, plus dynamic serviceability binding. All endpoints REQUIRE a valid customer access token; customerId always comes from the token, never from the request. Optimistic concurrency via ETag/If-Match, the SAME pattern as customer-profile. Serviceability is evaluated FRESH on every read/response from the existing serviceability domain — it is never persisted as address state, and saving an address never requires it to currently be serviceable. The ETag `"address-<version>"` is the address-CONTENT concurrency token for PATCH/DELETE If-Match — not a complete version of the customer''s default-preference state (`isDefault` can change without the address version changing; responses are no-store). recipientPhone is delivery-contact information only, never an authentication identity. fulfillmentLocationId is internal and never exposed. serviceAreaId/serviceAreaVersion are public in the existing /v1/serviceability contract, but this address projection intentionally omits them (it exposes only the narrower `serviceable`). Does NOT cover cart, checkout, order, or payment — those are future phases.
 
     '
-- name: customer-cart
-  description: 'PR-12C — the authenticated customer''s OWN cart: purchase INTENT (SKU + quantity) only. All endpoints REQUIRE a valid customer access token; ownership is always the token''s customer, never a request field. A cart is NOT a reservation: stock is not held, prices are not locked (every response shows CURRENT catalog price, stock and serviceability), and checkout MUST revalidate everything. Optimistic concurrency via ETag `"cart-<version>"` and a REQUIRED If-Match on every mutation; a customer with no cart is logical version 0 (`"cart-0"`). Carts expire 7 days after the last mutation (expiry is evaluated at runtime, the version never resets). `subtotalPaise` is the sum of current line totals of buyable-priced lines and is NOT a final payable total (no fees, tax, discount or delivery). Without the optional `addressId` location context, stock is UNKNOWN, `serviceable` is null and nothing is buyable. fulfillmentLocationId / warehouse identifiers are never exposed. Does NOT cover checkout, orders, or payment — those are future phases.
-
-    '
 - name: customer-checkout
   description: 'PR-13A — checkout VALIDATION + QUOTE for the authenticated customer. A quote binds the exact cart version the customer reviewed (`If-Match: "cart-<n>"`), one OWNED delivery address, and current commerce truth (catalog visibility, canonical price, serviceability, inventory), and returns a short-lived (5 minutes by default) validated snapshot. Creation is ALL-OR-NOTHING (any failing line rejects the whole quote; nothing is reduced, substituted or partially quoted), idempotent (`Idempotency-Key`, scoped per customer) and never mutates the cart. A quote is NOT a reservation: NO stock is held, prices are NOT locked beyond this snapshot, and a future order must revalidate stock and quote validity. `subtotalPaise` is the sum of line totals at the quoted current prices. The optional `moneyPreview` is an ADVISORY payable preview stored with the quote: it is not Payment authority, not a price lock and not binding on Order placement, which revalidates and computes its own authoritative money (it may differ). Internal routing/fulfillment identifiers are never exposed. Order placement is a separate surface; no payment endpoint exists yet.
 
@@ -53,6 +49,10 @@ tags:
   description: Account lifecycle of the authenticated customer (deletion / erasure).
 - name: content
   description: Public, same-for-everyone reads for app start and the home screen. Cacheable for 60 seconds.
+- name: customer-cart
+  description: 'PR-12C — the authenticated customer''s OWN cart: purchase INTENT (SKU + quantity) only. All endpoints REQUIRE a valid customer access token; ownership is always the token''s customer, never a request field. A cart is NOT a reservation: stock is not held, prices are not locked (every response shows CURRENT catalog price, stock and serviceability), and checkout MUST revalidate everything. Optimistic concurrency via ETag `"cart-<version>"` and a REQUIRED If-Match on every mutation; a customer with no cart is logical version 0 (`"cart-0"`). Age policy, by time since the last mutation: under 24 hours the cart is FRESH; from 24 hours up to and including 7 days it is kept and presented as `freshness: REVALIDATE` (lines also carry `PRICE_CHANGED` when the current price differs from the price observed when the line was set; a revalidate read never writes); strictly older than 7 days it expires (evaluated at runtime, presented empty, the version never resets). `subtotalPaise` is the sum of current line totals of buyable-priced lines and is NOT a final payable total (no fees, tax, discount or delivery). Without the optional `addressId` location context, stock is UNKNOWN, `serviceable` is null and nothing is buyable. fulfillmentLocationId / warehouse identifiers are never exposed. Does NOT cover checkout, orders, or payment — those are future phases.
+
+    '
 paths:
   /v1/categories:
     get:
@@ -2784,6 +2784,7 @@ components:
       - distinctItemCount
       - subtotalPaise
       - requestId
+      - freshness
       properties:
         version:
           type: integer
@@ -2809,9 +2810,15 @@ components:
           type: string
           format: date-time
           nullable: true
-          description: Last mutation + 7 days; null for an empty cart.
+          description: Last mutation + 7 days (still kept at exactly this instant, expired after it); null for an empty cart.
         requestId:
           type: string
+        freshness:
+          type: string
+          enum:
+          - FRESH
+          - REVALIDATE
+          description: 'Cart age band: FRESH under 24 h since the last mutation; REVALIDATE from 24 h through 7 days (review prices, PRICE_CHANGED lines). An empty cart is FRESH.'
     CustomerCartItem:
       type: object
       required:
@@ -2897,6 +2904,8 @@ components:
             - INSUFFICIENT_STOCK
             - STOCK_UNKNOWN
             - ENRICHMENT_UNAVAILABLE
+            - PRICE_CHANGED
+          description: 'PRICE_CHANGED is informational (REVALIDATE band only): the line is priced and totalled at the CURRENT price and stays buyable; checkout never rejects on it.'
     CustomerCartErrorEnvelope:
       type: object
       description: 'Covers CustomerAuthFilter failures (UNAUTHENTICATED/SERVICE_UNAVAILABLE) and this domain''s own (INVALID_REQUEST/UNSUPPORTED_MEDIA_TYPE/NOT_FOUND/PRECONDITION_REQUIRED/ PRECONDITION_FAILED/CART_ITEM_LIMIT_REACHED/SERVICE_UNAVAILABLE/INTERNAL). Unknown SKU, hidden SKU, absent line and foreign/unknown addressId are all the IDENTICAL NOT_FOUND.

@@ -307,11 +307,15 @@ class CartServiceIT extends AbstractMongoIT {
         assertThat(s.version()).isEqualTo(1);
     }
 
-    @Test void a_cart_at_exactly_seven_days_expires_and_the_version_advances_never_resets() {
+    @Test void a_cart_just_over_seven_days_expires_and_the_version_advances_never_resets() {
         CustomerId c = cust("0014");
         service.setItem(c, "TZP-1", 1, 0);
         service.setItem(c, "TZP-2", 1, 1); // version 2, expires t0+7d
         NOW.set(Instant.parse("2026-06-01T00:00:00Z").plus(Duration.ofDays(7)));
+        CartState kept = service.get(c);
+        assertThat(kept.lines()).as("exactly 7 days: still kept (revalidate band)").hasSize(2);
+        assertThat(kept.version()).isEqualTo(2);
+        NOW.set(Instant.parse("2026-06-01T00:00:00Z").plus(Duration.ofDays(7)).plusMillis(1));
         CartState expired = service.get(c);
         assertThat(expired.lines()).isEmpty();
         assertThat(expired.version()).as("advanced past 2, NOT reset to 0").isEqualTo(3);
@@ -322,6 +326,38 @@ class CartServiceIT extends AbstractMongoIT {
         assertFailure(() -> service.setItem(c, "TZP-1", 1, 2), CartFailure.Reason.PRECONDITION_FAILED);
         assertFailure(() -> service.setItem(c, "TZP-1", 1, 0), CartFailure.Reason.PRECONDITION_FAILED);
         assertThat(service.setItem(c, "TZP-1", 1, 3).version()).isEqualTo(4);
+    }
+
+    @Test void the_age_policy_bands_hold_at_every_boundary_and_a_kept_read_never_writes() {
+        CustomerId c = cust("0040");
+        Instant t0 = Instant.parse("2026-06-01T00:00:00Z");
+        service.setItem(c, "TZP-1", 1, 0);
+        Document stored = cartRepo.findById(c.value());
+        Object[][] bands = {
+                {Duration.ofHours(23).plusMinutes(59), CartState.Freshness.FRESH},
+                {Duration.ofHours(24), CartState.Freshness.REVALIDATE},
+                {Duration.ofHours(24).plusMillis(1), CartState.Freshness.REVALIDATE},
+                {Duration.ofDays(6).plusHours(23).plusMinutes(59), CartState.Freshness.REVALIDATE},
+                {Duration.ofDays(7), CartState.Freshness.REVALIDATE}};
+        for (Object[] b : bands) {
+            NOW.set(t0.plus((Duration) b[0]));
+            CartState s = service.get(c);
+            assertThat(s.freshness()).as("age %s", b[0]).isEqualTo(b[1]);
+            assertThat(s.lines()).as("age %s: kept", b[0]).hasSize(1);
+            assertThat(s.version()).as("age %s: no version change", b[0]).isEqualTo(1);
+            assertThat(cartRepo.findById(c.value())).as("age %s: the read wrote nothing", b[0]).isEqualTo(stored);
+        }
+        NOW.set(t0.plus(Duration.ofDays(7)).plusMillis(1));
+        CartState expired = service.get(c);
+        assertThat(expired.lines()).as("just over 7 days: expired").isEmpty();
+        assertThat(expired.version()).isEqualTo(2);
+        assertThat(expired.freshness()).isEqualTo(CartState.Freshness.FRESH);
+
+        // a mutation resets the age: the cart is FRESH again
+        NOW.set(t0.plus(Duration.ofDays(8)));
+        assertThat(service.setItem(c, "TZP-2", 1, 2).freshness()).isEqualTo(CartState.Freshness.FRESH);
+        NOW.set(t0.plus(Duration.ofDays(8)).plus(Duration.ofHours(23)));
+        assertThat(service.get(c).freshness()).isEqualTo(CartState.Freshness.FRESH);
     }
 
     @Test void a_mutation_on_an_expired_cart_treats_it_as_empty_and_continues_the_version() {

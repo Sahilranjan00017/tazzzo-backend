@@ -3799,6 +3799,9 @@
           "expiresAt" : {
             "type" : "string"
           },
+          "freshness" : {
+            "type" : "string"
+          },
           "requestId" : {
             "type" : "string"
           }
@@ -3840,7 +3843,7 @@
             "type" : "array",
             "items" : {
               "type" : "string",
-              "enum" : [ "PRODUCT_UNAVAILABLE", "PRICE_UNAVAILABLE", "LOCATION_REQUIRED", "UNSERVICEABLE", "OUT_OF_STOCK", "INSUFFICIENT_STOCK", "STOCK_UNKNOWN", "ENRICHMENT_UNAVAILABLE" ]
+              "enum" : [ "PRODUCT_UNAVAILABLE", "PRICE_UNAVAILABLE", "LOCATION_REQUIRED", "UNSERVICEABLE", "OUT_OF_STOCK", "INSUFFICIENT_STOCK", "STOCK_UNKNOWN", "ENRICHMENT_UNAVAILABLE", "PRICE_CHANGED" ]
             }
           }
         }

@@ -51,7 +51,8 @@ public class CartEnricher {
         int itemCount = 0;
         try {
             for (CartState.Line line : state.lines()) {
-                CartResponseDto.Item item = item(line, cards.get(line.skuId()), degraded, location);
+                CartResponseDto.Item item = item(line, cards.get(line.skuId()), degraded, location,
+                        state.freshness() == CartState.Freshness.REVALIDATE);
                 items.add(item);
                 if (item.lineTotalPaise() != null) {
                     subtotal = CartMath.add(subtotal, item.lineTotalPaise());
@@ -63,11 +64,11 @@ public class CartEnricher {
             throw new CartFailure(CartFailure.Reason.UNAVAILABLE);
         }
         return new CartResponseDto(state.version(), items, itemCount, items.size(), subtotal,
-                state.expiresAt() == null ? null : state.expiresAt().toString(), requestId);
+                state.expiresAt() == null ? null : state.expiresAt().toString(), state.freshness().name(), requestId);
     }
 
     private CartResponseDto.Item item(CartState.Line line, RuntimeProductCard card, boolean degraded,
-                                      LocationQuery location) {
+                                      LocationQuery location, boolean revalidate) {
         List<CartIssue> issues = new ArrayList<>();
         String added = line.addedAt().toString();
         String updated = line.updatedAt().toString();
@@ -108,6 +109,12 @@ public class CartEnricher {
             }
         }
         boolean buyable = issues.isEmpty() && card.buyable() && line.quantity() <= card.maxOrderQuantity();
+        // REVALIDATE band only: tell the customer the price moved since they set the line. Informational — the
+        // line is still priced (and totalled) at the CURRENT price, so it does not affect buyability.
+        if (revalidate && unit != null && line.unitPricePaiseAtUpdate() != null
+                && !unit.equals(line.unitPricePaiseAtUpdate())) {
+            issues.add(CartIssue.PRICE_CHANGED);
+        }
         return new CartResponseDto.Item(line.skuId(), line.quantity(), added, updated,
                 new CartResponseDto.Product(card.title(), card.brandCode(), card.thumbnailUrl()),
                 unit == null ? null : new CartResponseDto.Price(unit, card.mrpPaise(), "INR"),

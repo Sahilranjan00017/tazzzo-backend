@@ -24,10 +24,14 @@ import java.util.List;
  * routing authority: nothing here reads or stores price/stock/serviceability; response enrichment is
  * {@link CartEnricher}'s job, from CURRENT commerce truth.
  *
- * <p><b>Retention (injected {@link Clock} only):</b> {@code expiresAt = updatedAt + 7 days}; every
- * successful mutation refreshes it. Runtime expiry checks are authoritative (no Mongo TTL). An
- * expired cart behaves as EMPTY, and clearing it ADVANCES the version — the document is never
- * deleted, so a stale client can never re-create over a "version 0" reset.
+ * <p><b>Age policy (injected {@link Clock} only), by time since the last mutation ({@code updatedAt}):</b>
+ * under 24 h the cart is {@code FRESH}; from 24 h up to and INCLUDING 7 days it is kept and presented as
+ * {@code REVALIDATE} (the enricher adds {@code PRICE_CHANGED} against the price observed when each line was set,
+ * on top of the current-state issues every read computes); strictly older than 7 days it EXPIRES.
+ * {@code expiresAt = updatedAt + 7 days}; every successful mutation refreshes it. Runtime expiry checks are
+ * authoritative (no Mongo TTL). An expired cart behaves as EMPTY, and clearing it ADVANCES the version — the
+ * document is never deleted, so a stale client can never re-create over a "version 0" reset. A REVALIDATE read
+ * never writes: only an EXPIRED cart is housekept.
  *
  * <p><b>Atomicity:</b> every mutation verifies customer identity and applies the change in ONE
  * {@link Tx#call}; the callback contains only transactional Mongo state (no metrics, no logging of
@@ -43,6 +47,8 @@ public class CartService {
 
     private static final Logger log = LoggerFactory.getLogger(CartService.class);
     static final Duration RETENTION = Duration.ofDays(7);
+    /** From this age on (inclusive) a kept cart is presented for revalidation. */
+    static final Duration REVALIDATE_AFTER = Duration.ofHours(24);
 
     private final CartRepository carts;
     private final CartLimitProperties limits;
@@ -120,6 +126,7 @@ public class CartService {
             throw new CartFailure(CartFailure.Reason.INVALID_REQUEST);
         }
         requireVisibleSku(skuId);
+        Long observedPrice = observePrice(skuId);
         Instant now = clock.instant();
         return mutate(() -> tx.call(session -> {
             verifyIdentityExistsTransactional(session, customerId);
@@ -129,15 +136,22 @@ public class CartService {
             List<Document> items = liveItems(doc, now);
 
             Document existing = find(items, skuId);
-            if (existing != null) {
-                existing.put("quantity", quantity);
-                existing.put("updatedAt", Date.from(now));
+            Document target = existing;
+            if (target != null) {
+                target.put("quantity", quantity);
+                target.put("updatedAt", Date.from(now));
             } else {
                 if (items.size() >= limits.getMaxDistinctItems()) {
                     throw new CartFailure(CartFailure.Reason.CART_ITEM_LIMIT_REACHED);
                 }
-                items.add(new Document("skuId", skuId).append("quantity", quantity)
-                        .append("addedAt", Date.from(now)).append("updatedAt", Date.from(now)));
+                target = new Document("skuId", skuId).append("quantity", quantity)
+                        .append("addedAt", Date.from(now)).append("updatedAt", Date.from(now));
+                items.add(target);
+            }
+            if (observedPrice == null) {
+                target.remove(PRICE_OBSERVED);   // unknown now: never compare against an older observation
+            } else {
+                target.put(PRICE_OBSERVED, observedPrice);
             }
             return write(session, customerId, doc, expectedVersion, items, now, expired);
         }));
@@ -248,6 +262,24 @@ public class CartService {
 
     // ---------- pre-transaction checks ----------
 
+    static final String PRICE_OBSERVED = "unitPricePaiseAtUpdate";
+
+    /**
+     * Best effort: the selling price the customer is seeing as the line is set (the canonical price overlay is
+     * location-independent). Only ever used to flag {@code PRICE_CHANGED} later; a read failure records nothing and
+     * never fails the mutation.
+     */
+    private Long observePrice(String skuId) {
+        try {
+            com.tazzzo.commerce.read.RuntimeProductCard card = commerce.readCurrent(List.of(skuId),
+                    com.tazzzo.commerce.contract.LocationQuery.anonymous()).get(skuId);
+            return card == null ? null : card.sellingPricePaise();
+        } catch (RuntimeException e) {
+            log.warn("customer_cart_price_observation_skipped type={}", e.getClass().getSimpleName());
+            return null;
+        }
+    }
+
     private void requireVisibleSku(String skuId) {
         boolean visible;
         try {
@@ -301,7 +333,17 @@ public class CartService {
 
     private static boolean isExpired(Document doc, Instant now) {
         Date expiresAt = doc.getDate("expiresAt");
-        return expiresAt != null && !expiresAt.toInstant().isAfter(now);
+        return expiresAt != null && expiresAt.toInstant().isBefore(now);   // exactly 7 days is still kept
+    }
+
+    /** REVALIDATE once the contents are at least 24 h old (an empty cart has nothing to revalidate). */
+    static CartState.Freshness freshness(Document doc, List<CartState.Line> lines, Instant now) {
+        Date updatedAt = doc.getDate("updatedAt");
+        if (lines.isEmpty() || updatedAt == null) {
+            return CartState.Freshness.FRESH;
+        }
+        return now.isBefore(updatedAt.toInstant().plus(REVALIDATE_AFTER)) ? CartState.Freshness.FRESH
+                : CartState.Freshness.REVALIDATE;
     }
 
     private static long version(Document doc) {
@@ -315,8 +357,10 @@ public class CartService {
     }
 
     private static CartState.Line line(Document i) {
+        Number observed = i.get(PRICE_OBSERVED, Number.class);
         return new CartState.Line(i.getString("skuId"), i.get("quantity", Number.class).intValue(),
-                i.getDate("addedAt").toInstant(), i.getDate("updatedAt").toInstant());
+                i.getDate("addedAt").toInstant(), i.getDate("updatedAt").toInstant(),
+                observed == null ? null : observed.longValue());
     }
 
     private static CartState toState(Document doc, Instant now) {
@@ -328,6 +372,6 @@ public class CartService {
             }
         }
         Instant expiresAt = lines.isEmpty() ? null : doc.getDate("expiresAt").toInstant();
-        return new CartState(version(doc), lines, expiresAt, false);
+        return new CartState(version(doc), lines, expiresAt, false, freshness(doc, lines, now));
     }
 }
