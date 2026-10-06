@@ -181,6 +181,18 @@
     {
       "resource": {
         "db": "tazzzo_staging",
+        "collection": "customer_address_idempotency"
+      },
+      "actions": [
+        "find",
+        "insert",
+        "remove",
+        "update"
+      ]
+    },
+    {
+      "resource": {
+        "db": "tazzzo_staging",
         "collection": "customer_address_state"
       },
       "actions": [

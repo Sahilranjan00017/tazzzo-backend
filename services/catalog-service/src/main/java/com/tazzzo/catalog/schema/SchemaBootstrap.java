@@ -112,6 +112,9 @@ public class SchemaBootstrap {
             // version), _id the opaque MBR_* id. Deliberately NO TTL, NO customer-history index and NO
             // validUntil expiry-scan index -- no query needs one yet; each arrives with its query.
             "memberships",
+            // Address-create idempotency: one row per (customer, Idempotency-Key digest) -> the address it created,
+            // kept only long enough to absorb a client retry. TTL index on expire_at is migration-only (V0015).
+            "customer_address_idempotency",
             // N2 transactional notification outbox: one row per (type, subject), _id the dedupe key; recipient is the
             // opaque customer id only (contact resolved at send time). Indexes (due scan, by-customer erasure, TTL) are
             // migration-only (V0014); bootstrap creates only the collection.

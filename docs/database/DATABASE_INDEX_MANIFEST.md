@@ -8,7 +8,7 @@ Index, uniqueness and TTL contract derived from real query paths and business in
 |---|---|
 | Repository | `Sahilranjan00017/tazzzo-backend` |
 | Base | `origin/main` `e3a0db6d47bc556472b42f169223eb89684d67a8` (DB-1 merged; DB-0 `52ab530`; audited source `f5b2cdd`) |
-| Index count today | **48** non-`_id` indexes on 34 collections (DB-0 §8: 31 + 17). After DB-2: **49**. After DB-3 and PR #49: **60** — the 48 baseline indexes (created by `SchemaBootstrap`/migration `V0001`) plus 3 created **only by explicit migrations** (`V0002`, `V0005`, `V0006`) plus the 9 audit-read indexes (`V0007`; also created by the legacy test/dev `bootstrap`) plus the migration-only indexes of the backend completion program: 2 delivery-slot (`V0008`), 1 search-token (`V0009`), 1 order history (`V0010`), 3 support-case (`V0011`), 2 staff order queue (`V0012`), 1 content (`V0013`), 3 notification outbox (`V0014`) — **73** in total; `docs/database/DATABASE_MIGRATION_RUNBOOK.md`) |
+| Index count today | **48** non-`_id` indexes on 34 collections (DB-0 §8: 31 + 17). After DB-2: **49**. After DB-3 and PR #49: **60** — the 48 baseline indexes (created by `SchemaBootstrap`/migration `V0001`) plus 3 created **only by explicit migrations** (`V0002`, `V0005`, `V0006`) plus the 9 audit-read indexes (`V0007`; also created by the legacy test/dev `bootstrap`) plus the migration-only indexes of the backend completion program: 2 delivery-slot (`V0008`), 1 search-token (`V0009`), 1 order history (`V0010`), 3 support-case (`V0011`), 2 staff order queue (`V0012`), 1 content (`V0013`), 3 notification outbox (`V0014`), 2 address idempotency (`V0015`) — **75** in total; `docs/database/DATABASE_MIGRATION_RUNBOOK.md`) |
 | Evidence | (a) three read-only query-path audits of every Mongo operation on every collection, with path:line cites; (b) a **one-off, uncommitted** `explain(executionStats)` experiment on `mongo:7` (Testcontainers replica set, synthetic data, single node) — see §3; this PR does not reproduce those figures; (c) the **committed** `IndexContractIT`, which runs against a real MongoDB 7 Testcontainers server and pins plan *shape* and index specs, not the experiment's numbers |
 | In-flight work | none on indexes. Admin audit-read (PR #49) **merged** as `8227286`; its nine `audit_read_*` indexes are now pinned (§10) and created by migration `V0007` |
 | Database access | none beyond local Testcontainers. No Atlas/production connection. No data or live-schema mutation |
@@ -193,6 +193,14 @@ Requirements/recommendations for PR #49 (not changed by DB-2): (1) either add pe
 
 **Evidence added in DB-4 for the unindexed audit filters (one-off, uncommitted local measurement on a real MongoDB 7 container; 40,000 attributed rows per ledger; not staging evidence):** a filter that matches nothing (`action=<unknown>`, `actorType=SYSTEM`) walks `audit_read_recent` and examines all 40,000 keys and 40,000 documents per ledger (127 ms for the three ledgers); `targetType=product&targetId=…` uses the legacy `product_id_1_at_1` index plus an in-memory sort of that product's events (80 keys for 51 returned), `taxonomy_node` likewise via `node_id_1_at_1` (800 keys). The cost of a selective unindexed filter is therefore linear in ledger size, bounded by the 5 s `maxTime`; `TZP-SYSTEM` is an unbounded pseudo-target. **Decision state: PENDING STAGING EVIDENCE** (keep / add an index / map the timeout to a controlled 503) — `DATABASE_STAGING_RUNBOOK.md` §9.2. No index is added speculatively.
 
+## 10c. Address-create idempotency indexes — migration `V0015`, migration-only
+
+| Collection | Index | Keys | Why |
+|---|---|---|---|
+| `customer_address_idempotency` | `address_idempotency_expiry_ttl` | `expire_at` ↑, `expireAfterSeconds: 0` | a row only has to outlive one client retry window; it is never the record of the address |
+| `customer_address_idempotency` | `address_idempotency_by_customer` | `customer_id` ↑ | account erasure deletes every row of one customer |
+
+Lookups by the replaying request use `_id` (`<customerId>|<sha256(key)>`). `bootstrap` never creates these indexes.
 ## 10b. Notification outbox indexes (N2) — migration `V0014`, migration-only
 
 | Collection | Index | Keys | Why |

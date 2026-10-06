@@ -838,6 +838,14 @@
       "post" : {
         "tags" : [ "address-controller" ],
         "operationId" : "create",
+        "parameters" : [ {
+          "name" : "Idempotency-Key",
+          "in" : "header",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
         "requestBody" : {
           "content" : {
             "application/json" : {

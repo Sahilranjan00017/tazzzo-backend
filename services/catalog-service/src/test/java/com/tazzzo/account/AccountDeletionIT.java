@@ -114,12 +114,15 @@ class AccountDeletionIT extends AbstractMongoIT {
             }
             db.getCollection("notification_outbox").insertOne(new Document("_id", "ORDER_CONFIRMED:ORD_" + c.value().substring(4))
                     .append("customer_id", c.value()).append("status", "PENDING"));
+            db.getCollection("customer_address_idempotency").insertOne(new Document("_id", c.value() + "|abc")
+                    .append("customer_id", c.value()).append("request_hash", "h").append("address_id", "ADR_x"));
         }
 
         assertThat(service.delete(victim)).isEqualTo(AccountDeletionService.Outcome.DELETED);
         String v = victim.value();
         assertThat(count("support_cases", "customerId", v)).as("support case text is personal data").isZero();
         assertThat(count("notification_outbox", "customer_id", v)).as("nothing is ever sent to an erased account").isZero();
+        assertThat(count("customer_address_idempotency", "customer_id", v)).as("idempotency rows go with the addresses").isZero();
 
         // identity: tombstone, no phone, no login timestamp
         Document row = db.getCollection("customers").find(Filters.eq("_id", v)).first();
@@ -180,6 +183,7 @@ class AccountDeletionIT extends AbstractMongoIT {
         assertThat(db.getCollection("memberships").find(Filters.eq("customerId", o)).first().getString("status")).isEqualTo("ACTIVE");
         assertThat(count("support_cases", "customerId", o)).isEqualTo(2);
         assertThat(count("notification_outbox", "customer_id", o)).isEqualTo(1);
+        assertThat(count("customer_address_idempotency", "customer_id", o)).isEqualTo(1);
     }
 
     @Test

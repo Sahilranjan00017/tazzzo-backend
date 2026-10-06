@@ -447,7 +447,7 @@ paths:
       tags:
       - customer-address
       operationId: createCustomerAddress
-      summary: 'Save a new address for the caller. The FIRST saved address automatically becomes the default; subsequent addresses do not. Bounded by a per-customer saved-address limit (409 ADDRESS_LIMIT_REACHED once reached). Saving succeeds even if the address is CURRENTLY unserviceable — address validity is independent of commerce eligibility, which is re-evaluated dynamically on every read and again at future Checkout.
+      summary: 'Save a new address for the caller. The FIRST saved address automatically becomes the default; subsequent addresses do not. Bounded by a per-customer saved-address limit (409 ADDRESS_LIMIT_REACHED once reached). Saving succeeds even if the address is CURRENTLY unserviceable — address validity is independent of commerce eligibility, which is re-evaluated dynamically on every read and again at future Checkout. With an optional `Idempotency-Key`, a retry of the same request (same customer, same key, same normalised body) returns the address the first request created, as 201 with the same `addressId`, its current state, and without counting again against the limit; the same key with a different body, or a key whose address has since been deleted, is 409 IDEMPOTENCY_CONFLICT. Without the header a create is not idempotent (unchanged).
 
         '
       security:
@@ -478,11 +478,21 @@ paths:
         '401':
           $ref: '#/components/responses/AddressUnauthenticated'
         '409':
-          $ref: '#/components/responses/AddressLimitReached'
+          $ref: '#/components/responses/AddressCreateConflict'
         '503':
           $ref: '#/components/responses/AddressUnavailable'
         '429':
           $ref: '#/components/responses/CustomerRateLimited'
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: false
+        description: Optional client-generated key, 8-64 chars of `[A-Za-z0-9_-]`, scoped to the authenticated customer; remembered for a short retry window only.
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 64
+          pattern: ^[A-Za-z0-9_-]{8,64}$
   /v1/customer/addresses/{addressId}:
     get:
       tags:
@@ -2748,6 +2758,7 @@ components:
           - ADDRESS_LIMIT_REACHED
           - SERVICE_UNAVAILABLE
           - INTERNAL
+          - IDEMPOTENCY_CONFLICT
         message:
           type: string
           description: Safe, generic. No internals, no PII.
@@ -4106,6 +4117,17 @@ components:
                 type: string
               requestId:
                 type: string
+    AddressCreateConflict:
+      description: 'ADDRESS_LIMIT_REACHED (the caller''s saved-address limit has been reached) or IDEMPOTENCY_CONFLICT (the Idempotency-Key was already used for a different request, or the address it created no longer exists).
+
+        '
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/CustomerAddressErrorEnvelope'
   securitySchemes:
     customerBearerAuth:
       type: http

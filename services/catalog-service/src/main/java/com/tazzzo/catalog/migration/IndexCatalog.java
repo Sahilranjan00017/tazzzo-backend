@@ -76,6 +76,19 @@ public final class IndexCatalog {
     }
 
     /**
+     * Address-create idempotency rows expire after AddressIdempotencyRepository.RETENTION (TTL on expire_at), plus the
+     * by-customer lookup account erasure uses. Migration-only (V0015).
+     */
+    public static final IndexSpec ADDRESS_IDEMPOTENCY_EXPIRY_SPEC = named("customer_address_idempotency",
+            "address_idempotency_expiry_ttl", k("expire_at", 1), false, null, 0L);
+
+    public static final IndexSpec ADDRESS_IDEMPOTENCY_BY_CUSTOMER_SPEC = named("customer_address_idempotency",
+            "address_idempotency_by_customer", k("customer_id", 1), false, null, null);
+
+    public static final List<IndexSpec> ADDRESS_IDEMPOTENCY_SPECS =
+            List.of(ADDRESS_IDEMPOTENCY_EXPIRY_SPEC, ADDRESS_IDEMPOTENCY_BY_CUSTOMER_SPEC);
+
+    /**
      * Notification outbox (backend completion N2): the dispatcher's due scan, the by-customer erasure lookup and the TTL
      * that removes every row seven days after creation whatever its state. Migration-only (V0014).
      */
@@ -137,6 +150,7 @@ public final class IndexCatalog {
         List<IndexSpec> m = new ArrayList<>(List.of(
                 PRODUCT_VERTICAL_CURSOR_SPEC, EVIDENCE_LINK_UNIQUE_SPEC, TAXONOMY_SIBLING_UNIQUE_SPEC));
         m.addAll(AUDIT_READ_SPECS);
+        m.addAll(ADDRESS_IDEMPOTENCY_SPECS);
         m.addAll(NOTIFICATION_SPECS);
         m.add(CONTENT_BLOCKS_SPEC);
         m.addAll(SUPPORT_CASE_SPECS);
