@@ -457,6 +457,18 @@
     {
       "resource": {
         "db": "tazzzo_staging",
+        "collection": "notification_outbox"
+      },
+      "actions": [
+        "find",
+        "insert",
+        "remove",
+        "update"
+      ]
+    },
+    {
+      "resource": {
+        "db": "tazzzo_staging",
         "collection": "offers_current"
       },
       "actions": [

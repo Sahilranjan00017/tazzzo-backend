@@ -151,6 +151,10 @@ class IndexContractIT extends AbstractMongoIT {
             named("domain_events", "audit_read_recent", k("at", -1, "_id", -1), false, ATTRIBUTED, null),
             named("domain_events", "audit_read_actor", k("actor.id", 1, "at", -1, "_id", -1), false, ATTRIBUTED, null),
             named("domain_events", "audit_read_request", k("actor.request_id", 1, "at", -1, "_id", -1), false, ATTRIBUTED, null),
+            // notification outbox (N2, V0014): due scan, erasure lookup, and a TTL that purges every row a week after creation
+            named("notification_outbox", "notification_due", k("status", 1, "next_attempt_at", 1, "_id", 1), false, null, null),
+            named("notification_outbox", "notification_by_customer", k("customer_id", 1), false, null, null),
+            named("notification_outbox", "notification_expiry_ttl", k("expire_at", 1), false, null, 0L),
             // CMS (PR-Q, V0013)
             named("content_blocks", "content_by_placement_status_sort", k("placement", 1, "status", 1, "sort", 1, "_id", 1), false, null, null),
             // support cases (PR-O, V0011)
@@ -291,6 +295,7 @@ class IndexContractIT extends AbstractMongoIT {
         }
     }
 
+    // ---- 3. TTL is allowed ONLY on the four temporary auth/OTP indexes and the notification outbox purge ----
     // ---- 3. TTL is allowed ONLY on the four temporary auth/OTP indexes and the delivery-slot counter purge ----
 
     @Test
@@ -306,6 +311,8 @@ class IndexContractIT extends AbstractMongoIT {
                 "customer_otp_challenges.otp_challenge_createdat_backstop_ttl",
                 "customer_otp_verified_grants.expiresAt_1",
                 "customer_sessions.session_expiry_ttl",
+                // outbox rows are transient delivery work, never a record of what was sent
+                "notification_outbox.notification_expiry_ttl",
                 // capacity counters are meaningless after their slot date; holds themselves are carried by orders
                 "delivery_slot_usage.delivery_usage_expiry_ttl");
         for (String durable : List.of("orders", "checkout_quotes", "memberships", "inventory_reservations",

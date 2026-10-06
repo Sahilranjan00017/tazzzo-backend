@@ -112,6 +112,10 @@ public class SchemaBootstrap {
             // version), _id the opaque MBR_* id. Deliberately NO TTL, NO customer-history index and NO
             // validUntil expiry-scan index -- no query needs one yet; each arrives with its query.
             "memberships",
+            // N2 transactional notification outbox: one row per (type, subject), _id the dedupe key; recipient is the
+            // opaque customer id only (contact resolved at send time). Indexes (due scan, by-customer erasure, TTL) are
+            // migration-only (V0014); bootstrap creates only the collection.
+            "notification_outbox",
             // PR-Q CMS: merchandising blocks of customer screens (authoritative config, CAS version, never
             // deleted -- archived). Its one index is migration-only (V0013). The app operational config is the
             // system_config document "app_config", not a collection of its own.

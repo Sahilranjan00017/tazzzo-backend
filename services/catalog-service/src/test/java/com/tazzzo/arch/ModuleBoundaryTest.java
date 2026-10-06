@@ -103,6 +103,16 @@ class ModuleBoundaryTest {
                             "com.tazzzo.membership..", "com.tazzzo.pricing..", "com.tazzzo.inventory..", "com.tazzzo.media..")
                     .allowEmptyShould(true);
 
+    /** The notification outbox is a leaf: business flows call INTO it inside their transactions, it never calls out. */
+    @ArchTest
+    static final ArchRule notification_does_not_depend_on_business_modules =
+            noClasses().that().resideInAPackage("com.tazzzo.notification..")
+                    .should().dependOnClassesThat().resideInAnyPackage(
+                            "com.tazzzo.commerce..", "com.tazzzo.customer..", "com.tazzzo.auth..", "com.tazzzo.membership..",
+                            "com.tazzzo.pricing..", "com.tazzzo.inventory..", "com.tazzzo.media..", "com.tazzzo.admin..",
+                            "com.tazzzo.benefits..", "com.tazzzo.serviceability..")
+                    .allowEmptyShould(true);
+
     /** Catalog is a domain peer: it must not depend on other domains or on the commerce layers. */
     @ArchTest
     static final ArchRule catalog_does_not_depend_on_other_modules =

@@ -1455,6 +1455,8 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-10-05** — Notification outbox N2 (`feature/notification-outbox`): `notification_outbox` (+V0014: due scan, erasure lookup, TTL); COD placement enqueues `ORDER_CONFIRMED` in its own transaction; leased, token-conditional dispatcher with backoff, max attempts and max age; provider port with a disabled default (enabling dispatch without a provider is a startup failure). See `docs/ops/NOTIFICATIONS.md`. Provider UNVERIFIED (external decision).
+
 - **2026-10-05** — CMS help centre + legal links (`feature/cms-faq-legal`, stacked on #70): typed FAQ blocks (placement `HELP`, type `FAQ`, closed category DELIVERY/PRODUCT/CLUB/PAYMENT/REFUND/ACCOUNT, plain-text question ≤200 / answer ≤2000, no markup) on the existing content lifecycle (DRAFT→PUBLISHED→ARCHIVED, window, CAS + audit), each type bound to exactly one placement; public `GET /v1/content/faqs` (optional `category`, admission-charged on its own route, `public, max-age=60`); app config gains https-only `termsUrl`/`privacyUrl`/`refundPolicyUrl`, exposed as `legal` on `GET /v1/app-config`. No new collection or index (reuses `content_by_placement_status_sort`). The app's docs name `/support/v1/faqs`; the served path is `/v1/content/faqs`.
 
 - **2026-10-05** — CMS home content + app operational config (backend completion PR-Q; base `main` `484d42c`): admin `POST/GET/PUT /api/v1/admin/content/blocks[/{id}]` + `POST /{id}/status` (DRAFT → PUBLISHED ↔ DRAFT → ARCHIVED, final; CAS;

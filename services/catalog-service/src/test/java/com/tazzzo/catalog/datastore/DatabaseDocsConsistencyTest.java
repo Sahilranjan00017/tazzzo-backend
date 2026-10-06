@@ -64,6 +64,7 @@ class DatabaseDocsConsistencyTest {
             if (!r.get(4).startsWith("none")) withTtl.add(r.get(0)); // columns: name, owner, class, durable, TTL, retention, ...
         }
         assertThat(withTtl).containsExactlyInAnyOrder("customer_otp_challenges", "customer_otp_verified_grants", "customer_sessions",
+                "notification_outbox",
                 "delivery_slot_usage");
     }
 
