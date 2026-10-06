@@ -28,7 +28,17 @@ public final class OrderFailure extends RuntimeException {
         /** PR-15A-2 — READ path only ({@code OrderService.getOrder}): the id is malformed, unknown,
          *  owned by another customer, or names an internal non-{@code CONFIRMED} row. All four are one
          *  indistinguishable outcome by design. The placement path never raises it. */
-        ORDER_NOT_FOUND
+        ORDER_NOT_FOUND,
+        /** The requested delivery slot is full, closed or not offered for the address (409; nothing was written). */
+        SLOT_UNAVAILABLE,
+        /** Cancellation: the order is not in a state a customer may cancel from (409). */
+        NOT_CANCELLABLE,
+        /** Cancellation: the customer cancellation window is closed, or no window is configured (409). */
+        CANCELLATION_WINDOW_CLOSED,
+        /** Staff: the version the caller saw is no longer current (409). */
+        STALE_VERSION,
+        /** Staff: the order's current status does not allow that transition (409). */
+        INVALID_TRANSITION
     }
 
     private final Reason reason;

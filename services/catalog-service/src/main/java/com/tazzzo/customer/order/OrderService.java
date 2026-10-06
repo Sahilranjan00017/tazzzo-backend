@@ -134,13 +134,15 @@ public class OrderService {
     private final Tx tx;
     private final OrderObservability observability;
     private final OrderDraftAssembler assembler;
+    private final com.tazzzo.delivery.DeliverySlotService deliverySlots;   // null in a wiring that offers no slots
 
+    @org.springframework.beans.factory.annotation.Autowired
     public OrderService(OrderRepository orders, CheckoutQuoteRepository checkoutQuotes, AddressRepository addresses,
                         TransactionalServiceabilityReadPort serviceability, TransactionalPriceReadPort pricing,
                         TransactionalCatalogCardReadPort catalog, TransactionalBenefitsEvaluationPort benefits,
                         InventoryReservationPort reservationPort, CartPurchasePort cartPurchase, Clock clock,
                         ObjectProvider<CustomerIdentityAuthority> identityAuthority, Tx tx,
-                        OrderObservability observability) {
+                        OrderObservability observability, com.tazzzo.delivery.DeliverySlotService deliverySlots) {
         this.orders = orders;
         this.checkoutQuotes = checkoutQuotes;
         this.reservationPort = reservationPort;
@@ -148,9 +150,22 @@ public class OrderService {
         this.clock = clock;
         this.tx = tx;
         this.observability = observability;
+        this.deliverySlots = deliverySlots;
         this.assembler = new OrderDraftAssembler(addresses, serviceability, pricing, catalog, benefits,
                 reservationPort, clock, identityAuthority);
     }
+
+    /** A wiring with no delivery slots: a request that names a slot is refused (UNAVAILABLE), never silently ignored. */
+    public OrderService(OrderRepository orders, CheckoutQuoteRepository checkoutQuotes, AddressRepository addresses,
+                        TransactionalServiceabilityReadPort serviceability, TransactionalPriceReadPort pricing,
+                        TransactionalCatalogCardReadPort catalog, TransactionalBenefitsEvaluationPort benefits,
+                        InventoryReservationPort reservationPort, CartPurchasePort cartPurchase, Clock clock,
+                        ObjectProvider<CustomerIdentityAuthority> identityAuthority, Tx tx,
+                        OrderObservability observability) {
+        this(orders, checkoutQuotes, addresses, serviceability, pricing, catalog, benefits, reservationPort, cartPurchase,
+                clock, identityAuthority, tx, observability, null);
+    }
+
 
     /**
      * INTERNAL create-only path: {@code CREATED} (version 1) + {@code RESERVED} reservation. Package-
@@ -159,7 +174,7 @@ public class OrderService {
      */
     Order createOrder(CustomerId customerId, String quoteIdRaw, PaymentMethod paymentMethod) {
         try {
-            Order result = execute(customerId, quoteIdRaw, paymentMethod, Mode.CREATE_ONLY);
+            Order result = execute(customerId, quoteIdRaw, paymentMethod, Mode.CREATE_ONLY, null);
             observability.success(); // create-or-replay, see OrderObservability's javadoc
             return result;
         } catch (OrderFailure e) {
@@ -180,8 +195,17 @@ public class OrderService {
      * {@code order_place_cod_*}.
      */
     public Order placeCodOrder(CustomerId customerId, String quoteIdRaw) {
+        return placeCodOrder(customerId, quoteIdRaw, null);
+    }
+
+    /**
+     * As above, optionally reserving a delivery slot ({@code <window>~<yyyy-MM-dd>}) for the order in the SAME transaction:
+     * a refused or full slot aborts the whole placement (stock, cart marker and order all roll back), so a CONFIRMED order
+     * never exists without the slot it asked for. A durable replay returns the original order and never re-reserves.
+     */
+    public Order placeCodOrder(CustomerId customerId, String quoteIdRaw, String deliverySlotId) {
         try {
-            Order result = execute(customerId, quoteIdRaw, PaymentMethod.COD, Mode.PLACE_COD);
+            Order result = execute(customerId, quoteIdRaw, PaymentMethod.COD, Mode.PLACE_COD, deliverySlotId);
             observability.placeCodSuccess(); // placed-or-replayed, after the outer operation returned
             return result;
         } catch (OrderFailure e) {
@@ -217,13 +241,14 @@ public class OrderService {
             throw new OrderFailure(OrderFailure.Reason.ORDER_NOT_FOUND);
         }
         Order order = OrderRepository.toOrder(stored);
-        if (order.status() != OrderStatus.CONFIRMED) {
-            throw new OrderFailure(OrderFailure.Reason.ORDER_NOT_FOUND);
+        if (order.status() == OrderStatus.CREATED) {
+            throw new OrderFailure(OrderFailure.Reason.ORDER_NOT_FOUND);   // CREATED is internal
         }
         return order;
     }
 
-    private Order execute(CustomerId customerId, String quoteIdRaw, PaymentMethod paymentMethod, Mode mode) {
+    private Order execute(CustomerId customerId, String quoteIdRaw, PaymentMethod paymentMethod, Mode mode,
+                          String deliverySlotId) {
         // 0 -- durable replay fast-path, BEFORE anything about the source quote is touched.
         Document existing = orders.findByCustomerAndQuote(customerId.value(), quoteIdRaw);
         if (existing != null) {
@@ -265,7 +290,7 @@ public class OrderService {
                 return mode == Mode.CREATE_ONLY
                         ? finishCreateOnly(session, customerId, quoteIdRaw, quote, orderId, paymentMethod, draft,
                                 createdAt)
-                        : finishCod(session, customerId, quoteIdRaw, quote, orderId, draft, createdAt);
+                        : finishCod(session, customerId, quoteIdRaw, quote, orderId, draft, createdAt, deliverySlotId);
             });
         } catch (MongoWriteException e) {
             if (e.getError().getCode() == 11000) {
@@ -302,7 +327,8 @@ public class OrderService {
      *  {@code CONFIRMED}; meeting a {@code CREATED} row there is not something this path created and is
      *  never silently converted — it fails closed. */
     private static Order replay(Order existing, Mode mode) {
-        if (mode == Mode.PLACE_COD && existing.status() != OrderStatus.CONFIRMED) {
+        // a CANCELLED order is the honest, idempotent answer for a re-sent placement of the same quote (never re-created)
+        if (mode == Mode.PLACE_COD && existing.status() == OrderStatus.CREATED) {
             throw new OrderFailure(OrderFailure.Reason.INTEGRITY_FAILURE,
                     "existing order for this quote is not CONFIRMED; COD placement does not convert it");
         }
@@ -333,8 +359,14 @@ public class OrderService {
     }
 
     private Order finishCod(ClientSession session, CustomerId customerId, String quoteIdRaw, CheckoutQuote quote,
-                            OrderId orderId, OrderDraftAssembler.Draft draft, Instant createdAt) {
+                            OrderId orderId, OrderDraftAssembler.Draft draft, Instant createdAt, String deliverySlotId) {
         String reservationId = draft.reservation().reservationId();
+
+        // the delivery slot, in this same transaction: any refusal aborts everything written so far in this attempt
+        OrderDeliverySlot slot = null;
+        if (deliverySlotId != null) {
+            slot = reserveSlot(session, draft, deliverySlotId, orderId);
+        }
 
         // consume immediately -- Inventory owns expiry, the RESERVED->CONSUMED transition and the
         // on_hand/reserved math; Order only maps its failures.
@@ -367,8 +399,25 @@ public class OrderService {
                 2L, quote.addressId(), quote.addressVersion(), draft.addressSnapshot(), draft.lines(),
                 quote.itemCount(), quote.subtotalPaise(), quote.currency(), reservationId,
                 ConfirmedPaymentCondition.COD_DUE, createdAt, confirmedAt, confirmedAt, draft.benefitSnapshot(),
-                draft.moneySnapshot());
+                draft.moneySnapshot(), slot);
         orders.insert(session, order);
         return order;
+    }
+
+    private OrderDeliverySlot reserveSlot(ClientSession session, OrderDraftAssembler.Draft draft, String slotId, OrderId orderId) {
+        if (deliverySlots == null) {
+            throw new OrderFailure(OrderFailure.Reason.UNAVAILABLE, "delivery slots are not available in this wiring");
+        }
+        com.tazzzo.delivery.SlotChoice choice;
+        try {
+            choice = deliverySlots.reserveForOrder(session,
+                    new com.tazzzo.commerce.contract.Pincode(draft.addressSnapshot().postalCode()), slotId, orderId.value());
+        } catch (com.tazzzo.delivery.SlotRefusedException e) {
+            // INVALID is caught earlier at the HTTP edge; reaching here with it is still a caller error, never a 500
+            throw new OrderFailure(e.reason() == com.tazzzo.delivery.SlotRefusedException.Reason.INVALID
+                    ? OrderFailure.Reason.INVALID_REQUEST : OrderFailure.Reason.SLOT_UNAVAILABLE);
+        }
+        return new OrderDeliverySlot(choice.serviceAreaId(), choice.windowId(), choice.date(), choice.label(),
+                choice.startsAt(), choice.endsAt());
     }
 }

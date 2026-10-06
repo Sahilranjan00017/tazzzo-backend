@@ -46,7 +46,7 @@ import java.io.IOException;
  * {@link CustomerAuthFailure.Reason} is logged internally only, never in either response body.
  */
 @Component
-@Order(Ordered.HIGHEST_PRECEDENCE + 2)
+@Order(Ordered.HIGHEST_PRECEDENCE + 4) // after the platform filters and the service-token filter
 public class CustomerAuthFilter extends OncePerRequestFilter {
 
     private static final Logger log = LoggerFactory.getLogger(CustomerAuthFilter.class);
