@@ -39,7 +39,7 @@ import java.util.Set;
  * filter by decision (Q4-a/b); an UNKNOWN surface is refused by default (Q4-f). Deliberately small and auditable.
  */
 @Component
-@Order(Ordered.HIGHEST_PRECEDENCE + 1)
+@Order(Ordered.HIGHEST_PRECEDENCE + 3) // after request-id, body-size limit and CORS (platform baseline), before customer auth
 public class ApiAuthFilter extends OncePerRequestFilter {
 
     /** The only routes a principal without reader/cms-writer (i.e. audit-reader alone) may reach. */
@@ -77,7 +77,8 @@ public class ApiAuthFilter extends OncePerRequestFilter {
     protected boolean shouldNotFilter(HttpServletRequest req) {
         SurfaceClassifier.Surface surface = SurfaceClassifier.classify(req.getRequestURI());
         return surface == SurfaceClassifier.Surface.PUBLIC_CONSUMER
-                || surface == SurfaceClassifier.Surface.CUSTOMER_AUTHENTICATED;
+                || surface == SurfaceClassifier.Surface.CUSTOMER_AUTHENTICATED
+                || surface == SurfaceClassifier.Surface.HEALTH; // probes carry no credential; the controller serves no data
     }
 
     @Override

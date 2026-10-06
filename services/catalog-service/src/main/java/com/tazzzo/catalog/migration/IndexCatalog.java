@@ -76,6 +76,36 @@ public final class IndexCatalog {
     }
 
     /**
+     * Notification outbox (backend completion N2): the dispatcher's due scan, the by-customer erasure lookup and the TTL
+     * that removes every row seven days after creation whatever its state. Migration-only (V0014).
+     */
+    public static final IndexSpec NOTIFICATION_DUE_SPEC = named("notification_outbox", "notification_due",
+            k("status", 1, "next_attempt_at", 1, "_id", 1), false, null, null);
+
+    public static final IndexSpec NOTIFICATION_BY_CUSTOMER_SPEC = named("notification_outbox", "notification_by_customer",
+            k("customer_id", 1), false, null, null);
+
+    public static final IndexSpec NOTIFICATION_EXPIRY_SPEC = named("notification_outbox", "notification_expiry_ttl",
+            k("expire_at", 1), false, null, 0L);
+
+    public static final List<IndexSpec> NOTIFICATION_SPECS =
+            List.of(NOTIFICATION_DUE_SPEC, NOTIFICATION_BY_CUSTOMER_SPEC, NOTIFICATION_EXPIRY_SPEC);
+    /** CMS (PR-Q): the live/admin read of one placement in display order. Migration-only (V0013). */
+    public static final IndexSpec CONTENT_BLOCKS_SPEC = named("content_blocks", "content_by_placement_status_sort",
+            k("placement", 1, "status", 1, "sort", 1, "_id", 1), false, null, null);
+    /** Support cases (PR-O): the customer's own cases, the staff queue by status, and the unfiltered staff queue -- each newest-updated first. */
+    public static final List<IndexSpec> SUPPORT_CASE_SPECS = List.of(
+            named("support_cases", "support_by_customer_recent", k("customerId", 1, "updatedAt", -1, "_id", -1), false, null, null),
+            named("support_cases", "support_by_status_recent", k("status", 1, "updatedAt", -1, "_id", -1), false, null, null),
+            named("support_cases", "support_recent", k("updatedAt", -1, "_id", -1), false, null, null));
+    /**
+     * Public search (PR-G): the multikey index that serves the anchored-prefix {@code $all} over a card's
+     * {@code search_tokens}, with {@code sku_id} for the keyset order. Migration-only (V0009).
+     */
+    public static final IndexSpec PRODUCT_CARD_SEARCH_SPEC = named("product_card_base", "card_search_tokens",
+            k("search_tokens", 1, "sku_id", 1), false, null, null);
+
+    /**
      * Delivery slots (backend completion PR-E): the by-area lookup of window definitions and the TTL that purges a
      * per-occurrence capacity counter a week after its slot date. Migration-only (V0008): bootstrap never creates them,
      * which keeps the dev/test bootstrap equal to baseline + audit-read as IndexContractIT pins.
@@ -99,27 +129,6 @@ public final class IndexCatalog {
     public static final List<IndexSpec> STAFF_ORDER_QUEUE_SPECS = List.of(
             named("orders", "order_by_status_recent", k("status", 1, "createdAt", -1, "_id", -1), false, null, null),
             named("orders", "order_recent", k("createdAt", -1, "_id", -1), false, null, null));
-    /** Support cases (PR-O): the customer's own cases, the staff queue by status, and the unfiltered staff queue -- each newest-updated first. */
-    public static final List<IndexSpec> SUPPORT_CASE_SPECS = List.of(
-            named("support_cases", "support_by_customer_recent", k("customerId", 1, "updatedAt", -1, "_id", -1), false, null, null),
-            named("support_cases", "support_by_status_recent", k("status", 1, "updatedAt", -1, "_id", -1), false, null, null),
-            named("support_cases", "support_recent", k("updatedAt", -1, "_id", -1), false, null, null));
-
-    /**
-     * Notification outbox (backend completion N2): the dispatcher's due scan, the by-customer erasure lookup and the TTL
-     * that removes every row seven days after creation whatever its state. Migration-only (V0014).
-     */
-    public static final IndexSpec NOTIFICATION_DUE_SPEC = named("notification_outbox", "notification_due",
-            k("status", 1, "next_attempt_at", 1, "_id", 1), false, null, null);
-
-    public static final IndexSpec NOTIFICATION_BY_CUSTOMER_SPEC = named("notification_outbox", "notification_by_customer",
-            k("customer_id", 1), false, null, null);
-
-    public static final IndexSpec NOTIFICATION_EXPIRY_SPEC = named("notification_outbox", "notification_expiry_ttl",
-            k("expire_at", 1), false, null, 0L);
-
-    public static final List<IndexSpec> NOTIFICATION_SPECS =
-            List.of(NOTIFICATION_DUE_SPEC, NOTIFICATION_BY_CUSTOMER_SPEC, NOTIFICATION_EXPIRY_SPEC);
 
     /** Indexes created only by explicit migrations (never by the baseline migration). */
     public static final List<IndexSpec> MANAGED;
@@ -128,11 +137,13 @@ public final class IndexCatalog {
         List<IndexSpec> m = new ArrayList<>(List.of(
                 PRODUCT_VERTICAL_CURSOR_SPEC, EVIDENCE_LINK_UNIQUE_SPEC, TAXONOMY_SIBLING_UNIQUE_SPEC));
         m.addAll(AUDIT_READ_SPECS);
+        m.addAll(NOTIFICATION_SPECS);
+        m.add(CONTENT_BLOCKS_SPEC);
+        m.addAll(SUPPORT_CASE_SPECS);
+        m.add(PRODUCT_CARD_SEARCH_SPEC);
         m.addAll(DELIVERY_SLOT_SPECS);
         m.add(ORDER_BY_CUSTOMER_RECENT_SPEC);
         m.addAll(STAFF_ORDER_QUEUE_SPECS);
-        m.addAll(SUPPORT_CASE_SPECS);
-        m.addAll(NOTIFICATION_SPECS);
         MANAGED = List.copyOf(m);
     }
 

@@ -39,6 +39,8 @@ tags:
   description: 'PR-15A-2 — Cash-on-Delivery order placement for the authenticated customer. One operation places an order from one of the caller''s OWN checkout quotes: it confirms the order, consumes the held stock and finalizes the source cart in one atomic step, so a successful placement is directly `CONFIRMED` (there is no intermediate state to observe). `customerId` always comes from the token, never from the request. Cash on delivery is the only payment method. `paymentCondition` `COD_DUE` means the order is confirmed and payment is OWED ON DELIVERY — nothing has been collected. Placement is idempotent by `quoteId` (no `Idempotency-Key`): replaying the same quote returns the same order. The order is the immutable snapshot taken at placement — title, brand, price and address never change with later catalog, pricing or address edits. The order carries its AUTHORITATIVE `money` (merchandise subtotal, benefit discount, payable), computed at placement by revalidating Pricing, Membership and Benefits. It may differ from the quote''s ADVISORY `moneyPreview` (for example a benefit was gained or lost since the quote); that is not an error and the order''s money is the one that holds. Internal identifiers (customer, quote, reservation, address, fulfillment/routing, coordinates) are never exposed. Responses are no-store.
 
     '
+- name: platform
+  description: Unauthenticated liveness/readiness probes for the container runtime and the load balancer.
 - name: customer-delivery
   description: 'Delivery windows for a PIN (customer-authenticated). Computed fresh per request in the configured delivery time zone; capacity is shown only as a status, never a count. Reserving a window happens inside checkout/order placement (a later contract), not here.
 
@@ -49,6 +51,8 @@ tags:
     '
 - name: customer-account
   description: Account lifecycle of the authenticated customer (deletion / erasure).
+- name: content
+  description: Public, same-for-everyone reads for app start and the home screen. Cacheable for 60 seconds.
 paths:
   /v1/categories:
     get:
@@ -190,6 +194,9 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '503':
           $ref: '#/components/responses/Unavailable'
+      description: 'Resolve a PIN (or, when a geo provider is configured, a lat/lng) to a serviceable area. A coordinate the provider cannot place in a PIN is a normal "outside coverage" answer (`serviceable:false`); a provider outage is 503.
+
+        '
   /v1/auth/otp/request:
     post:
       tags:
@@ -357,6 +364,8 @@ paths:
           $ref: '#/components/responses/ProfileUnauthenticated'
         '503':
           $ref: '#/components/responses/ProfileUnavailable'
+        '429':
+          $ref: '#/components/responses/CustomerRateLimited'
     patch:
       tags:
       - customer-profile
@@ -406,6 +415,8 @@ paths:
           $ref: '#/components/responses/ProfilePreconditionRequired'
         '503':
           $ref: '#/components/responses/ProfileUnavailable'
+        '429':
+          $ref: '#/components/responses/CustomerRateLimited'
   /v1/customer/addresses:
     get:
       tags:
@@ -430,6 +441,8 @@ paths:
           $ref: '#/components/responses/AddressUnauthenticated'
         '503':
           $ref: '#/components/responses/AddressUnavailable'
+        '429':
+          $ref: '#/components/responses/CustomerRateLimited'
     post:
       tags:
       - customer-address
@@ -468,6 +481,8 @@ paths:
           $ref: '#/components/responses/AddressLimitReached'
         '503':
           $ref: '#/components/responses/AddressUnavailable'
+        '429':
+          $ref: '#/components/responses/CustomerRateLimited'
   /v1/customer/addresses/{addressId}:
     get:
       tags:
@@ -500,6 +515,8 @@ paths:
           $ref: '#/components/responses/AddressNotFound'
         '503':
           $ref: '#/components/responses/AddressUnavailable'
+        '429':
+          $ref: '#/components/responses/CustomerRateLimited'
     patch:
       tags:
       - customer-address
@@ -550,6 +567,8 @@ paths:
           $ref: '#/components/responses/AddressPreconditionRequired'
         '503':
           $ref: '#/components/responses/AddressUnavailable'
+        '429':
+          $ref: '#/components/responses/CustomerRateLimited'
     delete:
       tags:
       - customer-address
@@ -584,6 +603,8 @@ paths:
           $ref: '#/components/responses/AddressPreconditionRequired'
         '503':
           $ref: '#/components/responses/AddressUnavailable'
+        '429':
+          $ref: '#/components/responses/CustomerRateLimited'
   /v1/customer/addresses/{addressId}/default:
     put:
       tags:
@@ -616,6 +637,8 @@ paths:
           $ref: '#/components/responses/AddressNotFound'
         '503':
           $ref: '#/components/responses/AddressUnavailable'
+        '429':
+          $ref: '#/components/responses/CustomerRateLimited'
   /v1/customer/cart:
     get:
       tags:
@@ -657,6 +680,8 @@ paths:
           $ref: '#/components/responses/CartNotFound'
         '503':
           $ref: '#/components/responses/CartUnavailable'
+        '429':
+          $ref: '#/components/responses/CustomerRateLimited'
     delete:
       tags:
       - customer-cart
@@ -710,6 +735,8 @@ paths:
           $ref: '#/components/responses/CartPreconditionRequired'
         '503':
           $ref: '#/components/responses/CartUnavailable'
+        '429':
+          $ref: '#/components/responses/CustomerRateLimited'
   /v1/customer/cart/items/{skuId}:
     put:
       tags:
@@ -780,6 +807,8 @@ paths:
           $ref: '#/components/responses/CartPreconditionRequired'
         '503':
           $ref: '#/components/responses/CartUnavailable'
+        '429':
+          $ref: '#/components/responses/CustomerRateLimited'
     delete:
       tags:
       - customer-cart
@@ -839,6 +868,8 @@ paths:
           $ref: '#/components/responses/CartPreconditionRequired'
         '503':
           $ref: '#/components/responses/CartUnavailable'
+        '429':
+          $ref: '#/components/responses/CustomerRateLimited'
   /v1/customer/checkout/quote:
     post:
       tags:
@@ -901,6 +932,8 @@ paths:
           $ref: '#/components/responses/CheckoutPreconditionRequired'
         '503':
           $ref: '#/components/responses/CheckoutUnavailable'
+        '429':
+          $ref: '#/components/responses/CustomerRateLimited'
   /v1/customer/checkout/quotes/{quoteId}:
     get:
       tags:
@@ -936,6 +969,8 @@ paths:
           $ref: '#/components/responses/CheckoutQuoteExpired'
         '503':
           $ref: '#/components/responses/CheckoutUnavailable'
+        '429':
+          $ref: '#/components/responses/CustomerRateLimited'
   /v1/customer/orders:
     post:
       tags:
@@ -978,6 +1013,8 @@ paths:
           $ref: '#/components/responses/OrderInternalError'
         '503':
           $ref: '#/components/responses/OrderUnavailable'
+        '429':
+          $ref: '#/components/responses/CustomerRateLimited'
     get:
       tags:
       - customer-orders
@@ -1117,6 +1154,44 @@ paths:
           $ref: '#/components/responses/OrderInternalError'
         '503':
           $ref: '#/components/responses/OrderUnavailable'
+        '429':
+          $ref: '#/components/responses/CustomerRateLimited'
+  /health/live:
+    get:
+      tags:
+      - platform
+      summary: Liveness probe (container runtime)
+      description: 'Always 200 while the process serves HTTP; never consults a dependency, so an outage can never cause a restart loop. Unauthenticated; exact path; never cached. Body holds bounded words only (no hosts, versions or errors).
+
+        '
+      responses:
+        '200':
+          description: Alive
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthReport'
+  /health/ready:
+    get:
+      tags:
+      - platform
+      summary: Readiness probe (load-balancer target health)
+      description: '200 when this instance may receive traffic: the datastore serving gate is OPEN (verifier passed, startup complete) and MongoDB answers a bounded ping. The rate-limiter store is reported and only gates readiness when configured (TAZZZO_HEALTH_REQUIRE_RATE_LIMITER=true). A refused process or a migration job is never ready. Unauthenticated; never cached.
+
+        '
+      responses:
+        '200':
+          description: Ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthReport'
+        '503':
+          description: Not ready (same body, status DOWN)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthReport'
   /v1/customer/delivery/slots:
     get:
       tags:
@@ -1203,6 +1278,42 @@ paths:
           $ref: '#/components/responses/ProfileUnauthenticated'
         '503':
           $ref: '#/components/responses/DeliverySlot503'
+  /v1/search:
+    get:
+      tags:
+      - commerce-read
+      operationId: searchProducts
+      summary: 'Product search. Every token of `q` (2..32 chars, at most 5 tokens, 64 chars overall) must prefix-match a token of a product''s title or brand; results are consumer-eligible products of the resolved release in deterministic id order (no relevance ranking), enriched exactly like a category page (price, stock and serviceability for `pin` when given). Keyset-paged: `cursor` is bound to the query, the page size and the location it was issued for.
+
+        '
+      parameters:
+      - name: q
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 2
+          maxLength: 64
+      - $ref: '#/components/parameters/Release'
+      - $ref: '#/components/parameters/PageSize'
+      - $ref: '#/components/parameters/Cursor'
+      - $ref: '#/components/parameters/Pin'
+      - $ref: '#/components/parameters/Lat'
+      - $ref: '#/components/parameters/Lng'
+      - $ref: '#/components/parameters/InstallationId'
+      responses:
+        '200':
+          description: OK (an empty `items` is a normal no-match answer). Never cached.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PagedProductResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/Unavailable'
   /v1/customer/orders/{orderId}/cancel:
     post:
       tags:
@@ -1544,6 +1655,210 @@ paths:
           $ref: '#/components/responses/AccountDeletionInternalError'
         '503':
           $ref: '#/components/responses/AccountDeletionUnavailable'
+  /v1/content/home:
+    get:
+      tags:
+      - content
+      operationId: getHomeContent
+      summary: 'The live HOME blocks (PUBLISHED and inside their time window, by the server clock), in display order. Banners carry a resolved `imageUrl` and a `link` from a closed grammar (`product:<id>`, `category:<node id>`, `search:<text>`); product rails and category grids carry `ids` the client renders with the existing product/category endpoints. No parameters.
+
+        '
+      responses:
+        '200':
+          description: 'OK. `Cache-Control: public, max-age=60`.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - blocks
+                - requestId
+                properties:
+                  blocks:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                      - blockId
+                      - type
+                      - title
+                      properties:
+                        blockId:
+                          type: string
+                        type:
+                          type: string
+                          enum:
+                          - BANNER
+                          - PRODUCT_RAIL
+                          - CATEGORY_GRID
+                        title:
+                          type: string
+                        imageUrl:
+                          type: string
+                        link:
+                          type: string
+                        ids:
+                          type: array
+                          items:
+                            type: string
+                  requestId:
+                    type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /v1/app-config:
+    get:
+      tags:
+      - content
+      operationId: getAppConfig
+      summary: 'Operational configuration read at app start: whether the store takes orders, a maintenance banner, the minimum supported and latest app versions per platform (force/soft update), support contacts, and the approved legal documents as https links (a null link means "not published yet"). Absent values mean "no constraint".
+
+        '
+      responses:
+        '200':
+          description: 'OK. `Cache-Control: public, max-age=60`.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - storeOpen
+                - maintenance
+                - android
+                - ios
+                - support
+                - requestId
+                - legal
+                properties:
+                  storeOpen:
+                    type: boolean
+                  maintenance:
+                    type: object
+                    required:
+                    - enabled
+                    properties:
+                      enabled:
+                        type: boolean
+                      message:
+                        type: string
+                  android:
+                    type: object
+                    properties:
+                      minSupported:
+                        type: string
+                      latest:
+                        type: string
+                  ios:
+                    type: object
+                    properties:
+                      minSupported:
+                        type: string
+                      latest:
+                        type: string
+                  support:
+                    type: object
+                    properties:
+                      phone:
+                        type: string
+                      email:
+                        type: string
+                  requestId:
+                    type: string
+                  legal:
+                    type: object
+                    required:
+                    - termsUrl
+                    - privacyUrl
+                    - refundPolicyUrl
+                    properties:
+                      termsUrl:
+                        type: string
+                        format: uri
+                        nullable: true
+                      privacyUrl:
+                        type: string
+                        format: uri
+                        nullable: true
+                      refundPolicyUrl:
+                        type: string
+                        format: uri
+                        nullable: true
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /v1/content/faqs:
+    get:
+      tags:
+      - content
+      operationId: getHelpFaqs
+      summary: 'The live help-centre FAQ (PUBLISHED FAQ blocks on the HELP placement, inside their time window), ordered by category (DELIVERY, PRODUCT, CLUB, PAYMENT, REFUND, ACCOUNT) then display order. Answers are plain text; `\n` separates paragraphs. The only accepted query parameter is `category`, once; anything else is 400.
+
+        '
+      parameters:
+      - name: category
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - DELIVERY
+          - PRODUCT
+          - CLUB
+          - PAYMENT
+          - REFUND
+          - ACCOUNT
+      responses:
+        '200':
+          description: 'OK. `Cache-Control: public, max-age=60`.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - faqs
+                - requestId
+                properties:
+                  faqs:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                      - faqId
+                      - category
+                      - question
+                      - answer
+                      properties:
+                        faqId:
+                          type: string
+                        category:
+                          type: string
+                          enum:
+                          - DELIVERY
+                          - PRODUCT
+                          - CLUB
+                          - PAYMENT
+                          - REFUND
+                          - ACCOUNT
+                        question:
+                          type: string
+                          maxLength: 200
+                        answer:
+                          type: string
+                          maxLength: 2000
+                  requestId:
+                    type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/Unavailable'
 components:
   parameters:
     AddressIdParam:
@@ -1604,14 +1919,18 @@ components:
       required: false
       schema:
         type: number
-      description: Reserved for future lat/lng resolution.
+      description: 'Used ONLY by GET /v1/serviceability, and ONLY when the operator has configured a geo provider; with the default (no provider) any lat/lng is 400 INVALID_REQUEST. Must be sent together with `lng`, never with `pin`. Category products and product detail remain PIN-only (lat/lng is always 400 there). Coordinates are never stored or logged.
+
+        '
     Lng:
       name: lng
       in: query
       required: false
       schema:
         type: number
-      description: Reserved for future lat/lng resolution.
+      description: 'Used ONLY by GET /v1/serviceability, and ONLY when the operator has configured a geo provider; with the default (no provider) any lat/lng is 400 INVALID_REQUEST. Must be sent together with `lng`, never with `pin`. Category products and product detail remain PIN-only (lat/lng is always 400 there). Coordinates are never stored or logged.
+
+        '
     InstallationId:
       name: X-Tazzzo-Installation-Id
       in: header
@@ -3010,6 +3329,44 @@ components:
           type: string
         requestId:
           type: string
+    HealthReport:
+      type: object
+      required:
+      - status
+      - components
+      properties:
+        status:
+          type: string
+          enum:
+          - UP
+          - DOWN
+        components:
+          type: object
+          required:
+          - datastore
+          - mongo
+          - rate_limiter
+          properties:
+            datastore:
+              type: string
+              enum:
+              - OPEN
+              - STARTING
+              - REFUSED
+              - JOB
+            mongo:
+              type: string
+              enum:
+              - UP
+              - DOWN
+              - SKIPPED
+            rate_limiter:
+              type: string
+              enum:
+              - UP
+              - DOWN
+              - DISABLED
+              - SKIPPED
     DeliverySlotErrorEnvelope:
       type: object
       description: The flat customer error envelope shared by every /v1/customer domain.
@@ -3720,6 +4077,35 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/AccountDeletionErrorEnvelope'
+    CustomerRateLimited:
+      description: 'Per-customer budget exhausted (RATE_LIMITED). Reads (GET/HEAD) and writes have separate buckets keyed by the verified customer id; enforced only when `tazzzo.customer-rate-limit.*` is configured. Retry after the given seconds.
+
+        '
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+            minimum: 1
+          description: seconds
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+            - code
+            - message
+            - requestId
+            properties:
+              code:
+                type: string
+                enum:
+                - RATE_LIMITED
+              message:
+                type: string
+              requestId:
+                type: string
   securitySchemes:
     customerBearerAuth:
       type: http

@@ -458,7 +458,8 @@ class ProductCardProjectionIT extends AbstractMongoIT {
         boolean unique = false;
         for (Document ix : db.getCollection("product_card_base").listIndexes()) {
             Document key = (Document) ix.get("key");
-            if (key != null && key.containsKey("sku_id")) {
+            // exactly {sku_id: 1}: the compound search index (PR-G, V0009) also contains sku_id and is not unique
+            if (key != null && key.size() == 1 && key.containsKey("sku_id")) {
                 unique = Boolean.TRUE.equals(ix.getBoolean("unique"));
             }
         }

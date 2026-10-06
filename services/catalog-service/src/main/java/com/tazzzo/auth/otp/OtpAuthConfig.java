@@ -49,7 +49,8 @@ public class OtpAuthConfig {
      * request endpoint fails closed with 503 rather than silently discarding an OTP.
      */
     @Bean
-    public OtpDeliveryProvider otpDeliveryProvider(OtpAuthProperties properties) {
+    public OtpDeliveryProvider otpDeliveryProvider(OtpAuthProperties properties,
+                                                   ObjectProvider<io.micrometer.core.instrument.MeterRegistry> registry) {
         String mode = properties.getProviderMode();
         if (mode == null || mode.isBlank()) {
             return null;
@@ -57,8 +58,13 @@ public class OtpAuthConfig {
         if ("LOGGING".equals(mode)) {
             return new LoggingOtpDeliveryProvider();
         }
+        if ("HTTP".equals(mode)) {
+            // fail closed at startup on an unsafe/incomplete gateway configuration (never at the first customer request)
+            return new HttpOtpDeliveryProvider(properties.getHttp(), properties.getDeliveryTimeoutSeconds(),
+                    registry.getIfAvailable(io.micrometer.core.instrument.simple.SimpleMeterRegistry::new));
+        }
         throw new IllegalStateException(
-                "tazzzo.customer-auth.otp.provider-mode must be exactly LOGGING or unset, was: '"
+                "tazzzo.customer-auth.otp.provider-mode must be exactly LOGGING, HTTP or unset, was: '"
                         + mode + "'");
     }
 }

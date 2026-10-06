@@ -144,6 +144,20 @@ public class CommerceReadConfig {
     }
 
     @Bean
+    public CommerceSearchService commerceSearchService(
+            SnapshotTaxonomyReader snapshots, ConsumerTaxonomyScopeResolver scopes,
+            ConsumerReleaseResolver releases, ConsumerAdmissionGate gate,
+            ConsumerCursorProperties cursorProperties, ProductCardBaseReader baseReader, PricingService pricing,
+            ProductCardRuntimeEnricher enricher,
+            @Value("${tazzzo.freshness.enabled:false}") boolean freshnessReady) {
+        // the same signed commerce cursor shape as the list, so one codec/key governs every /v1 continuation
+        ConsumerCursorCodec commerceCursor =
+                new ConsumerCursorCodec(cursorProperties, ConsumerCursorCodec.COMMERCE_ROUTE, 1);
+        return new CommerceSearchService(snapshots, scopes, releases, gate, commerceCursor, baseReader, pricing,
+                enricher, db, freshnessReady);
+    }
+
+    @Bean
     public CommercePdpService commercePdpService(ConsumerReleaseResolver releases,
                                                  ConsumerAdmissionGate gate,
                                                  ProductDetailRuntimeComposer composer,

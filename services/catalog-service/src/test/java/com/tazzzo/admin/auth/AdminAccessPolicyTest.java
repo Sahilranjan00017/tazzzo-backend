@@ -116,4 +116,16 @@ class AdminAccessPolicyTest {
         assertThat(AdminAccessPolicy.decide(ops, "GET", "/api/v1/admin/me", Set.of("/api/v1/admin/me"))).isEqualTo(ALLOW);
         assertThat(AdminAccessPolicy.decide(ops, "GET", "/api/v1/admin/audit-events", Set.of("/api/v1/admin/me"))).isEqualTo(FORBIDDEN_READ);
     }
+
+    /** Spring routes /orders;x/... and /%6frders to the staff controllers; the policy must never see past them. */
+    @Test
+    void path_parameters_and_percent_escapes_are_refused_for_every_principal() {
+        for (String uri : new String[]{"/api/v1/admin/orders;x", "/api/v1/admin/orders;/ORD_abc", "/api/v1/admin/support;/cases",
+                "/api/v1/admin/%6frders", "/api/v1/admin/support/%63ases", "/api/v1/products;jsessionid=1"}) {
+            for (AdminPrincipal p : new AdminPrincipal[]{service("read"), service("cms-writer"), human("order-ops", "support-agent")}) {
+                assertThat(d(p, "GET", uri)).as(uri).isEqualTo(FORBIDDEN_READ);
+                assertThat(d(p, "POST", uri)).as(uri).isEqualTo(FORBIDDEN_WRITE);
+            }
+        }
+    }
 }
