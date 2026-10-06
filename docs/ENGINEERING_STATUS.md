@@ -1455,6 +1455,8 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-10-05** — Platform hardening PR-U (`feature/platform-hardening`): security headers on every response (incl. filter-written refusals), static log-safety guard over every log argument, LOGGING OTP provider refused outside unset/local/test/dev, dependency-free secret scan as a CI job, Dependabot for Maven + Actions. See `docs/ops/HARDENING.md`.
+
 - **2026-10-05** — Container image + deployment contract PR-V (`feature/container-image-deploy`): digest-pinned non-root layered image with no baked configuration, `.dockerignore` allowlist, graceful shutdown (`TAZZZO_SHUTDOWN_GRACE`, 25 s), CI image build (no push), `docs/ops/DEPLOYMENT.md` (roles, env, container contract, rollout, UNVERIFIED gates). Proven locally against a throwaway Mongo: migration job exit 0, runtime start on a read-only rootfs, fail-closed refusals, graceful SIGTERM.
 
 - **2026-10-05** — Cart age policy (`feature/cart-age-policy`): by time since the last mutation, <24 h FRESH, 24 h–7 d inclusive REVALIDATE (kept; GET returns `freshness: REVALIDATE` and lines carry `PRICE_CHANGED` when the current price differs from the price observed when the line was set — informational, never blocks checkout), >7 d expired (the boundary moved from "expired at exactly 7 d" to "kept at exactly 7 d"; housekeeping CAS now `expiresAt < now`). A REVALIDATE read never writes. Lines record `unitPricePaiseAtUpdate` (best-effort observation, never a price authority).

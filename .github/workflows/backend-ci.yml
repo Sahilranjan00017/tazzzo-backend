@@ -28,6 +28,14 @@ jobs:
       - name: Validate /v1 OpenAPI (structure + $ref)
         run: npx --yes @apidevtools/swagger-cli@4 validate docs/api/v1/openapi.yaml
 
+  secret-scan:
+    name: Secret scan (tracked files)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan for committed credentials
+        run: ./scripts/secret-scan.sh
+
   build-test:
     name: Compile & test (Java 21 + Testcontainers)
     runs-on: ubuntu-latest
