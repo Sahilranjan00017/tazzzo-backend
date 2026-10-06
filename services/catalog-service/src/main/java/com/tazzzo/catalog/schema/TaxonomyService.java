@@ -22,6 +22,23 @@ public class TaxonomyService {
         return db.getCollection("taxonomy_nodes").find(Filters.eq("_id", nodeId)).first();
     }
 
+    /**
+     * One page of nodes in ascending id order, strictly after {@code afterId}. Each filter is optional; the parent filter
+     * is served by the {@code parent_id} index, the type/status pair by {@code (node_type, status)}.
+     */
+    public List<Document> list(String parentId, String nodeType, String status, String afterId, int limit) {
+        List<org.bson.conversions.Bson> filters = new ArrayList<>();
+        if (parentId != null) filters.add(Filters.eq("parent_id", parentId));
+        if (nodeType != null) filters.add(Filters.eq("node_type", nodeType));
+        if (status != null) filters.add(Filters.eq("status", status));
+        if (afterId != null) filters.add(Filters.gt("_id", afterId));
+        org.bson.conversions.Bson filter = filters.isEmpty() ? new Document() : Filters.and(filters);
+        List<Document> out = new ArrayList<>();
+        db.getCollection("taxonomy_nodes").find(filter).sort(com.mongodb.client.model.Sorts.ascending("_id"))
+                .limit(limit).into(out);
+        return out;
+    }
+
     /** Root-first path, e.g. [Staples, Rice & Grains, Basmati Rice, Basmati Rice]. */
     public List<Document> path(String verticalId) {
         List<Document> path = new ArrayList<>();

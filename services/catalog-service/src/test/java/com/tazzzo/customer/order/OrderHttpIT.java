@@ -804,10 +804,10 @@ class OrderHttpIT extends AbstractApiIT {
     // reachability
     // ============================================================
 
-    @Test void there_is_no_order_list_endpoint_and_only_the_two_routes_exist() {
+    @Test void only_the_four_routes_exist_and_no_other_verb_is_reachable() {
         Shopper s = shopper();
         ResponseEntity<JsonNode> list = call(HttpMethod.GET, "/v1/customer/orders", s.token(), null, null);
-        assertThat(list.getStatusCode().is2xxSuccessful()).isFalse();
+        assertThat(list.getStatusCode().value()).as("the order history list exists since PR-M").isEqualTo(200);
         for (HttpMethod m : List.of(HttpMethod.PUT, HttpMethod.PATCH, HttpMethod.DELETE)) {
             assertThat(call(m, "/v1/customer/orders/ORD_abcdefgh", s.token(), null, Map.of()).getStatusCode()
                     .is2xxSuccessful()).isFalse();
@@ -819,7 +819,7 @@ class OrderHttpIT extends AbstractApiIT {
                 routes.add(m.getName());
             }
         }
-        assertThat(routes).containsExactlyInAnyOrder("place", "read");
+        assertThat(routes).containsExactlyInAnyOrder("place", "read", "list", "cancel");
     }
 
     // ============================================================

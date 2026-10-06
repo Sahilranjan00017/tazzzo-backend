@@ -8,11 +8,19 @@ package com.tazzzo.inventory;
  */
 public record InventoryKey(String skuId, String fulfillmentLocationId) {
     public InventoryKey {
-        if (skuId == null || skuId.isBlank()) {
-            throw new IllegalArgumentException("skuId required");
+        requireId(skuId, "skuId");
+        requireId(fulfillmentLocationId, "fulfillmentLocationId");
+    }
+
+    /** Same bounds as the serviceability route's location id: it must be the same string on both sides of the join. */
+    static final int MAX_ID = 128;
+
+    private static void requireId(String value, String name) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(name + " required");
         }
-        if (fulfillmentLocationId == null || fulfillmentLocationId.isBlank()) {
-            throw new IllegalArgumentException("fulfillmentLocationId required");
+        if (value.length() > MAX_ID || !value.equals(value.trim()) || value.chars().anyMatch(ch -> ch < 0x20 || ch == 0x7F)) {
+            throw new IllegalArgumentException(name + " invalid: trimmed, no control chars, max " + MAX_ID);
         }
     }
 }
