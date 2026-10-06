@@ -1455,6 +1455,11 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-10-05** — Customer account deletion / erasure (backend completion PR-C; base `main` `484d42c`): `POST /v1/customer/account/deletion` with explicit `{"confirm":"DELETE"}`,
+  orchestrated by the new top-level `com.tazzzo.account` slice in ONE transaction: sessions revoked (tokens dead at the next request), profile/addresses/address state/cart/quotes deleted, order address
+  snapshots anonymised (orders retained as commercial records), entitling membership term revoked in-session, customer row tombstoned (phone replaced by a per-id placeholder, so the phone can register
+  again as a NEW customer), the phone's OTP rows purged, and a `CUSTOMER_ACCOUNT_DELETED` audit event with counts only. Each module erases its own data (`*Erasure` components, reachable only from the
+  orchestrator — pinned by ModuleBoundaryTest). Idempotent and concurrency-safe (conditional tombstone). No retention PERIOD is invented. PII map updated (`DATABASE_RETENTION_AND_PII.md`).
 - **2026-10-05** — OTP delivery gateway adapter (backend completion PR-N1; base `main` `484d42c`): `tazzzo.customer-auth.otp.provider-mode=HTTP` wires `HttpOtpDeliveryProvider`, a vendor-neutral HTTPS adapter behind the existing
   `OtpDeliveryProvider` port (POST JSON `{to,message,sender}` with a credential header; any 2xx = accepted). Validated fail-closed at STARTUP (https only except loopback, credential present and never printed, template carries `{otp}`, timeouts
   fit inside `delivery-timeout-seconds`); redirects never followed; bounded timeouts; the code, phone, URL, credential and response body appear in no log/exception/metric; one bounded metric `otp_gateway_send{outcome}`. A gateway failure is 503

@@ -1087,4 +1087,39 @@ class ModuleBoundaryTest {
                             com.tngtech.archunit.core.domain.JavaClass.Predicates
                                     .resideInAPackage("com.tazzzo.commerce.contract.."))
                     .allowEmptyShould(true);
+
+    // ---------------------------------------------------------------------------------------------
+    // Backend completion PR-C -- com.tazzzo.account: the customer account-deletion ORCHESTRATOR. A top-level slice that
+    // depends downward on auth, customer.*, membership and common; nothing may depend on it (no cycle, no reuse as a
+    // back door), and each module's erasure component is reachable from the orchestrator only.
+    // ---------------------------------------------------------------------------------------------
+
+    @ArchTest
+    static final ArchRule nothing_depends_on_the_account_orchestrator =
+            noClasses().that().resideOutsideOfPackage("com.tazzzo.account..")
+                    .should().dependOnClassesThat().resideInAPackage("com.tazzzo.account..")
+                    .allowEmptyShould(true);
+
+    /** The erasure components are internal domain API for the trusted orchestrator, like the membership commands. */
+    private static final Class<?>[] ERASURE_COMPONENTS = {
+            com.tazzzo.auth.session.CustomerAccountErasure.class, com.tazzzo.auth.otp.OtpErasure.class,
+            com.tazzzo.customer.profile.CustomerProfileErasure.class, com.tazzzo.customer.address.AddressErasure.class,
+            com.tazzzo.customer.cart.CartErasure.class, com.tazzzo.customer.checkout.CheckoutQuoteErasure.class,
+            com.tazzzo.customer.order.OrderErasure.class, com.tazzzo.membership.MembershipErasure.class};
+
+    @ArchTest
+    static final ArchRule erasure_components_are_used_only_by_the_account_orchestrator =
+            noClasses().that().resideOutsideOfPackage("com.tazzzo.account..")
+                    .and(DescribedPredicate.not(belongToAnyOf(ERASURE_COMPONENTS))) // a component may use its own nested types
+                    .should().dependOnClassesThat().belongToAnyOf(ERASURE_COMPONENTS)
+                    .allowEmptyShould(true);
+
+    /** The HTTP layer of the orchestrator talks to its service only (it never reaches membership or a repository). */
+    @ArchTest
+    static final ArchRule account_http_layer_delegates_to_its_service_only =
+            noClasses().that().resideInAPackage("com.tazzzo.account..")
+                    .and(selfOrEnclosingSimpleNameEndingWithAny("Controller", "ExceptionHandler", "Dto"))
+                    .should().dependOnClassesThat().resideInAnyPackage(MEMBERSHIP, "com.tazzzo.customer..",
+                            "com.tazzzo.auth.session..", "com.tazzzo.auth.otp..", "com.mongodb..")
+                    .allowEmptyShould(true);
 }
