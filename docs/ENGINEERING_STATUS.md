@@ -1455,6 +1455,8 @@ is FUTURE work and not required for the production modular monolith.
 
 ## Last verification
 
+- **2026-10-05** — Customer-surface rate limits (`feature/customer-rate-limits`): per-customer read/write buckets on `/v1/customer/**` after authentication, 429 + Retry-After, fail-closed 503 on store outage, bounded metric; off unless configured, startup failure on partial config or a missing store. See `docs/ops/CUSTOMER_RATE_LIMITS.md`. Values UNVERIFIED (deployment decision).
+
 - **2026-10-05** — Customer account deletion / erasure (backend completion PR-C; base `main` `484d42c`): `POST /v1/customer/account/deletion` with explicit `{"confirm":"DELETE"}`,
   orchestrated by the new top-level `com.tazzzo.account` slice in ONE transaction: sessions revoked (tokens dead at the next request), profile/addresses/address state/cart/quotes deleted, order address
   snapshots anonymised (orders retained as commercial records), entitling membership term revoked in-session, customer row tombstoned (phone replaced by a per-id placeholder, so the phone can register
