@@ -7,6 +7,9 @@ import com.tazzzo.catalog.tx.Tx;
 import com.tazzzo.common.audit.Actor;
 import com.tazzzo.common.audit.DomainAudit;
 import com.tazzzo.common.audit.DomainEvent;
+import com.tazzzo.notification.NotificationEnqueuer;
+import com.tazzzo.notification.NotificationRequest;
+import com.tazzzo.notification.NotificationType;
 import com.tazzzo.delivery.DeliverySlotService;
 import com.tazzzo.inventory.InventoryReservationFailure;
 import com.tazzzo.inventory.InventoryReservationId;
@@ -48,9 +51,11 @@ public class StaffOrderService {
     private final Tx tx;
     private final Clock clock;
     private final DomainAudit audit;
+    private final NotificationEnqueuer notifications;
 
     public StaffOrderService(OrderRepository orders, DeliverySlotService slots, InventoryReservationPort reservations, Tx tx,
-                             Clock clock, MongoDatabase db) {
+                             Clock clock, MongoDatabase db, NotificationEnqueuer notifications) {
+        this.notifications = notifications;
         this.orders = orders;
         this.slots = slots;
         this.reservations = reservations;
@@ -145,6 +150,14 @@ public class StaffOrderService {
                     detail.put("slot_released", slotReleased);
                 }
                 audit.append(session, new DomainEvent("order", orderId, "ORDER_" + target.name(), detail, actor));
+                // the customer notification commits or rolls back with the transition (transactional outbox)
+                NotificationType type = switch (target) {
+                    case OUT_FOR_DELIVERY -> NotificationType.ORDER_OUT_FOR_DELIVERY;
+                    case DELIVERED -> NotificationType.ORDER_DELIVERED;
+                    default -> NotificationType.ORDER_CANCELLED;
+                };
+                notifications.enqueue(session, new NotificationRequest(type, order.customerId(), orderId,
+                        target == OrderStatus.CANCELLED ? Map.of("cancelled_by", "STAFF", "reason_code", reasonCode) : Map.of()));
                 return OrderRepository.toOrder(orders.findById(session, orderId));
             });
         } catch (MongoException e) {

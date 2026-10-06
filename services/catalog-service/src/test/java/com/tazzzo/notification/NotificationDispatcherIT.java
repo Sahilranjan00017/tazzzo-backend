@@ -196,7 +196,8 @@ class NotificationDispatcherIT extends AbstractMongoIT {
         enqueue("ORD_1");
         new Tx(client).run(s -> outbox.enqueue(s, new NotificationRequest(NotificationType.ORDER_CONFIRMED, "CUS_other001",
                 "ORD_9", Map.of())));
-        assertThat(outbox.eraseForCustomer("CUS_n2test01")).isEqualTo(1);
+        Long erased = new Tx(client).call(s -> new NotificationErasure(db).erase(s, "CUS_n2test01"));
+        assertThat(erased).isEqualTo(1L);
         assertThat(row("ORD_1")).isNull();
         assertThat(row("ORD_9")).isNotNull();
     }

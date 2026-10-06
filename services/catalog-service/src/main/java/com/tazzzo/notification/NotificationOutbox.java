@@ -110,8 +110,4 @@ public class NotificationOutbox implements NotificationEnqueuer {
                 Updates.combine(update, Updates.unset("lease_until"), Updates.unset("claim_token"))).getModifiedCount() == 1;
     }
 
-    /** Account erasure: every row for the customer goes, whatever its state (wired into the erasure orchestrator at merge). */
-    public long eraseForCustomer(String customerId) {
-        return rows().deleteMany(Filters.eq("customer_id", customerId)).getDeletedCount();
-    }
 }

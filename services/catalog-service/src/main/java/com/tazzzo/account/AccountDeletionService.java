@@ -15,6 +15,8 @@ import com.tazzzo.customer.checkout.CheckoutQuoteErasure;
 import com.tazzzo.customer.order.OrderErasure;
 import com.tazzzo.customer.profile.CustomerProfileErasure;
 import com.tazzzo.membership.MembershipErasure;
+import com.tazzzo.notification.NotificationErasure;
+import com.tazzzo.support.SupportErasure;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -36,6 +38,7 @@ import java.util.Map;
  *   <li>orders are RETAINED as commercial records with the address snapshot ANONYMISED (name, phone, street replaced;
  *       landmark and coordinates removed; postal area kept); the opaque customer id stays as their key;</li>
  *   <li>a currently-entitling membership term is revoked;</li>
+ *   <li>support cases (free text written by the customer and staff) and every notification-outbox row are DELETED;</li>
  *   <li>the customer row becomes a TOMBSTONE (status DELETED, phone replaced by a per-id placeholder), so the phone is
  *       free to register again as a NEW customer; the OTP rows of that phone are removed;</li>
  *   <li>a {@code CUSTOMER_ACCOUNT_DELETED} event with counts only (never personal data) is appended to the audit ledger.</li>
@@ -64,6 +67,8 @@ public class AccountDeletionService {
     private final CheckoutQuoteErasure quotes;
     private final OrderErasure orders;
     private final MembershipErasure membership;
+    private final SupportErasure support;
+    private final NotificationErasure notifications;
     private final DomainAudit audit;
     private final AccountDeletionObservability observability;
 
@@ -71,14 +76,18 @@ public class AccountDeletionService {
     public AccountDeletionService(Tx tx, MongoDatabase db, CustomerAccountErasure account, OtpErasure otp,
                                   CustomerProfileErasure profile, AddressErasure addresses, CartErasure cart,
                                   CheckoutQuoteErasure quotes, OrderErasure orders, MembershipErasure membership,
+                                  SupportErasure support, NotificationErasure notifications,
                                   AccountDeletionObservability observability) {
-        this(tx, Clock.systemUTC(), account, otp, profile, addresses, cart, quotes, orders, membership,
+        this(tx, Clock.systemUTC(), account, otp, profile, addresses, cart, quotes, orders, membership, support, notifications,
                 new DomainAudit(db, Clock.systemUTC()), observability);
     }
 
     AccountDeletionService(Tx tx, Clock clock, CustomerAccountErasure account, OtpErasure otp, CustomerProfileErasure profile,
                            AddressErasure addresses, CartErasure cart, CheckoutQuoteErasure quotes, OrderErasure orders,
-                           MembershipErasure membership, DomainAudit audit, AccountDeletionObservability observability) {
+                           MembershipErasure membership, SupportErasure support, NotificationErasure notifications,
+                           DomainAudit audit, AccountDeletionObservability observability) {
+        this.support = support;
+        this.notifications = notifications;
         this.tx = tx;
         this.clock = clock;
         this.account = account;
@@ -131,6 +140,8 @@ public class AccountDeletionService {
         counts.put("quotes", quotes.erase(session, id));
         counts.put("ordersAnonymised", orders.anonymise(session, id, now));
         counts.put("membership", membership.revokeOpenTerm(session, customerId, now).name());
+        counts.put("supportCases", support.erase(session, id));
+        counts.put("notifications", notifications.erase(session, id));
         CustomerAccountErasure.Result identity = account.erase(session, customerId, now);
         if (identity.phone().isEmpty()) {
             // the row stopped being ACTIVE between our read and the tombstone: a concurrent deletion won

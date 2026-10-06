@@ -93,6 +93,12 @@ class OrderLifecycleIT extends AbstractOrderSlotIT {
         assertThat(onHand(s.sku())).as("restocked exactly once").isEqualTo(10);
         assertThat(usage(s).getInteger("used")).isZero();
         assertThat(db.getCollection("domain_events").countDocuments(new Document("aggregate_id", orderId))).isEqualTo(1);
+        Document n = db.getCollection("notification_outbox").find(new Document("_id", "ORDER_CANCELLED:" + orderId)).first();
+        assertThat(n).as("the cancellation notifies the customer").isNotNull();
+        assertThat(n.getString("customer_id")).isEqualTo(s.customerId());
+        assertThat(n.get("params", Document.class)).containsEntry("cancelled_by", "CUSTOMER").containsEntry("reason_code", "CHANGED_MIND");
+        assertThat(db.getCollection("notification_outbox").countDocuments(new Document("subject_id", orderId)
+                .append("type", "ORDER_CANCELLED"))).as("an idempotent replay never notifies twice").isEqualTo(1);
     }
 
     @Test
@@ -116,6 +122,8 @@ class OrderLifecycleIT extends AbstractOrderSlotIT {
         assertThat(onHand(s.sku())).as("never 10 + extra").isEqualTo(10);
         assertThat(usage(s).getInteger("used")).isZero();
         assertThat(db.getCollection("orders").find(new Document("_id", orderId)).first().getString("status")).isEqualTo("CANCELLED");
+        assertThat(db.getCollection("notification_outbox").countDocuments(new Document("subject_id", orderId)
+                .append("type", "ORDER_CANCELLED"))).as("concurrent cancels notify exactly once").isEqualTo(1);
     }
 
     @Test

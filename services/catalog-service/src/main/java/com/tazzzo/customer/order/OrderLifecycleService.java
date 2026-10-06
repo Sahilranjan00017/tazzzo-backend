@@ -6,6 +6,9 @@ import com.tazzzo.catalog.tx.Tx;
 import com.tazzzo.common.audit.Actor;
 import com.tazzzo.common.audit.DomainAudit;
 import com.tazzzo.common.audit.DomainEvent;
+import com.tazzzo.notification.NotificationEnqueuer;
+import com.tazzzo.notification.NotificationRequest;
+import com.tazzzo.notification.NotificationType;
 import com.tazzzo.delivery.DeliverySlotService;
 import com.tazzzo.inventory.InventoryReservationFailure;
 import com.tazzzo.inventory.InventoryReservationId;
@@ -63,10 +66,13 @@ public class OrderLifecycleService {
     private final DomainAudit audit;
     private final OrderObservability observability;
     private final long cancelWindowSeconds;
+    private final NotificationEnqueuer notifications;
 
     public OrderLifecycleService(OrderRepository orders, DeliverySlotService slots, InventoryReservationPort reservations,
                                  Tx tx, Clock clock, MongoDatabase db, OrderObservability observability,
-                                 @Value("${tazzzo.orders.customer-cancel-window-seconds:0}") long cancelWindowSeconds) {
+                                 @Value("${tazzzo.orders.customer-cancel-window-seconds:0}") long cancelWindowSeconds,
+                                 NotificationEnqueuer notifications) {
+        this.notifications = notifications;
         if (cancelWindowSeconds < 0 || cancelWindowSeconds > 7 * 24 * 3600L) {
             throw new IllegalArgumentException("tazzzo.orders.customer-cancel-window-seconds must be within 0..604800");
         }
@@ -191,6 +197,9 @@ public class OrderLifecycleService {
                 detail.put("restocked", restocked);
                 detail.put("slot_released", slotReleased);
                 audit.append(session, new DomainEvent("order", orderIdRaw, "ORDER_CANCELLED", detail, CUSTOMER_CANCEL_ACTOR));
+                notifications.enqueue(session, new NotificationRequest(NotificationType.ORDER_CANCELLED, customerId.value(),
+                        orderIdRaw, reasonCode == null ? Map.of("cancelled_by", "CUSTOMER")
+                                : Map.of("cancelled_by", "CUSTOMER", "reason_code", reasonCode)));
                 return OrderRepository.toOrder(orders.findOwnedById(session, orderIdRaw, customerId.value()));
             });
             observability.cancelSuccess();

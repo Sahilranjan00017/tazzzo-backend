@@ -6,6 +6,9 @@ import com.tazzzo.catalog.tx.Tx;
 import com.tazzzo.common.audit.Actor;
 import com.tazzzo.common.audit.DomainAudit;
 import com.tazzzo.common.audit.DomainEvent;
+import com.tazzzo.notification.NotificationEnqueuer;
+import com.tazzzo.notification.NotificationRequest;
+import com.tazzzo.notification.NotificationType;
 import com.tazzzo.customer.order.OrderId;
 import com.tazzzo.customer.order.OrderRepository;
 import org.bson.Document;
@@ -31,7 +34,7 @@ import java.util.regex.Pattern;
  * the verified principal (a foreign case is simply not found); every state change is a guarded single-document update
  * (CAS or status guard), so concurrent replies/closes can never corrupt a thread; the thread is bounded; every STAFF
  * action is audited with the authenticated actor. Case text is personal data: it is deleted by account erasure
- * ({@link #eraseForCustomer}).
+ * ({@link SupportErasure}).
  */
 @Service
 public class SupportService {
@@ -50,8 +53,11 @@ public class SupportService {
     private final Tx tx;
     private final Clock clock;
     private final DomainAudit audit;
+    private final NotificationEnqueuer notifications;
 
-    public SupportService(SupportCaseRepository cases, OrderRepository orders, Tx tx, Clock clock, MongoDatabase db) {
+    public SupportService(SupportCaseRepository cases, OrderRepository orders, Tx tx, Clock clock, MongoDatabase db,
+                          NotificationEnqueuer notifications) {
+        this.notifications = notifications;
         this.cases = cases;
         this.orders = orders;
         this.tx = tx;
@@ -152,6 +158,9 @@ public class SupportService {
                 if (!cases.appendMessage(session, caseId, null, List.of("OPEN", "IN_PROGRESS", "RESOLVED"), msg, next, now)) {
                     throw new SupportFailure(SupportFailure.Reason.STATE_CONFLICT);   // aborts the transaction: no audit row either
                 }
+                // never the message text (personal data): the customer opens the case in the app
+                notifications.enqueue(session, new NotificationRequest(NotificationType.SUPPORT_REPLY, current.customerId(),
+                        caseId + "-m" + msg.id(), Map.of("category", current.category().name())));
             });
             return staffGetUnguarded(caseId);
         });
@@ -163,7 +172,7 @@ public class SupportService {
             SupportCase current = staffGetUnguarded(caseId);
             String to = current.status() == SupportCase.Status.OPEN ? SupportCase.Status.IN_PROGRESS.name() : current.status().name();
             if (current.status() == SupportCase.Status.CLOSED) throw new SupportFailure(SupportFailure.Reason.STATE_CONFLICT);
-            applyTransition(actor, caseId, expectedVersion, to, actor.id(), "SUPPORT_ASSIGNED", Map.of());
+            applyTransition(actor, caseId, expectedVersion, to, actor.id(), "SUPPORT_ASSIGNED", Map.of(), s -> { });
             return staffGetUnguarded(caseId);
         });
     }
@@ -177,29 +186,26 @@ public class SupportService {
             if (current.status() == SupportCase.Status.CLOSED || current.status() == target) {
                 throw new SupportFailure(SupportFailure.Reason.STATE_CONFLICT);
             }
-            applyTransition(actor, caseId, expectedVersion, target.name(), null, "SUPPORT_STATUS_CHANGED", Map.of("to", target.name()));
+            java.util.function.Consumer<com.mongodb.client.ClientSession> notify = target != SupportCase.Status.RESOLVED ? s -> { }
+                    : s -> notifications.enqueue(s, new NotificationRequest(NotificationType.SUPPORT_CASE_RESOLVED,
+                            current.customerId(), caseId + "-v" + (expectedVersion + 1), Map.of("category", current.category().name())));
+            applyTransition(actor, caseId, expectedVersion, target.name(), null, "SUPPORT_STATUS_CHANGED", Map.of("to", target.name()), notify);
             return staffGetUnguarded(caseId);
         });
-    }
-
-    // ----------------------------------------------------------------- erasure
-
-    /** Delete every case of {@code customerId}, in the caller's transaction (account erasure). @return the count */
-    public long eraseForCustomer(com.mongodb.client.ClientSession session, String customerId) {
-        return cases.deleteForCustomer(session, customerId);
     }
 
     // ----------------------------------------------------------------- helpers
 
     /** Audit row and CAS in ONE transaction: a stale version rolls the audit row back too. */
     private void applyTransition(Actor actor, String caseId, long expectedVersion, String to, String assignedTo, String eventType,
-                                 Map<String, Object> detail) {
+                                 Map<String, Object> detail, java.util.function.Consumer<com.mongodb.client.ClientSession> inTx) {
         Instant now = clock.instant().truncatedTo(ChronoUnit.MILLIS);
         tx.run(session -> {
             audit.append(session, new DomainEvent("support_case", caseId, eventType, new LinkedHashMap<>(detail), actor));
             if (!cases.transition(session, caseId, expectedVersion, List.of("OPEN", "IN_PROGRESS", "RESOLVED"), to, assignedTo, now)) {
                 throw new SupportFailure(SupportFailure.Reason.STALE_VERSION);       // aborts the transaction: no audit row either
             }
+            inTx.accept(session);
         });
     }
 

@@ -1115,7 +1115,8 @@ class ModuleBoundaryTest {
             com.tazzzo.auth.session.CustomerAccountErasure.class, com.tazzzo.auth.otp.OtpErasure.class,
             com.tazzzo.customer.profile.CustomerProfileErasure.class, com.tazzzo.customer.address.AddressErasure.class,
             com.tazzzo.customer.cart.CartErasure.class, com.tazzzo.customer.checkout.CheckoutQuoteErasure.class,
-            com.tazzzo.customer.order.OrderErasure.class, com.tazzzo.membership.MembershipErasure.class};
+            com.tazzzo.customer.order.OrderErasure.class, com.tazzzo.membership.MembershipErasure.class,
+            com.tazzzo.support.SupportErasure.class, com.tazzzo.notification.NotificationErasure.class};
 
     @ArchTest
     static final ArchRule erasure_components_are_used_only_by_the_account_orchestrator =
