@@ -2,6 +2,7 @@ package com.tazzzo.catalog.consumer;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 
 import java.util.List;
 
@@ -28,6 +29,10 @@ public final class ConsumerDtos {
      * TR-1 (the response says which release answered it) and {@code items} is the TR-3-ordered,
      * hide-empty list of immediate consumer-visible nodes — empty for a visible vertical.
      */
+    // The wire order of these three envelopes is pinned to what consumers have always received (items first). Jackson
+    // 2.18 started ordering record components by declaration, which would move resolved_release_id to the front:
+    // semantically identical JSON, but a byte-level change to public responses. ConsumerWireOrderTest guards it.
+    @JsonPropertyOrder({"items", "resolved_release_id"})
     public record NodeListResponse(@JsonProperty("resolved_release_id") String resolvedReleaseId,
                                List<ConsumerNode> items) { }
 
@@ -39,6 +44,7 @@ public final class ConsumerDtos {
      * number, taxonomy path, price, inventory, seller, ranking.
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
+    @JsonPropertyOrder({"items", "resolved_release_id", "next_cursor"})
     public record ProductListResponse(@JsonProperty("resolved_release_id") String resolvedReleaseId,
                                       List<ConsumerProductResponse> items,
                                       @JsonProperty("next_cursor") String nextCursor) { }
@@ -49,6 +55,7 @@ public final class ConsumerDtos {
      * {@link ConsumerProductResponse} a LIST page carries — one DTO for one product (RP-1), so a
      * detail and a list item can never drift apart.
      */
+    @JsonPropertyOrder({"item", "resolved_release_id"})
     public record ProductDetailResponse(@JsonProperty("resolved_release_id") String resolvedReleaseId,
                                         ConsumerProductResponse item) { }
 

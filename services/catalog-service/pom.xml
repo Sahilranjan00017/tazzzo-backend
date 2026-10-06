@@ -5,7 +5,8 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.3.5</version>
+        <!-- final 3.3 patch release; supported-platform migration (3.5 / 4.x) is a separate workstream -->
+        <version>3.3.13</version>
         <relativePath/>
     </parent>
     <groupId>com.tazzzo</groupId>
@@ -16,6 +17,17 @@
     <properties>
         <java.version>21</java.version>
         <testcontainers.version>1.21.3</testcontainers.version>
+        <!--
+          Security overrides on the Boot 3.3 line: each stays within the version line Boot manages (patch or the
+          next compatible Jackson 2.x minor) and is OSV-clean at the time of writing. They fix: Tomcat request
+          smuggling via invalid chunk extensions (CVE-2026-24880) and the multipart DoS family; the jackson-core
+          number-parsing ReDoS reachable through Double request fields (CVE-2026-89407) and the related 2.17.x
+          advisories (no 2.17 fix exists); Netty 4.1 client advisories. Remove an override once the Boot BOM
+          manages an equal or newer version. Evidence: docs/security/DEPENDENCY_SECURITY_REVIEW_2026-10.md
+        -->
+        <tomcat.version>10.1.60</tomcat.version>
+        <jackson-bom.version>2.18.11</jackson-bom.version>
+        <netty.version>4.1.139.Final</netty.version>
     </properties>
     <dependencies>
         <dependency>
@@ -69,7 +81,8 @@
         <dependency>
             <groupId>com.nimbusds</groupId>
             <artifactId>nimbus-jose-jwt</artifactId>
-            <version>9.37.3</version>
+            <!-- 9.37.4: bounded JSON nesting (CVE-2025-53864); same 9.37 line, no API change -->
+            <version>9.37.4</version>
         </dependency>
         <!--
           CAT-SEC-1 Q5-MECH-1: the consumer limiter is DISTRIBUTED. Two catalogue tasks serve

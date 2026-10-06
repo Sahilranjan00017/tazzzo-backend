@@ -333,6 +333,27 @@ class HumanAdminOidcIT extends AbstractApiIT {
         }
     }
 
+    // ---------- CVE-2025-53864: the token's JSON nesting is bounded before any identity decision ----------
+
+    @Test
+    void a_validly_signed_token_with_excessive_json_nesting_is_401_and_writes_nothing() {
+        long iat = Instant.now().getEpochSecond();
+        // a writer's otherwise-valid claims plus one claim nested 5,000 deep: the whole request stays under the 16 KB
+        // header limit, so this is the deepest shape an attacker can actually deliver
+        String payload = "{\"iss\":\"https://accounts.google.com\",\"azp\":\"" + GoogleIdTokens.AUDIENCE + "\",\"aud\":\""
+                + GoogleIdTokens.AUDIENCE + "\",\"sub\":\"" + GoogleIdTokens.WRITER + "\",\"hd\":\"" + GoogleIdTokens.DOMAIN
+                + "\",\"email_verified\":true,\"iat\":" + iat + ",\"exp\":" + (iat + 3600)
+                + ",\"x\":" + "[".repeat(5_000) + "]".repeat(5_000) + "}";
+        String token = TOKENS.signRaw(payload);
+        double before = rejected("invalid_token");
+        ResponseEntity<JsonNode> denied = post("/api/v1/products", product("TZP-HUM-NEST", "hum|nest"), token, JsonNode.class);
+        assertThat(denied.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(denied.getBody().path("error").path("code").asText()).isEqualTo("UNAUTHENTICATED");
+        assertThat(denied.getBody().toString()).doesNotContain("[[[[");
+        assertThat(rejected("invalid_token")).isEqualTo(before + 1);
+        assertThat(productCount("TZP-HUM-NEST")).isZero();
+    }
+
     @Test
     void the_unknown_surface_stays_404_for_a_valid_human_token() {
         HttpHeaders h = headers(human(GoogleIdTokens.WRITER));
