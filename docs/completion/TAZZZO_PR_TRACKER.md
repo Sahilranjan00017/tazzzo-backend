@@ -12,8 +12,9 @@ Every PR the completion program touches. "Review" = independent adversarial revi
 | #94 | Completion trackers (docs only) | `aa6db11` + updates | n/a (docs) | self (docs) | OPEN | — |
 | #95 | MEDIA-STORAGE: S3-compatible `MediaStorage` (presigned upload, inspection) | `03ea97b968f6e7b0acbb4c22a852f4b83b037505` (after review fixes; first head `1f59b28`) | first head: run 37545551274 ✅ (3,257); remediated head: run 37549935119 ✅ on attempt 2 (3,261; attempt 1 failed only the pre-existing flaky `CheckoutQuoteIT` assertion) | first head **FAIL** (HIGH: `apache5-client` shipped; MEDIUM: duplicate Content-Type keys, outage→500, cross-owner key reference; LOW: endpoint validation, unbounded size); **all fixed** at `03ea97b`; re-review **PASS** (new LOW: owner-id normalisation could alias ids differing only in non-key-safe characters; NOTE: startup HeadBucket probe would make a wrong bucket explicit) | OPEN, awaiting CEO merge approval | — |
 | #96 | CHANNEL-PUBLISHING: `audience` + `?channel=app\|web` (D1–D3) | `d952ed04613967c57c550476a65d75a10997d415` | run 37548402098 ✅ (3,253) | **PASS** (deployment note: CDN cache key must include `channel`; LOW: corrupt stored audience → 400) | OPEN, awaiting CEO merge approval | — |
-| #97 | CATALOGUE-SCALE: capacity harness `CatalogCapacityIT` (test + runbook only) | `58190ab` → hardening commit (assert 100 % 2xx, winning-plan explain, runbook caveats) | run 37553486818 ✅ on `58190ab`; hardening head: pending | **PASS** (review ran its own 2,000-SKU run; MEDIUM: non-2xx not asserted, explain string-search — both fixed; LOW doc notes — fixed) | OPEN, awaiting CEO merge approval after CI on the hardening head | — |
+| #97 | CATALOGUE-SCALE: capacity harness `CatalogCapacityIT` (test + runbook only) | `ad4d799329e0f3c43319ebf16ebe8cf23c5d2363` (hardening: assert 100 % 2xx, winning-plan explain, runbook caveats) | run 37553486818 ✅ on `58190ab`; run 37554653821 ✅ on `ad4d799` | **PASS** (review ran its own 2,000-SKU run; MEDIUM: non-2xx not asserted, explain string-search — both fixed; LOW doc notes — fixed) | OPEN, awaiting CEO merge approval after CI on the hardening head | — |
 | #98 | Flaky `CheckoutQuoteIT` assertion (field names instead of whole body) | `308332d38064ded6065b96a4616987df2bf48480` | run 37553781674 ✅ | test-only, 30 lines, reviewed by reading; `CheckoutQuoteIT` 73/73 | OPEN, awaiting CEO merge approval | — |
+| #99 | CATALOGUE-SCALE: pace projection reconciliation to the catalogue size | `ac4ed5579b123a7ce0cc66faacf7da347741f9a3` | pending | pending (fresh agent) | OPEN | — |
 | #83 | Dependabot: Spring Boot 4.1.1 | `553bc83` | — | known: does not compile | OPEN | — |
 | #82,#84–#89 | Dependabot actions/library bumps | various | — | not reviewed | OPEN | — |
 
@@ -44,7 +45,11 @@ Fresh-agent audit: public response for existing callers byte-identical except re
 gh pr merge 96 --squash --match-head-commit d952ed04613967c57c550476a65d75a10997d415
 gh pr merge 95 --squash --match-head-commit 03ea97b968f6e7b0acbb4c22a852f4b83b037505
 gh pr merge 98 --squash --match-head-commit 308332d38064ded6065b96a4616987df2bf48480
+gh pr merge 97 --squash --match-head-commit ad4d799329e0f3c43319ebf16ebe8cf23c5d2363
 ```
+
+### PR #99 record (pending review)
+Mutations P1–P6 (no ceil, floor ignored, cap ignored, recount every pass, scheduler unpaced, no startup validation): all killed after `CommerceProjectionSchedulerPacingIT` and the config test were added (P5/P6 had survived before them). Full suite 3,254/0 (before the last two tests), secret scan clean, container uid 10001. Follow-up noted: the drain batch (200/15 s) should scale too beyond ~190k SKUs.
 
 ### Flaky test on record
 `CheckoutQuoteIT.the_http_quote_exposes_the_exact_money_preview_beside_the_unchanged_benefit_preview:1603` asserts the lower-cased response body `doesNotContain("tax")`; a random quote id (`chkq_h28tax8f…`) contained it (run 37549935119 attempt 1). Passes 3/3 locally. Fix separately: assert on field names, not the whole body. Also previously flaky in CI history: `DatastorePrivilegeIT` (run 37247884928), `OtpServiceIT.resend_race…` (36349865644), `AddressServiceabilityHttpIT` (37520547831).
