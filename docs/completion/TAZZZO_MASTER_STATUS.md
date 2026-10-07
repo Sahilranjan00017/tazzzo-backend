@@ -43,7 +43,8 @@ Resume rule: read this file first. Every SHA below was verified live on GitHub a
 - #96 channel-targeted content — CI green, review PASS, merge pending CEO approval.
 - #97 capacity harness (test-only) — CI green on the hardened head `ad4d799`, review PASS — merge pending CEO approval.
 - #99 paced projection reconciliation — CI green on `8b6ac63`, review PASS; awaiting CEO merge approval.
-- #100 asynchronous product import jobs — opened at `b6006e3`; CI watch and fresh-agent review running.
+- #100 asynchronous product import jobs — CI green on `b6006e3`; fresh-agent review running.
+- App: `feature/app-home-content` (tazzzo-app worktree) — Phase 6 home content consumption in progress (unit tests 1,061/0; Android/iOS builds running).
 - #98 flaky `CheckoutQuoteIT` assertion (test-only) — CI green; merge pending CEO approval.
 - Dependabot #82, #84–#89 (actions, icu4j, testcontainers, archunit, nimbus 10.x) — not reviewed; #83 (Boot 4.1.1) known not to compile.
 
