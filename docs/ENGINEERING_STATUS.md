@@ -1254,6 +1254,12 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
 
 ## In review (NOT merged)
 
+- **Catalogue capacity harness** (branch `feature/catalogue-capacity-harness`, from `main` `7d491dd`): **IN REVIEW**. `CatalogCapacityIT`, enabled only by
+  `TAZZZO_CAPACITY_SKUS=<N>`, seeds N TEST DATA products through the real write shapes (validator-conformant documents, `PricingService`,
+  `InventoryService`, `ProductCardProjectionService.rebuildOne`) and measures list, product detail, search, admin list, import throughput, rebuild cost,
+  collection/index sizes and query plans (asserting no collection scan). Test-only: no production code. Runbook `docs/ops/CAPACITY_HARNESS.md`; results
+  in the completion tracker. First run at 5,000: list p95 15 ms, PDP p95 8 ms, search p95 22 ms, admin list p95 1.3 ms, rebuild p50 2.0 ms, import 127 rows/s.
+
 - **HTTP error-handling hardening** (branch `fix/http-error-handling-hardening`, from `main` `d790504`): **IN REVIEW**. The 12 controller-scoped `/v1` advices with an
   `Exception` catch-all (OTP, session, profile, address, account deletion, customer support, delivery slots, cart, checkout, order, commerce read, public content;
   staff support falls through to `ApiExceptionHandler`) no longer turn framework request-shape failures into a logged-as-ERROR 500. `catalog.api.ClientRequestErrors`
