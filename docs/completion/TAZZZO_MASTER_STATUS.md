@@ -27,7 +27,7 @@ Resume rule: read this file first. Every SHA below was verified live on GitHub a
 | 5 Channel-aware content + banners | **PR #96 open, reviewed PASS** (`d952ed0`), awaiting merge approval | audience + `?channel=` done (D1–D3); banner image variants (D4), CMS editors, app consumption follow |
 | 6 Android/iOS media + banners | NOT STARTED | |
 | 7 Customer website | NOT STARTED | no `apps/web` exists |
-| 8 Enterprise catalogue model + high-volume imports | IN PROGRESS: capacity harness built (`feature/catalogue-capacity-harness`), 5,000-SKU run recorded; 25k/100k running | import is synchronous JSON, 500 rows/request (127 rows/s measured) |
+| 8 Enterprise catalogue model + high-volume imports | IN PROGRESS: capacity harness PR open; 5k/25k/100k measured (reads within targets; import 127→39 rows/s; reconciler config caps drift pass at ~17 h/100k) | async import engine + reconciler scaling are the next backend PRs |
 | 9 Search, pricing, inventory scale | NOT STARTED | |
 | 10 Remaining CMS operational modules | NOT STARTED | |
 | 11 Security + supported platform upgrade | NOT STARTED | Boot 3.3 unsupported; Dependabot #83 (Boot 4.1.1) does not compile |
@@ -39,11 +39,11 @@ Resume rule: read this file first. Every SHA below was verified live on GitHub a
 ## Open PRs (backend)
 - #93 (reviewed, PASS) — merge pending CEO approval.
 - #94 (this tracker set, docs only).
-- #95 media storage adapter — review findings fixed at `03ea97b`, re-review and CI pending.
+- #95 media storage adapter — review findings fixed at `03ea97b`; re-review **PASS**; CI green (attempt 2; attempt 1 hit the pre-existing flaky `CheckoutQuoteIT` assertion, see tracker) — merge pending CEO approval.
 - #96 channel-targeted content — CI green, review PASS, merge pending CEO approval.
 - Dependabot #82, #84–#89 (actions, icu4j, testcontainers, archunit, nimbus 10.x) — not reviewed; #83 (Boot 4.1.1) known not to compile.
 
 ## Next executable action
-1. CEO: approve squash merges of #93 (`5832236…`) and #96 (`d952ed0…`), then #95 once its re-review passes (see `TAZZZO_PR_TRACKER.md`).
+1. CEO: approve squash merges of #93 (`5832236…`), #96 (`d952ed0…`) and #95 (`03ea97b…`) (see `TAZZZO_PR_TRACKER.md`).
 2. Engineering (no approval needed): finish 25k/100k capacity runs and open the harness PR; then banner image variants (D4) on top of #95; app consumption of `/v1/content/home`.
 3. CEO: decisions in `TAZZZO_EXTERNAL_BLOCKERS.md` (SKU master dataset, paid infra for S3/CDN, CMS stack merge order).

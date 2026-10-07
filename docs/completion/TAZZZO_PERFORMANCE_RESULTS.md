@@ -39,6 +39,44 @@ Sizes: products 2.2 MB data / 0.5 MB index; product_card_base 2.4 / 1.2; price_c
 
 Bottleneck: the synchronous import path (one transaction per row through `MintService.mint`, plus whole-file validation) — the async import engine (Phase 8) must batch validation and apply rows in bounded parallel batches to reach ≥ 200 rows/s. Everything else has an order of magnitude of headroom at this size.
 
-_(25,000 and 100,000 runs: in progress; appended when complete)_
+### 2026-10-07 — 25,000 SKUs (same branch, same machine)
+Seed: 24,832 cards; products 0.9 s, price+stock 101 s (4.1 ms/SKU), projection 125 s (rebuild p50 4.1 ms, p95 11.1 ms, max 493 ms); drift pass 1.7 min sequential.
+
+| Metric | p50 | p95 | max | Target (25k) | Pass |
+|---|---|---|---|---|---|
+| List first page | 10.1 ms | 15.6 ms | 41 ms | < 250 ms | ✅ |
+| List 3rd page | 8.6 ms | 11.3 ms | 20 ms | — | ✅ |
+| Product detail | 7.7 ms | 11.0 ms | 20 ms | < 250 ms | ✅ |
+| Search common / two tokens / rare | 21.0 / 17.1 / 19.9 ms | 28.2 / 22.5 / 25.9 ms | 51 ms | < 400 ms | ✅ |
+| Admin list (vertical 50 / unfiltered 200) | 1.4 / 2.9 ms | 2.6 / 5.1 ms | 13 ms | < 400 ms | ✅ |
+| Import (500-row files ×4) | 4.0 s / 500 | — | 5.0 s | ≥ 200 rows/s | ❌ **116 rows/s** |
+
+Sizes: products 9.9 MB / 2.6 MB index; product_card_base 12.0 / 8.4. Plans unchanged (IXSCAN). Heap growth 7 MB.
+
+### 2026-10-07 — 100,000 SKUs (same branch, same machine; 30 min wall clock)
+Seed: 99,324 cards; products 4.0 s (insertMany), **price+stock 888 s (8.9 ms/SKU: two CAS transactions per SKU)**, projection 789 s (rebuild p50 6.7 ms, p95 14.0 ms, max 600 ms); drift pass 11.2 min if sequential and unthrottled.
+
+| Metric | p50 | p95 | max | Target (100k) | Pass |
+|---|---|---|---|---|---|
+| List first page | 31.4 ms | 65.2 ms | 123 ms | < 300 ms | ✅ |
+| List 3rd page | 23.9 ms | 52.8 ms | 137 ms | — | ✅ |
+| Product detail | 21.5 ms | 39.1 ms | 72 ms | < 300 ms | ✅ |
+| Search common token | 51.7 ms | 93.2 ms | 816 ms | < 500 ms | ✅ (max outlier) |
+| Search two tokens | 39.9 ms | 69.9 ms | 192 ms | < 500 ms | ✅ |
+| Search rare brand token | 55.8 ms | 146.4 ms | 373 ms | < 500 ms | ✅ |
+| Admin list (vertical 50 / unfiltered 200) | 4.9 / 7.4 ms | 8.7 / 13.3 ms | 46 ms | < 500 ms | ✅ |
+| Admin get | 8.0 ms | 26.9 ms | 57 ms | — | ✅ |
+| Import (500-row files ×4) | 11.6 s / 500 | — | 15.1 s | ≥ 150 rows/s | ❌ **39 rows/s** |
+
+Sizes: products 37.3 MB data / 9.1 MB index; product_card_base 47.8 / 27.9 (the multikey `card_search_tokens` index dominates). Plans: still IXSCAN for list and search. Heap growth 32 MB (end 81 MB).
+
+### Findings from the three runs
+1. **Import throughput degrades with catalogue size** (127 → 116 → 39 rows/s): whole-file validation plus one `MintService.mint` transaction per row, with identity/GTIN uniqueness checks that grow with the collection. The Phase 8 async engine must batch validation lookups and apply rows in bounded parallel batches; target ≥ 200 rows/s at 100k needs a ~5× improvement.
+2. **Projection drift pass is a configuration limit, not a compute limit**: compute is ~6.7 ms/SKU (11 min for 100k), but `card-reconcile-limit=500` every `card-reconcile-ms=300000` caps a full pass at 100,000/500 × 5 min ≈ **16.7 h at 100k** (≈ 7 days at 1M). Raise the limit/frequency proportionally to catalogue size (Phase 8/9).
+3. **Search tail**: rare-token p95 146 ms and a common-token max of 816 ms at 100k on the prefix-regex `$all` plan over a 28 MB multikey index; fine for launch, but ranking/facets (Phase 9) should move to a real text/search index before 1M.
+4. **Read paths have ample headroom** at 100k on one laptop; the 1M target is extrapolated, not measured (seed alone would take ~5 h with the current CAS write paths), and is documented as a risk until a staging-sized run exists.
+5. Non-2xx samples (2–3 of 200 on PDP) are random picks of SKUs in verticals outside the release scope (404 by design), not errors.
+
+Raw JSON: `target/capacity/capacity-{5000,25000,100000}.json` from the harness runs (not committed).
 
 Synthetic datasets are TEST DATA only and must never be published to a customer-visible release.

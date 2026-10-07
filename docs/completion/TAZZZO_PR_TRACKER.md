@@ -10,7 +10,7 @@ Every PR the completion program touches. "Review" = independent adversarial revi
 | #92 | Map malformed-request framework errors to 400/415/406 at every /v1 error boundary | `2732edfb151446fafc942d2fc2f866ec5aa2ec4d` | run 37526530157 ✅ | PASS (class B) | MERGED (CEO-approved pinned squash) | `7d491dd027d09d5dc4b355205db9ce11e02dd6b9` |
 | #93 | Negotiate Accept before the handler runs; JSON error bodies on every advice | `583223686de0d49b4595267f653b9a33fcdf07c3` | run 37536569953 ✅ (3,269 tests) | **PASS** 2026-10-07 — see below | OPEN, MERGEABLE/CLEAN, base = main `7d491dd` | — (pinned command below) |
 | #94 | Completion trackers (docs only) | `aa6db11` + updates | n/a (docs) | self (docs) | OPEN | — |
-| #95 | MEDIA-STORAGE: S3-compatible `MediaStorage` (presigned upload, inspection) | `03ea97b968f6e7b0acbb4c22a852f4b83b037505` (after review fixes; first head `1f59b28`) | first head: run 37545551274 ✅ (3,257); remediated head: pending | first head **FAIL** (HIGH: `apache5-client` shipped httpclient5/httpcore5 with CVEs; MEDIUM: duplicate Content-Type header keys, outage→500, cross-owner key reference; LOW: endpoint validation, unbounded size); **all fixed** at `03ea97b`, re-review pending | OPEN | — |
+| #95 | MEDIA-STORAGE: S3-compatible `MediaStorage` (presigned upload, inspection) | `03ea97b968f6e7b0acbb4c22a852f4b83b037505` (after review fixes; first head `1f59b28`) | first head: run 37545551274 ✅ (3,257); remediated head: run 37549935119 ✅ on attempt 2 (3,261; attempt 1 failed only the pre-existing flaky `CheckoutQuoteIT` assertion) | first head **FAIL** (HIGH: `apache5-client` shipped; MEDIUM: duplicate Content-Type keys, outage→500, cross-owner key reference; LOW: endpoint validation, unbounded size); **all fixed** at `03ea97b`; re-review **PASS** (new LOW: owner-id normalisation could alias ids differing only in non-key-safe characters; NOTE: startup HeadBucket probe would make a wrong bucket explicit) | OPEN, awaiting CEO merge approval | — |
 | #96 | CHANNEL-PUBLISHING: `audience` + `?channel=app\|web` (D1–D3) | `d952ed04613967c57c550476a65d75a10997d415` | run 37548402098 ✅ (3,253) | **PASS** (deployment note: CDN cache key must include `channel`; LOW: corrupt stored audience → 400) | OPEN, awaiting CEO merge approval | — |
 | #83 | Dependabot: Spring Boot 4.1.1 | `553bc83` | — | known: does not compile | OPEN | — |
 | #82,#84–#89 | Dependabot actions/library bumps | various | — | not reviewed | OPEN | — |
@@ -40,7 +40,11 @@ Fresh-agent audit: public response for existing callers byte-identical except re
 
 ```
 gh pr merge 96 --squash --match-head-commit d952ed04613967c57c550476a65d75a10997d415
+gh pr merge 95 --squash --match-head-commit 03ea97b968f6e7b0acbb4c22a852f4b83b037505
 ```
+
+### Flaky test on record
+`CheckoutQuoteIT.the_http_quote_exposes_the_exact_money_preview_beside_the_unchanged_benefit_preview:1603` asserts the lower-cased response body `doesNotContain("tax")`; a random quote id (`chkq_h28tax8f…`) contained it (run 37549935119 attempt 1). Passes 3/3 locally. Fix separately: assert on field names, not the whole body. Also previously flaky in CI history: `DatastorePrivilegeIT` (run 37247884928), `OtpServiceIT.resend_race…` (36349865644), `AddressServiceabilityHttpIT` (37520547831).
 
 ## CMS / website (Sahilranjan00017/tazzzo-web)
 
