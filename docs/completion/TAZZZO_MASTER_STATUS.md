@@ -42,7 +42,8 @@ Resume rule: read this file first. Every SHA below was verified live on GitHub a
 - #95 media storage adapter — review findings fixed at `03ea97b`; re-review **PASS**; CI green (attempt 2; attempt 1 hit the pre-existing flaky `CheckoutQuoteIT` assertion, see tracker) — merge pending CEO approval.
 - #96 channel-targeted content — CI green, review PASS, merge pending CEO approval.
 - #97 capacity harness (test-only) — CI green on the hardened head `ad4d799`, review PASS — merge pending CEO approval.
-- #99 paced projection reconciliation — CI and review pending.
+- #99 paced projection reconciliation — CI green on `8b6ac63`, review PASS; awaiting CEO merge approval.
+- #100 asynchronous product import jobs — opened at `b6006e3`; CI watch and fresh-agent review running.
 - #98 flaky `CheckoutQuoteIT` assertion (test-only) — CI green; merge pending CEO approval.
 - Dependabot #82, #84–#89 (actions, icu4j, testcontainers, archunit, nimbus 10.x) — not reviewed; #83 (Boot 4.1.1) known not to compile.
 
