@@ -24,6 +24,9 @@ What it does, in order:
 7. Records collection and index sizes (`collStats`) and the explain plan of the list and search queries, asserting no
    collection scan.
 
-Caveats that make the numbers relative, not an SLA: service and client share one JVM on one machine; Mongo and Redis are
-Testcontainers on the same host; no concurrency (one request at a time); images, inventory reservations and benefits are
-not exercised. Results are recorded in the completion tracker `TAZZZO_PERFORMANCE_RESULTS.md`.
+Caveats that make the numbers relative, not an SLA: service and client share one JVM on one machine, and every latency
+INCLUDES the test client (`TestRestTemplate` on Apache HttpClient, plus Jackson parsing of the response); Mongo and Redis
+are Testcontainers on the same host; no concurrency (one request at a time); images, inventory reservations and benefits
+are not exercised; `list_deep_page` is three sequential requests (pages 1, 2 and 3 via cursor), not one third-page
+request; PDP samples only consumer-visible SKUs. Every timed series must be 100 % 2xx or the run fails, and the plan
+check reads the winning plan only. Results are recorded in the completion tracker `TAZZZO_PERFORMANCE_RESULTS.md`.

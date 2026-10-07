@@ -189,7 +189,7 @@ class CatalogCapacityIT extends AbstractConsumerIT {
         String listVertical = verticals.get(0);
         results.put("list_first_page", time("GET /v1/categories/{vertical}/products?page_size=20&pin",
                 () -> get("/v1/categories/" + listVertical + "/products?page_size=20&pin=" + PIN, anon, JsonNode.class)));
-        results.put("list_deep_page", time("GET list page via cursor (3rd page)", () -> {
+        results.put("list_deep_page", time("GET list pages 1+2+3 via cursor (three sequential requests)", () -> {
             ResponseEntity<JsonNode> p1 = get("/v1/categories/" + listVertical + "/products?page_size=20&pin=" + PIN, anon, JsonNode.class);
             String c1 = p1.getBody().path("next_cursor").asText(null);
             if (c1 == null) return p1;
@@ -197,7 +197,10 @@ class CatalogCapacityIT extends AbstractConsumerIT {
             String c2 = p2.getBody().path("next_cursor").asText(null);
             return c2 == null ? p2 : get("/v1/categories/" + listVertical + "/products?page_size=20&pin=" + PIN + "&cursor=" + c2, anon, JsonNode.class);
         }));
-        results.put("pdp", time("GET /v1/products/{sku}?pin", () -> get("/v1/products/" + skus.get(random.nextInt(n)) + "?pin=" + PIN, anon, JsonNode.class)));
+        // only consumer-visible SKUs are sampled, so every PDP is a 200 (a SKU outside the release scope is a 404 by design)
+        List<String> visible = db.getCollection("product_card_base").find().projection(new Document("sku_id", 1))
+                .map(d -> d.getString("sku_id")).into(new ArrayList<>());
+        results.put("pdp", time("GET /v1/products/{sku}?pin", () -> get("/v1/products/" + visible.get(random.nextInt(visible.size())) + "?pin=" + PIN, anon, JsonNode.class)));
         results.put("search_common", time("GET /v1/search?q=rice (common token)", () -> get("/v1/search?q=rice&pin=" + PIN, anon, JsonNode.class)));
         results.put("search_two_tokens", time("GET /v1/search?q=premium+rice", () -> get("/v1/search?q=premium%20rice&pin=" + PIN, anon, JsonNode.class)));
         results.put("search_brand", time("GET /v1/search?q=<brand> (rare token)", () -> get("/v1/search?q=" + brands.get(random.nextInt(brands.size())).toLowerCase() + "&pin=" + PIN, anon, JsonNode.class)));
@@ -301,6 +304,8 @@ class CatalogCapacityIT extends AbstractConsumerIT {
         Map<String, Object> m = stats(ns);
         m.put("label", label);
         m.put("non_2xx", non2xx);
+        // a latency of an error body is not a latency: a misconfigured run must fail, not publish fast numbers
+        assertThat(non2xx).as(label + ": every sample must be 2xx").isZero();
         return m;
     }
 
@@ -319,13 +324,25 @@ class CatalogCapacityIT extends AbstractConsumerIT {
         return a[Math.min(a.length - 1, (int) Math.ceil(p / 100.0 * a.length) - 1)];
     }
 
+    /** The WINNING plan only (a rejected index trial must never mask a winning collection scan), with the index name. */
     private static String planSummary(Document explain) {
-        String json = explain.toJson();
-        String stage = json.contains("\"IXSCAN\"") ? "IXSCAN" : json.contains("\"COLLSCAN\"") ? "COLLSCAN" : "other";
-        String index = "";
-        int i = json.indexOf("\"indexName\"");
-        if (i > 0) index = json.substring(i + 12, Math.min(json.length(), i + 60)).replaceAll("[^A-Za-z0-9_]", " ").trim().split(" ")[0];
-        return stage + (index.isEmpty() ? "" : " " + index);
+        Document planner = explain.get("queryPlanner", Document.class);
+        Document plan = planner == null ? null : planner.get("winningPlan", Document.class);
+        if (plan != null && plan.containsKey("queryPlan")) plan = plan.get("queryPlan", Document.class);   // SBE shape
+        List<String> stages = new ArrayList<>();
+        List<String> indexes = new ArrayList<>();
+        walk(plan, stages, indexes);
+        return String.join(">", stages) + (indexes.isEmpty() ? "" : " " + String.join(",", indexes));
+    }
+
+    private static void walk(Document stage, List<String> stages, List<String> indexes) {
+        if (stage == null) return;
+        if (stage.containsKey("stage")) stages.add(stage.getString("stage"));
+        if (stage.containsKey("indexName")) indexes.add(stage.getString("indexName"));
+        Object input = stage.get("inputStage");
+        if (input instanceof Document d) walk(d, stages, indexes);
+        Object inputs = stage.get("inputStages");
+        if (inputs instanceof List<?> l) for (Object o : l) if (o instanceof Document d) walk(d, stages, indexes);
     }
 
     private static long heapUsed() {
