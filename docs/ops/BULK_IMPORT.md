@@ -76,6 +76,31 @@ The dataset is an input the business must supply. Once it exists:
 
 Steps 2–4 are each two calls per 500 rows. Every step is attributed, audited and safe to repeat.
 
+## Products at any size: asynchronous import jobs (`/api/v1/admin/imports/jobs`)
+The synchronous product import above is capped at 500 rows per call and holds the request open while it applies. A launch catalogue of tens or hundreds of thousands of SKUs goes through an **import job** instead: rows are streamed in, validated and applied by a background worker in bounded batches from a cursor that survives restarts, and every row keeps its own verdict. The checks are the same `ProductImportValidator` checks and every applied row goes through the same `MintService.mint`, attributed to the admin who approved the job.
+
+| Step | Call | Result |
+|---|---|---|
+| 1 | `POST /jobs` `{"kind":"products","note":"…"}` | `201`, job `OPEN` (`id` `IMPJ-…`, `version`) |
+| 2 | `POST /jobs/{id}/rows` with `Content-Type: text/csv` (streamed) or `application/json` `{"rows":[…]}` — any number of times while `OPEN` | `{rowsAdded, rowsTotal, duplicates}` |
+| 3 | `POST /jobs/{id}/validate` | `VALIDATING`; the worker reports `VALIDATED` (every row `VALID`/`UNCHANGED`) or `REJECTED` (some `INVALID`/`DUPLICATE`). Nothing is written. |
+| 4 | fix: `GET /jobs/{id}/errors.csv`, `PUT /jobs/{id}/rows/{row}` (REJECTED → OPEN), then validate again | |
+| 5 | `POST /jobs/{id}/apply` — the explicit approval | `APPLYING`; the worker reports `COMPLETED`, or `PAUSED` when the datastore failed (resume with `POST /jobs/{id}/resume`; nothing is re-applied) |
+| any | `POST /jobs/{id}/cancel`; `GET /jobs`, `GET /jobs/{id}`, `GET /jobs/{id}/rows?from&limit` | |
+
+**CSV.** The header names the columns, matched by the CMS import wizard's aliases (case/punctuation-insensitive): `id` (`productid`, `tzpid`, `sku`), `title` (`name`), `brand`, `gtin` (`barcode`, `ean`, `upc`), `market` (default `IN`), `internalKey` (`key`), `vertical`, `release`, `classification` (`status`; default `provisional`), and any `attr.<name>` column (an integer, decimal or `true`/`false` cell is carried typed, exactly as a JSON row would be). Identity is `gtin` when a GTIN is present, else `internal`. RFC 4180 quoting; a malformed file is refused as a whole (`422 INVALID_IMPORT`, naming the line or the missing column); rows ingested before the failing line stay in the job.
+
+**Rules that hold at any size.**
+- **One row per product id per job** is enforced by a partial unique index (`import_rows_one_per_product`); a second row with the same id is kept, already `DUPLICATE`, and makes the job `REJECTED`.
+- **Resumable.** Validation and apply persist the cursor (`nextRow`) and the counters after every batch (`import-jobs-batch-size`, default 500). A worker restart, a lost lease or a `PAUSED` job resumes from the cursor; a row already `APPLIED` is never minted again, and a re-run of the same file is `UNCHANGED` row by row.
+- **Explicit approval.** The apply never starts on its own: `apply` records `approvedBy`, and every product event of the run is attributed to that admin.
+- **Bounded.** A request body is still bounded by `tazzzo.http.bulk-import-max-request-body-bytes` (2 MiB by default, about 20k CSV rows): a larger file is appended in several `rows` requests. A job holds at most `tazzzo.imports.max-rows-per-job` rows (250,000) and at most `tazzzo.imports.max-active-jobs` (10) jobs are open at once.
+- **Concurrency.** Every admin transition is a compare-and-swap on the job's `version` (send `{"version": n}` to refuse a stale decision); one worker at a time holds a job's lease (`import-jobs-lease-ms`, 120 s, renewed per batch) and a tick stops after `import-jobs-tick-budget-ms` (30 s) so other jobs get their turn.
+- **Audit.** `domain_events` rows `IMPORT_JOB_CREATED / VALIDATION_STARTED / REOPENED / APPROVED / RESUMED / CANCELLED` (aggregate `import_job`) plus the per-product events of every applied row.
+
+**Operations.** The worker runs on every instance with `tazzzo.scheduler.enabled=true` and `tazzzo.scheduler.import-jobs-enabled=true` (`TAZZZO_IMPORT_JOBS_ENABLED`), ticking every `import-jobs-tick-ms` (5 s). Throughput is the catalogue's own mint cost (about 40 ms per product, so roughly 90k products an hour per worker); validation is much faster. Storage: one `import_rows` document per row (the payload plus verdicts); the `import_jobs`/`import_rows` collections and their four indexes are created by migration `V0016`. Evidence: `ImportJobsIT` (CSV → REJECTED → corrected → VALIDATED → approved → COMPLETED → UNCHANGED re-run; a 621-row file across batches; pause on a datastore failure and resume without re-applying; the lease; authorisation), `ImportCsvParserTest`.
+
 ## Not covered
-- **CSV upload and async/background jobs.** A 500-row JSON file applies synchronously, in seconds for prices and stock and about 21 s for products.
-- **Body size.** The platform request-body limit (#55) must admit a 500-row file (about 100 KB). Check the configured limit when both are merged.
+- **Prices and stock as jobs.** Only products have the asynchronous job today; prices and inventory stay on the synchronous 500-row calls (a job kind for each is the natural next step on the same engine).
+- **Purging old jobs.** Completed and cancelled jobs and their rows are retained; the retention window is a production-policy decision (`DATABASE_RETENTION_AND_PII.md`).
+- **Body size.** `tazzzo.http.bulk-import-max-request-body-bytes` (2 MiB) bounds every `/api/v1/admin/imports/` request, including a job's `rows` request; split larger files.

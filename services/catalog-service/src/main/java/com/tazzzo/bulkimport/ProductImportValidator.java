@@ -39,17 +39,24 @@ import java.util.TreeSet;
  * An import is stricter than a single create in three ways a launch catalogue needs: the release must exist, the vertical
  * must be a real taxonomy vertical (or one of the two review sentinels), and a GTIN must pass its GS1 check digit.
  */
-final class ProductImportValidator {
+public final class ProductImportValidator {
 
     record Checked(List<ProductDraft> drafts, Set<String> unchanged) { }
+
+    /**
+     * Per-row outcomes without the all-or-nothing rule: {@code drafts} holds the draft of every valid row by its index
+     * (an UNCHANGED row is valid and is also listed in {@code unchanged}); {@code errors} holds every invalid row. The
+     * asynchronous import job validates in bounded batches and records each row's outcome, so it needs the whole picture.
+     */
+    public record RowChecks(java.util.Map<Integer, ProductDraft> drafts, Set<String> unchanged, List<BulkImportDtos.RowError> errors) { }
 
     private final MongoDatabase db;
     private final MongoClient client;
     private final AttributeGovernanceService governance;
     private final CanonicalKeyService canonicalKeys;
 
-    ProductImportValidator(MongoDatabase db, MongoClient client, AttributeGovernanceService governance,
-                           CanonicalKeyService canonicalKeys) {
+    public ProductImportValidator(MongoDatabase db, MongoClient client, AttributeGovernanceService governance,
+                                  CanonicalKeyService canonicalKeys) {
         this.db = db;
         this.client = client;
         this.governance = governance;
@@ -57,8 +64,17 @@ final class ProductImportValidator {
     }
 
     Checked validate(List<CreateProductRequest> rows) {
+        RowChecks checks = validateRows(rows);
+        if (!checks.errors().isEmpty()) {
+            throw new ImportRejectedException(checks.errors().size() + " row(s) are invalid; nothing was written", checks.errors());
+        }
+        return new Checked(new ArrayList<>(checks.drafts().values()), checks.unchanged());
+    }
+
+    /** The same checks as {@link #validate}, reported per row instead of rejecting the whole list. */
+    public RowChecks validateRows(List<CreateProductRequest> rows) {
         List<BulkImportDtos.RowError> errors = new ArrayList<>();
-        List<ProductDraft> drafts = new ArrayList<>();
+        java.util.Map<Integer, ProductDraft> drafts = new java.util.TreeMap<>();
         Set<String> unchanged = new TreeSet<>();
         Map<String, Integer> ids = new HashMap<>(), keys = new HashMap<>(), gtins = new HashMap<>(), canon = new HashMap<>();
         for (int i = 0; i < rows.size(); i++) {
@@ -87,7 +103,7 @@ final class ProductImportValidator {
             if (existing != null) {
                 if (sameCreatePayload(existing, d)) {
                     unchanged.add(d.id());
-                    drafts.add(d);
+                    drafts.put(i, d);
                 } else {
                     errors.add(new BulkImportDtos.RowError(i, "CONFLICT",
                             "product " + d.id() + " already exists with a different create payload"));
@@ -124,12 +140,9 @@ final class ProductImportValidator {
                 errors.add(new BulkImportDtos.RowError(i, "INVALID_ROW", contract));
                 continue;
             }
-            drafts.add(d);
+            drafts.put(i, d);
         }
-        if (!errors.isEmpty()) {
-            throw new ImportRejectedException(errors.size() + " row(s) are invalid; nothing was written", errors);
-        }
-        return new Checked(drafts, unchanged);
+        return new RowChecks(drafts, unchanged, errors);
     }
 
     /** Required fields and the import's supported scope (single products; packs and bundles reference other products). */

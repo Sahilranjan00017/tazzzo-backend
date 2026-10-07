@@ -1254,6 +1254,20 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
 
 ## In review (NOT merged)
 
+- **Asynchronous product import jobs** (branch `feature/async-import-jobs`, from `main` `7d491dd`): **IN REVIEW**. The synchronous product import
+  (500 rows, request held open, whole-file reject) cannot load a catalogue of tens of thousands of SKUs. `bulkimport.jobs` adds a job engine:
+  `POST /api/v1/admin/imports/jobs`, rows streamed in as RFC 4180 CSV (the CMS wizard's column aliases, typed attribute cells) or JSON in any
+  number of requests, a leased background worker (`ImportJobScheduler`, gated by `tazzzo.scheduler.enabled` AND `import-jobs-enabled`) that
+  validates and applies in persisted 500-row batches from a cursor, explicit approval (`apply`) recorded as `approvedBy` and attributing every
+  mint, `PAUSED`/`resume` on a datastore failure without re-applying, `cancel`, per-row verdicts (`GET rows`, `errors.csv`), DB-enforced one row
+  per product id per job (partial unique index), CAS on `version` for every admin transition, `domain_events` audit of each transition.
+  `ProductImportValidator.validateRows` is the per-row (non-throwing) form of the same checks; the synchronous import now delegates to it and is
+  otherwise unchanged. Collections `import_jobs`/`import_rows` and four indexes via migration `V0016` (`MigrationRegistryTest` pins the checksum;
+  `IndexContractIT`, `DatastorePrivilegeIT` 16 applied, `DatabaseDocsConsistencyTest` updated with the retention/inventory/manifest/runbook rows).
+  Limits: `tazzzo.imports.max-rows-per-job` 250,000, `max-active-jobs` 10, request chunk bounded by the bulk body limit (2 MiB ≈ 20k CSV rows).
+  Evidence: `ImportJobsIT` (5 scenarios incl. a 621-row multi-batch file and pause/resume exactly-once), `ImportCsvParserTest`; `docs/ops/BULK_IMPORT.md`.
+  Not done: price/stock job kinds, purge policy for old jobs, a CMS screen for jobs.
+
 - **HTTP error-handling hardening** (branch `fix/http-error-handling-hardening`, from `main` `d790504`): **IN REVIEW**. The 12 controller-scoped `/v1` advices with an
   `Exception` catch-all (OTP, session, profile, address, account deletion, customer support, delivery slots, cart, checkout, order, commerce read, public content;
   staff support falls through to `ApiExceptionHandler`) no longer turn framework request-shape failures into a logged-as-ERROR 500. `catalog.api.ClientRequestErrors`

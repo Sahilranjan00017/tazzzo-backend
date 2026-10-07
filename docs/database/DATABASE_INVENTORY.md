@@ -63,6 +63,9 @@ Evidence note: findings come from three parallel read-only audits; the highest-i
 | `evidence`, `evidence_links` | `EvidenceService`, `TaintService`, `PublishService`, `ClassifyService` | A | `EV-*` caller-supplied (idempotency key) / ObjectId | — | `fence` int `$inc`; `validity active|retracted|superseded`; `evidence_links.active` only ever set true |
 | `offers_current` | `OffersService`, `MergeService` | A | ObjectId | `(product_id, source, seller, channel)` unique | legacy-unit `price` int; no reader except merge |
 
+| `import_jobs` | `bulkimport.jobs.ImportJobRepository` | O | `IMPJ-<ObjectId hex>` | — | status machine `OPEN→VALIDATING→VALIDATED/REJECTED→APPLYING→COMPLETED/PAUSED`, `CANCELLED`; `version` Int64 CAS on every admin transition; worker lease `lease_token, lease_until, attempt_count`; cursor `next_row`; `counts.*`; `created_by`/`approved_by` actor identity. Migration `V0016` (indexes + collection on a migrated DB). |
+| `import_rows` | `bulkimport.jobs.ImportJobRepository` | O | `<job id>:<row %09d>` | `(job_id, row)` unique; `(job_id, dedup_key)` unique partial | `payload` is the single-create request as submitted (CSV rows mapped to it); `validation`/`apply` sub-documents hold the per-phase verdict `{outcome, code?, message?}`; a duplicate product id within a job is stored WITHOUT `dedup_key` and already DUPLICATE. |
+
 ### 3.2 Taxonomy and attributes
 
 | Collection | Class | `_id` | Notes |

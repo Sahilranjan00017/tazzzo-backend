@@ -397,6 +397,30 @@
     {
       "resource": {
         "db": "tazzzo_staging",
+        "collection": "import_jobs"
+      },
+      "actions": [
+        "find",
+        "insert",
+        "remove",
+        "update"
+      ]
+    },
+    {
+      "resource": {
+        "db": "tazzzo_staging",
+        "collection": "import_rows"
+      },
+      "actions": [
+        "find",
+        "insert",
+        "remove",
+        "update"
+      ]
+    },
+    {
+      "resource": {
+        "db": "tazzzo_staging",
         "collection": "inventory"
       },
       "actions": [

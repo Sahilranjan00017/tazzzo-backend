@@ -175,6 +175,7 @@ class ScheduledWorkerGateTest {
                 .containsExactlyEntriesOf(new TreeMap<>(java.util.Map.of()) {{
                     put("CatalogSchedulers.java", 5);
                     put("CommerceProjectionScheduler.java", 2);
+                    put("ImportJobScheduler.java", 1);
                     put("InventoryReservationScheduler.java", 1);
                     put("NotificationConfig.java", 1);
                 }});

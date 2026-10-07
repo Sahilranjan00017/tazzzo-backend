@@ -53,6 +53,15 @@ tazzzo:
     rollup-lag-seconds: 120                     # never aggregate events younger than this
     taint-batch-size: 100
     stamp-batch-size: 100
+    # Async import jobs (POST /api/v1/admin/imports/jobs): subordinate switch, same shape as card-projection-enabled.
+    import-jobs-enabled: ${TAZZZO_IMPORT_JOBS_ENABLED:true}
+    import-jobs-tick-ms: ${TAZZZO_IMPORT_JOBS_TICK_MS:5000}
+    import-jobs-batch-size: ${TAZZZO_IMPORT_JOBS_BATCH_SIZE:500}      # rows validated/applied per persisted step
+    import-jobs-tick-budget-ms: ${TAZZZO_IMPORT_JOBS_TICK_BUDGET_MS:30000}
+    import-jobs-lease-ms: ${TAZZZO_IMPORT_JOBS_LEASE_MS:120000}     # must exceed the tick budget
+  imports:
+    max-rows-per-job: ${TAZZZO_IMPORTS_MAX_ROWS_PER_JOB:250000}
+    max-active-jobs: ${TAZZZO_IMPORTS_MAX_ACTIVE_JOBS:10}
   auth:
     # NO DEFAULTS BY DESIGN: an unset token disables that role entirely (fail-closed).
     cms-token: ${TAZZZO_CMS_TOKEN:}

@@ -158,6 +158,11 @@ class IndexContractIT extends AbstractMongoIT {
             named("notification_outbox", "notification_due", k("status", 1, "next_attempt_at", 1, "_id", 1), false, null, null),
             named("notification_outbox", "notification_by_customer", k("customer_id", 1), false, null, null),
             named("notification_outbox", "notification_expiry_ttl", k("expire_at", 1), false, null, 0L),
+            // async import jobs (V0016)
+            named("import_jobs", "import_jobs_claim", k("status", 1, "lease_until", 1, "updated_at", 1), false, null, null),
+            named("import_jobs", "import_jobs_by_status_recent", k("status", 1, "_id", -1), false, null, null),
+            named("import_rows", "import_rows_by_job_row", k("job_id", 1, "row", 1), true, null, null),
+            named("import_rows", "import_rows_one_per_product", k("job_id", 1, "dedup_key", 1), true, new Document("dedup_key", new Document("$exists", true)), null),
             // CMS (PR-Q, V0013)
             named("content_blocks", "content_by_placement_status_sort", k("placement", 1, "status", 1, "sort", 1, "_id", 1), false, null, null),
             // support cases (PR-O, V0011)
