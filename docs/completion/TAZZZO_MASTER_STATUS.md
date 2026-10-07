@@ -22,12 +22,12 @@ Resume rule: read this file first. Every SHA below was verified live on GitHub a
 | 0 Independent review of backend PR #93 | **DONE — PASS** | `TAZZZO_PR_TRACKER.md` (#93 row); fresh-agent audit + mechanical re-run (3,269 tests, 9/9 mutations, 58+7+24 probes, CI run 37536569953) |
 | 1 All-repository audit and CMS inventory | **DONE** | `TAZZZO_GAP_MATRIX.md`, `TAZZZO_CMS_MASTER_GAP_MATRIX.md` |
 | 2 Review existing CMS PRs, resolve integration dependencies | NOT STARTED | stack #5→#19 needs owner approval to merge; no Dockerfile; never run against real backend |
-| 3 Backend media storage/CDN foundation | NEXT (no approval needed for local/test adapter) | `MediaStorage` has only `DisabledMediaStorage`; S3-compatible adapter + MinIO ITs |
+| 3 Backend media storage/CDN foundation | **PR #95 open** (`03ea97b`, review findings fixed, re-review pending) | S3-compatible adapter; S3Mock flow ITs + CloudServer signature ITs; Terraform for bucket/CDN blocked on B3 |
 | 4 CMS media management | BLOCKED on 3 | |
-| 5 Channel-aware content + banners | NOT STARTED | backend `content_blocks` has no channel field; web PR #7 proposal exists, not authorised |
+| 5 Channel-aware content + banners | **PR #96 open, reviewed PASS** (`d952ed0`), awaiting merge approval | audience + `?channel=` done (D1–D3); banner image variants (D4), CMS editors, app consumption follow |
 | 6 Android/iOS media + banners | NOT STARTED | |
 | 7 Customer website | NOT STARTED | no `apps/web` exists |
-| 8 Enterprise catalogue model + high-volume imports | NOT STARTED | import is synchronous JSON, 500 rows/request |
+| 8 Enterprise catalogue model + high-volume imports | IN PROGRESS: capacity harness built (`feature/catalogue-capacity-harness`), 5,000-SKU run recorded; 25k/100k running | import is synchronous JSON, 500 rows/request (127 rows/s measured) |
 | 9 Search, pricing, inventory scale | NOT STARTED | |
 | 10 Remaining CMS operational modules | NOT STARTED | |
 | 11 Security + supported platform upgrade | NOT STARTED | Boot 3.3 unsupported; Dependabot #83 (Boot 4.1.1) does not compile |
@@ -38,9 +38,12 @@ Resume rule: read this file first. Every SHA below was verified live on GitHub a
 
 ## Open PRs (backend)
 - #93 (reviewed, PASS) — merge pending CEO approval.
+- #94 (this tracker set, docs only).
+- #95 media storage adapter — review findings fixed at `03ea97b`, re-review and CI pending.
+- #96 channel-targeted content — CI green, review PASS, merge pending CEO approval.
 - Dependabot #82, #84–#89 (actions, icu4j, testcontainers, archunit, nimbus 10.x) — not reviewed; #83 (Boot 4.1.1) known not to compile.
 
 ## Next executable action
-1. CEO: approve squash merge of #93 pinned at `5832236…` (see `TAZZZO_PR_TRACKER.md`).
-2. Engineering (no approval needed): Phase 3 — S3-compatible `MediaStorage` adapter with MinIO integration tests; then Phase 5 backend channel field.
+1. CEO: approve squash merges of #93 (`5832236…`) and #96 (`d952ed0…`), then #95 once its re-review passes (see `TAZZZO_PR_TRACKER.md`).
+2. Engineering (no approval needed): finish 25k/100k capacity runs and open the harness PR; then banner image variants (D4) on top of #95; app consumption of `/v1/content/home`.
 3. CEO: decisions in `TAZZZO_EXTERNAL_BLOCKERS.md` (SKU master dataset, paid infra for S3/CDN, CMS stack merge order).

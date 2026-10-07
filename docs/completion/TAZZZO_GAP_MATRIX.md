@@ -10,15 +10,15 @@ Verified 2026-10-07 against backend `main` `7d491dd`, web `cms/16-qa-security` `
 | Hard-coded catalogue limits | none for catalogue size; page sizes 50/200; import 500 rows/request | — | OK |
 | Bulk import | `POST /api/v1/admin/imports/{products,prices,inventory}` JSON 1–500 rows, whole-file validate, dry run, audit event, resubmit-safe (`docs/ops/BULK_IMPORT.md`) | async jobs, checkpoints/resume, progress, history, CSV/XLSX streaming, queue/backpressure, dead-letter, delta/media/supplier imports | PARTIAL |
 | Admin product list | keyset cursor, limit ≤200, filters verticalId/lifecycle/status (`ProductController`, `AdminListParams`) | text/brand search, sort, totals, previous page, catalogue-wide lifecycle filter, bulk lifecycle, export | PARTIAL |
-| Media | model + `MediaUrlResolver` + signed-upload API + ingest verifier + sniffer (`media/*`) | **any real `MediaStorage`** (only `DisabledMediaStorage`), variants/thumbnails, dedup, cleanup, CDN, bulk mapping, cost tracking | BLOCKED_EXTERNAL (storage) / PARTIAL (code) |
+| Media | model + `MediaUrlResolver` + signed-upload API + ingest verifier + sniffer (`media/*`); **PR #95**: `S3MediaStorage` (presigned PUT binding key/type/size, inspection, outage → 503, owner-bound keys) | live bucket + CDN (B3), variants/thumbnails, dedup, cleanup, bulk mapping, cost tracking | IMPLEMENTED_UNMERGED (#95) / BLOCKED_EXTERNAL (live) |
 | Search | prefix-token `$all` over `product_card_base.search_tokens`, keyset paging, ≤5 tokens | ranking, synonyms, typo tolerance, facets, suggestions, brand/attribute/price/availability filters | PARTIAL |
 | Projection freshness | queue drain 200/15 s, reconcile 500/5 min | reconcile rate scales with catalogue: 100k ≈ 3.5 days, 1M ≈ 5 weeks per drift pass | PARTIAL |
 | Pricing | immediate-only (ratified Option A), CAS, append-only history | scheduled/effective-dated prices, price list endpoint | PARTIAL |
 | Inventory | (sku, location) atomic reserve/release, bulk via import | inventory list endpoint, low-stock feed, service-area availability projection | PARTIAL |
-| Content | `content_blocks` BANNER/PRODUCT_RAIL/CATEGORY_GRID/FAQ, status+window, `live()` | channel (APP/WEBSITE/BOTH), banner media owner type, desktop/mobile variants, click ids, cache invalidation, publication history | PARTIAL |
+| Content | `content_blocks` BANNER/PRODUCT_RAIL/CATEGORY_GRID/FAQ, status+window, `live()`; **PR #96**: `audience` + `?channel=app\|web` (D1–D3) | banner media owner type, desktop/mobile variants (D4), click ids, cache invalidation, publication history | IMPLEMENTED_UNMERGED (#96) / PARTIAL |
 | Error handling | PR #92 merged; PR #93 reviewed PASS | `/health/*` non-JSON Accept → 400 (pre-existing) | MERGED_UNVERIFIED (#92) / IMPLEMENTED_UNMERGED (#93) |
 | Platform | Boot 3.3.13 (unsupported line), patched libs | supported Boot line (4.x migration; Dependabot #83 does not compile) | BLOCKED (planned) |
-| Load/capacity tests | none | harness, targets, results at 5k/25k/100k | NOT_STARTED |
+| Load/capacity tests | `CatalogCapacityIT` (branch `feature/catalogue-capacity-harness`), 5,000-SKU results recorded | 25k/100k results, concurrency, staging-sized environment | PARTIAL |
 
 ## CMS (tazzzo-web `apps/admin`) — detail in `TAZZZO_CMS_MASTER_GAP_MATRIX.md`
 All business modules are IMPLEMENTED_UNMERGED on the #5→#19 stack, tested only against a fake backend; no Dockerfile; no customer website (`apps/web` absent).
