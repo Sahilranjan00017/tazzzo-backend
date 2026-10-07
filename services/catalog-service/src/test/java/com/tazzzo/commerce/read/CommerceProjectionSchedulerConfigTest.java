@@ -53,6 +53,18 @@ class CommerceProjectionSchedulerConfigTest {
                 .run(ctx -> assertThat(ctx).hasSingleBean(CommerceProjectionScheduler.class));
     }
 
+    /** The pacing configuration is validated at construction: a nonsensical value refuses to start, never paces wrongly. */
+    @Test void a_misconfigured_pacing_refuses_to_start() {
+        for (String bad : new String[]{"tazzzo.scheduler.card-reconcile-ms=0", "tazzzo.scheduler.card-reconcile-full-pass-ms=0",
+                "tazzzo.scheduler.card-reconcile-limit=0", "tazzzo.scheduler.card-reconcile-max-limit=10"}) {
+            runner.withPropertyValues("tazzzo.scheduler.enabled=true", "tazzzo.scheduler.card-projection-enabled=true", bad)
+                    .run(ctx -> assertThat(ctx).as(bad).hasFailed());
+        }
+        runner.withPropertyValues("tazzzo.scheduler.enabled=true", "tazzzo.scheduler.card-projection-enabled=true",
+                        "tazzzo.scheduler.card-reconcile-limit=500", "tazzzo.scheduler.card-reconcile-max-limit=500")
+                .run(ctx -> assertThat(ctx).as("floor == ceiling is a valid fixed pace").hasSingleBean(CommerceProjectionScheduler.class));
+    }
+
     @SuppressWarnings("unchecked")
     private static <T> T stub(Class<T> iface) {
         return (T) Proxy.newProxyInstance(iface.getClassLoader(),

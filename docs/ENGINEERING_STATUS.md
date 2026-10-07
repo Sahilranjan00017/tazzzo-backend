@@ -1254,6 +1254,14 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
 
 ## In review (NOT merged)
 
+- **Paced projection reconciliation** (branch `feature/projection-reconcile-pacing`, from `main` `7d491dd`): **IN REVIEW**. The capacity harness measured the
+  drift pass as a configuration limit (500 rows per 5 min = 17 h at 100k SKUs, a week at 1M; compute is 6.7 ms/SKU). `ProjectionReconciler.pacedLimit` now
+  derives the per-pass limit from the eligible count — `max(card-reconcile-limit, min(card-reconcile-max-limit, ceil(count × card-reconcile-ms /
+  card-reconcile-full-pass-ms)))` — counted once per wrap, not per tick; the scheduler calls the paced drift and orphan passes and refuses to start on a
+  misconfiguration. Defaults: floor 500 (unchanged behaviour at ≤ 24k SKUs), ceiling 20,000, target 4 h (25k → 521/pass, 100k → 2,084/pass, 1M → capped
+  at 20,000, ≈ 4.2 h). The six `card-*` properties are now in `application.yml` with env overrides. Evidence: `ProjectionReconcilePacingTest`,
+  `ProjectionReconcilePacingIT`; `FreshnessFoundationIT` unchanged.
+
 - **HTTP error-handling hardening** (branch `fix/http-error-handling-hardening`, from `main` `d790504`): **IN REVIEW**. The 12 controller-scoped `/v1` advices with an
   `Exception` catch-all (OTP, session, profile, address, account deletion, customer support, delivery slots, cart, checkout, order, commerce read, public content;
   staff support falls through to `ApiExceptionHandler`) no longer turn framework request-shape failures into a logged-as-ERROR 500. `catalog.api.ClientRequestErrors`
