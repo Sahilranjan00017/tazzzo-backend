@@ -41,9 +41,11 @@ Resume rule: read this file first. Every SHA below was verified live on GitHub a
 - #94 (this tracker set, docs only).
 - #95 media storage adapter — review findings fixed at `03ea97b`; re-review **PASS**; CI green (attempt 2; attempt 1 hit the pre-existing flaky `CheckoutQuoteIT` assertion, see tracker) — merge pending CEO approval.
 - #96 channel-targeted content — CI green, review PASS, merge pending CEO approval.
+- #97 capacity harness (test-only) — CI green, review PASS, hardening pushed; merge pending CEO approval after CI.
+- #98 flaky `CheckoutQuoteIT` assertion (test-only) — CI green; merge pending CEO approval.
 - Dependabot #82, #84–#89 (actions, icu4j, testcontainers, archunit, nimbus 10.x) — not reviewed; #83 (Boot 4.1.1) known not to compile.
 
 ## Next executable action
 1. CEO: approve squash merges of #93 (`5832236…`), #96 (`d952ed0…`) and #95 (`03ea97b…`) (see `TAZZZO_PR_TRACKER.md`).
-2. Engineering (no approval needed): finish 25k/100k capacity runs and open the harness PR; then banner image variants (D4) on top of #95; app consumption of `/v1/content/home`.
+2. Engineering (no approval needed): reconciler pacing that scales with catalogue size (measured: 17 h/100k at defaults); async import engine design; then banner image variants (D4) once #95/#96 merge; app consumption of `/v1/content/home`.
 3. CEO: decisions in `TAZZZO_EXTERNAL_BLOCKERS.md` (SKU master dataset, paid infra for S3/CDN, CMS stack merge order).

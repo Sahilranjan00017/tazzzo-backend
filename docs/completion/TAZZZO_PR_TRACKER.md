@@ -12,6 +12,8 @@ Every PR the completion program touches. "Review" = independent adversarial revi
 | #94 | Completion trackers (docs only) | `aa6db11` + updates | n/a (docs) | self (docs) | OPEN | — |
 | #95 | MEDIA-STORAGE: S3-compatible `MediaStorage` (presigned upload, inspection) | `03ea97b968f6e7b0acbb4c22a852f4b83b037505` (after review fixes; first head `1f59b28`) | first head: run 37545551274 ✅ (3,257); remediated head: run 37549935119 ✅ on attempt 2 (3,261; attempt 1 failed only the pre-existing flaky `CheckoutQuoteIT` assertion) | first head **FAIL** (HIGH: `apache5-client` shipped; MEDIUM: duplicate Content-Type keys, outage→500, cross-owner key reference; LOW: endpoint validation, unbounded size); **all fixed** at `03ea97b`; re-review **PASS** (new LOW: owner-id normalisation could alias ids differing only in non-key-safe characters; NOTE: startup HeadBucket probe would make a wrong bucket explicit) | OPEN, awaiting CEO merge approval | — |
 | #96 | CHANNEL-PUBLISHING: `audience` + `?channel=app\|web` (D1–D3) | `d952ed04613967c57c550476a65d75a10997d415` | run 37548402098 ✅ (3,253) | **PASS** (deployment note: CDN cache key must include `channel`; LOW: corrupt stored audience → 400) | OPEN, awaiting CEO merge approval | — |
+| #97 | CATALOGUE-SCALE: capacity harness `CatalogCapacityIT` (test + runbook only) | `58190ab` → hardening commit (assert 100 % 2xx, winning-plan explain, runbook caveats) | run 37553486818 ✅ on `58190ab`; hardening head: pending | **PASS** (review ran its own 2,000-SKU run; MEDIUM: non-2xx not asserted, explain string-search — both fixed; LOW doc notes — fixed) | OPEN, awaiting CEO merge approval after CI on the hardening head | — |
+| #98 | Flaky `CheckoutQuoteIT` assertion (field names instead of whole body) | `308332d38064ded6065b96a4616987df2bf48480` | run 37553781674 ✅ | test-only, 30 lines, reviewed by reading; `CheckoutQuoteIT` 73/73 | OPEN, awaiting CEO merge approval | — |
 | #83 | Dependabot: Spring Boot 4.1.1 | `553bc83` | — | known: does not compile | OPEN | — |
 | #82,#84–#89 | Dependabot actions/library bumps | various | — | not reviewed | OPEN | — |
 
@@ -41,6 +43,7 @@ Fresh-agent audit: public response for existing callers byte-identical except re
 ```
 gh pr merge 96 --squash --match-head-commit d952ed04613967c57c550476a65d75a10997d415
 gh pr merge 95 --squash --match-head-commit 03ea97b968f6e7b0acbb4c22a852f4b83b037505
+gh pr merge 98 --squash --match-head-commit 308332d38064ded6065b96a4616987df2bf48480
 ```
 
 ### Flaky test on record
