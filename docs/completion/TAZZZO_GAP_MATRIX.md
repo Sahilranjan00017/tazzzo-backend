@@ -29,8 +29,8 @@ All business modules are IMPLEMENTED_UNMERGED on the #5→#19 stack, tested only
 |---|---|---|---|
 | Catalogue browse/PDP/serviceability | `/v1/categories`, children, products (cursor 20/50), `/v1/products/{id}`, `/v1/serviceability` | search (capability off), suggestions | MERGED_UNVERIFIED |
 | Images | custom loader, 48 MB LRU, ≤1024 px decode, https only, lazy in grids | disk cache, responsive variants, failure fallback asset policy | PARTIAL |
-| Home content | static drawables for hero/quality/bulk plates; first page of first root as rail | `/v1/content/home` banners, CMS rails/grids, category images from backend | NOT_STARTED |
-| Channel | none | no channel header; relies on backend filtering | NOT_STARTED |
+| Home content | static drawables for hero/quality/bulk plates; first page of first root as rail; **app PR #24 (open):** CMS banners / product rails / category grids from `/v1/content/home?channel=app`, as published, nothing on failure | category images from backend, `search:` deep link, banner variants (D4) | IMPLEMENTED_UNMERGED (#24) |
+| Channel | **app PR #24:** `?channel=app` on the Home read (backend filtering stays authoritative) | the other public reads carry no channel (none needs one today) | IMPLEMENTED_UNMERGED (#24) |
 | Cart/checkout/COD/orders/profile/addresses | present (per app docs; not re-verified here) | E2E against staging | MERGED_UNVERIFIED |
 
 ## Infrastructure (tazzzo-infrastructure, Terraform, ap-south-1, staging only)

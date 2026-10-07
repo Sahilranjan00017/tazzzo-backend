@@ -86,5 +86,13 @@ Local evidence at `b6006e3`: full suite 3,256/0 (Java 21, Testcontainers); `Impo
 
 All 15 open CMS PRs: web-ci SUCCESS, mergeable, **never run against a real backend** (`docs/cms/CMS_INTEGRATION_EVIDENCE.md`). Merge requires owner approval in stack order #5→#19 (+#7).
 
+## App (Sahilranjan00017/tazzzo-app)
+
+| PR | Scope | Head SHA | CI (exact head) | Review | Merge state |
+|---|---|---|---|---|---|
+| #24 | P6 APP-INTEGRATION: Home renders the CMS-published blocks of `GET /v1/content/home?channel=app` (banners, rails, grids; closed link grammar; https-only images; nothing on failure) | `77d8ff5cfc9d6bded3b9f94820108ee541c9e3a8` | pending (watch running) | pending (fresh agent) | OPEN — **merge after backend #96 is deployed** (older backend answers 400 to `channel`; the app then shows no published blocks) |
+
+Local evidence at `77d8ff5`: Android JVM unit tests 1,062/0 (main baseline 1,046/0), `assembleDebug` 24.7 MB; iOS simulator tests 1,061/0 + `linkDebugFrameworkIosSimulatorArm64` (Xcode 26.4.1); 8 mutants all killed. Not verified: on-device rendering against a backend with #96 deployed (none exists). `search:` links are untappable until the Search screen can open on a query.
+
 ## App / infrastructure
 No PRs opened by this program yet.
