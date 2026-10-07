@@ -95,17 +95,25 @@ public class MediaStorageProperties {
                 throw new IllegalStateException("tazzzo.media.storage.s3.access-key and secret-key must be set together");
             }
             URI uri = endpointUri();
-            if (uri != null && (uri.getScheme() == null || uri.getHost() == null)) {
-                throw new IllegalStateException("tazzzo.media.storage.s3.endpoint must be an absolute http(s) URL");
-            }
-            if (uri != null && "http".equals(uri.getScheme()) && !isLoopbackOrDocker(uri.getHost())) {
-                throw new IllegalStateException("tazzzo.media.storage.s3.endpoint must use https unless it is a local store");
+            if (uri != null) {
+                boolean https = "https".equals(uri.getScheme());
+                if (!(https || "http".equals(uri.getScheme())) || uri.getHost() == null) {
+                    throw new IllegalStateException("tazzzo.media.storage.s3.endpoint must be an absolute http(s) URL");
+                }
+                if (uri.getUserInfo() != null) {
+                    throw new IllegalStateException("tazzzo.media.storage.s3.endpoint must not carry credentials");
+                }
+                if (!https && !isLocalStoreHost(uri.getHost())) {
+                    throw new IllegalStateException("tazzzo.media.storage.s3.endpoint must use https unless it is a local store");
+                }
             }
         }
 
-        private static boolean isLoopbackOrDocker(String host) {
-            return host.equals("localhost") || host.equals("127.0.0.1") || host.equals("::1") || host.endsWith(".internal")
-                    || host.equals("host.docker.internal") || host.equals("minio");
+        /** Loopback, Docker Desktop's host alias, or a single-label name (a compose service): never a routable domain. */
+        static boolean isLocalStoreHost(String host) {
+            String h = host.toLowerCase(java.util.Locale.ROOT);
+            return h.equals("localhost") || h.equals("127.0.0.1") || h.equals("[::1]") || h.equals("::1")
+                    || h.equals("host.docker.internal") || !h.contains(".");
         }
     }
 }

@@ -36,8 +36,8 @@ import java.util.Set;
  * INTERNAL admin transport for product/SKU media. Two steps, never proxying bytes: (1) {@code POST …/uploads} returns a
  * short-lived direct-to-storage target for ONE server-generated key; (2) {@code PUT …/{ownerType}/{ownerId}} replaces the
  * owner's WHOLE ordered set (CAS; the set-level invariants -- one PRIMARY at order 0, unique ids/orders -- live in the
- * domain) and, when storage is configured, verifies every NEWLY referenced key against what storage really holds (exists,
- * within the size ceiling, magic bytes match the declared type). The owner must be an existing product; the audit actor is
+ * domain) and, when storage is configured, verifies every NEWLY referenced key: it must have been issued for THIS owner
+ * (key prefix), and storage must really hold it (exists, within the size ceiling, magic bytes match the declared type). The owner must be an existing product; the audit actor is
  * the authenticated principal.
  */
 @RestController
@@ -85,7 +85,7 @@ public class MediaAdminController {
             throw new MediaStorageUnavailableException();
         }
         String key = policy.newKey(type, body.ownerId(), body.contentType());
-        UploadTarget target = storage.createUpload(key, body.contentType(), policy.maxBytes());
+        UploadTarget target = storage.createUpload(key, body.contentType(), body.sizeBytes());
         return ResponseEntity.status(HttpStatus.CREATED).body(new UploadResponse(key, target.method(), target.url(),
                 target.headers(), target.expiresAt().toString(), policy.maxBytes()));
     }
@@ -117,8 +117,12 @@ public class MediaAdminController {
             if (current != null) {
                 current.assets().forEach(a -> existing.add(a.assetKey()));
             }
+            String prefix = policy.ownerPrefix(type, ownerId);
             for (MediaAsset a : assets) {
                 if (!existing.contains(a.assetKey())) {
+                    if (!a.assetKey().startsWith(prefix)) {
+                        throw new InvalidMediaException("asset key was not uploaded for this owner");
+                    }
                     verifier.verify(a.assetKey(), a.contentType());
                 }
             }

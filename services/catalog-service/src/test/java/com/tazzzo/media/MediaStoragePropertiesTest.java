@@ -33,10 +33,16 @@ class MediaStoragePropertiesTest {
         p.validate();
         p.setEndpoint("https://s3.ap-south-1.amazonaws.com");
         p.validate();
-        p.setEndpoint("http://storage.example.com");
-        assertThatThrownBy(p::validate).isInstanceOf(IllegalStateException.class).hasMessageContaining("endpoint");
-        p.setEndpoint("not a url");
-        assertThatThrownBy(p::validate).isInstanceOf(IllegalStateException.class).hasMessageContaining("endpoint");
+        p.setEndpoint("http://s3mock:9090");   // a compose service name: single label, never routable
+        p.validate();
+        p.setEndpoint("http://host.docker.internal:9090");
+        p.validate();
+        for (String bad : new String[]{"http://storage.example.com", "http://evil.internal:9000", "ftp://localhost:9000",
+                "http://user:pw@localhost:9000", "https://user:pw@s3.ap-south-1.amazonaws.com", "not a url", "localhost:9090"}) {
+            p.setEndpoint(bad);
+            assertThatThrownBy(p::validate).as(bad).isInstanceOf(IllegalStateException.class).hasMessageContaining("endpoint")
+                    .hasMessageNotContaining("pw");
+        }
     }
 
     @Test

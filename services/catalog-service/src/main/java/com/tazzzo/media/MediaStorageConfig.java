@@ -31,6 +31,12 @@ class MediaStorageConfig {
 
     private static final Logger log = LoggerFactory.getLogger(MediaStorageConfig.class);
 
+    /** Fails startup with the key named when the provider is not one of the closed choices (no silent "no bean"). */
+    @Bean
+    MediaStorageProperties.Provider mediaStorageProvider(MediaStorageProperties properties) {
+        return properties.provider();
+    }
+
     @Bean
     @ConditionalOnProperty(name = "tazzzo.media.storage.provider", havingValue = "disabled", matchIfMissing = true)
     MediaStorage disabledMediaStorage() {

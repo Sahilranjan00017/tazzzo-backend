@@ -109,8 +109,9 @@
         </dependency>
         <!--
           Media storage: the S3 client (HeadObject, ranged GetObject for magic bytes) and presigner (direct-to-storage
-          PUT). The JDK URL-connection HTTP client is used instead of the SDK's Apache (httpclient 4.x) and Netty
-          async clients, so no extra HTTP stack ships in the image. The same adapter speaks to MinIO in tests.
+          PUT). The JDK URL-connection HTTP client is used; the SDK's Apache 4, Apache 5 and Netty clients are excluded
+          so no extra HTTP stack ships in the image (verified with dependency:build-classpath, no httpclient/httpcore
+          jars). The same adapter speaks to S3Mock and CloudServer in tests.
         -->
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
@@ -119,6 +120,10 @@
                 <exclusion>
                     <groupId>software.amazon.awssdk</groupId>
                     <artifactId>apache-client</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>software.amazon.awssdk</groupId>
+                    <artifactId>apache5-client</artifactId>
                 </exclusion>
                 <exclusion>
                     <groupId>software.amazon.awssdk</groupId>

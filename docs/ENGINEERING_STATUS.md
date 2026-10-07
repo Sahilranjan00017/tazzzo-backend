@@ -1255,13 +1255,15 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
 ## In review (NOT merged)
 
 - **Media object storage adapter (S3-compatible)** (branch `feature/media-storage-s3`, from `main` `7d491dd`): **IN REVIEW**. `MediaStorage` gains a real
-  provider: `S3MediaStorage` (AWS SDK v2 `S3Client` + `S3Presigner`, JDK URL-connection HTTP client; the Apache and Netty SDK clients are excluded so no extra HTTP
-  stack ships) selected by `tazzzo.media.storage.provider=s3` with `MediaStorageProperties` (bucket, region default ap-south-1, optional endpoint/path-style for
+  provider: `S3MediaStorage` (AWS SDK v2 `S3Client` + `S3Presigner`, JDK URL-connection HTTP client; the Apache 4, Apache 5 and Netty SDK clients are excluded,
+  verified on the runtime classpath, so no `httpclient`/`httpcore` jar ships) selected by `tazzzo.media.storage.provider=s3` with `MediaStorageProperties` (bucket, region default ap-south-1, optional endpoint/path-style for
   a local store, presign TTL 30..3600 s, static credentials for a local store only, otherwise the task role). `createUpload` returns a presigned PUT whose
-  signature binds the key and `Content-Type`; `inspect` reads HeadObject size/type plus the first 64 bytes for the sniffer. The default stays `disabled`
+  signature binds the key, `Content-Type` and `Content-Length` (the declared size); `inspect` reads HeadObject size/type plus the first 64 bytes for the
+  sniffer, and maps an unreachable or refusing store to 503 `MEDIA_STORAGE_UNAVAILABLE` (never a 500); a newly referenced key must have been issued for that
+  owner (`p/<ownerType>/<ownerId>/…`). The default stays `disabled`
   (uploads 503). Evidence: `S3MediaStorageIT` and `MediaUploadEndToEndIT` (admin flow over HTTP against Adobe S3Mock: upload target → real PUT → verified
-  media set → readable; refusals for not-uploaded and mismatched type), `S3SignatureEnforcementIT` (Scality CloudServer verifies SigV4: wrong type, no type,
-  foreign key and tampered signature are refused with 403; stored type is the signed one), `MediaStoragePropertiesTest`. MinIO's public images are no longer
+  media set → readable; refusals for not-uploaded and mismatched type), `S3SignatureEnforcementIT` (Scality CloudServer, pinned by digest, verifies SigV4: wrong type, no type, larger body,
+  foreign key and tampered signature are refused with 403; stored type is the signed one), `MediaStorageOutageIT`, `MediaStoragePropertiesTest`. MinIO's public images are no longer
   pullable (2026-10-07), hence the two alternative stores. Not included: the bucket/CloudFront Terraform (budget approval), variants/thumbnails, dedup, reaper,
   bulk mapping, cache invalidation. Runbook: `docs/ops/MEDIA_STORAGE.md`.
 

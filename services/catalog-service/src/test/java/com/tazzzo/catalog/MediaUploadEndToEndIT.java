@@ -117,6 +117,8 @@ class MediaUploadEndToEndIT extends AbstractApiIT {
         assertThat(t.get("method").asText()).isEqualTo("PUT");
         assertThat(t.get("url").asText()).startsWith(endpoint()).contains(key).doesNotContain("e2e-secret-fixture");
         assertThat(t.get("maxBytes").asLong()).isEqualTo(5L * 1024 * 1024);
+        assertThat(t.get("headers").get("Content-Length").asText()).as("the signature binds the declared size").isEqualTo(String.valueOf(PNG.length));
+        assertThat(t.get("headers").has("content-type")).as("one canonical spelling").isFalse();
 
         // 2. referencing the key BEFORE uploading is refused: the store holds nothing
         assertCode(put(SET, set(List.of(asset("a1", key, "PRIMARY", 0, "image/png")), null)), 422, "INVALID_MEDIA");
@@ -153,6 +155,32 @@ class MediaUploadEndToEndIT extends AbstractApiIT {
         assertThat(log.getOut()).doesNotContain("e2e-secret-fixture");
     }
 
+    /** A key issued for one owner can never be referenced by another, even though storage holds a valid image under it. */
+    @Test
+    void a_key_uploaded_for_one_owner_cannot_be_referenced_by_another() throws Exception {
+        String other = "TZP-MED-4";
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", other);
+        m.put("productType", "single");
+        m.put("identityType", "internal");
+        m.put("internalKey", "med|4");
+        m.put("brandCode", "BR-MED");
+        m.put("title", "Media " + other);
+        m.put("verticalId", "TZV-000001");
+        m.put("releaseId", "0.9.0");
+        m.put("classificationStatus", "provisional");
+        m.put("attributes", Map.of("pack_size", 1, "pack_unit", "kg"));
+        m.put("evidenceRefs", List.of());
+        assertThat(post("/api/v1/products", m, W, JsonNode.class).getStatusCode().value()).isEqualTo(201);
+        JsonNode target = post("/api/v1/admin/media/uploads",
+                Map.of("ownerType", "product", "ownerId", SKU, "contentType", "image/png", "sizeBytes", PNG.length), W, JsonNode.class).getBody();
+        String key = target.get("assetKey").asText();
+        assertThat(upload(target, PNG, "image/png")).isEqualTo(200);
+        ResponseEntity<JsonNode> stolen = put("/api/v1/admin/media/product/" + other, set(List.of(asset("a1", key, "PRIMARY", 0, "image/png")), null));
+        assertCode(stolen, 422, "INVALID_MEDIA");
+        assertThat(stolen.getBody().at("/error/message").asText()).contains("this owner");
+    }
+
     @Test
     void upload_policy_and_ownership_still_apply() {
         assertCode(post("/api/v1/admin/media/uploads",
@@ -172,7 +200,9 @@ class MediaUploadEndToEndIT extends AbstractApiIT {
         HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(target.get("url").asText()))
                 .method(target.get("method").asText(), HttpRequest.BodyPublishers.ofByteArray(bytes));
         target.get("headers").fields().forEachRemaining(h -> {
-            if (!h.getKey().equalsIgnoreCase("Content-Type")) b.header(h.getKey(), h.getValue().asText());
+            if (!h.getKey().equalsIgnoreCase("Content-Type") && !h.getKey().equalsIgnoreCase("Content-Length")) {
+                b.header(h.getKey(), h.getValue().asText());   // the JDK client sets Content-Length from the body
+            }
         });
         b.header("Content-Type", contentType);
         HttpResponse<String> r = http.send(b.build(), HttpResponse.BodyHandlers.ofString());

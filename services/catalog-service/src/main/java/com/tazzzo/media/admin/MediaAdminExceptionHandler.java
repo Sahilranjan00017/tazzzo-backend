@@ -22,6 +22,8 @@ import java.util.Map;
 @Order(Ordered.HIGHEST_PRECEDENCE)
 class MediaAdminExceptionHandler {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(MediaAdminExceptionHandler.class);
+
     @ExceptionHandler(ProductNotFoundException.class)
     ResponseEntity<ErrorBody> noProduct(HttpServletRequest req) {
         return envelope(HttpStatus.NOT_FOUND, "NOT_FOUND", "no such product", req);
@@ -45,6 +47,13 @@ class MediaAdminExceptionHandler {
     @ExceptionHandler(MediaAdminController.MediaStorageUnavailableException.class)
     ResponseEntity<ErrorBody> noStorage(HttpServletRequest req) {
         return envelope(HttpStatus.SERVICE_UNAVAILABLE, "MEDIA_STORAGE_NOT_CONFIGURED", "media storage is not configured", req);
+    }
+
+    /** The configured store could not be reached or refused us: an outage, reported as such (class name only, no stack). */
+    @ExceptionHandler(com.tazzzo.media.MediaStorageFailure.class)
+    ResponseEntity<ErrorBody> storageFailed(com.tazzzo.media.MediaStorageFailure e, HttpServletRequest req) {
+        log.warn("media_storage_unavailable type={} request_id={}", e.getMessage(), req.getAttribute(RequestIdFilter.REQUEST_ID));
+        return envelope(HttpStatus.SERVICE_UNAVAILABLE, "MEDIA_STORAGE_UNAVAILABLE", "media storage is unavailable", req);
     }
 
     private static ResponseEntity<ErrorBody> envelope(HttpStatus status, String code, String message, HttpServletRequest req) {

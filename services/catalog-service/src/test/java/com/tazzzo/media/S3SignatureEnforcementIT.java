@@ -25,9 +25,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * What a SigV4-verifying store does with the adapter's presigned PUT (Scality CloudServer, a real S3 implementation
- * that checks signatures, unlike S3Mock): the upload succeeds only with the signed key AND the signed Content-Type;
- * a different type, a different key, or a tampered signature is refused by the store itself (403), and the stored
- * Content-Type is the signed one.
+ * that checks signatures, unlike S3Mock): the upload succeeds only with the signed key, Content-Type AND Content-Length;
+ * a different type, a larger body, a different key, or a tampered signature is refused by the store itself (403), and
+ * the stored Content-Type is the signed one.
  */
 class S3SignatureEnforcementIT {
 
@@ -35,7 +35,9 @@ class S3SignatureEnforcementIT {
     static final String SECRET = "test-secret-fixture-1";
     static final String BUCKET = "tazzzo-media-sig";
     @SuppressWarnings("resource")
-    static final GenericContainer<?> STORE = new GenericContainer<>(DockerImageName.parse("zenko/cloudserver:latest"))
+    /** Pinned by digest: the tag `latest` drifts. */
+    static final GenericContainer<?> STORE = new GenericContainer<>(DockerImageName.parse(
+            "zenko/cloudserver@sha256:b53e57829cf7df357323e60a19c9f98d2218f1b7ccb1d7cea5761a5a227a9ee3"))
             .withExposedPorts(8000)
             .withEnv("S3BACKEND", "mem").withEnv("REMOTE_MANAGEMENT_DISABLE", "1")
             .withEnv("SCALITY_ACCESS_KEY_ID", ACCESS).withEnv("SCALITY_SECRET_ACCESS_KEY", SECRET)
@@ -71,8 +73,11 @@ class S3SignatureEnforcementIT {
     @Test
     void the_store_accepts_only_the_signed_key_and_content_type() throws Exception {
         String key = "p/product/TZP-SIG/" + java.util.UUID.randomUUID() + ".png";
-        UploadTarget target = storage.createUpload(key, "image/png", 5_000_000);
+        UploadTarget target = storage.createUpload(key, "image/png", PNG.length);
 
+        byte[] larger = new byte[PNG.length + 1];
+        System.arraycopy(PNG, 0, larger, 0, PNG.length);
+        assertThat(upload(target.url(), larger, "image/png")).as("a larger body than signed").isEqualTo(403);
         assertThat(upload(target.url(), PNG, "image/jpeg")).as("a different Content-Type than signed").isEqualTo(403);
         assertThat(upload(target.url(), PNG, null)).as("no Content-Type").isEqualTo(403);
         assertThat(upload(target.url().replace(key, "p/product/TZP-SIG/other.png"), PNG, "image/png")).as("another key").isEqualTo(403);
