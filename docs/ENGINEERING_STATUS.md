@@ -1254,16 +1254,21 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
 
 ## In review (NOT merged)
 
-- **Inventory admin list and low-stock feed** (branch `feature/inventory-admin-list`, from `main` `7d491dd`): **IN REVIEW**. The CMS stock workspace
-  (tazzzo-web #10) can only look up one `(sku, location)` because the backend had no stock list. `GET /api/v1/admin/inventory?location=&state=&limit=&cursor=`
-  lists rows in `(sku_id, fulfillment_location_id)` order — the unique index's order, so the keyset cursor `<sku>|<location>` resumes with an index
-  seek — with an optional location filter and a server-derived `state` filter (`IN_STOCK` | `LOW_STOCK` | `OUT_OF_STOCK` over active rows, or
-  `INACTIVE`) computed by `$expr` from the two persisted counters with the SAME arithmetic as `InventoryRecord.stockState()`, so the feed can never
-  disagree with the point read (no derived field is persisted — ADR-004). Rows carry the point read's shape plus `stockState`. The state filter walks the
-  (location-)scoped rows rather than seeking; documented as the cost of not persisting the derived state. Same authorisation as every admin read; the
-  inventory error envelope (`INVALID_INVENTORY` 422 for a bad limit, state, location or cursor). Evidence: `InventoryAdminListIT` (order + cursor,
-  filters incl. a reserved-quantity row that is LOW by `available` not `on_hand`, list = point read per row, auth, validation matrix). Not done: deltas /
-  reasons history, a location registry, service-area availability projection.
+- **Inventory admin list and low-stock feed** (branch `feature/inventory-admin-list`, PR #101, from `main` `7d491dd`): **IN REVIEW**. The CMS stock
+  workspace (tazzzo-web #10) could only look up one `(sku, location)` because the backend had no stock list. `GET /api/v1/admin/inventory?location=&state=&limit=&cursor=`
+  (operationId `listStock`) lists rows in `(sku_id, fulfillment_location_id)` order — the unique index's order, no in-memory sort — with an opaque
+  base64url keyset cursor (the position of the last row READ, length-prefixed so any characters in either id are unambiguous), an optional location
+  filter and a server-derived `state` filter (`IN_STOCK` | `LOW_STOCK` | `OUT_OF_STOCK` over active rows, or `INACTIVE` = not active) computed by `$expr`
+  with the SAME arithmetic as `InventoryRecord.stockState()`; the four states partition the valid rows exactly as the point read labels them. The query
+  grammar is closed (only those four names, once each, never empty; anything else is 422 `INVALID_INVENTORY` with a sanitised message). A stored row
+  that breaks the record invariants (missing field, `reserved > on_hand`) is left out and counted in a WARN, and the cursor still moves past it.
+  Neither filter can seek on the `(sku_id, location)` index — a sparse location or state filter examines up to the rest of the collection — so the
+  query is bounded by `maxTimeMS` 2 s (then 503 `LIST_TIMEOUT`); a `(fulfillment_location_id, sku_id)` index is the follow-up if location lists
+  must stay fast past a few hundred thousand stock rows. Independent review of the first head (NEEDS-CHANGES: `|` in a SKU looped the cursor; the
+  OpenAPI response pointed at another `PageResponse`; a non-numeric limit leaked Java type names; corrupt rows 500'd or blocked paging; plan claims
+  overstated) — all fixed. Evidence: `InventoryAdminListIT` (every row exactly once at page sizes 1–200 incl. a `|` SKU and corrupt rows, filters
+  and their partition, field-by-field equality with the point read, closed grammar, the generated contract's shapes). Not done: deltas/reasons
+  history, a location registry; the generated spec lists no query parameters for this or any other raw-parameter admin list (repo-wide gap).
 
 - **HTTP error-handling hardening** (branch `fix/http-error-handling-hardening`, from `main` `d790504`): **IN REVIEW**. The 12 controller-scoped `/v1` advices with an
   `Exception` catch-all (OTP, session, profile, address, account deletion, customer support, delivery slots, cart, checkout, order, commerce read, public content;

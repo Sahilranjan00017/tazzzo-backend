@@ -37,6 +37,11 @@ class InventoryAdminExceptionHandler {
         return envelope(HttpStatus.CONFLICT, "STALE_VERSION", e.getMessage(), req);
     }
 
+    @ExceptionHandler(com.tazzzo.inventory.InventoryListTimeoutException.class)
+    ResponseEntity<ErrorBody> listTimeout(RuntimeException e, HttpServletRequest req) {
+        return envelope(HttpStatus.SERVICE_UNAVAILABLE, "LIST_TIMEOUT", e.getMessage(), req);
+    }
+
     @ExceptionHandler({InvalidInventoryException.class, IllegalArgumentException.class})
     ResponseEntity<ErrorBody> invalid(RuntimeException e, HttpServletRequest req) {
         return envelope(HttpStatus.UNPROCESSABLE_ENTITY, "INVALID_INVENTORY", e.getMessage(), req);

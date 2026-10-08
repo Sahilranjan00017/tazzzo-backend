@@ -2351,7 +2351,7 @@
     "/api/v1/admin/content/blocks" : {
       "get" : {
         "tags" : [ "content-admin-controller" ],
-        "operationId" : "list_9",
+        "operationId" : "list_8",
         "parameters" : [ {
           "name" : "placement",
           "in" : "query",
@@ -3688,44 +3688,14 @@
     "/api/v1/admin/inventory" : {
       "get" : {
         "tags" : [ "inventory-admin-list-controller" ],
-        "operationId" : "list_7",
-        "parameters" : [ {
-          "name" : "location",
-          "in" : "query",
-          "required" : false,
-          "schema" : {
-            "type" : "string"
-          }
-        }, {
-          "name" : "state",
-          "in" : "query",
-          "required" : false,
-          "schema" : {
-            "type" : "string"
-          }
-        }, {
-          "name" : "limit",
-          "in" : "query",
-          "required" : false,
-          "schema" : {
-            "type" : "integer",
-            "format" : "int32"
-          }
-        }, {
-          "name" : "cursor",
-          "in" : "query",
-          "required" : false,
-          "schema" : {
-            "type" : "string"
-          }
-        } ],
+        "operationId" : "listStock",
         "responses" : {
           "200" : {
             "description" : "OK",
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/PageResponse"
+                  "$ref" : "#/components/schemas/StockListPage"
                 }
               }
             }
@@ -3736,7 +3706,7 @@
     "/api/v1/admin/delivery-slots/{serviceAreaId}" : {
       "get" : {
         "tags" : [ "delivery-slot-admin-controller" ],
-        "operationId" : "list_8",
+        "operationId" : "list_7",
         "parameters" : [ {
           "name" : "serviceAreaId",
           "in" : "path",
@@ -3783,7 +3753,7 @@
     "/api/v1/admin/audit-events" : {
       "get" : {
         "tags" : [ "admin-audit-events-controller" ],
-        "operationId" : "list_10",
+        "operationId" : "list_9",
         "responses" : {
           "200" : {
             "description" : "OK",
@@ -6702,6 +6672,61 @@
             "items" : {
               "type" : "string"
             }
+          }
+        }
+      },
+      "StockListPage" : {
+        "type" : "object",
+        "properties" : {
+          "items" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/StockListRow"
+            }
+          },
+          "nextCursor" : {
+            "type" : "string"
+          }
+        }
+      },
+      "StockListRow" : {
+        "type" : "object",
+        "properties" : {
+          "skuId" : {
+            "type" : "string"
+          },
+          "fulfillmentLocationId" : {
+            "type" : "string"
+          },
+          "onHand" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "reserved" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "available" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "lowStockThreshold" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "maxPurchasable" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "version" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "active" : {
+            "type" : "boolean"
+          },
+          "stockState" : {
+            "type" : "string"
           }
         }
       },

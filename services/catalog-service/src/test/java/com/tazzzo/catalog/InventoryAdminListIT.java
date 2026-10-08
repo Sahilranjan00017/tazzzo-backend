@@ -47,6 +47,17 @@ class InventoryAdminListIT extends AbstractApiIT {
         // a reservation makes "available" differ from on_hand: row 1 @ FL-2 has 7 on hand, 5 reserved -> available 2 -> LOW
         db.getCollection("inventory").updateOne(new Document("sku_id", "TZP-INV-1").append("fulfillment_location_id", "FL-2"),
                 new Document("$set", new Document("reserved", 5L)));
+        // a sku id containing the old cursor separator (product ids only need the TZP- prefix): IN_STOCK
+        db.getCollection("inventory").insertOne(raw("TZP-INV-5|X", "FL-1", 20, 0).append("low_stock_threshold", 5L).append("active", true));
+        // legacy/corrupt rows: no threshold; reserved > on_hand; no active flag (valid otherwise -> INACTIVE)
+        db.getCollection("inventory").insertOne(raw("TZP-INV-6", "FL-C", 9, 0).append("active", true));
+        db.getCollection("inventory").insertOne(raw("TZP-INV-7", "FL-C", 1, 3).append("low_stock_threshold", 5L).append("active", true));
+        db.getCollection("inventory").insertOne(raw("TZP-INV-8", "FL-C", 4, 0).append("low_stock_threshold", 5L));
+    }
+
+    private static Document raw(String sku, String loc, long onHand, long reserved) {
+        return new Document("sku_id", sku).append("fulfillment_location_id", loc).append("on_hand", onHand).append("reserved", reserved)
+                .append("max_purchasable", 10L).append("version", 1L);
     }
 
     private void product(String id) {
@@ -70,54 +81,94 @@ class InventoryAdminListIT extends AbstractApiIT {
         return out;
     }
 
+    /** Every row, following nextCursor page by page; fails rather than looping if a cursor does not advance. */
+    private List<String> walk(String query, int limit) {
+        List<String> all = new ArrayList<>();
+        String cursor = null;
+        for (int pages = 0; pages < 50; pages++) {
+            String q = LIST + "?limit=" + limit + query + (cursor == null ? "" : "&cursor=" + cursor);
+            ResponseEntity<JsonNode> r = get(q, R, JsonNode.class);
+            assertThat(r.getStatusCode().value()).as(q + " -> " + r.getBody()).isEqualTo(200);
+            all.addAll(keys(r.getBody()));
+            JsonNode next = r.getBody().get("nextCursor");
+            if (next.isNull()) return all;
+            assertThat(next.asText()).as("the cursor advances").isNotEqualTo(cursor).matches("[A-Za-z0-9_-]+");
+            cursor = next.asText();
+        }
+        throw new AssertionError("paging did not terminate");
+    }
+
+    static final List<String> ALL = List.of("TZP-INV-1@FL-1:IN_STOCK", "TZP-INV-1@FL-2:LOW_STOCK", "TZP-INV-2@FL-1:LOW_STOCK",
+            "TZP-INV-2@FL-2:LOW_STOCK", "TZP-INV-3@FL-1:OUT_OF_STOCK", "TZP-INV-4@FL-1:INACTIVE", "TZP-INV-5|X@FL-1:IN_STOCK",
+            "TZP-INV-8@FL-C:INACTIVE");
+
     @Test
-    void lists_every_row_in_key_order_with_a_keyset_cursor() {
-        ResponseEntity<JsonNode> p1 = get(LIST + "?limit=4", R, JsonNode.class);
-        assertThat(p1.getStatusCode().value()).as(String.valueOf(p1.getBody())).isEqualTo(200);
-        assertThat(keys(p1.getBody())).containsExactly("TZP-INV-1@FL-1:IN_STOCK", "TZP-INV-1@FL-2:LOW_STOCK", "TZP-INV-2@FL-1:LOW_STOCK", "TZP-INV-2@FL-2:LOW_STOCK");
-        assertThat(p1.getBody().get("nextCursor").asText()).isEqualTo("TZP-INV-2|FL-2");
-        JsonNode p2 = get(LIST + "?limit=4&cursor=TZP-INV-2|FL-2", R, JsonNode.class).getBody();
-        assertThat(keys(p2)).containsExactly("TZP-INV-3@FL-1:OUT_OF_STOCK", "TZP-INV-4@FL-1:INACTIVE");
-        assertThat(p2.get("nextCursor").isNull()).isTrue();
-        JsonNode row = p2.get("items").get(0);
+    void lists_every_row_once_in_key_order_with_an_opaque_cursor_at_any_page_size() {
+        for (int limit : List.of(1, 2, 3, 4, 200)) {
+            assertThat(walk("", limit)).as("limit " + limit + ": every valid row exactly once, corrupt rows left out").containsExactlyElementsOf(ALL);
+        }
+        JsonNode p1 = get(LIST + "?limit=4", R, JsonNode.class).getBody();
+        assertThat(keys(p1)).containsExactlyElementsOf(ALL.subList(0, 4));
+        JsonNode row = get(LIST + "?limit=1&cursor=" + p1.get("nextCursor").asText(), R, JsonNode.class).getBody().get("items").get(0);
         assertThat(row.get("available").asLong()).isZero();
         assertThat(row.get("version").asLong()).isEqualTo(1);
-        assertThat(p2.get("items").get(1).get("active").asBoolean()).isFalse();
+        // a page whose only rows are corrupt is empty but still moves on
+        JsonNode beforeCorrupt = get(LIST + "?limit=7", R, JsonNode.class).getBody();
+        JsonNode corruptPage = get(LIST + "?limit=2&cursor=" + beforeCorrupt.get("nextCursor").asText(), R, JsonNode.class).getBody();
+        assertThat(keys(corruptPage)).isEmpty();
+        assertThat(corruptPage.get("nextCursor").isNull()).isFalse();
     }
 
     @Test
     void the_location_and_state_filters_use_the_same_arithmetic_as_the_point_read() {
-        assertThat(keys(get(LIST + "?location=FL-1", R, JsonNode.class).getBody()))
-                .containsExactly("TZP-INV-1@FL-1:IN_STOCK", "TZP-INV-2@FL-1:LOW_STOCK", "TZP-INV-3@FL-1:OUT_OF_STOCK", "TZP-INV-4@FL-1:INACTIVE");
+        assertThat(walk("&location=FL-1", 2)).containsExactly("TZP-INV-1@FL-1:IN_STOCK", "TZP-INV-2@FL-1:LOW_STOCK",
+                "TZP-INV-3@FL-1:OUT_OF_STOCK", "TZP-INV-4@FL-1:INACTIVE", "TZP-INV-5|X@FL-1:IN_STOCK");
         assertThat(keys(get(LIST + "?state=LOW_STOCK", R, JsonNode.class).getBody()))
                 .as("available = on_hand - reserved, not on_hand: row 1 @ FL-2 is low because 5 of 7 are reserved")
                 .containsExactly("TZP-INV-1@FL-2:LOW_STOCK", "TZP-INV-2@FL-1:LOW_STOCK", "TZP-INV-2@FL-2:LOW_STOCK");
         assertThat(keys(get(LIST + "?state=IN_STOCK", R, JsonNode.class).getBody()))
-                .as("available == threshold is LOW, not IN")
-                .containsExactly("TZP-INV-1@FL-1:IN_STOCK");
+                .as("available == threshold is LOW, not IN; a row without a threshold is left out, not a 500")
+                .containsExactly("TZP-INV-1@FL-1:IN_STOCK", "TZP-INV-5|X@FL-1:IN_STOCK");
         assertThat(keys(get(LIST + "?state=OUT_OF_STOCK", R, JsonNode.class).getBody())).as("an inactive row at 0 is INACTIVE, not OUT_OF_STOCK")
                 .containsExactly("TZP-INV-3@FL-1:OUT_OF_STOCK");
-        assertThat(keys(get(LIST + "?state=INACTIVE", R, JsonNode.class).getBody())).containsExactly("TZP-INV-4@FL-1:INACTIVE");
+        assertThat(keys(get(LIST + "?state=INACTIVE", R, JsonNode.class).getBody())).as("not active = INACTIVE, a missing flag included")
+                .containsExactly("TZP-INV-4@FL-1:INACTIVE", "TZP-INV-8@FL-C:INACTIVE");
         assertThat(keys(get(LIST + "?state=LOW_STOCK&location=FL-2", R, JsonNode.class).getBody())).containsExactly("TZP-INV-1@FL-2:LOW_STOCK", "TZP-INV-2@FL-2:LOW_STOCK");
         assertThat(keys(get(LIST + "?location=FL-9", R, JsonNode.class).getBody())).isEmpty();
-        // the state in the list equals the point read's for every row
-        for (JsonNode i : get(LIST, R, JsonNode.class).getBody().get("items")) {
+        // the four states partition the valid rows exactly as the unfiltered list labels them
+        List<String> union = new ArrayList<>();
+        for (String st : List.of("IN_STOCK", "LOW_STOCK", "OUT_OF_STOCK", "INACTIVE")) union.addAll(walk("&state=" + st, 200));
+        assertThat(union).containsExactlyInAnyOrderElementsOf(ALL);
+        // every list row equals the point read, field by field
+        for (JsonNode i : get(LIST + "?location=FL-1", R, JsonNode.class).getBody().get("items")) {
+            if (i.get("skuId").asText().contains("|")) continue;   // no product/point-read route for the raw row
             JsonNode one = get("/api/v1/admin/inventory/" + i.get("skuId").asText() + "/" + i.get("fulfillmentLocationId").asText(), R, JsonNode.class).getBody();
-            assertThat(i.get("available").asLong()).isEqualTo(one.get("available").asLong());
-            assertThat(i.get("version").asLong()).isEqualTo(one.get("version").asLong());
+            for (String f : List.of("skuId", "fulfillmentLocationId", "onHand", "reserved", "available", "lowStockThreshold", "maxPurchasable", "version", "active")) {
+                assertThat(i.get(f)).as(i.get("skuId") + " " + f).isEqualTo(one.get(f));
+            }
         }
     }
 
     @Test
-    void authorisation_and_validation() {
+    void authorisation_and_a_closed_query_grammar() {
         assertThat(get(LIST, null, JsonNode.class).getStatusCode().value()).isEqualTo(401);
         assertThat(get(LIST, W, JsonNode.class).getStatusCode().value()).as("a writer may read").isEqualTo(200);
-        for (String bad : List.of("?limit=0", "?limit=201", "?state=SOLD_OUT", "?cursor=nobar", "?cursor=|FL-1", "?cursor=TZP-1|",
-                "?location=" + "L".repeat(129), "?cursor=TZP-1|" + "L".repeat(129))) {
+        for (String bad : List.of("?limit=0", "?limit=201", "?limit=abc", "?limit=99999999999", "?limit=1&limit=2", "?state=SOLD_OUT",
+                "?state=", "?stat=LOW_STOCK", "?cursor=nobar", "?cursor=" + "A".repeat(401), "?cursor=MTA6YWI", "?location=" + "L".repeat(129))) {
             ResponseEntity<JsonNode> r = get(LIST + bad, R, JsonNode.class);
             assertThat(r.getStatusCode().value()).as(bad + " -> " + r.getBody()).isEqualTo(422);
             assertThat(r.getBody().at("/error/code").asText()).isEqualTo("INVALID_INVENTORY");
+            assertThat(r.getBody().toString()).as("no internals in the message").doesNotContain("java.").doesNotContain("Exception");
         }
         assertThat(get(LIST + "?limit=200", R, JsonNode.class).getStatusCode().value()).isEqualTo(200);
+    }
+
+    @Test
+    void the_admin_contract_names_the_stock_list_shapes() throws Exception {
+        JsonNode spec = new com.fasterxml.jackson.databind.ObjectMapper().readTree(java.nio.file.Files.readString(java.nio.file.Path.of("docs/openapi.json")));
+        JsonNode op = spec.at("/paths/~1api~1v1~1admin~1inventory/get");
+        assertThat(op.get("operationId").asText()).isEqualTo("listStock");
+        assertThat(op.at("/responses/200/content/*~1*/schema/$ref").asText()).isEqualTo("#/components/schemas/StockListPage");
+        assertThat(spec.at("/components/schemas/StockListRow/properties/stockState").isMissingNode()).isFalse();
     }
 }

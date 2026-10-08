@@ -403,56 +403,74 @@ public class InventoryService implements InventoryReadPort {
         return out;
     }
 
+    /** One page of the admin list; {@code next*} is the position of the last row READ (valid or not), null on the last page. */
+    public record ListPage(List<InventoryRecord> rows, String nextSku, String nextLocation, int skipped) { }
+
     /**
      * A page of inventory rows for the admin list, in {@code (sku_id, fulfillment_location_id)} order — the order of the
-     * unique index, so a keyset cursor {@code (afterSku, afterLocation)} resumes with an index seek. Optional filters:
-     * one fulfilment location, and a derived stock state ({@code IN_STOCK}, {@code LOW_STOCK}, {@code OUT_OF_STOCK} over
-     * ACTIVE rows, or {@code INACTIVE}). The state is computed by the server from the two persisted counters, exactly as
-     * {@link InventoryRecord#stockState()} derives it, so the feed can never disagree with a point read; it is an
-     * {@code $expr} filter and therefore walks the (location-)scoped rows rather than seeking — acceptable for an admin
-     * feed over a launch catalogue, and documented as the cost of not persisting a derived field (ADR-004).
+     * unique index, read with an index scan and no in-memory sort; a keyset position {@code after} resumes with an index
+     * seek. Optional filters: one fulfilment location, and a derived stock state ({@code IN_STOCK}, {@code LOW_STOCK},
+     * {@code OUT_OF_STOCK} over ACTIVE rows, or {@code INACTIVE} = not active). The state is computed by the server from the
+     * persisted counters with the SAME arithmetic as {@link InventoryRecord#stockState()}, so the feed agrees with a point
+     * read. Neither filter can seek on the {@code (sku_id, fulfillment_location_id)} index: both are residual predicates
+     * over the scanned range, so a sparse filter examines up to the rest of the collection — bounded by
+     * {@link #LIST_MAX_TIME_MS} (then {@link InventoryListTimeoutException}). A stored row that breaks the record invariants
+     * (a legacy or corrupt document) is left out of the page and counted in {@code skipped}; the position still moves past
+     * it, so one bad row never blocks the pages after it.
      */
-    public List<InventoryRecord> list(String fulfillmentLocationId, String state, String afterSku, String afterLocation, int limit) {
-        if (limit < 1 || limit > LIST_MAX_LIMIT + 1) {   // +1: the controller reads one row past its page to detect a next page
+    public ListPage list(String fulfillmentLocationId, String state, String afterSku, String afterLocation, int limit) {
+        if (limit < 1 || limit > LIST_MAX_LIMIT) {
             throw new InvalidInventoryException("limit must be between 1 and " + LIST_MAX_LIMIT);
         }
+        List<Bson> filters = new ArrayList<>();
         if (fulfillmentLocationId != null) {
             new InventoryKey("TZP-0", fulfillmentLocationId);   // the same location rule as every point read
+            filters.add(Filters.eq("fulfillment_location_id", fulfillmentLocationId));
         }
         if ((afterSku == null) != (afterLocation == null)) {
             throw new InvalidInventoryException("invalid cursor");
         }
         if (afterSku != null) {
-            try {
-                new InventoryKey(afterSku, afterLocation);
-            } catch (IllegalArgumentException e) {
-                throw new InvalidInventoryException("invalid cursor");
-            }
-        }
-        List<Bson> filters = new ArrayList<>();
-        if (fulfillmentLocationId != null) {
-            filters.add(Filters.eq("fulfillment_location_id", fulfillmentLocationId));
-        }
-        if (afterSku != null) {
+            // a position only (typed string comparisons), so it may be any stored value, even one a key would refuse
             filters.add(Filters.or(Filters.gt("sku_id", afterSku),
                     Filters.and(Filters.eq("sku_id", afterSku), Filters.gt("fulfillment_location_id", afterLocation))));
         }
         if (state != null) {
             filters.add(stateFilter(state));
         }
-        List<InventoryRecord> out = new ArrayList<>();
-        for (Document d : db.getCollection(COLLECTION)
-                .find(filters.isEmpty() ? new Document() : Filters.and(filters))
-                .sort(Sorts.ascending("sku_id", "fulfillment_location_id"))
-                .limit(limit)) {
-            out.add(new InventoryRecord(
-                    d.getString("sku_id"), d.getString("fulfillment_location_id"),
-                    asLong(d.get("on_hand")), asLong(d.get("reserved")),
-                    asLong(d.get("low_stock_threshold")), asLong(d.get("max_purchasable")),
-                    asLong(d.get("version")), d.getBoolean("active", false)));
+        List<Document> docs = new ArrayList<>(limit + 1);
+        try {
+            // one row past the page tells whether a next page exists, without a count
+            db.getCollection(COLLECTION).find(filters.isEmpty() ? new Document() : Filters.and(filters))
+                    .sort(Sorts.ascending("sku_id", "fulfillment_location_id")).limit(limit + 1)
+                    .maxTime(LIST_MAX_TIME_MS, java.util.concurrent.TimeUnit.MILLISECONDS).into(docs);
+        } catch (com.mongodb.MongoExecutionTimeoutException e) {
+            throw new InventoryListTimeoutException();
         }
-        return out;
+        boolean more = docs.size() > limit;
+        List<Document> page = more ? docs.subList(0, limit) : docs;
+        List<InventoryRecord> out = new ArrayList<>(page.size());
+        int skipped = 0;
+        for (Document d : page) {
+            try {
+                out.add(new InventoryRecord(
+                        d.getString("sku_id"), d.getString("fulfillment_location_id"),
+                        asLong(d.get("on_hand")), asLong(d.get("reserved")),
+                        asLong(d.get("low_stock_threshold")), asLong(d.get("max_purchasable")),
+                        asLong(d.get("version")), Boolean.TRUE.equals(d.get("active"))));
+            } catch (RuntimeException e) {
+                skipped++;
+            }
+        }
+        if (skipped > 0) {
+            log.warn("inventory_list_rows_skipped count={} reason=record_invariant", skipped);
+        }
+        if (!more) return new ListPage(out, null, null, skipped);
+        Document last = page.get(page.size() - 1);
+        return new ListPage(out, String.valueOf(last.get("sku_id")), String.valueOf(last.get("fulfillment_location_id")), skipped);
     }
+
+    static final long LIST_MAX_TIME_MS = 2_000;
 
     public static final int LIST_MAX_LIMIT = 200;
 
@@ -460,7 +478,7 @@ public class InventoryService implements InventoryReadPort {
     static Bson stateFilter(String state) {
         Document available = new Document("$subtract", List.of("$on_hand", "$reserved"));
         return switch (state) {
-            case "INACTIVE" -> Filters.eq("active", false);
+            case "INACTIVE" -> Filters.ne("active", true);
             case "OUT_OF_STOCK" -> Filters.and(Filters.eq("active", true),
                     Filters.expr(new Document("$eq", List.of(available, 0L))));
             case "LOW_STOCK" -> Filters.and(Filters.eq("active", true),
