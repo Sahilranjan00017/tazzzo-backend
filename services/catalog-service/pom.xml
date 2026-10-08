@@ -6,7 +6,7 @@
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
         <!-- final 3.3 patch release; supported-platform migration (3.5 / 4.x) is a separate workstream -->
-        <version>3.3.13</version>
+        <version>4.1.1</version>
         <relativePath/>
     </parent>
     <groupId>com.tazzzo</groupId>
