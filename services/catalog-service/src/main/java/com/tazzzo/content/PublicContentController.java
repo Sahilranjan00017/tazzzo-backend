@@ -10,6 +10,7 @@ import com.tazzzo.catalog.consumer.ConsumerObservability;
 import com.tazzzo.catalog.ratelimit.ClientIpResolver;
 import com.tazzzo.catalog.ratelimit.ClientIpUnresolvableException;
 import com.tazzzo.catalog.ratelimit.InstallationIdResolver;
+import com.tazzzo.catalog.ratelimit.TrustedCallerResolver;
 import com.tazzzo.media.MediaUrlResolver;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -73,12 +74,15 @@ public class PublicContentController {
     private final MediaUrlResolver urls;
     private final ConsumerAdmissionGate gate;
     private final ClientIpResolver clientIps;
+    private final TrustedCallerResolver trustedCallers;
 
-    public PublicContentController(ContentService content, MediaUrlResolver urls, ConsumerAdmissionGate gate, ClientIpResolver clientIps) {
+    public PublicContentController(ContentService content, MediaUrlResolver urls, ConsumerAdmissionGate gate, ClientIpResolver clientIps,
+                                   TrustedCallerResolver trustedCallers) {
         this.content = content;
         this.urls = urls;
         this.gate = gate;
         this.clientIps = clientIps;
+        this.trustedCallers = trustedCallers;
     }
 
     @GetMapping("/v1/content/home")
@@ -164,7 +168,9 @@ public class PublicContentController {
     private ConsumerIdentity identity(HttpServletRequest request) {
         try {
             return new ConsumerIdentity(clientIps.resolve(request.getRemoteAddr(), request.getHeader("X-Forwarded-For")),
-                    InstallationIdResolver.resolve(request.getHeader(InstallationIdResolver.HEADER)));
+                    InstallationIdResolver.resolve(request.getHeader(InstallationIdResolver.HEADER)),
+                    trustedCallers.resolve(request.getHeader(TrustedCallerResolver.CALLER_HEADER),
+                            request.getHeader(TrustedCallerResolver.SECRET_HEADER)));
         } catch (ClientIpUnresolvableException e) {
             throw new ConsumerFailures.Unavailable("client identity unresolvable");
         }
