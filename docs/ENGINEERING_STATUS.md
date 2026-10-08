@@ -1254,7 +1254,14 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
 
 ## In review (NOT merged)
 
-- **HTTP error-handling hardening** (branch `fix/http-error-handling-hardening`, from `main` `d790504`): **IN REVIEW**. The 12 controller-scoped `/v1` advices with an
+- **HTTP correctness hardening** (branch `fix/http-correctness-hardening`, from `main` `7d491dd`): **IN REVIEW**. `catalog.api.AcceptNegotiationInterceptor` decides
+  `Accept` before any application handler that returns a body runs (JSON = `application/json` or `application/*+json`, via Spring MVC's own negotiation manager), so an
+  unacceptable `Accept` is a 406 before any write. Before this, the address, cart, quote, COD order, support case, profile change or account deletion was committed and then
+  answered 406 (reproduced). This also removes the success-ETag leak on 406 and the double success+failure count. Filters (auth, rate limit, body limit) still run first.
+  Precedence change: an unacceptable `Accept` now outranks body errors (406 before 400/415), as Spring's own `produces` condition does. The eight admin advices and `/catalog/v1`
+  `ConsumerExceptionHandler` fix their error `Content-Type`; a bytecode guard covers every controller advice. OpenAPI declares 406 (37 operations) and 415 (16). The security-review
+  wording is corrected. Evidence: `AcceptNegotiatedBeforeWriteIT`, `AdminAndCatalogErrorNegotiationIT`, `AcceptNegotiationInterceptorTest`.
+- **HTTP error-handling hardening** (PR #92, merged `7d491dd`): **MERGED**. The 12 controller-scoped `/v1` advices with an
   `Exception` catch-all (OTP, session, profile, address, account deletion, customer support, delivery slots, cart, checkout, order, commerce read, public content;
   staff support falls through to `ApiExceptionHandler`) no longer turn framework request-shape failures into a logged-as-ERROR 500. `catalog.api.ClientRequestErrors`
   classifies them once (unreadable body or missing/mistyped binding → 400, unsupported or absent `Content-Type` → 415, unacceptable `Accept` → 406). Each advice answers in

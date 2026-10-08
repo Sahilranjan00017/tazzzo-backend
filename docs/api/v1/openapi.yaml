@@ -81,6 +81,8 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '503':
           $ref: '#/components/responses/Unavailable'
+        '406':
+          $ref: '#/components/responses/PublicNotAcceptable'
   /v1/categories/{id}/children:
     get:
       tags:
@@ -107,6 +109,8 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '503':
           $ref: '#/components/responses/Unavailable'
+        '406':
+          $ref: '#/components/responses/PublicNotAcceptable'
   /v1/categories/{id}/products:
     get:
       tags:
@@ -142,6 +146,8 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '503':
           $ref: '#/components/responses/Unavailable'
+        '406':
+          $ref: '#/components/responses/PublicNotAcceptable'
   /v1/products/{id}:
     get:
       tags:
@@ -170,6 +176,8 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '503':
           $ref: '#/components/responses/Unavailable'
+        '406':
+          $ref: '#/components/responses/PublicNotAcceptable'
   /v1/serviceability:
     get:
       tags:
@@ -194,6 +202,8 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '503':
           $ref: '#/components/responses/Unavailable'
+        '406':
+          $ref: '#/components/responses/PublicNotAcceptable'
       description: 'Resolve a PIN (or, when a geo provider is configured, a lat/lng) to a serviceable area. A coordinate the provider cannot place in a PIN is a normal "outside coverage" answer (`serviceable:false`); a provider outage is 503.
 
         '
@@ -227,6 +237,10 @@ paths:
           $ref: '#/components/responses/OtpRateLimited'
         '503':
           $ref: '#/components/responses/OtpUnavailable'
+        '406':
+          $ref: '#/components/responses/OtpNotAcceptable'
+        '415':
+          $ref: '#/components/responses/OtpUnsupportedMediaType'
   /v1/auth/otp/verify:
     post:
       tags:
@@ -257,6 +271,10 @@ paths:
           $ref: '#/components/responses/OtpRateLimited'
         '503':
           $ref: '#/components/responses/OtpUnavailable'
+        '406':
+          $ref: '#/components/responses/OtpNotAcceptable'
+        '415':
+          $ref: '#/components/responses/OtpUnsupportedMediaType'
   /v1/auth/session:
     post:
       tags:
@@ -287,6 +305,10 @@ paths:
           $ref: '#/components/responses/SessionUnauthenticated'
         '503':
           $ref: '#/components/responses/SessionUnavailable'
+        '406':
+          $ref: '#/components/responses/SessionNotAcceptable'
+        '415':
+          $ref: '#/components/responses/SessionUnsupportedMediaType'
   /v1/auth/refresh:
     post:
       tags:
@@ -317,6 +339,10 @@ paths:
           $ref: '#/components/responses/SessionUnauthenticated'
         '503':
           $ref: '#/components/responses/SessionUnavailable'
+        '406':
+          $ref: '#/components/responses/SessionNotAcceptable'
+        '415':
+          $ref: '#/components/responses/SessionUnsupportedMediaType'
   /v1/auth/logout:
     post:
       tags:
@@ -366,6 +392,8 @@ paths:
           $ref: '#/components/responses/ProfileUnavailable'
         '429':
           $ref: '#/components/responses/CustomerRateLimited'
+        '406':
+          $ref: '#/components/responses/CustomerProfileNotAcceptable'
     patch:
       tags:
       - customer-profile
@@ -417,6 +445,10 @@ paths:
           $ref: '#/components/responses/ProfileUnavailable'
         '429':
           $ref: '#/components/responses/CustomerRateLimited'
+        '406':
+          $ref: '#/components/responses/CustomerProfileNotAcceptable'
+        '415':
+          $ref: '#/components/responses/CustomerProfileUnsupportedMediaType'
   /v1/customer/addresses:
     get:
       tags:
@@ -443,6 +475,8 @@ paths:
           $ref: '#/components/responses/AddressUnavailable'
         '429':
           $ref: '#/components/responses/CustomerRateLimited'
+        '406':
+          $ref: '#/components/responses/CustomerAddressNotAcceptable'
     post:
       tags:
       - customer-address
@@ -483,6 +517,10 @@ paths:
           $ref: '#/components/responses/AddressUnavailable'
         '429':
           $ref: '#/components/responses/CustomerRateLimited'
+        '406':
+          $ref: '#/components/responses/CustomerAddressNotAcceptable'
+        '415':
+          $ref: '#/components/responses/CustomerAddressUnsupportedMediaType'
       parameters:
       - name: Idempotency-Key
         in: header
@@ -527,6 +565,8 @@ paths:
           $ref: '#/components/responses/AddressUnavailable'
         '429':
           $ref: '#/components/responses/CustomerRateLimited'
+        '406':
+          $ref: '#/components/responses/CustomerAddressNotAcceptable'
     patch:
       tags:
       - customer-address
@@ -579,6 +619,10 @@ paths:
           $ref: '#/components/responses/AddressUnavailable'
         '429':
           $ref: '#/components/responses/CustomerRateLimited'
+        '406':
+          $ref: '#/components/responses/CustomerAddressNotAcceptable'
+        '415':
+          $ref: '#/components/responses/CustomerAddressUnsupportedMediaType'
     delete:
       tags:
       - customer-address
@@ -649,6 +693,8 @@ paths:
           $ref: '#/components/responses/AddressUnavailable'
         '429':
           $ref: '#/components/responses/CustomerRateLimited'
+        '406':
+          $ref: '#/components/responses/CustomerAddressNotAcceptable'
   /v1/customer/cart:
     get:
       tags:
@@ -692,6 +738,8 @@ paths:
           $ref: '#/components/responses/CartUnavailable'
         '429':
           $ref: '#/components/responses/CustomerRateLimited'
+        '406':
+          $ref: '#/components/responses/CustomerCartNotAcceptable'
     delete:
       tags:
       - customer-cart
@@ -747,6 +795,8 @@ paths:
           $ref: '#/components/responses/CartUnavailable'
         '429':
           $ref: '#/components/responses/CustomerRateLimited'
+        '406':
+          $ref: '#/components/responses/CustomerCartNotAcceptable'
   /v1/customer/cart/items/{skuId}:
     put:
       tags:
@@ -819,6 +869,8 @@ paths:
           $ref: '#/components/responses/CartUnavailable'
         '429':
           $ref: '#/components/responses/CustomerRateLimited'
+        '406':
+          $ref: '#/components/responses/CustomerCartNotAcceptable'
     delete:
       tags:
       - customer-cart
@@ -880,6 +932,8 @@ paths:
           $ref: '#/components/responses/CartUnavailable'
         '429':
           $ref: '#/components/responses/CustomerRateLimited'
+        '406':
+          $ref: '#/components/responses/CustomerCartNotAcceptable'
   /v1/customer/checkout/quote:
     post:
       tags:
@@ -944,6 +998,8 @@ paths:
           $ref: '#/components/responses/CheckoutUnavailable'
         '429':
           $ref: '#/components/responses/CustomerRateLimited'
+        '406':
+          $ref: '#/components/responses/CustomerCheckoutNotAcceptable'
   /v1/customer/checkout/quotes/{quoteId}:
     get:
       tags:
@@ -981,6 +1037,8 @@ paths:
           $ref: '#/components/responses/CheckoutUnavailable'
         '429':
           $ref: '#/components/responses/CustomerRateLimited'
+        '406':
+          $ref: '#/components/responses/CustomerCheckoutNotAcceptable'
   /v1/customer/orders:
     post:
       tags:
@@ -1025,6 +1083,8 @@ paths:
           $ref: '#/components/responses/OrderUnavailable'
         '429':
           $ref: '#/components/responses/CustomerRateLimited'
+        '406':
+          $ref: '#/components/responses/CustomerOrderNotAcceptable'
     get:
       tags:
       - customer-orders
@@ -1129,6 +1189,8 @@ paths:
           $ref: '#/components/responses/OrderUnauthenticated'
         '503':
           $ref: '#/components/responses/OrderUnavailable'
+        '406':
+          $ref: '#/components/responses/CustomerOrderNotAcceptable'
   /v1/customer/orders/{orderId}:
     get:
       tags:
@@ -1166,6 +1228,8 @@ paths:
           $ref: '#/components/responses/OrderUnavailable'
         '429':
           $ref: '#/components/responses/CustomerRateLimited'
+        '406':
+          $ref: '#/components/responses/CustomerOrderNotAcceptable'
   /health/live:
     get:
       tags:
@@ -1288,6 +1352,8 @@ paths:
           $ref: '#/components/responses/ProfileUnauthenticated'
         '503':
           $ref: '#/components/responses/DeliverySlot503'
+        '406':
+          $ref: '#/components/responses/DeliverySlotNotAcceptable'
   /v1/search:
     get:
       tags:
@@ -1324,6 +1390,8 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '503':
           $ref: '#/components/responses/Unavailable'
+        '406':
+          $ref: '#/components/responses/PublicNotAcceptable'
   /v1/customer/orders/{orderId}/cancel:
     post:
       tags:
@@ -1377,6 +1445,10 @@ paths:
           $ref: '#/components/responses/OrderInternalError'
         '503':
           $ref: '#/components/responses/OrderUnavailable'
+        '406':
+          $ref: '#/components/responses/CustomerOrderNotAcceptable'
+        '415':
+          $ref: '#/components/responses/CustomerOrderUnsupportedMediaType'
   /v1/customer/support/cases:
     post:
       tags:
@@ -1433,6 +1505,10 @@ paths:
           $ref: '#/components/responses/SupportCase409'
         '503':
           $ref: '#/components/responses/SupportCase503'
+        '406':
+          $ref: '#/components/responses/SupportCaseNotAcceptable'
+        '415':
+          $ref: '#/components/responses/SupportCaseUnsupportedMediaType'
     get:
       tags:
       - customer-support
@@ -1509,6 +1585,8 @@ paths:
           $ref: '#/components/responses/SupportCase409'
         '503':
           $ref: '#/components/responses/SupportCase503'
+        '406':
+          $ref: '#/components/responses/SupportCaseNotAcceptable'
   /v1/customer/support/cases/{caseId}:
     get:
       tags:
@@ -1540,6 +1618,8 @@ paths:
           $ref: '#/components/responses/SupportCase409'
         '503':
           $ref: '#/components/responses/SupportCase503'
+        '406':
+          $ref: '#/components/responses/SupportCaseNotAcceptable'
   /v1/customer/support/cases/{caseId}/messages:
     post:
       tags:
@@ -1585,6 +1665,10 @@ paths:
           $ref: '#/components/responses/SupportCase409'
         '503':
           $ref: '#/components/responses/SupportCase503'
+        '406':
+          $ref: '#/components/responses/SupportCaseNotAcceptable'
+        '415':
+          $ref: '#/components/responses/SupportCaseUnsupportedMediaType'
   /v1/customer/support/cases/{caseId}/close:
     post:
       tags:
@@ -1616,6 +1700,8 @@ paths:
           $ref: '#/components/responses/SupportCase409'
         '503':
           $ref: '#/components/responses/SupportCase503'
+        '406':
+          $ref: '#/components/responses/SupportCaseNotAcceptable'
   /v1/customer/account/deletion:
     post:
       tags:
@@ -1665,6 +1751,10 @@ paths:
           $ref: '#/components/responses/AccountDeletionInternalError'
         '503':
           $ref: '#/components/responses/AccountDeletionUnavailable'
+        '406':
+          $ref: '#/components/responses/AccountDeletionNotAcceptable'
+        '415':
+          $ref: '#/components/responses/AccountDeletionUnsupportedMediaType'
   /v1/content/home:
     get:
       tags:
@@ -1719,6 +1809,8 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '503':
           $ref: '#/components/responses/Unavailable'
+        '406':
+          $ref: '#/components/responses/PublicNotAcceptable'
   /v1/app-config:
     get:
       tags:
@@ -1802,6 +1894,8 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '503':
           $ref: '#/components/responses/Unavailable'
+        '406':
+          $ref: '#/components/responses/PublicNotAcceptable'
   /v1/content/faqs:
     get:
       tags:
@@ -1869,6 +1963,8 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '503':
           $ref: '#/components/responses/Unavailable'
+        '406':
+          $ref: '#/components/responses/PublicNotAcceptable'
 components:
   parameters:
     AddressIdParam:
@@ -3509,6 +3605,168 @@ components:
         requestId:
           type: string
   responses:
+    AccountDeletionNotAcceptable:
+      description: 'The `Accept` header admits no JSON representation (`application/json` or `application/*+json`). Refused BEFORE the operation runs, so nothing was changed; the body is this domain''s JSON error with code `INVALID_REQUEST`.'
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/AccountDeletionErrorEnvelope'
+    AccountDeletionUnsupportedMediaType:
+      description: 'The request body''s `Content-Type` is not `application/json` (or is missing). Refused before the operation runs; the body is this domain''s JSON error with code `INVALID_REQUEST`.'
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/AccountDeletionErrorEnvelope'
+    CustomerAddressNotAcceptable:
+      description: 'The `Accept` header admits no JSON representation (`application/json` or `application/*+json`). Refused BEFORE the operation runs, so nothing was changed; the body is this domain''s JSON error with code `INVALID_REQUEST`.'
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/CustomerAddressErrorEnvelope'
+    CustomerAddressUnsupportedMediaType:
+      description: 'The request body''s `Content-Type` is not `application/json` (or is missing). Refused before the operation runs; the body is this domain''s JSON error with code `INVALID_REQUEST`.'
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/CustomerAddressErrorEnvelope'
+    CustomerCartNotAcceptable:
+      description: 'The `Accept` header admits no JSON representation (`application/json` or `application/*+json`). Refused BEFORE the operation runs, so nothing was changed; the body is this domain''s JSON error with code `INVALID_REQUEST`.'
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/CustomerCartErrorEnvelope'
+    CustomerCheckoutNotAcceptable:
+      description: 'The `Accept` header admits no JSON representation (`application/json` or `application/*+json`). Refused BEFORE the operation runs, so nothing was changed; the body is this domain''s JSON error with code `INVALID_REQUEST`.'
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/CustomerCheckoutErrorEnvelope'
+    CustomerOrderNotAcceptable:
+      description: 'The `Accept` header admits no JSON representation (`application/json` or `application/*+json`). Refused BEFORE the operation runs, so nothing was changed; the body is this domain''s JSON error with code `INVALID_REQUEST`.'
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/CustomerOrderErrorEnvelope'
+    CustomerOrderUnsupportedMediaType:
+      description: 'The request body''s `Content-Type` is not `application/json` (or is missing). Refused before the operation runs; the body is this domain''s JSON error with code the domain''s `UNSUPPORTED_MEDIA_TYPE`.'
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/CustomerOrderErrorEnvelope'
+    CustomerProfileNotAcceptable:
+      description: 'The `Accept` header admits no JSON representation (`application/json` or `application/*+json`). Refused BEFORE the operation runs, so nothing was changed; the body is this domain''s JSON error with code `INVALID_REQUEST`.'
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/CustomerProfileErrorEnvelope'
+    CustomerProfileUnsupportedMediaType:
+      description: 'The request body''s `Content-Type` is not `application/json` (or is missing). Refused before the operation runs; the body is this domain''s JSON error with code `INVALID_REQUEST`.'
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/CustomerProfileErrorEnvelope'
+    DeliverySlotNotAcceptable:
+      description: 'The `Accept` header admits no JSON representation (`application/json` or `application/*+json`). Refused BEFORE the operation runs, so nothing was changed; the body is this domain''s JSON error with code `INVALID_REQUEST`.'
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/DeliverySlotErrorEnvelope'
+    OtpNotAcceptable:
+      description: 'The `Accept` header admits no JSON representation (`application/json` or `application/*+json`). Refused BEFORE the operation runs, so nothing was changed; the body is this domain''s JSON error with code `OTP_INVALID_REQUEST`.'
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/OtpErrorEnvelope'
+    OtpUnsupportedMediaType:
+      description: 'The request body''s `Content-Type` is not `application/json` (or is missing). Refused before the operation runs; the body is this domain''s JSON error with code `OTP_INVALID_REQUEST`.'
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/OtpErrorEnvelope'
+    PublicNotAcceptable:
+      description: 'The `Accept` header admits no JSON representation (`application/json` or `application/*+json`). Refused BEFORE the operation runs, so nothing was changed; the body is this domain''s JSON error with code `INVALID_REQUEST`.'
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    SessionNotAcceptable:
+      description: 'The `Accept` header admits no JSON representation (`application/json` or `application/*+json`). Refused BEFORE the operation runs, so nothing was changed; the body is this domain''s JSON error with code `INVALID_REQUEST`.'
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/SessionErrorEnvelope'
+    SessionUnsupportedMediaType:
+      description: 'The request body''s `Content-Type` is not `application/json` (or is missing). Refused before the operation runs; the body is this domain''s JSON error with code `INVALID_REQUEST`.'
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/SessionErrorEnvelope'
+    SupportCaseNotAcceptable:
+      description: 'The `Accept` header admits no JSON representation (`application/json` or `application/*+json`). Refused BEFORE the operation runs, so nothing was changed; the body is this domain''s JSON error with code `INVALID_REQUEST`.'
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/SupportCaseErrorEnvelope'
+    SupportCaseUnsupportedMediaType:
+      description: 'The request body''s `Content-Type` is not `application/json` (or is missing). Refused before the operation runs; the body is this domain''s JSON error with code `INVALID_REQUEST`.'
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/SupportCaseErrorEnvelope'
     BadRequest:
       description: Invalid request or cursor
       content:

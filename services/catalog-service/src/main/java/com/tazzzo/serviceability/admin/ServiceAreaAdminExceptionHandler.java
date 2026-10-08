@@ -9,6 +9,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -41,6 +42,7 @@ class ServiceAreaAdminExceptionHandler {
         body.put("code", code);
         body.put("message", message == null ? "" : message);
         body.put("request_id", String.valueOf(req.getAttribute(RequestIdFilter.REQUEST_ID)));
-        return ResponseEntity.status(status).body(new ErrorBody(body));
+        return ResponseEntity.status(status).contentType(MediaType.APPLICATION_JSON) // never negotiated by Accept
+                .body(new ErrorBody(body));
     }
 }
