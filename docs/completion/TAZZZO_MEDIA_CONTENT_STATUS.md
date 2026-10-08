@@ -6,7 +6,7 @@ website). Statuses are evidence-based; "code exists" is never "done".
 Allowed statuses: `NOT_STARTED` · `PARTIAL` · `IMPLEMENTED_UNMERGED` · `MERGED_UNVERIFIED` · `INTEGRATED_VERIFIED` ·
 `STAGING_VERIFIED` · `LIVE_VERIFIED` · `BLOCKED_EXTERNAL`.
 
-Last audit: 2026-10-09 (live GitHub state; backend `main` = `2ee1fd5` (#103 merged on `5191eb7`); web `main` = `3be81e0`).
+Last audit: 2026-10-09 (live GitHub state; backend `main` = `07be0e4`; web `main` = `3be81e0`).
 
 ## 1. Existing PRs (Phase 0 audit)
 
@@ -15,7 +15,7 @@ Last audit: 2026-10-09 (live GitHub state; backend `main` = `2ee1fd5` (#103 merg
 | #95 S3-compatible media storage | backend | `feature/media-storage-s3` → `main` | `92190c3` | 4/4 green; main CI green after merge | PASS_WITH_FOLLOWUPS → remediated; re-review PASS_WITH_FOLLOWUPS | **MERGED** squash `70021ce` | unmerged, needs CEO approval |
 | #96 APP/WEB/BOTH targeting | backend | `feature/content-channel-audience` → `main` | `adb80af` | 4/4 green; main CI green after merge | PASS_WITH_FOLLOWUPS → remediated; re-review PASS_WITH_FOLLOWUPS | **MERGED** squash `afa1a9a` | unmerged, needs CEO approval |
 | #16 CMS media | web | `cms/07-media` → `cms/14-audit-status` (stack #5→#19) | `c3ab2cd` | 7/7 green | PASS_WITH_FOLLOWUPS — followed up by #21 | **MERGED** (merge commit, CMS stack #5–#22 all merged; web main `3be81e0`, CI 7/7) |
-| #24 App home content | app | `feature/app-home-content` → `main` | `c5caed0` | 4/4 green; 1096/1096 Android + iOS re-run 2026-10-09 | final verification READY_TO_MERGE_AFTER_BACKEND_DEPLOY | unmerged — **waits for a deployed backend with channel targeting** |
+| #24 App home content | app | `feature/app-home-content` → `main` | `79173b6` (+ canonical product-id grammar) | 4/4 green; 1098/1098 Android + iOS | final verification READY_TO_MERGE_AFTER_BACKEND_DEPLOY | unmerged — **waits for a deployed backend with channel targeting** |
 | #102 banner model / reorder / preview (new) | backend | `feature/content-banner-model` → `feature/content-channel-audience` | `cd07e50` (as PR #106; #102 was auto-closed when its base branch was deleted) | 4/4 green (one unrelated session-test flake, green on rerun) | PASS_WITH_FOLLOWUPS → remediated; carries the 503 fix from #105 | **MERGED** squash `5191eb7` |
 | web #20 customer storefront (new) | web | `web/01-storefront` → `main` | `fd00305` (= reviewed `7ff5e3b` + web main merged; 0-line diff in apps/storefront) | 9/9 green | PASS_WITH_FOLLOWUPS → remediated; final head verified | unmerged — **merge gate presented** |
 | infra #3 media S3 + CloudFront | infrastructure | `feature/infra-2-media` → `feature/infra-1-staging-foundation` | `b716efd` | fmt + validate both stacks (no CI in repo) | PASS_WITH_FOLLOWUPS → remediated | unmerged; gated off; needs spend approval |
@@ -24,6 +24,10 @@ Last audit: 2026-10-09 (live GitHub state; backend `main` = `2ee1fd5` (#103 merg
 | backend #105 integration preview (draft) | backend | `integration/media-content` → `main` | `198fc07` | 4/4 green: full suite on #95+#96+#102 combined | n/a | **CLOSED without merge** (evidence only) | carries the banner-outage→503 fix into #102 after #95 merges |
 | backend #104 flaky checkout snapshot tests (new) | backend | `fix/checkout-money-snapshot-flaky` → `main` | see PR | — | test-only | unmerged |
 | web #23 local E2E harness (draft) | web | `e2e/media-content-local` → `main` | `f67ff6d` | **rerun 2026-10-09 on the MERGED heads** (backend `5191eb7`, web `3be81e0`, storefront `fd00305`, app `c5caed0`): 11/11 journeys, 4.7 min, fresh stack | `e2e/local-stack/EVIDENCE_2026-10-09.md` (+ 2026-10-08) | harness only; keep as draft |
+| backend #108 trusted storefront caller identity | backend | `feature/storefront-caller-identity` → `main` | `09169dd` | 4/4 green (full suite) | security review PASS_WITH_FOLLOWUPS → rotation (two active secrets) added | unmerged — merge gate presented |
+| backend #109 `GET /v1/categories/{id}` | backend | `feature/category-by-id` → `main` | `417d4e4` | 4/4 green | PASS_WITH_FOLLOWUPS (low only) | unmerged — merge gate presented |
+| backend #110 product-id grammar alignment (cart + OpenAPI) | backend | `fix/product-id-grammar-alignment` → `main` | `50ee395` | 4/4 green | PASS_WITH_FOLLOWUPS (1 medium = decision 5.2b) | unmerged — merge gate presented |
+| web #26 storefront per-IP limit, caller header, placeholder fix | web | `web/02-storefront-ratelimit` → `web/01-storefront` | `b7ed1a3` | 9/9 green | security review PASS_WITH_FOLLOWUPS → fail-closed + prefetch policy test | unmerged — stacked on #20 |
 | #1, #2 staging infra | infrastructure | `infra-0` → `main`, `infra-1` → `infra-0` | `bfd335e` | none | not reviewed in this workstream | unmerged, not applied |
 
 Overlaps: #95 and #96 both insert at the top of `docs/ENGINEERING_STATUS.md` "In review" — the second to merge needs a
@@ -95,36 +99,32 @@ Everything is gated off by default. **Needs explicit approval before `allow_medi
 The exact `terraform plan` cannot be produced until an operator session exists (`aws login --profile tazzzo-ceo-admin`);
 `fmt` and `validate` pass for both stacks.
 
-### 5.2 Canonical product-id grammar — **recommend: adopt `TZP-[A-Za-z0-9-]{1,40}` everywhere (the backend's)**
-| Where | Today |
-|---|---|
-| backend `ContentBlock` links/rails, OpenAPI content | `TZP-[A-Za-z0-9-]{1,40}` |
-| backend OpenAPI product path, cart | `^TZP-[0-9]+$` / `^TZP-[0-9]{1,18}$` |
-| CMS, storefront | `TZP-[A-Za-z0-9-]{1,40}` |
-| app (`ContentModels.kt`) | `^TZP-[0-9]+$` |
-Consequence of the recommendation: one app change (widen the regex, keep length ≤ 40 and the `TZP-` prefix) plus aligning
-the two narrower backend OpenAPI patterns; no data migration, since seeded ids today are numeric and the wider grammar is a
-superset. Rejecting it (numeric-only) would instead force the backend, CMS and storefront to narrow and would forbid ids such
-as `TZP-MED-3` that the import pipeline already accepts. Risk either way is low; the cost asymmetry favours widening.
+### 5.2 Canonical product-id grammar — **DECIDED: `TZP-[A-Za-z0-9-]{1,40}`**
+Implemented: app #24 `79173b6` (links, rail ids, PDP guard); backend #110 (cart validator + OpenAPI `ProductId` and cart `skuId`).
+App cart check stays numeric until #110 merges, then widens to match.
+**5.2b open (needs approval):** the catalogue import / Mongo validator still accepts any `^TZP-` id, so it can create
+products the cart refuses (e.g. `TZP-A.B`, > 40 chars). Enforcing the grammar at import is a non-backward-compatible change
+to catalogue validation (CLAUDE.md: needs explicit approval). Recommended first step: a read-only audit of existing
+`products._id` for non-conforming ids; then enforce for new imports only.
 
-### 5.3 Website rate-limit identity — **recommend for launch: dedicated storefront identity + edge per-IP limit; batch read later**
-To the backend the whole storefront is one client IP, so one visitor requesting random valid-shaped product ids can drain
-the shared admission bucket for everyone (confirmed in the #20 review).
-| Option | Effect | Cost / risk |
-|---|---|---|
-| A. Dedicated storefront identity (a trusted server header → its own, larger bucket) | isolates the website from app/anon traffic; sized for server-side rendering | small backend change (trusted-caller allowlist by secret header or mTLS), config |
-| B. Edge per-IP throttling (CloudFront + WAF rate rule, or Next middleware per-IP) in front of the storefront | stops one visitor from exhausting A | WAF is a paid resource and currently denied by the infra guardrails; Next middleware is free but per-instance |
-| C. Batch product read (`GET /v1/products?ids=`) | cuts a 20-item rail from 20 calls to 1 | backend addition; also helps the app |
-Safest launch set: **A + Next-middleware per-IP limit now; C next; WAF when infra spend is approved.** A alone still lets one
-visitor starve others; B alone still shares the bucket with the app.
+### 5.3 Website rate-limit identity — **DECIDED and implemented without paid infrastructure**
+- Backend #108: trusted server caller (`X-Tazzzo-Caller` + `X-Tazzzo-Caller-Secret`, SHA-256 + constant-time compare, two
+  active secrets for zero-downtime rotation) charged to its own `caller` bucket.
+- Storefront #26: per-visitor token buckets in `proxy.ts` (pages 60/min burst 20; `/search` and cursor pages 12/min burst 6),
+  bounded LRU, IPv6 /64; genuine router prefetches exempt (measured 0 backend calls; assumption pinned by a policy test).
+- **Deployment requirements (staging gate):** `STOREFRONT_TRUST_PROXY=true` behind the ALB with the app unreachable except
+  through it (production refuses to start with the caller credential otherwise); backend reachable only from private
+  networks; caller bucket (default 20000 / 2000 per s) sized by load test; alert on
+  `trusted_caller.admissions{decision="rate_limited"}`. Limits are per storefront instance.
+- Later: batch product read; WAF rate rule once infra spend is approved.
 
-### 5.4 Extra image roles (FRONT, BACK, INGREDIENTS, NUTRITION, LIFESTYLE) — **recommend: defer; do not implement yet**
+### 5.4 Extra image roles (FRONT, BACK, INGREDIENTS, NUTRITION, LIFESTYLE) — **DEFERRED (no launch blocker)**
 `ImageRole` is PRIMARY | GALLERY and is parsed with `valueOf` in the backend, the app and the CMS. Adding values is a
 three-repo contract change: (1) app and CMS must first tolerate unknown roles (today an unknown role would fail
 deserialisation), ship that, then (2) the backend adds the enum values and ordering rules (one PRIMARY, roles per SKU vs
 product), then (3) the CMS exposes them. No launch journey needs them; the gallery order already carries packaging shots.
 
-### 5.5 Backend read gaps — **recommend: implement category-by-id now; batch products with 5.3; category images later**
+### 5.5 Backend read gaps — **category-by-id implemented (#109); batch products later; category images later**
 - **Category node by id** (`GET /v1/categories/{id}`): required for launch quality. Without it the app walks the taxonomy
   (up to 13 calls, ≈600 admission units) to name a grid tile and still misses deep nodes; the website cannot title deep
   category pages. Fits the existing taxonomy read service; one endpoint, cached like `/children`.
