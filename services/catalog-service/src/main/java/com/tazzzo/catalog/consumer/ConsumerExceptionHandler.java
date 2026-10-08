@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -53,7 +54,7 @@ public class ConsumerExceptionHandler {
     public ResponseEntity<ConsumerDtos.ConsumerError> rateLimited(ConsumerFailures.RateLimited ex,
                                                                    HttpServletRequest req) {
         long seconds = Math.max(1, (long) Math.ceil(ex.retryAfter().toMillis() / 1000.0));
-        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).contentType(MediaType.APPLICATION_JSON)
                 .header("Retry-After", Long.toString(seconds))
                 .body(body("RATE_LIMITED", "too many requests", req));
     }
@@ -73,7 +74,8 @@ public class ConsumerExceptionHandler {
      */
     private ResponseEntity<ConsumerDtos.ConsumerError> flat(HttpStatus status, String code,
                                                             String message, HttpServletRequest req) {
-        return ResponseEntity.status(status).body(body(code, message, req));
+        return ResponseEntity.status(status).contentType(MediaType.APPLICATION_JSON) // never negotiated by Accept
+                .body(body(code, message, req));
     }
 
     private ConsumerDtos.ConsumerError body(String code, String message, HttpServletRequest req) {
