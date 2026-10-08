@@ -433,6 +433,64 @@ class ImportJobsIT extends AbstractApiIT {
     }
 
     @Test
+    void a_collision_with_another_product_at_mint_time_fails_the_row() {
+        String id = create("collision-genuine");
+        csv(id, HEADER + line("TZP-IY-001", 1) + line("TZP-IY-002", 2), W);
+        act(id, "validate", W);
+        assertThat(worker.tick().endedAs()).isEqualTo(ImportJob.Status.VALIDATED);
+        act(id, "apply", W);
+        // between the re-validation and the mint of row 0, ANOTHER product takes row 0's internal key
+        MintService contested = new MintService(null, null, null, null) {
+            @Override
+            public String mint(Actor actor, ProductDraft d) {
+                if (d.id().equals("TZP-IY-001")) {
+                    Map<String, Object> other = new java.util.LinkedHashMap<>(BulkProductImportIT.row("TZP-IY-901", 9));
+                    other.put("internalKey", "job|TZP-IY-001");
+                    ResponseEntity<JsonNode> r = post(BulkProductImportIT.PATH, BulkProductImportIT.file(false, List.of(other)), W, JsonNode.class);
+                    assertThat(r.getStatusCode().value()).as(String.valueOf(r.getBody())).isEqualTo(200);
+                }
+                return realMint.mint(actor, d);
+            }
+        };
+        ImportJobWorker w = new ImportJobWorker(repo, service, new ProductImportValidator(db, client, governance, canonicalKeys), contested,
+                tx, Clock.systemUTC(), 500, 60_000, 30_000);
+        assertThat(w.tick().endedAs()).isEqualTo(ImportJob.Status.COMPLETED);
+        JsonNode j = job(id);
+        assertThat(j.get("counts").get("failed").asLong()).as("another product's identity is a real collision, never UNCHANGED").isEqualTo(1);
+        assertThat(j.get("counts").get("applied").asLong()).isEqualTo(1);
+        assertCountsMatchVerdicts(j);
+        JsonNode rows = get(JOBS + "/" + id + "/rows?from=0&limit=2", R, JsonNode.class).getBody().get("rows");
+        assertThat(rows.get(0).get("apply").get("outcome").asText()).isEqualTo("FAILED");
+        assertThat(db.getCollection("products").countDocuments(new Document("_id", "TZP-IY-001"))).isZero();
+    }
+
+    @Test
+    void any_state_change_ends_an_expired_uploads_claim_and_a_correction_keeps_the_other_verdicts() {
+        String id = create("lock-dies");
+        csv(id, HEADER + line("TZP-IV-001", 1) + "TZP-IV-002,Bad row,BR-JOB,TZV-NOPE,0.9.0,job|TZP-IV-002,2,kg\n", W);
+        // an upload whose lock has expired (still streaming somewhere) must not publish rows once the job has moved on
+        assertThat(repo.lockAppend(id, "upload-slow", 1)).isTrue();
+        java.util.concurrent.locks.LockSupport.parkNanos(20_000_000L);
+        assertThat(act(id, "validate", W).getStatusCode().value()).as("an expired lock does not block validation").isEqualTo(200);
+        Document doc = db.getCollection("import_jobs").find(new Document("_id", id)).first();
+        assertThat(doc.containsKey("append_lock_token")).as("the lock died with the OPEN state").isFalse();
+        assertThat(worker.tick().endedAs()).isEqualTo(ImportJob.Status.REJECTED);
+        assertThat(repo.setRowsTotal(id, "upload-slow", 99)).as("the expired upload cannot publish rows").isFalse();
+        // correcting the bad row reopens the job; the good row's verdict stays readable, the corrected row's is cleared
+        ResponseEntity<JsonNode> fix = rest.exchange(url(JOBS + "/" + id + "/rows/1"), HttpMethod.PUT,
+                new HttpEntity<>(BulkProductImportIT.row("TZP-IV-002", 2), headers(W)), JsonNode.class);
+        assertThat(fix.getStatusCode().value()).as(String.valueOf(fix.getBody())).isEqualTo(200);
+        JsonNode rows = get(JOBS + "/" + id + "/rows?from=0&limit=2", R, JsonNode.class).getBody().get("rows");
+        assertThat(rows.get(0).get("validation").get("outcome").asText()).isEqualTo("VALID");
+        assertThat(rows.get(1).get("validation").isNull()).isTrue();
+        assertThat(act(id, "validate", W).getStatusCode().value()).isEqualTo(200);
+        assertThat(worker.tick().endedAs()).isEqualTo(ImportJob.Status.VALIDATED);
+        JsonNode c = job(id).get("counts");
+        assertThat(c.get("valid").asLong()).as("the second pass counts every row afresh: " + c).isEqualTo(2);
+        assertThat(c.get("invalid").asLong()).isZero();
+    }
+
+    @Test
     void validation_waits_for_an_upload_and_an_upload_whose_job_left_open_adds_nothing() {
         String id = create("upload-race");
         csv(id, HEADER + line("TZP-IU-001", 1), W);

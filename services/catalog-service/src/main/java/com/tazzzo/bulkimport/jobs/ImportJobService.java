@@ -87,8 +87,8 @@ public class ImportJobService {
 
     /** Append a CSV file (streamed; never held in memory as a whole). The job must be OPEN and no other upload in progress. */
     public Appended appendCsv(String id, InputStream body) throws IOException {
-        ImportJob job = requireOpen(id);
-        String lock = lockAppend(job);
+        String lock = lockAppend(requireOpen(id));
+        ImportJob job = underLock(id, lock);
         long[] row = {job.rowsTotal()};
         long[] dup = {0};
         boolean kept;
@@ -109,8 +109,8 @@ public class ImportJobService {
     /** Append rows given as the JSON shape of {@code POST /api/v1/admin/imports/products}. The job must be OPEN. */
     public Appended appendRows(String id, List<CreateProductRequest> rows) {
         if (rows == null || rows.isEmpty()) throw ImportJobException.invalid("rows must contain at least one entry");
-        ImportJob job = requireOpen(id);
-        String lock = lockAppend(job);
+        String lock = lockAppend(requireOpen(id));
+        ImportJob job = underLock(id, lock);
         long row = job.rowsTotal();
         long dup = 0;
         boolean kept;
@@ -148,6 +148,20 @@ public class ImportJobService {
         return ImportJobException.conflict("the job left OPEN during the upload; none of its rows were added");
     }
 
+    /**
+     * The job as it stands once this upload holds the append lock: rows are numbered from THIS {@code rows_total}, which
+     * nobody else can move while the lock is held (an upload that finished just before the lock was taken has published
+     * its rows by then). Releases the lock when the job left OPEN in between.
+     */
+    private ImportJob underLock(String id, String lock) {
+        ImportJob job = repo.find(id);
+        if (job == null || job.status() != ImportJob.Status.OPEN) {
+            repo.unlockAppend(id, lock);
+            throw ImportJobException.conflict("rows can be added only while the job is OPEN");
+        }
+        return job;
+    }
+
     private String lockAppend(ImportJob job) {
         String token = ImportJobRepository.newLeaseToken();
         if (!repo.lockAppend(job.id(), token, APPEND_LOCK_MS)) {
@@ -174,16 +188,19 @@ public class ImportJobService {
         return job;
     }
 
-    /** REJECTED → OPEN: validation verdicts are cleared so the next pass starts clean. */
+    /**
+     * REJECTED → OPEN. The verdicts of the last pass stay readable (the admin still sees the rows left to correct); they are
+     * not cleared, because every validation pass re-verdicts every row from row 0 in lease-guarded batches — clearing them
+     * here could race a worker that has already started the next pass.
+     */
     public ImportJob reopen(ImportJob job, Actor actor) {
         ImportJob next = repo.transition(job.id(), job.version(), List.of(ImportJob.Status.REJECTED), ImportJob.Status.OPEN, true, null);
         if (next == null) throw ImportJobException.conflict("the job changed; reload it and retry");
-        repo.clearValidation(job.id());
         audit(job.id(), "IMPORT_JOB_REOPENED", Map.of(), actor);
         return next;
     }
 
-    /** OPEN or REJECTED → VALIDATING (REJECTED is re-validated from scratch). */
+    /** OPEN or REJECTED → VALIDATING (re-validated from row 0; until the cursor reaches a row, its verdict is the last pass's). */
     public ImportJob validate(String id, Long expectedVersion, Actor actor) {
         ImportJob job = require(id);
         if (job.rowsTotal() == 0) throw ImportJobException.invalid("the job has no rows");
@@ -191,7 +208,6 @@ public class ImportJobService {
         ImportJob next = repo.transition(id, v, List.of(ImportJob.Status.OPEN, ImportJob.Status.REJECTED), ImportJob.Status.VALIDATING,
                 true, null, repo.noAppendInProgress());
         if (next == null) throw stateConflict(job, "validation can start only from OPEN or REJECTED, with no upload in progress");
-        if (job.status() == ImportJob.Status.REJECTED) repo.clearValidation(job.id());   // after the CAS: a stale call wipes nothing
         audit(id, "IMPORT_JOB_VALIDATION_STARTED", Map.of("rows", job.rowsTotal()), actor);
         return next;
     }

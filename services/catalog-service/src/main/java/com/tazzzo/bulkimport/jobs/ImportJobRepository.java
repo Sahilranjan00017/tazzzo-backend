@@ -104,6 +104,11 @@ public class ImportJobRepository {
         if (resetCursor) sets.add(Updates.set("next_row", 0L));
         sets.add(Updates.unset("lease_token"));
         sets.add(Updates.set("lease_until", new Date(0)));   // always present: the claim scan is a range on it
+        if (to != ImportJob.Status.OPEN) {
+            // the append lock dies with the OPEN state: an upload still running can no longer publish its rows
+            sets.add(Updates.unset("append_lock_token"));
+            sets.add(Updates.unset("append_lock_until"));
+        }
         if (to == ImportJob.Status.VALIDATING) sets.add(Updates.set("counts", countsDoc(ImportJob.Counts.ZERO)));
         if (to == ImportJob.Status.APPLYING) sets.add(Updates.set("started_at", Date.from(now)));
         if (to.terminal()) sets.add(Updates.set("finished_at", Date.from(now)));
@@ -354,12 +359,6 @@ public class ImportJobRepository {
         return rows().find(Filters.and(Filters.eq("job_id", jobId), Filters.gt("row", afterRow),
                         Filters.or(Filters.eq("validation.outcome", outcome), Filters.eq("apply.outcome", outcome))))
                 .sort(Sorts.ascending("row")).limit(limit).into(new ArrayList<>());
-    }
-
-    /** Clear the validation verdicts (a correction re-opened the job) so the next validation pass starts clean. */
-    public void clearValidation(String jobId) {
-        rows().updateMany(Filters.and(Filters.eq("job_id", jobId), Filters.exists("dedup_key", true),
-                Filters.ne("validation.outcome", "DUPLICATE")), Updates.unset("validation"));
     }
 
     public void replaceRowPayload(String jobId, long row, Document payload, String dedupKey, List<String> identityKeys) {
