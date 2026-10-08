@@ -8,6 +8,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -150,7 +151,7 @@ public class ContentAdminController {
             b.put("code", code);
             b.put("message", e.getMessage());
             b.put("request_id", String.valueOf(req.getAttribute(RequestIdFilter.REQUEST_ID)));
-            return ResponseEntity.status(s).body(new ErrorBody(b));
+            return ResponseEntity.status(s).contentType(MediaType.APPLICATION_JSON).body(new ErrorBody(b)); // never negotiated by Accept
         }
     }
 }
