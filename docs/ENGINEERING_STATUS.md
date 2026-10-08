@@ -1267,6 +1267,7 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   Not included: campaign link type (no campaign entity exists), service-area targeting, an explicit SCHEDULED stored state (derived instead).
   Merge note: after #95 merges, map `MediaStorageFailure` from banner verification to 503 in the content advice (today storage-off is the only provider).
 
+
 - **Channel-targeted content (multichannel D1–D3)** (branch `feature/content-channel-audience`, from `main` `7d491dd`): **IN REVIEW**. `ContentBlock` gains
   `audience` (APP_ONLY | WEB_ONLY | BOTH; a document without the field reads as BOTH, so no data migration, no validator and no index change: the
   `content_by_placement_status_sort` index still serves the query and audience is a residual predicate over ≤200 blocks). HELP (FAQ) content is global

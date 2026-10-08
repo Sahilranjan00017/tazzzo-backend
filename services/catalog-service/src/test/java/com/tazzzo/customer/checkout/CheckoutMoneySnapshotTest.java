@@ -275,7 +275,13 @@ class CheckoutMoneySnapshotTest {
                         "requestId");
         assertThat(Arrays.stream(CheckoutQuoteDto.MoneyPreview.class.getRecordComponents()).map(c -> c.getName())
                 .toList()).containsExactly("merchandiseSubtotalPaise", "benefitDiscountPaise", "payablePaise");
-        String text = json(quote(applied(), new CheckoutMoneySnapshot(SUBTOTAL, 500))).toString().toLowerCase();
+        // the random ids (quoteId, addressId) can contain any of the probed words by chance ("fee", "plan", ...): scan
+        // every field name and every other value, never the generated ids
+        com.fasterxml.jackson.databind.node.ObjectNode probed =
+                (com.fasterxml.jackson.databind.node.ObjectNode) json(quote(applied(), new CheckoutMoneySnapshot(SUBTOTAL, 500)));
+        assertThat(probed.has("quoteId") && probed.has("addressId")).isTrue();
+        probed.put("quoteId", "QUOTE_ID").put("addressId", "ADDRESS_ID");
+        String text = probed.toString().toLowerCase();
         assertThat(text).doesNotContain("tax").doesNotContain("gst").doesNotContain("fee").doesNotContain("coupon")
                 .doesNotContain("coin").doesNotContain("wallet").doesNotContain("reason").doesNotContain("membership")
                 .doesNotContain("plan").doesNotContain("eligible").doesNotContain("payment").doesNotContain("amountdue")
