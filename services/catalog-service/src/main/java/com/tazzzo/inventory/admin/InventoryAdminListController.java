@@ -30,7 +30,8 @@ public class InventoryAdminListController {
     static final int MAX_LIMIT = InventoryService.LIST_MAX_LIMIT;
     static final Set<String> PARAMS = Set.of("location", "state", "limit", "cursor");
     static final Set<String> STATES = Set.of("IN_STOCK", "LOW_STOCK", "OUT_OF_STOCK", "INACTIVE");
-    static final int MAX_CURSOR = 400;
+    /** Two ids of up to 128 chars (up to 3 UTF-8 bytes each) plus the prefix, base64url: fits every cursor the list issues. */
+    static final int MAX_CURSOR = 1_100;
 
     record StockListRow(String skuId, String fulfillmentLocationId, long onHand, long reserved, long available,
                         long lowStockThreshold, long maxPurchasable, long version, boolean active, String stockState) { }

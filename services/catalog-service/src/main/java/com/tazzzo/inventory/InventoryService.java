@@ -422,7 +422,10 @@ public class InventoryService implements InventoryReadPort {
         if (limit < 1 || limit > LIST_MAX_LIMIT) {
             throw new InvalidInventoryException("limit must be between 1 and " + LIST_MAX_LIMIT);
         }
-        List<Bson> filters = new ArrayList<>();
+        // only rows whose key is two strings can be listed AND positioned: a row with a missing or non-string id is out of
+        // the scan entirely (a cursor built from it would be the string "null" and silently hide the rows after it)
+        List<Bson> filters = new ArrayList<>(List.of(Filters.type("sku_id", org.bson.BsonType.STRING),
+                Filters.type("fulfillment_location_id", org.bson.BsonType.STRING)));
         if (fulfillmentLocationId != null) {
             new InventoryKey("TZP-0", fulfillmentLocationId);   // the same location rule as every point read
             filters.add(Filters.eq("fulfillment_location_id", fulfillmentLocationId));
@@ -441,7 +444,7 @@ public class InventoryService implements InventoryReadPort {
         List<Document> docs = new ArrayList<>(limit + 1);
         try {
             // one row past the page tells whether a next page exists, without a count
-            db.getCollection(COLLECTION).find(filters.isEmpty() ? new Document() : Filters.and(filters))
+            db.getCollection(COLLECTION).find(Filters.and(filters))
                     .sort(Sorts.ascending("sku_id", "fulfillment_location_id")).limit(limit + 1)
                     .maxTime(LIST_MAX_TIME_MS, java.util.concurrent.TimeUnit.MILLISECONDS).into(docs);
         } catch (com.mongodb.MongoExecutionTimeoutException e) {
@@ -467,28 +470,36 @@ public class InventoryService implements InventoryReadPort {
         }
         if (!more) return new ListPage(out, null, null, skipped);
         Document last = page.get(page.size() - 1);
-        return new ListPage(out, String.valueOf(last.get("sku_id")), String.valueOf(last.get("fulfillment_location_id")), skipped);
+        return new ListPage(out, last.getString("sku_id"), last.getString("fulfillment_location_id"), skipped);
     }
 
     static final long LIST_MAX_TIME_MS = 2_000;
 
     public static final int LIST_MAX_LIMIT = 200;
 
-    /** The derived state as a query: the SAME arithmetic as {@link InventoryRecord#stockState()}, over the persisted counters. */
+    /**
+     * The derived state as a query: the SAME arithmetic as {@link InventoryRecord#stockState()}, over the persisted counters.
+     * The active states first require the three counters to be numbers ({@code $and} short-circuits), so a corrupt stored
+     * value makes that row match nothing instead of failing the whole query.
+     */
     static Bson stateFilter(String state) {
         Document available = new Document("$subtract", List.of("$on_hand", "$reserved"));
         return switch (state) {
             case "INACTIVE" -> Filters.ne("active", true);
-            case "OUT_OF_STOCK" -> Filters.and(Filters.eq("active", true),
-                    Filters.expr(new Document("$eq", List.of(available, 0L))));
-            case "LOW_STOCK" -> Filters.and(Filters.eq("active", true),
-                    Filters.expr(new Document("$and", List.of(
-                            new Document("$gt", List.of(available, 0L)),
-                            new Document("$lte", List.of(available, "$low_stock_threshold"))))));
-            case "IN_STOCK" -> Filters.and(Filters.eq("active", true),
-                    Filters.expr(new Document("$gt", List.of(available, "$low_stock_threshold"))));
+            case "OUT_OF_STOCK" -> activeWhere(new Document("$eq", List.of(available, 0L)));
+            case "LOW_STOCK" -> activeWhere(new Document("$and", List.of(
+                    new Document("$gt", List.of(available, 0L)),
+                    new Document("$lte", List.of(available, "$low_stock_threshold")))));
+            case "IN_STOCK" -> activeWhere(new Document("$gt", List.of(available, "$low_stock_threshold")));
             default -> throw new InvalidInventoryException("state must be one of IN_STOCK, LOW_STOCK, OUT_OF_STOCK, INACTIVE");
         };
+    }
+
+    private static Bson activeWhere(Document condition) {
+        List<Object> all = new ArrayList<>();
+        for (String f : List.of("$on_hand", "$reserved", "$low_stock_threshold")) all.add(new Document("$isNumber", f));
+        all.add(condition);
+        return Filters.and(Filters.eq("active", true), Filters.expr(new Document("$and", all)));
     }
 
     @Override

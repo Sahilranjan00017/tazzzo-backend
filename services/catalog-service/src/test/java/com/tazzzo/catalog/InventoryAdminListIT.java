@@ -53,7 +53,18 @@ class InventoryAdminListIT extends AbstractApiIT {
         db.getCollection("inventory").insertOne(raw("TZP-INV-6", "FL-C", 9, 0).append("active", true));
         db.getCollection("inventory").insertOne(raw("TZP-INV-7", "FL-C", 1, 3).append("low_stock_threshold", 5L).append("active", true));
         db.getCollection("inventory").insertOne(raw("TZP-INV-8", "FL-C", 4, 0).append("low_stock_threshold", 5L));
+        // ids that cannot be positioned (no sku_id; a numeric location) are out of the scan; a string counter is skipped and
+        // never fails a state filter
+        Document noSku = raw("x", "FL-C", 3, 0).append("low_stock_threshold", 5L).append("active", true);
+        noSku.remove("sku_id");
+        db.getCollection("inventory").insertOne(noSku);
+        db.getCollection("inventory").insertOne(raw("TZP-INV-77", "FL-C", 3, 0).append("fulfillment_location_id", 42).append("low_stock_threshold", 5L).append("active", true));
+        db.getCollection("inventory").insertOne(raw("TZP-INV-9", "FL-C", 3, 0).append("on_hand", "x").append("low_stock_threshold", 5L).append("active", true));
+        // a valid row whose location is 128 three-byte characters: the cursor positioned on it is long and must still decode
+        db.getCollection("inventory").insertOne(raw("TZP-INV-0", LONG_LOC, 20, 0).append("low_stock_threshold", 5L).append("active", true));
     }
+
+    static final String LONG_LOC = "仓".repeat(128);
 
     private static Document raw(String sku, String loc, long onHand, long reserved) {
         return new Document("sku_id", sku).append("fulfillment_location_id", loc).append("on_hand", onHand).append("reserved", reserved)
@@ -98,7 +109,7 @@ class InventoryAdminListIT extends AbstractApiIT {
         throw new AssertionError("paging did not terminate");
     }
 
-    static final List<String> ALL = List.of("TZP-INV-1@FL-1:IN_STOCK", "TZP-INV-1@FL-2:LOW_STOCK", "TZP-INV-2@FL-1:LOW_STOCK",
+    static final List<String> ALL = List.of("TZP-INV-0@" + LONG_LOC + ":IN_STOCK", "TZP-INV-1@FL-1:IN_STOCK", "TZP-INV-1@FL-2:LOW_STOCK", "TZP-INV-2@FL-1:LOW_STOCK",
             "TZP-INV-2@FL-2:LOW_STOCK", "TZP-INV-3@FL-1:OUT_OF_STOCK", "TZP-INV-4@FL-1:INACTIVE", "TZP-INV-5|X@FL-1:IN_STOCK",
             "TZP-INV-8@FL-C:INACTIVE");
 
@@ -109,11 +120,12 @@ class InventoryAdminListIT extends AbstractApiIT {
         }
         JsonNode p1 = get(LIST + "?limit=4", R, JsonNode.class).getBody();
         assertThat(keys(p1)).containsExactlyElementsOf(ALL.subList(0, 4));
-        JsonNode row = get(LIST + "?limit=1&cursor=" + p1.get("nextCursor").asText(), R, JsonNode.class).getBody().get("items").get(0);
-        assertThat(row.get("available").asLong()).isZero();
-        assertThat(row.get("version").asLong()).isEqualTo(1);
+        assertThat(keys(get(LIST + "?limit=1&cursor=" + p1.get("nextCursor").asText(), R, JsonNode.class).getBody())).containsExactly(ALL.get(4));
+        String longCursor = get(LIST + "?limit=1", R, JsonNode.class).getBody().get("nextCursor").asText();
+        assertThat(longCursor.length()).as("positioned on the long-location row").isGreaterThan(400);
+        assertThat(keys(get(LIST + "?limit=1&cursor=" + longCursor, R, JsonNode.class).getBody())).containsExactly(ALL.get(1));
         // a page whose only rows are corrupt is empty but still moves on
-        JsonNode beforeCorrupt = get(LIST + "?limit=7", R, JsonNode.class).getBody();
+        JsonNode beforeCorrupt = get(LIST + "?limit=8", R, JsonNode.class).getBody();
         JsonNode corruptPage = get(LIST + "?limit=2&cursor=" + beforeCorrupt.get("nextCursor").asText(), R, JsonNode.class).getBody();
         assertThat(keys(corruptPage)).isEmpty();
         assertThat(corruptPage.get("nextCursor").isNull()).isFalse();
@@ -128,7 +140,7 @@ class InventoryAdminListIT extends AbstractApiIT {
                 .containsExactly("TZP-INV-1@FL-2:LOW_STOCK", "TZP-INV-2@FL-1:LOW_STOCK", "TZP-INV-2@FL-2:LOW_STOCK");
         assertThat(keys(get(LIST + "?state=IN_STOCK", R, JsonNode.class).getBody()))
                 .as("available == threshold is LOW, not IN; a row without a threshold is left out, not a 500")
-                .containsExactly("TZP-INV-1@FL-1:IN_STOCK", "TZP-INV-5|X@FL-1:IN_STOCK");
+                .containsExactly("TZP-INV-0@" + LONG_LOC + ":IN_STOCK", "TZP-INV-1@FL-1:IN_STOCK", "TZP-INV-5|X@FL-1:IN_STOCK");
         assertThat(keys(get(LIST + "?state=OUT_OF_STOCK", R, JsonNode.class).getBody())).as("an inactive row at 0 is INACTIVE, not OUT_OF_STOCK")
                 .containsExactly("TZP-INV-3@FL-1:OUT_OF_STOCK");
         assertThat(keys(get(LIST + "?state=INACTIVE", R, JsonNode.class).getBody())).as("not active = INACTIVE, a missing flag included")
@@ -154,7 +166,7 @@ class InventoryAdminListIT extends AbstractApiIT {
         assertThat(get(LIST, null, JsonNode.class).getStatusCode().value()).isEqualTo(401);
         assertThat(get(LIST, W, JsonNode.class).getStatusCode().value()).as("a writer may read").isEqualTo(200);
         for (String bad : List.of("?limit=0", "?limit=201", "?limit=abc", "?limit=99999999999", "?limit=1&limit=2", "?state=SOLD_OUT",
-                "?state=", "?stat=LOW_STOCK", "?cursor=nobar", "?cursor=" + "A".repeat(401), "?cursor=MTA6YWI", "?location=" + "L".repeat(129))) {
+                "?state=", "?stat=LOW_STOCK", "?cursor=nobar", "?cursor=" + "A".repeat(1101), "?cursor=MTA6YWI", "?location=" + "L".repeat(129))) {
             ResponseEntity<JsonNode> r = get(LIST + bad, R, JsonNode.class);
             assertThat(r.getStatusCode().value()).as(bad + " -> " + r.getBody()).isEqualTo(422);
             assertThat(r.getBody().at("/error/code").asText()).isEqualTo("INVALID_INVENTORY");
