@@ -31,12 +31,12 @@ class ImportJobConfig {
     }
 
     @Bean
-    ImportJobWorker importJobWorker(ImportJobRepository repo, ImportJobService service, MongoDatabase db, MongoClient client,
+    ImportJobWorker importJobWorker(ImportJobRepository repo, ImportJobService service, MongoDatabase db, MongoClient client, Tx tx,
                                     AttributeGovernanceService governance, CanonicalKeyService canonicalKeys, MintService mint,
                                     @Value("${tazzzo.scheduler.import-jobs-batch-size:500}") int batchSize,
-                                    @Value("${tazzzo.scheduler.import-jobs-lease-ms:120000}") long leaseMs,
+                                    @Value("${tazzzo.scheduler.import-jobs-lease-ms:300000}") long leaseMs,
                                     @Value("${tazzzo.scheduler.import-jobs-tick-budget-ms:30000}") long tickBudgetMs) {
-        return new ImportJobWorker(repo, service, new ProductImportValidator(db, client, governance, canonicalKeys), mint,
+        return new ImportJobWorker(repo, service, new ProductImportValidator(db, client, governance, canonicalKeys), mint, tx,
                 Clock.systemUTC(), batchSize, leaseMs, tickBudgetMs);
     }
 }

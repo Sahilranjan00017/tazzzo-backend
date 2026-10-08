@@ -1259,14 +1259,28 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   `POST /api/v1/admin/imports/jobs`, rows streamed in as RFC 4180 CSV (the CMS wizard's column aliases, typed attribute cells) or JSON in any
   number of requests, a leased background worker (`ImportJobScheduler`, gated by `tazzzo.scheduler.enabled` AND `import-jobs-enabled`) that
   validates and applies in persisted 500-row batches from a cursor, explicit approval (`apply`) recorded as `approvedBy` and attributing every
-  mint, `PAUSED`/`resume` on a datastore failure without re-applying, `cancel`, per-row verdicts (`GET rows`, `errors.csv`), DB-enforced one row
-  per product id per job (partial unique index), CAS on `version` for every admin transition, `domain_events` audit of each transition.
+  mint, `PAUSED`/`resume` on a datastore failure without re-applying, `cancel` (noticed before the next mint), per-row verdicts (`GET rows`,
+  `errors.csv`), DB-enforced one row per product id / GTIN / internal key per job (two partial unique indexes, across appends and batches), one
+  upload at a time per job, CAS on `version` for every admin transition, `domain_events` audit of each admin transition. Each applied row's verdict,
+  the cursor and the counters are recorded in one lease-guarded transaction after the mint (validation batches and the datastore pause likewise),
+  so a lost lease or a cancel can never leave counts and verdicts disagreeing (independent review of the first head found exactly that; fixed).
+  Second independent review (2026-10-08, NEEDS-CHANGES, 0 HIGH / 4 MEDIUM) — all fixed: the pause path wrote without the lease; an apply-time
+  UNCHANGED row was counted nowhere (now `valid`/`unchanged` are reclassified so a COMPLETED job has `applied + failed == valid`); validation could
+  start during an upload (now refused while the append lock is held; `rows_total` is only raised while OPEN under the lock, `page` never reads
+  past it, an abandoned upload's rows are removed); a mint could outlive the lease (lease default 120 s → 300 s, above the driver's transaction
+  retry budget; an identity collision is re-checked and recorded UNCHANGED when the product is the row's own). Also fixed while testing: lease
+  ownership was judged by `getModifiedCount()`, so a renewal in the same millisecond as the previous lease write was misread as a lost lease
+  (now `getMatchedCount()`); LOWs fixed: CSV column cap enforced while reading, GTIN-identity rows no longer claim an internal-key slot,
+  `recordApply` returns through `Tx.call`. Six mutants re-introducing these bugs are each killed by `ImportJobsIT`. V0016's checksum changed
+  with its fifth index; V0016 has only ever run in tests (the branch is unmerged and nothing is deployed), so no environment needs a re-pin.
   `ProductImportValidator.validateRows` is the per-row (non-throwing) form of the same checks; the synchronous import now delegates to it and is
-  otherwise unchanged. Collections `import_jobs`/`import_rows` and four indexes via migration `V0016` (`MigrationRegistryTest` pins the checksum;
+  otherwise unchanged. Collections `import_jobs`/`import_rows` and five indexes via migration `V0016` (`MigrationRegistryTest` pins the checksum;
   `IndexContractIT`, `DatastorePrivilegeIT` 16 applied, `DatabaseDocsConsistencyTest` updated with the retention/inventory/manifest/runbook rows).
-  Limits: `tazzzo.imports.max-rows-per-job` 250,000, `max-active-jobs` 10, request chunk bounded by the bulk body limit (2 MiB ≈ 20k CSV rows).
-  Evidence: `ImportJobsIT` (5 scenarios incl. a 621-row multi-batch file and pause/resume exactly-once), `ImportCsvParserTest`; `docs/ops/BULK_IMPORT.md`.
-  Not done: price/stock job kinds, purge policy for old jobs, a CMS screen for jobs.
+  Lease `import-jobs-lease-ms` 300 s. Limits: `tazzzo.imports.max-rows-per-job` 250,000, `max-active-jobs` 10, request chunk bounded by the bulk body limit (2 MiB ≈ 20k CSV rows).
+  Evidence: `ImportJobsIT` (14 scenarios incl. a 621-row multi-batch file, pause/resume exactly-once, cancel-while-minting, lease lost mid-apply,
+  cross-append identities, stale versions/limits/expired leases/append lock, pause after a lost lease, collision re-check, same-ms renewal,
+  validation during an upload), `ImportCsvParserTest`; `docs/ops/BULK_IMPORT.md`.
+  Not done: price/stock job kinds, purge policy for old jobs, a CMS screen for jobs, canonical-identity duplicates across batches (apply-time FAILED).
 
 - **HTTP error-handling hardening** (branch `fix/http-error-handling-hardening`, from `main` `d790504`): **IN REVIEW**. The 12 controller-scoped `/v1` advices with an
   `Exception` catch-all (OTP, session, profile, address, account deletion, customer support, delivery slots, cart, checkout, order, commerce read, public content;

@@ -35,7 +35,7 @@ public final class Migrations {
                         "product_events/node_events/domain_events: nine partial audit-read indexes (recent, actor, request) for GET /api/v1/admin/audit-events (PR #49)",
                         IndexCatalog.AUDIT_READ_SPECS, null),
                 new CreateIndexMigration("V0016__import_job_indexes",
-                        "import_jobs claim scan and admin list; import_rows (job_id, row) unique and partial unique (job_id, dedup_key): one row per product id per import job (async imports)",
+                        "import_jobs claim scan and admin list; import_rows (job_id, row) unique, partial unique (job_id, dedup_key) and partial unique multikey (job_id, identity_keys): one row per product id and per GTIN/internal key per import job (async imports)",
                         IndexCatalog.IMPORT_JOB_SPECS, null),
                 new CreateIndexMigration("V0015__address_idempotency_indexes",
                         "customer_address_idempotency TTL on expire_at and (customer_id) erasure lookup (address create Idempotency-Key)",

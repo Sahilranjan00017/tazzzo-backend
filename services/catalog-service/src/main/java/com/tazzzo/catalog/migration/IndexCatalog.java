@@ -105,15 +105,18 @@ public final class IndexCatalog {
             List.of(NOTIFICATION_DUE_SPEC, NOTIFICATION_BY_CUSTOMER_SPEC, NOTIFICATION_EXPIRY_SPEC);
     /**
      * Asynchronous import jobs (V0016): the worker's claim scan and the admin list on {@code import_jobs}; on
-     * {@code import_rows} the per-job row order (unique) and the DB-enforced "one row per product id per job" rule (unique,
-     * partial: a duplicate row is stored without its key, carrying the DUPLICATE verdict instead).
+     * {@code import_rows} the per-job row order (unique) and the DB-enforced "one row per product id per job" and "one row per
+     * GTIN / internal key per job" rules (unique, partial; the second is multikey over {@code identity_keys}: a duplicate row
+     * is stored without its keys, carrying the DUPLICATE verdict instead).
      */
     public static final List<IndexSpec> IMPORT_JOB_SPECS = List.of(
             named("import_jobs", "import_jobs_claim", k("status", 1, "lease_until", 1, "updated_at", 1), false, null, null),
             named("import_jobs", "import_jobs_by_status_recent", k("status", 1, "_id", -1), false, null, null),
             named("import_rows", "import_rows_by_job_row", k("job_id", 1, "row", 1), true, null, null),
             named("import_rows", "import_rows_one_per_product", k("job_id", 1, "dedup_key", 1), true,
-                    new Document("dedup_key", new Document("$exists", true)), null));
+                    new Document("dedup_key", new Document("$exists", true)), null),
+            named("import_rows", "import_rows_one_per_identity", k("job_id", 1, "identity_keys", 1), true,
+                    new Document("identity_keys", new Document("$exists", true)), null));
     /** CMS (PR-Q): the live/admin read of one placement in display order. Migration-only (V0013). */
     public static final IndexSpec CONTENT_BLOCKS_SPEC = named("content_blocks", "content_by_placement_status_sort",
             k("placement", 1, "status", 1, "sort", 1, "_id", 1), false, null, null);

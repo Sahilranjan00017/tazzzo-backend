@@ -88,6 +88,15 @@ class ImportCsvParserTest {
     }
 
     @Test
+    void a_utf8_bom_is_tolerated_and_a_data_row_cannot_exceed_the_column_cap() throws IOException {
+        List<ImportCsvParser.Row> rows = parse("\uFEFFattr.organic,id,title,brand,vertical,release\ntrue,TZP-1,x,BR,TZV-000001,0.9.0\n");
+        assertThat(rows.get(0).request().attributes()).as("the BOM does not hide the first column").containsEntry("organic", true);
+        assertThat(rows.get(0).request().id()).isEqualTo("TZP-1");
+        assertThatThrownBy(() -> parse("id,title,brand,vertical,release\nTZP-1,x,BR,V,R" + ",".repeat(70) + "\n"))
+                .isInstanceOf(ImportCsvParser.ImportFileException.class).hasMessageContaining("64 columns");
+    }
+
+    @Test
     void typed_cells_match_what_the_json_row_would_carry() {
         assertThat(ImportCsvParser.typed("5")).isEqualTo(5);
         assertThat(ImportCsvParser.typed("3000000000")).isEqualTo(3_000_000_000L);

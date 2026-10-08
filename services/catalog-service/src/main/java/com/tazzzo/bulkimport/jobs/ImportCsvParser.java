@@ -134,11 +134,13 @@ public final class ImportCsvParser {
         List<String> record;
         while ((record = readRecord(reader)) != null) {
             if (map == null) {
+                if (!record.isEmpty() && record.get(0).startsWith("\uFEFF")) record.set(0, record.get(0).substring(1));   // a UTF-8 BOM
                 if (record.size() == 1 && record.get(0).isBlank()) continue;   // leading blank line
                 map = mapHeader(record);
                 continue;
             }
             if (record.size() == 1 && record.get(0).isBlank()) continue;       // blank data line
+            if (record.size() > MAX_COLUMNS) throw new ImportFileException("a row exceeds " + MAX_COLUMNS + " columns");
             line++;
             sink.accept(new Row(line, toRequest(record, map)));
         }
@@ -174,6 +176,8 @@ public final class ImportCsvParser {
             } else if (c == ',') {
                 cells.add(cell.toString());
                 cell.setLength(0);
+                // bounded while reading: a line of separators must not become millions of empty cells first
+                if (cells.size() > MAX_COLUMNS) throw new ImportFileException("a row exceeds " + MAX_COLUMNS + " columns");
             } else if (c == '\n' || c == '\r') {
                 if (c == '\r') {
                     r.mark(1);

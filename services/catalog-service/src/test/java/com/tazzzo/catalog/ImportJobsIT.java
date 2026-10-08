@@ -33,6 +33,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Asynchronous import jobs end to end over HTTP, with the worker driven by hand (the scheduler is off in tests): streamed
@@ -57,6 +58,8 @@ class ImportJobsIT extends AbstractApiIT {
     @Autowired CanonicalKeyService canonicalKeys;
     @Autowired MintService mint;
     @Autowired MigrationRunner migrationRunner;
+    @Autowired com.tazzzo.catalog.tx.Tx tx;
+    @Autowired com.tazzzo.catalog.tx.MintService realMint;
 
     @BeforeAll
     void setup() {
@@ -224,7 +227,7 @@ class ImportJobsIT extends AbstractApiIT {
             }
         };
         ImportJobWorker flaky = new ImportJobWorker(repo, service, new ProductImportValidator(db, client, governance, canonicalKeys), failing,
-                Clock.systemUTC(), 500, 60_000, 30_000);
+                tx, Clock.systemUTC(), 500, 60_000, 30_000);
         ImportJobWorker.Tick t = flaky.tick();
         assertThat(t.paused()).isTrue();
         JsonNode j = job(id);
@@ -271,6 +274,275 @@ class ImportJobsIT extends AbstractApiIT {
         assertThat(repo.claim("worker-c", 60_000).id()).isEqualTo(held);
         assertThat(act(held, "cancel", W).getBody().get("status").asText()).isEqualTo("CANCELLED");
         assertThat(repo.progress(held, "worker-c", 1, ImportJob.Counts.ZERO, 60_000)).as("the lease died with the cancel").isFalse();
+    }
+
+    @Test
+    void cancel_while_a_worker_is_minting_stops_it_at_the_next_row_with_exact_counts() {
+        String id = create("cancel-running");
+        csv(id, HEADER + line("TZP-IC-001", 1) + line("TZP-IC-002", 2) + line("TZP-IC-003", 3), W);
+        act(id, "validate", W);
+        assertThat(worker.tick().endedAs()).isEqualTo(ImportJob.Status.VALIDATED);
+        act(id, "apply", W);
+        // the admin cancels while the FIRST product is being minted
+        MintService cancelling = new MintService(null, null, null, null) {
+            @Override
+            public String mint(Actor actor, ProductDraft d) {
+                String r = realMint.mint(actor, d);
+                if (d.id().equals("TZP-IC-001")) assertThat(act(id, "cancel", W).getStatusCode().value()).isEqualTo(200);
+                return r;
+            }
+        };
+        ImportJobWorker w = new ImportJobWorker(repo, service, new ProductImportValidator(db, client, governance, canonicalKeys), cancelling,
+                tx, Clock.systemUTC(), 500, 60_000, 30_000);
+        ImportJobWorker.Tick t = w.tick();
+        assertThat(t.endedAs()).as("the worker noticed the lost lease, it did not finish the phase").isEqualTo(ImportJob.Status.APPLYING);
+        JsonNode j = job(id);
+        assertThat(j.get("status").asText()).isEqualTo("CANCELLED");
+        assertThat(db.getCollection("products").countDocuments(new Document("_id", new Document("$regex", "^TZP-IC-"))))
+                .as("at most the row in flight is minted after the cancel; the next row never is").isEqualTo(1);
+        // the one row minted after the cancel could not be recorded (the lease was gone): counts and verdicts agree with each other
+        assertThat(j.get("counts").get("applied").asLong()).isZero();
+        JsonNode rows = get(JOBS + "/" + id + "/rows?from=0&limit=3", R, JsonNode.class).getBody().get("rows");
+        assertThat(rows.findValues("apply")).allMatch(JsonNode::isNull);
+        assertThat(worker.tick().jobId()).as("a CANCELLED job is never claimed").isNull();
+    }
+
+    @Test
+    void a_lost_lease_mid_apply_records_nothing_and_the_next_holder_finds_the_row_unchanged() {
+        String id = create("lease-lost");
+        csv(id, HEADER + line("TZP-IE-001", 1) + line("TZP-IE-002", 2) + line("TZP-IE-003", 3), W);
+        act(id, "validate", W);
+        assertThat(worker.tick().endedAs()).isEqualTo(ImportJob.Status.VALIDATED);
+        act(id, "apply", W);
+        // worker A: its lease is taken away while it mints row 0 (as if it had expired and been re-claimed)
+        String[] stolen = {null};
+        MintService slow = new MintService(null, null, null, null) {
+            @Override
+            public String mint(Actor actor, ProductDraft d) {
+                String r = realMint.mint(actor, d);
+                if (d.id().equals("TZP-IE-001")) {
+                    db.getCollection("import_jobs").updateOne(new Document("_id", id), new Document("$set", new Document("lease_until", new java.util.Date(0))));
+                    ImportJob taken = repo.claim("worker-b", 60_000);
+                    stolen[0] = taken == null ? null : taken.id();
+                }
+                return r;
+            }
+        };
+        ImportJobWorker a = new ImportJobWorker(repo, service, new ProductImportValidator(db, client, governance, canonicalKeys), slow,
+                tx, Clock.systemUTC(), 500, 60_000, 30_000);
+        assertThat(a.tick().endedAs()).isEqualTo(ImportJob.Status.APPLYING);
+        assertThat(stolen[0]).isEqualTo(id);
+        JsonNode j = job(id);
+        assertThat(j.get("counts").get("applied").asLong()).as("A recorded nothing for the row it minted after losing the lease").isZero();
+        assertThat(get(JOBS + "/" + id + "/rows?from=0&limit=3", R, JsonNode.class).getBody().get("rows").findValues("apply")).allMatch(JsonNode::isNull);
+        // worker B finishes from the cursor: row 0 is UNCHANGED (minted by A), rows 1-2 applied; no row FAILED, no product twice
+        assertThat(repo.releaseLease(id, "worker-b")).isTrue();
+        assertThat(worker.tick().endedAs()).isEqualTo(ImportJob.Status.COMPLETED);
+        j = job(id);
+        assertThat(j.get("counts").get("applied").asLong()).isEqualTo(2);
+        assertThat(j.get("counts").get("failed").asLong()).isZero();
+        assertCountsMatchVerdicts(j);
+        assertThat(j.get("counts").get("unchanged").asLong()).as("the row found UNCHANGED at apply is counted as such").isEqualTo(1);
+        JsonNode rows = get(JOBS + "/" + id + "/rows?from=0&limit=3", R, JsonNode.class).getBody().get("rows");
+        assertThat(rows.findValues("apply").stream().map(x -> x.get("outcome").asText()).toList()).containsExactly("UNCHANGED", "APPLIED", "APPLIED");
+        assertThat(db.getCollection("products").countDocuments(new Document("_id", new Document("$regex", "^TZP-IE-")))).isEqualTo(3);
+    }
+
+    /** A finished job's counters agree with its rows: valid/unchanged/invalid/duplicate partition them, applied + failed == valid. */
+    void assertCountsMatchVerdicts(JsonNode j) {
+        JsonNode c = j.get("counts");
+        assertThat(c.get("valid").asLong() + c.get("unchanged").asLong() + c.get("invalid").asLong() + c.get("duplicate").asLong())
+                .as("every row in exactly one bucket: " + c).isEqualTo(j.get("rowsTotal").asLong());
+        assertThat(c.get("applied").asLong() + c.get("failed").asLong()).as("every VALID row applied or failed: " + c).isEqualTo(c.get("valid").asLong());
+    }
+
+    @Test
+    void a_renewal_in_the_same_millisecond_as_the_claim_keeps_the_lease() {
+        String id = create("same-ms");
+        csv(id, HEADER + line("TZP-IM-001", 1), W);
+        act(id, "validate", W);
+        // a frozen clock makes the renewal write exactly the values the claim wrote: Mongo then modifies nothing, yet the
+        // lease is still held (ownership is the token matching, not the document changing)
+        ImportJobRepository frozen = new ImportJobRepository(db, Clock.fixed(java.time.Instant.now(), java.time.ZoneOffset.UTC));
+        assertThat(frozen.claim("worker-f", 60_000).id()).isEqualTo(id);
+        assertThat(frozen.renewLease(id, "worker-f", 60_000)).isTrue();
+        assertThat(frozen.progress(id, "worker-f", 0, ImportJob.Counts.ZERO, 60_000)).isTrue();
+        assertThat(frozen.renewLease(id, "worker-x", 60_000)).as("a different token still cannot renew").isFalse();
+        assertThat(frozen.releaseLease(id, "worker-f")).isTrue();
+        assertThat(worker.tick().endedAs()).isEqualTo(ImportJob.Status.VALIDATED);
+    }
+
+    @Test
+    void a_datastore_failure_after_the_lease_was_lost_writes_no_verdict_and_does_not_pause() {
+        String id = create("pause-lease-lost");
+        csv(id, HEADER + line("TZP-IQ-001", 1) + line("TZP-IQ-002", 2), W);
+        act(id, "validate", W);
+        assertThat(worker.tick().endedAs()).isEqualTo(ImportJob.Status.VALIDATED);
+        act(id, "apply", W);
+        // worker A's mint of row 0 outlives its lease (B claims the job) and then fails like a datastore outage
+        MintService late = new MintService(null, null, null, null) {
+            @Override
+            public String mint(Actor actor, ProductDraft d) {
+                db.getCollection("import_jobs").updateOne(new Document("_id", id), new Document("$set", new Document("lease_until", new java.util.Date(0))));
+                assertThat(repo.claim("worker-b", 60_000).id()).isEqualTo(id);
+                throw new com.mongodb.MongoSocketReadException("gone", new com.mongodb.ServerAddress());
+            }
+        };
+        ImportJobWorker a = new ImportJobWorker(repo, service, new ProductImportValidator(db, client, governance, canonicalKeys), late,
+                tx, Clock.systemUTC(), 500, 60_000, 30_000);
+        ImportJobWorker.Tick t = a.tick();
+        assertThat(t.paused()).as("A no longer holds the job: it cannot pause it").isFalse();
+        JsonNode j = job(id);
+        assertThat(j.get("status").asText()).isEqualTo("APPLYING");
+        assertThat(j.get("nextRow").asLong()).isZero();
+        assertThat(get(JOBS + "/" + id + "/rows?from=0&limit=2", R, JsonNode.class).getBody().get("rows").findValues("apply"))
+                .as("A wrote no NOT_ATTEMPTED over the row the new holder owns").allMatch(JsonNode::isNull);
+        // B finishes normally
+        assertThat(repo.releaseLease(id, "worker-b")).isTrue();
+        assertThat(worker.tick().endedAs()).isEqualTo(ImportJob.Status.COMPLETED);
+        j = job(id);
+        assertThat(j.get("counts").get("applied").asLong()).isEqualTo(2);
+        assertCountsMatchVerdicts(j);
+    }
+
+    @Test
+    void a_product_that_appears_between_revalidation_and_mint_is_unchanged_not_a_collision() {
+        String id = create("collision-recheck");
+        csv(id, HEADER + line("TZP-IR-001", 1) + line("TZP-IR-002", 2), W);
+        act(id, "validate", W);
+        assertThat(worker.tick().endedAs()).isEqualTo(ImportJob.Status.VALIDATED);
+        act(id, "apply", W);
+        // row 0's product is minted by someone else (an earlier lease holder) just before this worker's own mint
+        MintService raced = new MintService(null, null, null, null) {
+            @Override
+            public String mint(Actor actor, ProductDraft d) {
+                if (d.id().equals("TZP-IR-001")) realMint.mint(actor, d);
+                return realMint.mint(actor, d);
+            }
+        };
+        ImportJobWorker w = new ImportJobWorker(repo, service, new ProductImportValidator(db, client, governance, canonicalKeys), raced,
+                tx, Clock.systemUTC(), 500, 60_000, 30_000);
+        assertThat(w.tick().endedAs()).isEqualTo(ImportJob.Status.COMPLETED);
+        JsonNode j = job(id);
+        assertThat(j.get("counts").get("failed").asLong()).as("the job's own product is not an identity collision").isZero();
+        assertThat(j.get("counts").get("applied").asLong()).isEqualTo(1);
+        assertThat(j.get("counts").get("unchanged").asLong()).isEqualTo(1);
+        assertCountsMatchVerdicts(j);
+        assertThat(get(JOBS + "/" + id + "/rows?from=0&limit=2", R, JsonNode.class).getBody().get("rows").findValues("apply").stream()
+                .map(x -> x.get("outcome").asText()).toList()).containsExactly("UNCHANGED", "APPLIED");
+    }
+
+    @Test
+    void validation_waits_for_an_upload_and_an_upload_whose_job_left_open_adds_nothing() {
+        String id = create("upload-race");
+        csv(id, HEADER + line("TZP-IU-001", 1), W);
+        // while an upload holds the append lock, validation cannot start (it would freeze a rows_total the upload is still growing)
+        assertThat(repo.lockAppend(id, "upload-a", 60_000)).isTrue();
+        assertThat(act(id, "validate", W).getStatusCode().value()).isEqualTo(409);
+        assertThat(job(id).get("status").asText()).isEqualTo("OPEN");
+        repo.unlockAppend(id, "upload-a");
+
+        // the job is cancelled while an upload is streaming: the upload is refused and leaves no row behind
+        byte[] head = (HEADER + line("TZP-IU-002", 2)).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        byte[] tail = line("TZP-IU-003", 3).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        java.io.InputStream cancelMidway = new java.io.InputStream() {
+            int pos;
+            boolean cancelled;
+            @Override
+            public int read() {
+                if (pos == head.length && !cancelled) {
+                    cancelled = true;
+                    assertThat(act(id, "cancel", W).getStatusCode().value()).isEqualTo(200);
+                }
+                if (pos < head.length) return head[pos++] & 0xff;
+                int i = pos++ - head.length;
+                return i < tail.length ? tail[i] & 0xff : -1;
+            }
+        };
+        assertThatThrownBy(() -> service.appendCsv(id, cancelMidway))
+                .isInstanceOf(com.tazzzo.bulkimport.jobs.ImportJobException.class).hasMessageContaining("left OPEN");
+        JsonNode j = job(id);
+        assertThat(j.get("status").asText()).isEqualTo("CANCELLED");
+        assertThat(j.get("rowsTotal").asLong()).as("rows_total is not raised after the job left OPEN").isEqualTo(1);
+        assertThat(db.getCollection("import_rows").countDocuments(new Document("job_id", id))).as("the abandoned rows are removed").isEqualTo(1);
+    }
+
+    @Test
+    void gtin_identity_rows_sharing_an_internal_key_are_not_duplicates() {
+        String id = create("gtin-key");
+        Map<String, Object> g1 = new java.util.HashMap<>(BulkProductImportIT.gtinRow("TZP-IK-001", 1, "8901234567906"));
+        Map<String, Object> g2 = new java.util.HashMap<>(BulkProductImportIT.gtinRow("TZP-IK-002", 2, "8901234567913"));
+        g1.put("internalKey", "family|IK");
+        g2.put("internalKey", "family|IK");
+        ResponseEntity<JsonNode> r = post(JOBS + "/" + id + "/rows", Map.of("rows", List.of(g1, g2)), W, JsonNode.class);
+        assertThat(r.getStatusCode().value()).as(String.valueOf(r.getBody())).isEqualTo(200);
+        assertThat(r.getBody().get("duplicates").asLong()).as("the catalogue ignores a GTIN product's internal key").isZero();
+    }
+
+    @Test
+    void identities_are_unique_across_appends_and_ids_are_case_insensitive() {
+        String id = create("identities");
+        csv(id, HEADER + "TZP-ID-001,Rice A,BR-JOB,TZV-000001,0.9.0,job|ID-A,1,kg\n", W);
+        ResponseEntity<JsonNode> second = csv(id, HEADER
+                + "TZP-ID-002,Rice B,BR-JOB,TZV-000001,0.9.0,job|ID-A,2,kg\n"      // same internal key as row 0 (earlier append)
+                + "tzp-id-001,Rice C,BR-JOB,TZV-000001,0.9.0,job|ID-C,3,kg\n"      // same product id, lower-cased
+                + "TZP-ID-003,Rice D,BR-JOB,TZV-000001,0.9.0,,,\n", W);
+        assertThat(second.getBody().get("duplicates").asLong()).isEqualTo(2);
+        assertThat(second.getBody().get("rowsTotal").asLong()).isEqualTo(4);
+        JsonNode rows = get(JOBS + "/" + id + "/rows?from=1&limit=3", R, JsonNode.class).getBody().get("rows");
+        assertThat(rows.get(0).get("validation").get("code").asText()).isEqualTo("DUPLICATE_IDENTITY");
+        assertThat(rows.get(1).get("validation").get("code").asText()).isEqualTo("DUPLICATE_ROW");
+        assertThat(rows.get(2).get("validation").isNull()).as("the third row is not a duplicate").isTrue();
+        // a GTIN seen in an earlier append is a duplicate in a later JSON append too
+        Map<String, Object> g1 = BulkProductImportIT.gtinRow("TZP-ID-004", 4, "8901234567890");
+        Map<String, Object> g2 = BulkProductImportIT.gtinRow("TZP-ID-005", 5, "8901234567890");
+        assertThat(post(JOBS + "/" + id + "/rows", Map.of("rows", List.of(g1)), W, JsonNode.class).getBody().get("duplicates").asLong()).isZero();
+        assertThat(post(JOBS + "/" + id + "/rows", Map.of("rows", List.of(g2)), W, JsonNode.class).getBody().get("duplicates").asLong()).isEqualTo(1);
+    }
+
+    @Test
+    void stale_versions_limits_expired_leases_and_the_append_lock_are_enforced() {
+        String id = create("guards");
+        csv(id, HEADER + line("TZP-IG-001", 1), W);
+        long v = job(id).get("version").asLong();
+        ResponseEntity<JsonNode> stale = post(JOBS + "/" + id + "/validate", Map.of("version", v - 1), W, JsonNode.class);
+        assertThat(stale.getStatusCode().value()).as("a stale decision is refused").isEqualTo(409);
+        assertThat(job(id).get("status").asText()).isEqualTo("OPEN");
+        // limits: a service with room for 1 row / 1 active job
+        ImportJobService tight = new ImportJobService(repo, new com.tazzzo.common.audit.DomainAudit(db, Clock.systemUTC()), tx,
+                new com.fasterxml.jackson.databind.ObjectMapper(), 1, 1);
+        com.tazzzo.catalog.api.ApiDtos.CreateProductRequest extra = new com.tazzzo.catalog.api.ApiDtos.CreateProductRequest("TZP-IG-002", "single",
+                "internal", "job|IG-2", null, "BR-JOB", "Job rice 2 kg", "TZV-000001", "0.9.0", "provisional", Map.of("pack_size", 2, "pack_unit", "kg"),
+                List.of(), null, null);
+        assertThatThrownBy(() -> tight.appendRows(id, List.of(extra)))
+                .isInstanceOf(com.tazzzo.bulkimport.jobs.ImportJobException.class).hasMessageContaining("at most 1 rows");
+        assertThatThrownBy(() -> tight.create("products", "one too many", TestActors.TEST))
+                .isInstanceOf(com.tazzzo.bulkimport.jobs.ImportJobException.class).hasMessageContaining("too many active import jobs");
+        assertThat(get(JOBS + "/IMPJ-000000000000000000000000/errors.csv", R, String.class).getStatusCode().value()).isEqualTo(404);
+        // the append lock: while one upload holds it, another is refused; it does not outlive the OPEN state
+        assertThat(repo.lockAppend(id, "upload-a", 60_000)).isTrue();
+        assertThat(csv(id, HEADER + line("TZP-IG-003", 3), W).getStatusCode().value()).isEqualTo(409);
+        repo.unlockAppend(id, "upload-a");
+        assertThat(csv(id, HEADER + line("TZP-IG-003", 3), W).getStatusCode().value()).isEqualTo(200);
+        // an expired lease is reclaimable; a live one renews
+        act(id, "validate", W);
+        ImportJobRepository past = new ImportJobRepository(db, Clock.offset(Clock.systemUTC(), java.time.Duration.ofMinutes(-10)));
+        assertThat(past.claim("worker-old", 60_000).id()).as("claimed 10 minutes ago, lease of 1 minute").isEqualTo(id);
+        assertThat(repo.claim("worker-new", 60_000).id()).as("the old lease has expired by now").isEqualTo(id);
+        assertThat(repo.renewLease(id, "worker-old", 60_000)).as("the old holder cannot renew").isFalse();
+        assertThat(repo.renewLease(id, "worker-new", 60_000)).isTrue();
+        java.util.Date until = db.getCollection("import_jobs").find(new Document("_id", id)).first().getDate("lease_until");
+        assertThat(until.getTime()).isGreaterThan(System.currentTimeMillis() + 50_000);
+        assertThat(repo.releaseLease(id, "worker-new")).isTrue();
+        assertThat(worker.tick().endedAs()).isEqualTo(ImportJob.Status.VALIDATED);
+        // a ledger shorter than rows_total (a row document lost) ends the phase with a reason instead of being claimed forever
+        String shortId = create("short");
+        csv(shortId, HEADER + line("TZP-IG-004", 4) + line("TZP-IG-005", 5), W);
+        db.getCollection("import_rows").deleteOne(new Document("_id", shortId + ":000000001"));
+        act(shortId, "validate", W);
+        assertThat(worker.tick().endedAs()).isEqualTo(ImportJob.Status.REJECTED);
+        assertThat(job(shortId).get("lastError").asText()).contains("row ledger short");
+        assertThat(worker.tick().jobId()).isNull();
     }
 
     @Test

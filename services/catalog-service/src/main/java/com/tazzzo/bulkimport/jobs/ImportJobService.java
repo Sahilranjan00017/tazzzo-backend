@@ -85,19 +85,24 @@ public class ImportJobService {
         return repo.list(s, afterId, Math.max(1, Math.min(limit, 200)));
     }
 
-    /** Append a CSV file (streamed; never held in memory as a whole). The job must be OPEN. */
+    /** Append a CSV file (streamed; never held in memory as a whole). The job must be OPEN and no other upload in progress. */
     public Appended appendCsv(String id, InputStream body) throws IOException {
         ImportJob job = requireOpen(id);
+        String lock = lockAppend(job);
         long[] row = {job.rowsTotal()};
         long[] dup = {0};
+        boolean kept;
         try {
             ImportCsvParser.parse(body, r -> {
                 requireCapacity(row[0]);
-                dup[0] += appendRow(job.id(), row[0]++, r.line(), r.request());
+                boolean d = appendRow(job.id(), row[0], r.line(), r.request());
+                row[0]++;   // counted only once the row is stored, so rows_total never exceeds the stored rows
+                if (d) dup[0]++;
             });
         } finally {
-            if (row[0] != job.rowsTotal()) repo.setRowsTotal(job.id(), row[0]);
+            kept = finishAppend(job, lock, row[0]);
         }
+        if (!kept) throw jobLeftOpen();
         return new Appended(row[0] - job.rowsTotal(), row[0], dup[0]);
     }
 
@@ -105,17 +110,50 @@ public class ImportJobService {
     public Appended appendRows(String id, List<CreateProductRequest> rows) {
         if (rows == null || rows.isEmpty()) throw ImportJobException.invalid("rows must contain at least one entry");
         ImportJob job = requireOpen(id);
+        String lock = lockAppend(job);
         long row = job.rowsTotal();
         long dup = 0;
+        boolean kept;
         try {
             for (int i = 0; i < rows.size(); i++) {
                 requireCapacity(row);
-                dup += appendRow(job.id(), row++, i + 1, rows.get(i));
+                if (appendRow(job.id(), row, i + 1, rows.get(i))) dup++;
+                row++;
             }
         } finally {
-            if (row != job.rowsTotal()) repo.setRowsTotal(job.id(), row);
+            kept = finishAppend(job, lock, row);
         }
+        if (!kept) throw jobLeftOpen();
         return new Appended(row - job.rowsTotal(), row, dup);
+    }
+
+    static final long APPEND_LOCK_MS = 15 * 60_000L;
+
+    /**
+     * Publish the stored rows ({@code rows_total}) and release the lock. When the job left OPEN during the upload (a cancel,
+     * or validation after the lock expired) the rows are not published but removed, and false is returned.
+     */
+    private boolean finishAppend(ImportJob job, String lock, long rowsNow) {
+        try {
+            if (rowsNow == job.rowsTotal()) return true;
+            if (repo.setRowsTotal(job.id(), lock, rowsNow)) return true;
+            repo.deleteRowsFrom(job.id(), job.rowsTotal());
+            return false;
+        } finally {
+            repo.unlockAppend(job.id(), lock);
+        }
+    }
+
+    private static ImportJobException jobLeftOpen() {
+        return ImportJobException.conflict("the job left OPEN during the upload; none of its rows were added");
+    }
+
+    private String lockAppend(ImportJob job) {
+        String token = ImportJobRepository.newLeaseToken();
+        if (!repo.lockAppend(job.id(), token, APPEND_LOCK_MS)) {
+            throw ImportJobException.conflict("another upload to this job is in progress; wait for it to finish");
+        }
+        return token;
     }
 
     /** Replace one row's payload (a correction after REJECTED). The job must be OPEN or REJECTED; REJECTED goes back to OPEN. */
@@ -128,10 +166,10 @@ public class ImportJobService {
         if (request == null) throw ImportJobException.invalid("a product row is required");
         if (job.status() == ImportJob.Status.REJECTED) job = reopen(job, actor);
         try {
-            repo.replaceRowPayload(job.id(), row, toPayload(request), dedupKey(request));
+            repo.replaceRowPayload(job.id(), row, toPayload(request), dedupKey(request), identityKeys(request));
         } catch (com.mongodb.MongoWriteException e) {
             if (e.getError().getCode() != 11000) throw e;
-            throw ImportJobException.invalid("product id " + dedupKey(request) + " is already another row of this job");
+            throw ImportJobException.invalid("the product id, a GTIN or the internal key of this row already belongs to another row of this job");
         }
         return job;
     }
@@ -150,10 +188,10 @@ public class ImportJobService {
         ImportJob job = require(id);
         if (job.rowsTotal() == 0) throw ImportJobException.invalid("the job has no rows");
         long v = expectedVersion == null ? job.version() : expectedVersion;
-        if (job.status() == ImportJob.Status.REJECTED) repo.clearValidation(job.id());
         ImportJob next = repo.transition(id, v, List.of(ImportJob.Status.OPEN, ImportJob.Status.REJECTED), ImportJob.Status.VALIDATING,
-                true, null);
-        if (next == null) throw stateConflict(job, "validation can start only from OPEN or REJECTED");
+                true, null, repo.noAppendInProgress());
+        if (next == null) throw stateConflict(job, "validation can start only from OPEN or REJECTED, with no upload in progress");
+        if (job.status() == ImportJob.Status.REJECTED) repo.clearValidation(job.id());   // after the CAS: a stale call wipes nothing
         audit(id, "IMPORT_JOB_VALIDATION_STARTED", Map.of("rows", job.rowsTotal()), actor);
         return next;
     }
@@ -241,13 +279,28 @@ public class ImportJobService {
         if (row >= maxRowsPerJob) throw ImportJobException.invalid("a job holds at most " + maxRowsPerJob + " rows");
     }
 
-    /** @return 1 when the row was a duplicate of an earlier row in the job, else 0 */
-    private long appendRow(String jobId, long row, int line, CreateProductRequest request) {
-        return repo.appendRow(jobId, row, line, toPayload(request), dedupKey(request)) ? 1 : 0;
+    /** @return true when the row was a duplicate (product id, GTIN or internal key) of an earlier row in the job */
+    private boolean appendRow(String jobId, long row, int line, CreateProductRequest request) {
+        return repo.appendRow(jobId, row, line, toPayload(request), dedupKey(request), identityKeys(request));
     }
 
     static String dedupKey(CreateProductRequest r) {
         return r.id() == null || r.id().isBlank() ? null : r.id().trim().toUpperCase(Locale.ROOT);
+    }
+
+    /**
+     * The identities the validator would also reject as duplicates inside one batch, prefixed: every GTIN, and the internal
+     * key only for an internal-identity row (the catalogue ignores the internal key of a GTIN-identity product).
+     */
+    static List<String> identityKeys(CreateProductRequest r) {
+        List<String> keys = new ArrayList<>();
+        if (r.gtins() != null) {
+            for (var g : r.gtins()) if (g != null && g.value() != null && !g.value().isBlank()) keys.add("gtin:" + g.value().trim());
+        }
+        if ("internal".equals(r.identityType()) && r.internalKey() != null && !r.internalKey().isBlank()) {
+            keys.add("key:" + r.internalKey().trim());
+        }
+        return keys.stream().distinct().toList();
     }
 
     Document toPayload(CreateProductRequest r) {
