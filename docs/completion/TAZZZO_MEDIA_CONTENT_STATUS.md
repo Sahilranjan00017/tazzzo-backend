@@ -85,20 +85,51 @@ everything ──> E2E-MEDIA (cross-channel verification) ──> staging ──
 - Open: CDN cache key must include the query string (`channel`) — enforced in MEDIA-INFRA / CloudFront cache policy;
   responses are `public, max-age=60` with no server cache.
 
-## 5. Decisions needed from the CEO
+## 5. Decisions needed from the CEO (with recommendations)
 
-0. **Free local disk** (this Mac had 0.7–2.7 GB free on 2026-10-08; Docker went read-only once). Client workstreams (CMS, website, app) need ≥ 5 GB to build and run e2e. Largest regenerable items: Docker Desktop data (16 GB), `~/.gradle/caches` (7.9 GB), finished `tazzzo-backend-*` worktrees, `tazzzo-app/composeApp/build` (1.3 GB), `~/.npm` (1.2 GB).
+Resolved on 2026-10-09: backend #104, #95, #96 merged; CMS stack #5–#22 merged; disk freed. Still open:
 
-1. **Merge approval** for #95 and #96 (after re-review of the remediation).
-2. **Paid resources**: S3 bucket + CloudFront for staging (infra #1/#2 + MEDIA-INFRA).
-3. **Image roles**: the backend `ImageRole` contract has only PRIMARY and GALLERY. Adding FRONT_PACK, BACK_PACK,
-   NUTRITION, INGREDIENTS, LIFESTYLE is a cross-repo contract change (backend + app must tolerate unknown roles first).
-4. **Banner model extension** (#102): additive fields on the public `/v1/content/home` response.
-5. **Website rate-limit identity**: to the backend the whole storefront is one client IP; one visitor can drain the shared
-   bucket. Options: dedicated storefront identity/bucket, edge per-IP limit (WAF/CloudFront), batch product read.
-6. **Canonical product-id grammar**: the app accepts only `^TZP-[0-9]+$`; backend, CMS and website accept `TZP-[A-Za-z0-9-]{1,40}`. A rail with `TZP-MED-3` renders on web but is dropped by the app. Decide which is canonical.
-7. **Recommended backend additions** surfaced by both clients: a category node-by-id read (grids of deep nodes),
-   category images, a batch product read, a banner aspect-ratio contract, and one product-id format (three differ today).
+### 5.1 Staging S3 + CloudFront spend (infra #1 → #2 → #3)
+Usage-billed, expected ≈ $0 at staging volume (S3 ≈ $0.025/GB-month; CloudFront inside the free 1 TB / 10M requests).
+Everything is gated off by default. **Needs explicit approval before `allow_media_stack` / `enable_media` are set.**
+The exact `terraform plan` cannot be produced until an operator session exists (`aws login --profile tazzzo-ceo-admin`);
+`fmt` and `validate` pass for both stacks.
+
+### 5.2 Canonical product-id grammar — **recommend: adopt `TZP-[A-Za-z0-9-]{1,40}` everywhere (the backend's)**
+| Where | Today |
+|---|---|
+| backend `ContentBlock` links/rails, OpenAPI content | `TZP-[A-Za-z0-9-]{1,40}` |
+| backend OpenAPI product path, cart | `^TZP-[0-9]+$` / `^TZP-[0-9]{1,18}$` |
+| CMS, storefront | `TZP-[A-Za-z0-9-]{1,40}` |
+| app (`ContentModels.kt`) | `^TZP-[0-9]+$` |
+Consequence of the recommendation: one app change (widen the regex, keep length ≤ 40 and the `TZP-` prefix) plus aligning
+the two narrower backend OpenAPI patterns; no data migration, since seeded ids today are numeric and the wider grammar is a
+superset. Rejecting it (numeric-only) would instead force the backend, CMS and storefront to narrow and would forbid ids such
+as `TZP-MED-3` that the import pipeline already accepts. Risk either way is low; the cost asymmetry favours widening.
+
+### 5.3 Website rate-limit identity — **recommend for launch: dedicated storefront identity + edge per-IP limit; batch read later**
+To the backend the whole storefront is one client IP, so one visitor requesting random valid-shaped product ids can drain
+the shared admission bucket for everyone (confirmed in the #20 review).
+| Option | Effect | Cost / risk |
+|---|---|---|
+| A. Dedicated storefront identity (a trusted server header → its own, larger bucket) | isolates the website from app/anon traffic; sized for server-side rendering | small backend change (trusted-caller allowlist by secret header or mTLS), config |
+| B. Edge per-IP throttling (CloudFront + WAF rate rule, or Next middleware per-IP) in front of the storefront | stops one visitor from exhausting A | WAF is a paid resource and currently denied by the infra guardrails; Next middleware is free but per-instance |
+| C. Batch product read (`GET /v1/products?ids=`) | cuts a 20-item rail from 20 calls to 1 | backend addition; also helps the app |
+Safest launch set: **A + Next-middleware per-IP limit now; C next; WAF when infra spend is approved.** A alone still lets one
+visitor starve others; B alone still shares the bucket with the app.
+
+### 5.4 Extra image roles (FRONT, BACK, INGREDIENTS, NUTRITION, LIFESTYLE) — **recommend: defer; do not implement yet**
+`ImageRole` is PRIMARY | GALLERY and is parsed with `valueOf` in the backend, the app and the CMS. Adding values is a
+three-repo contract change: (1) app and CMS must first tolerate unknown roles (today an unknown role would fail
+deserialisation), ship that, then (2) the backend adds the enum values and ordering rules (one PRIMARY, roles per SKU vs
+product), then (3) the CMS exposes them. No launch journey needs them; the gallery order already carries packaging shots.
+
+### 5.5 Backend read gaps — **recommend: implement category-by-id now; batch products with 5.3; category images later**
+- **Category node by id** (`GET /v1/categories/{id}`): required for launch quality. Without it the app walks the taxonomy
+  (up to 13 calls, ≈600 admission units) to name a grid tile and still misses deep nodes; the website cannot title deep
+  category pages. Fits the existing taxonomy read service; one endpoint, cached like `/children`.
+- **Batch products** (`GET /v1/products?ids=`, ≤ 20): removes the 20-calls-per-rail cost on both clients. Implement with 5.3.
+- **Category images**: no backend model today (category media sets); the grids render with names only. Not launch-blocking.
 
 ## 6. Propagation (current, pre-CDN)
 
