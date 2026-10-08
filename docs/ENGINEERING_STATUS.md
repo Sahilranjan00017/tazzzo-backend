@@ -1254,6 +1254,45 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
 
 ## In review (NOT merged)
 
+- **CMS banner model, reorder and admin preview** (branch `feature/content-banner-model`, stacked on `feature/content-channel-audience` / #96): **IN REVIEW**.
+  Additive only. BANNER payload gains optional `subtitle` (<=120 plain text), `altText` (<=300 plain text) and `desktopImageAssetKey`; any other type carrying
+  them is 422. Public `/v1/content/home` banners add `subtitle`, `altText` (always present: editor text else title) and `desktopImageUrl` (absent = use
+  `imageUrl`). Blocks record `createdBy`/`updatedBy` (actor ids; absent on older blocks) and the admin view adds a derived `effectiveStatus`
+  (DRAFT | SCHEDULED | LIVE | EXPIRED | ARCHIVED) and resolved `imageUrl`/`desktopImageUrl`. New admin routes: `POST /api/v1/admin/content/blocks/reorder`
+  (must list every non-archived block once with its version; all-or-nothing, 409 on any change; every move audited `CONTENT_BLOCK_REORDERED`),
+  `GET /api/v1/admin/content/preview/home?channel=app|web&drafts=&at=` (admin-only, read-only, never publishes; drafts never reach `/v1`), and
+  `POST /api/v1/admin/content/uploads` (upload target under `c/home/`, same shape as media uploads; 503 `MEDIA_STORAGE_NOT_CONFIGURED` while storage is off).
+  When storage is configured, a banner's newly referenced image keys must be under `c/home/` and pass `MediaIngestVerifier`. Evidence: `ContentBannerModelIT`
+  (6, real HTTP + Mongo), `ContentModelTest` (+2), `ContentChannelTargetingIT` still green, `ApiContractParityIT`, regenerated `docs/openapi.json`.
+  Not included: campaign link type (no campaign entity exists), service-area targeting, an explicit SCHEDULED stored state (derived instead).
+  Merge note: after #95 merges, map `MediaStorageFailure` from banner verification to 503 in the content advice (today storage-off is the only provider).
+
+
+- **Channel-targeted content (multichannel D1–D3)** (branch `feature/content-channel-audience`, from `main` `7d491dd`): **IN REVIEW**. `ContentBlock` gains
+  `audience` (APP_ONLY | WEB_ONLY | BOTH; a document without the field reads as BOTH, so no data migration, no validator and no index change: the
+  `content_by_placement_status_sort` index still serves the query and audience is a residual predicate over ≤200 blocks). HELP (FAQ) content is global
+  (D3): any other audience there is refused. Admin API: `audience` on create (absent = BOTH) and update (absent = unchanged, so an older CMS build can never
+  erase targeting), echoed on every response, `?audience=` list filter, audit detail carries it. Public API: `GET /v1/content/home?channel=app|web` (D2);
+  a request without `channel` sees BOTH only, so targeted content never reaches an unidentified platform; any other value or parameter is 400; filtering is
+  authoritative on the backend, applied in the query and again in the domain. OpenAPI documents the parameter. Not included: banner image variants (D4,
+  after the media storage adapter), CMS editors, app/website consumption. Evidence: `ContentChannelTargetingIT`, `ContentModelTest`.
+
+- **Media object storage adapter (S3-compatible)** (branch `feature/media-storage-s3`, from `main` `7d491dd`): **IN REVIEW**. `MediaStorage` gains a real
+  provider: `S3MediaStorage` (AWS SDK v2 `S3Client` + `S3Presigner`, JDK URL-connection HTTP client; the Apache 4, Apache 5 and Netty SDK clients are excluded,
+  verified on the runtime classpath, so no `httpclient`/`httpcore` jar ships) selected by `tazzzo.media.storage.provider=s3` with `MediaStorageProperties` (bucket, region default ap-south-1, optional endpoint/path-style for
+  a local store, presign TTL 30..3600 s, static credentials for a local store only, otherwise the task role). `createUpload` returns a presigned PUT whose
+  signature binds the key, `Content-Type` and `Content-Length` (the declared size); `inspect` reads HeadObject size/type plus the first 64 bytes for the
+  sniffer, and maps an unreachable or refusing store to 503 `MEDIA_STORAGE_UNAVAILABLE` (never a 500); a newly referenced key must have been issued for that
+  owner (`p/<ownerType>/<ownerId>/…`). The default stays `disabled`
+  (uploads 503). Evidence: `S3MediaStorageIT` and `MediaUploadEndToEndIT` (admin flow over HTTP against Adobe S3Mock: upload target → real PUT → verified
+  media set → readable; refusals for not-uploaded and mismatched type), `S3SignatureEnforcementIT` (Versity S3 Gateway, pinned by digest, verifies SigV4 and preconditions: wrong type, no type, larger body,
+  foreign key, tampered signature and dropped `If-None-Match` are refused with 403; stored type is the signed one; re-PUT on the same URL is 412, so verified
+  bytes are write-once; an ETag-pinned read of a changed object is 412), `MediaStorageOutageIT`, `MediaStoragePropertiesTest`. MinIO's public images are no longer
+  pullable (2026-10-07), hence the two alternative stores. Review remediation: signed `If-None-Match: *` (write-once), ETag-pinned
+  ranged read, stored-type vs sniffed-type check, 2 s/5 s SDK timeouts, and the IAM guidance corrected (`s3:ListBucket` on the `p/` prefix is required so a
+  missing key is 404, not 403-as-outage; `s3:HeadObject` is not an IAM action). Not included: the bucket/CloudFront Terraform (budget approval), variants/thumbnails, dedup, reaper,
+  bulk mapping, cache invalidation. Runbook: `docs/ops/MEDIA_STORAGE.md`.
+
 - **HTTP correctness hardening** (branch `fix/http-correctness-hardening`, from `main` `7d491dd`): **IN REVIEW**. `catalog.api.AcceptNegotiationInterceptor` decides
   `Accept` before any application handler that returns a body runs (JSON = `application/json` or `application/*+json`, via Spring MVC's own negotiation manager), so an
   unacceptable `Accept` is a 406 before any write. Before this, the address, cart, quote, COD order, support case, profile change or account deletion was committed and then

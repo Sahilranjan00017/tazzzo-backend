@@ -1760,9 +1760,19 @@ paths:
       tags:
       - content
       operationId: getHomeContent
-      summary: 'The live HOME blocks (PUBLISHED and inside their time window, by the server clock), in display order. Banners carry a resolved `imageUrl` and a `link` from a closed grammar (`product:<id>`, `category:<node id>`, `search:<text>`); product rails and category grids carry `ids` the client renders with the existing product/category endpoints. No parameters.
+      summary: 'The live HOME blocks (PUBLISHED and inside their time window, by the server clock) published to the caller''s channel, in display order. Banners carry a resolved `imageUrl` and a `link` from a closed grammar (`product:<id>`, `category:<node id>`, `search:<text>`); product rails and category grids carry `ids` the client renders with the existing product/category endpoints. The only parameter is the optional `channel`.
 
         '
+      parameters:
+      - name: channel
+        in: query
+        required: false
+        description: 'The customer platform asking: `app` or `web`. Content is published to APP_ONLY, WEB_ONLY or BOTH; a request without `channel` (every client before multichannel) sees BOTH only, so targeted content never reaches an unidentified platform. Filtering is authoritative on the backend. Any other value, or any other parameter, is 400.'
+        schema:
+          type: string
+          enum:
+          - app
+          - web
       responses:
         '200':
           description: 'OK. `Cache-Control: public, max-age=60`.'
@@ -1793,8 +1803,18 @@ paths:
                           - CATEGORY_GRID
                         title:
                           type: string
+                        subtitle:
+                          type: string
+                          description: BANNER only, optional plain text (<= 120 chars).
+                        altText:
+                          type: string
+                          description: BANNER only, always present - the editor's alt text, else the title.
                         imageUrl:
                           type: string
+                          description: BANNER only. The image every client may use (mobile / app).
+                        desktopImageUrl:
+                          type: string
+                          description: BANNER only, optional wide image for desktop web; absent means use imageUrl.
                         link:
                           type: string
                         ids:
