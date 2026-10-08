@@ -67,7 +67,7 @@ class ContentModelTest {
         Instant t = Instant.parse("2026-10-05T00:00:00Z");
         bad("empty window", ContentBlock.Type.PRODUCT_RAIL, "T", 1, t, t, ids("TZP-1"));
         ContentBlock b = new ContentBlock("CB_x", ContentBlock.Placement.HOME, ContentBlock.Type.PRODUCT_RAIL, "T", 1,
-                ContentBlock.Status.PUBLISHED, t, t.plusSeconds(60), ids("TZP-1"), 1, t, t);
+                ContentBlock.Status.PUBLISHED, t, t.plusSeconds(60), ids("TZP-1"), ContentBlock.Audience.BOTH, 1, t, t);
         assertThat(b.isLiveAt(t.minusMillis(1))).isFalse();
         assertThat(b.isLiveAt(t)).isTrue();
         assertThat(b.isLiveAt(t.plusSeconds(60))).as("end is exclusive").isFalse();
@@ -141,5 +141,35 @@ class ContentModelTest {
             assertThatThrownBy(() -> legal(null, bad, null).validate()).as("privacy " + bad).isInstanceOf(IllegalArgumentException.class);
             assertThatThrownBy(() -> legal(null, null, bad).validate()).as("refund " + bad).isInstanceOf(IllegalArgumentException.class);
         }
+    }
+
+    @Test
+    void audience_visibility_follows_the_channel_and_legacy_means_both() {
+        assertThat(ContentBlock.audience(null)).isEqualTo(ContentBlock.Audience.BOTH);
+        assertThat(ContentBlock.audience("APP_ONLY")).isEqualTo(ContentBlock.Audience.APP_ONLY);
+        assertThatThrownBy(() -> ContentBlock.audience("app")).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("audience");
+        assertThatThrownBy(() -> ContentBlock.audience("ALL")).isInstanceOf(IllegalArgumentException.class);
+        for (ContentBlock.Channel c : ContentBlock.Channel.values()) assertThat(ContentBlock.Audience.BOTH.visibleTo(c)).isTrue();
+        assertThat(ContentBlock.Audience.BOTH.visibleTo(null)).as("an unidentified platform sees BOTH").isTrue();
+        assertThat(ContentBlock.Audience.APP_ONLY.visibleTo(ContentBlock.Channel.APP)).isTrue();
+        assertThat(ContentBlock.Audience.APP_ONLY.visibleTo(ContentBlock.Channel.WEB)).isFalse();
+        assertThat(ContentBlock.Audience.APP_ONLY.visibleTo(null)).as("never leaks to an unidentified platform").isFalse();
+        assertThat(ContentBlock.Audience.WEB_ONLY.visibleTo(ContentBlock.Channel.WEB)).isTrue();
+        assertThat(ContentBlock.Audience.WEB_ONLY.visibleTo(ContentBlock.Channel.APP)).isFalse();
+        assertThat(ContentBlock.Audience.WEB_ONLY.visibleTo(null)).isFalse();
+    }
+
+    @Test
+    void channel_is_a_closed_lowercase_choice_and_help_content_is_global() {
+        assertThat(ContentBlock.Channel.parse("app")).isEqualTo(ContentBlock.Channel.APP);
+        assertThat(ContentBlock.Channel.parse("web")).isEqualTo(ContentBlock.Channel.WEB);
+        for (String bad : new String[]{"APP", "ios", "android", " app", "", null}) {
+            assertThatThrownBy(() -> ContentBlock.Channel.parse(bad)).as(String.valueOf(bad)).isInstanceOf(IllegalArgumentException.class);
+        }
+        ContentBlock.requireAudience(ContentBlock.Placement.HOME, ContentBlock.Audience.APP_ONLY);
+        ContentBlock.requireAudience(ContentBlock.Placement.HELP, ContentBlock.Audience.BOTH);
+        assertThatThrownBy(() -> ContentBlock.requireAudience(ContentBlock.Placement.HELP, ContentBlock.Audience.WEB_ONLY))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("global");
+        assertThatThrownBy(() -> ContentBlock.requireAudience(ContentBlock.Placement.HOME, null)).isInstanceOf(IllegalArgumentException.class);
     }
 }

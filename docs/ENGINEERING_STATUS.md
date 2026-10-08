@@ -1254,6 +1254,15 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
 
 ## In review (NOT merged)
 
+- **Channel-targeted content (multichannel D1–D3)** (branch `feature/content-channel-audience`, from `main` `7d491dd`): **IN REVIEW**. `ContentBlock` gains
+  `audience` (APP_ONLY | WEB_ONLY | BOTH; a document without the field reads as BOTH, so no data migration, no validator and no index change: the
+  `content_by_placement_status_sort` index still serves the query and audience is a residual predicate over ≤200 blocks). HELP (FAQ) content is global
+  (D3): any other audience there is refused. Admin API: `audience` on create (absent = BOTH) and update (absent = unchanged, so an older CMS build can never
+  erase targeting), echoed on every response, `?audience=` list filter, audit detail carries it. Public API: `GET /v1/content/home?channel=app|web` (D2);
+  a request without `channel` sees BOTH only, so targeted content never reaches an unidentified platform; any other value or parameter is 400; filtering is
+  authoritative on the backend, applied in the query and again in the domain. OpenAPI documents the parameter. Not included: banner image variants (D4,
+  after the media storage adapter), CMS editors, app/website consumption. Evidence: `ContentChannelTargetingIT`, `ContentModelTest`.
+
 - **Media object storage adapter (S3-compatible)** (branch `feature/media-storage-s3`, from `main` `7d491dd`): **IN REVIEW**. `MediaStorage` gains a real
   provider: `S3MediaStorage` (AWS SDK v2 `S3Client` + `S3Presigner`, JDK URL-connection HTTP client; the Apache 4, Apache 5 and Netty SDK clients are excluded,
   verified on the runtime classpath, so no `httpclient`/`httpcore` jar ships) selected by `tazzzo.media.storage.provider=s3` with `MediaStorageProperties` (bucket, region default ap-south-1, optional endpoint/path-style for

@@ -2367,6 +2367,13 @@
           "schema" : {
             "type" : "string"
           }
+        }, {
+          "name" : "audience",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
         } ],
         "responses" : {
           "200" : {
@@ -4290,6 +4297,9 @@
           "expectedVersion" : {
             "type" : "integer",
             "format" : "int64"
+          },
+          "audience" : {
+            "type" : "string"
           }
         }
       },
@@ -4349,6 +4359,9 @@
           },
           "payload" : {
             "$ref" : "#/components/schemas/PayloadDto"
+          },
+          "audience" : {
+            "type" : "string"
           },
           "version" : {
             "type" : "integer",
