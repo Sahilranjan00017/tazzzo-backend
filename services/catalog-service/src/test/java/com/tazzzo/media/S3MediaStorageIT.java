@@ -83,8 +83,8 @@ class S3MediaStorageIT {
         Optional<StoredObject> stored = storage.inspect(key);
         assertThat(stored).isPresent();
         assertThat(stored.get().sizeBytes()).isEqualTo(PNG.length);
-        // S3Mock does not persist the Content-Type of a presigned PUT (AWS S3 and CloudServer do: see
-        // S3SignatureEnforcementIT); the verifier never trusts the stored type anyway -- it sniffs the bytes.
+        // S3Mock may not persist the Content-Type of a presigned PUT (AWS S3 and Versity do: see S3SignatureEnforcementIT).
+        // The verifier sniffs the bytes AND requires a reported stored type to match them, so a mislabelled object is refused.
         assertThat(stored.get().contentType()).isIn("image/png", "application/octet-stream");
         assertThat(stored.get().head()).startsWith((byte) 0x89, (byte) 'P', (byte) 'N', (byte) 'G');
         assertThat(MediaSniffer.detect(stored.get().head())).contains("image/png");

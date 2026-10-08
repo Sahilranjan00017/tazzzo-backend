@@ -132,7 +132,8 @@ public final class S3MediaStorage implements MediaStorage {
                 long last = Math.min(size, HEAD_BYTES) - 1;
                 // pinned to the object HEAD described: a swap between the two calls fails (412) instead of mixing objects
                 GetObjectRequest.Builder get = GetObjectRequest.builder().bucket(bucket).key(assetKey).range("bytes=0-" + last);
-                if (head.eTag() != null) get.ifMatch(head.eTag());
+                // a weak ETag (W/"...") never satisfies If-Match's strong comparison: only pin to a strong one
+                if (head.eTag() != null && !head.eTag().startsWith("W/")) get.ifMatch(head.eTag());
                 ResponseBytes<GetObjectResponse> bytes = s3.getObject(get.build(), ResponseTransformer.toBytes());
                 first = bytes.asByteArray();
             }

@@ -48,12 +48,12 @@ Startup logs `media_storage provider=s3 bucket=… region=… endpoint=… crede
 
 ## AWS resources required for `provider=s3` (not yet provisioned; tracked as blocker B3 in the completion trackers)
 1. Private bucket in ap-south-1, block public access, SSE-S3, versioning optional; **CORS**: allow `PUT` from the CMS
-   origin with `Content-Type`; **lifecycle**: abort incomplete multipart after 1 day, and expire objects under
-   `p/` that are not referenced (the reference reaper is a later PR; until then, expire nothing — an unreferenced
+   origin with `Content-Type` and `If-None-Match` (the bucket-wide CORS rule covers `p/` and `c/`); **lifecycle**: abort incomplete multipart after 1 day, and expire objects under
+   `p/` or `c/` that are not referenced (the reference reaper is a later PR; until then, expire nothing — an unreferenced
    object is bounded in size by the signed `Content-Length` and in count by cms-writer trust).
 2. Task-role policy (least privilege): `s3:PutObject` (only via presign, so the role needs it) and `s3:GetObject` (it
-   also authorises HeadObject; there is no `s3:HeadObject` action) on `arn:aws:s3:::<bucket>/p/*`, plus `s3:ListBucket`
-   on `arn:aws:s3:::<bucket>` with condition `s3:prefix` = `p/*`. **The ListBucket grant is required**: without it S3
+   also authorises HeadObject; there is no `s3:HeadObject` action) on `arn:aws:s3:::<bucket>/p/*` **and** `arn:aws:s3:::<bucket>/c/*` (product media and CMS content imagery, e.g.
+   banners under `c/home/`), plus `s3:ListBucket` on `arn:aws:s3:::<bucket>` with condition `s3:prefix` in `p/*`, `c/*`. **The ListBucket grant is required**: without it S3
    answers HeadObject on a missing key with 403, which the service must treat as an outage (503
    `MEDIA_STORAGE_UNAVAILABLE`) rather than "not uploaded yet" (422). Nothing else (no DeleteObject).
    Presigned PUTs are write-once: the signature binds `If-None-Match: *`, so an existing key is never overwritten (S3
