@@ -1263,14 +1263,17 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   point read does for every row it can read). The query
   grammar is closed (only those four names, once each, never empty; anything else is 422 `INVALID_INVENTORY` with a sanitised message). A stored row
   that breaks the record invariants (missing field, non-numeric counter, `reserved > on_hand`) is left out and counted in a WARN, the cursor still
-  moves past it, and the state filters guard their `$expr` with `$isNumber`, so such a row matches no state instead of failing the query; a row
-  whose `sku_id` or location is not a string cannot be positioned and is outside the scan altogether. Cursors fit two 128-char ids of any script.
+  moves past it, and the state filters guard their `$expr` with `$isNumber`, so such a row matches no state instead of failing the query; only rows whose two ids
+  can be a cursor position are scanned at all (each a real string — not missing, not an array holding one — of 1..128 code points); anything else
+  could never be paged past, so it is outside the list. Every cursor the list issues decodes (bound 1,400 chars).
   Neither filter can seek on the `(sku_id, location)` index — a sparse location or state filter examines up to the rest of the collection — so the
   query is bounded by `maxTimeMS` 2 s (then 503 `LIST_TIMEOUT`); a `(fulfillment_location_id, sku_id)` index is the follow-up if location lists
   must stay fast past a few hundred thousand stock rows. Independent review of the first head (NEEDS-CHANGES: `|` in a SKU looped the cursor; the
   OpenAPI response pointed at another `PageResponse`; a non-numeric limit leaked Java type names; corrupt rows 500'd or blocked paging; plan claims
   overstated) — all fixed; re-review of `2eec7f5` (NEEDS-CHANGES: a row with no `sku_id` made a "null" cursor that hid the rows after it; a
-  non-numeric counter 500'd state filters; long-id cursors exceeded the decode bound) — all fixed, three mutants killed. Evidence: `InventoryAdminListIT` (every row exactly once at page sizes 1–200 incl. a `|` SKU and corrupt rows, filters
+  non-numeric counter 500'd state filters; long-id cursors exceeded the decode bound) — all fixed, three mutants killed; final review of `057b7a4` (NEEDS-CHANGES: `$type: string`
+  also matches an array holding a string → 500 when it ended a page; empty/over-long stored ids made refused cursors) — fixed by one positionability
+  guard, mutant killed. Evidence: `InventoryAdminListIT` (every row exactly once at page sizes 1–200 incl. a `|` SKU and corrupt rows, filters
   and their partition, field-by-field equality with the point read, closed grammar, the generated contract's shapes). Not done: deltas/reasons
   history, a location registry; the generated spec lists no query parameters for this or any other raw-parameter admin list (repo-wide gap).
 

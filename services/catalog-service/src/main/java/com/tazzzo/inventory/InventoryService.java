@@ -422,10 +422,10 @@ public class InventoryService implements InventoryReadPort {
         if (limit < 1 || limit > LIST_MAX_LIMIT) {
             throw new InvalidInventoryException("limit must be between 1 and " + LIST_MAX_LIMIT);
         }
-        // only rows whose key is two strings can be listed AND positioned: a row with a missing or non-string id is out of
-        // the scan entirely (a cursor built from it would be the string "null" and silently hide the rows after it)
-        List<Bson> filters = new ArrayList<>(List.of(Filters.type("sku_id", org.bson.BsonType.STRING),
-                Filters.type("fulfillment_location_id", org.bson.BsonType.STRING)));
+        // only rows whose two ids can be a cursor position are scanned: each a real string (not missing, not an array that
+        // merely contains one), non-empty, at most a key's length. Anything else could never be paged past — a cursor built
+        // from it would be wrong, unreadable or refused — so it is outside the list altogether.
+        List<Bson> filters = new ArrayList<>(List.of(POSITIONABLE));
         if (fulfillmentLocationId != null) {
             new InventoryKey("TZP-0", fulfillmentLocationId);   // the same location rule as every point read
             filters.add(Filters.eq("fulfillment_location_id", fulfillmentLocationId));
@@ -474,6 +474,17 @@ public class InventoryService implements InventoryReadPort {
     }
 
     static final long LIST_MAX_TIME_MS = 2_000;
+
+    private static final Bson POSITIONABLE = Filters.expr(new Document("$and", List.of(
+            positionable("$sku_id"), positionable("$fulfillment_location_id"))));
+
+    /** A string of 1..MAX_ID code points; {@code $and} short-circuits, so {@code $strLenCP} only ever sees a string. */
+    private static Document positionable(String field) {
+        return new Document("$and", List.of(
+                new Document("$eq", List.of(new Document("$type", field), "string")),
+                new Document("$gt", List.of(new Document("$strLenCP", field), 0)),
+                new Document("$lte", List.of(new Document("$strLenCP", field), InventoryKey.MAX_ID))));
+    }
 
     public static final int LIST_MAX_LIMIT = 200;
 

@@ -60,6 +60,11 @@ class InventoryAdminListIT extends AbstractApiIT {
         db.getCollection("inventory").insertOne(noSku);
         db.getCollection("inventory").insertOne(raw("TZP-INV-77", "FL-C", 3, 0).append("fulfillment_location_id", 42).append("low_stock_threshold", 5L).append("active", true));
         db.getCollection("inventory").insertOne(raw("TZP-INV-9", "FL-C", 3, 0).append("on_hand", "x").append("low_stock_threshold", 5L).append("active", true));
+        // ids no cursor could ever position on (an array holding a string; empty; longer than a key) are outside the list
+        db.getCollection("inventory").insertOne(raw("x", "FL-C", 3, 0).append("sku_id", List.of("TZP-INV-A")).append("low_stock_threshold", 5L).append("active", true));
+        db.getCollection("inventory").insertOne(raw("", "FL-C", 3, 0).append("low_stock_threshold", 5L).append("active", true));
+        db.getCollection("inventory").insertOne(raw("TZP-INV-L" + "Z".repeat(200), "FL-C", 3, 0).append("low_stock_threshold", 5L).append("active", true));
+        db.getCollection("inventory").insertOne(raw("TZP-INV-B", "FL-C", 3, 0).append("fulfillment_location_id", List.of("FL-0", 5)).append("low_stock_threshold", 5L).append("active", true));
         // a valid row whose location is 128 three-byte characters: the cursor positioned on it is long and must still decode
         db.getCollection("inventory").insertOne(raw("TZP-INV-0", LONG_LOC, 20, 0).append("low_stock_threshold", 5L).append("active", true));
     }
@@ -133,6 +138,7 @@ class InventoryAdminListIT extends AbstractApiIT {
 
     @Test
     void the_location_and_state_filters_use_the_same_arithmetic_as_the_point_read() {
+        assertThat(walk("&location=FL-C", 1)).as("only the positionable FL-C rows").containsExactly("TZP-INV-8@FL-C:INACTIVE");
         assertThat(walk("&location=FL-1", 2)).containsExactly("TZP-INV-1@FL-1:IN_STOCK", "TZP-INV-2@FL-1:LOW_STOCK",
                 "TZP-INV-3@FL-1:OUT_OF_STOCK", "TZP-INV-4@FL-1:INACTIVE", "TZP-INV-5|X@FL-1:IN_STOCK");
         assertThat(keys(get(LIST + "?state=LOW_STOCK", R, JsonNode.class).getBody()))
