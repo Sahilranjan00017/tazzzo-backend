@@ -6,22 +6,22 @@ website). Statuses are evidence-based; "code exists" is never "done".
 Allowed statuses: `NOT_STARTED` · `PARTIAL` · `IMPLEMENTED_UNMERGED` · `MERGED_UNVERIFIED` · `INTEGRATED_VERIFIED` ·
 `STAGING_VERIFIED` · `LIVE_VERIFIED` · `BLOCKED_EXTERNAL`.
 
-Last audit: 2026-10-08 (live GitHub state; backend `main` = `e05f22e`, includes #93 and #98).
+Last audit: 2026-10-09 (live GitHub state; backend `main` = `5191eb7`; web `main` = `3be81e0`).
 
 ## 1. Existing PRs (Phase 0 audit)
 
 | PR | Repo | Branch → base | Head | CI | Independent review | Merge |
 |---|---|---|---|---|---|---|
-| #95 S3-compatible media storage | backend | `feature/media-storage-s3` → `main` | `cbd714a` | 4/4 green (full suite in CI) | PASS_WITH_FOLLOWUPS → remediated; re-review PASS_WITH_FOLLOWUPS (minors fixed in `69b214c`) | unmerged, needs CEO approval | unmerged, needs CEO approval |
-| #96 APP/WEB/BOTH targeting | backend | `feature/content-channel-audience` → `main` | `8b059bb` (main merged) | 4/4 green (full suite in CI) | PASS_WITH_FOLLOWUPS → remediated; re-review PASS_WITH_FOLLOWUPS | unmerged, needs CEO approval |
-| #16 CMS media | web | `cms/07-media` → `cms/14-audit-status` (stack #5→#19) | `c3ab2cd` | 7/7 green | PASS_WITH_FOLLOWUPS — metadata editor only, **uploads no bytes** | unmerged; whole CMS stack unmerged |
-| #24 App home content | app | `feature/app-home-content` → `main` | `c5caed0` | 4/4 green (linux + macos/iOS); 1096/1096 Android + iOS | PASS_WITH_FOLLOWUPS ×2 → all remediated | unmerged; **must not ship before #96 is deployed** |
-| #102 banner model / reorder / preview (new) | backend | `feature/content-banner-model` → `feature/content-channel-audience` | `db3623c` | targeted ITs 28/28 local; CI runs once retargeted to `main` (workflow is main-only) | PASS_WITH_FOLLOWUPS → fixes in `6ee6d54`, `db3623c` | unmerged; retarget to main after #96 |
-| web #20 customer storefront (new) | web | `web/01-storefront` → `main` | `7ff5e3b` | 9/9 green incl. storefront e2e dev 14/14 + production-build 4/4 | PASS_WITH_FOLLOWUPS → all code findings remediated | unmerged |
+| #95 S3-compatible media storage | backend | `feature/media-storage-s3` → `main` | `92190c3` | 4/4 green; main CI green after merge | PASS_WITH_FOLLOWUPS → remediated; re-review PASS_WITH_FOLLOWUPS | **MERGED** squash `70021ce` | unmerged, needs CEO approval |
+| #96 APP/WEB/BOTH targeting | backend | `feature/content-channel-audience` → `main` | `adb80af` | 4/4 green; main CI green after merge | PASS_WITH_FOLLOWUPS → remediated; re-review PASS_WITH_FOLLOWUPS | **MERGED** squash `afa1a9a` | unmerged, needs CEO approval |
+| #16 CMS media | web | `cms/07-media` → `cms/14-audit-status` (stack #5→#19) | `c3ab2cd` | 7/7 green | PASS_WITH_FOLLOWUPS — followed up by #21 | **MERGED** (merge commit, CMS stack #5–#22 all merged; web main `3be81e0`, CI 7/7) |
+| #24 App home content | app | `feature/app-home-content` → `main` | `c5caed0` | 4/4 green; 1096/1096 Android + iOS re-run 2026-10-09 | final verification READY_TO_MERGE_AFTER_BACKEND_DEPLOY | unmerged — **waits for a deployed backend with channel targeting** |
+| #102 banner model / reorder / preview (new) | backend | `feature/content-banner-model` → `feature/content-channel-audience` | `cd07e50` (as PR #106; #102 was auto-closed when its base branch was deleted) | 4/4 green (one unrelated session-test flake, green on rerun) | PASS_WITH_FOLLOWUPS → remediated; carries the 503 fix from #105 | **MERGED** squash `5191eb7` |
+| web #20 customer storefront (new) | web | `web/01-storefront` → `main` | `fd00305` (= reviewed `7ff5e3b` + web main merged; 0-line diff in apps/storefront) | 9/9 green | PASS_WITH_FOLLOWUPS → remediated; final head verified | unmerged — **merge gate presented** |
 | infra #3 media S3 + CloudFront | infrastructure | `feature/infra-2-media` → `feature/infra-1-staging-foundation` | `b716efd` | fmt + validate both stacks (no CI in repo) | PASS_WITH_FOLLOWUPS → remediated | unmerged; gated off; needs spend approval |
-| web #21 CMS media upload | web | `cms/20-media-upload` → `cms/16-qa-security` | `29d13cd` | 7/7 green | PASS_WITH_FOLLOWUPS → remediated | unmerged (CMS stack) |
-| web #22 CMS home content | web | `cms/21-home-content` → `cms/20-media-upload` | `ef88d23` | 7/7 green | PASS_WITH_FOLLOWUPS → remediated | unmerged (CMS stack) |
-| backend #105 integration preview (draft) | backend | `integration/media-content` → `main` | `198fc07` | **4/4 green: full suite on #95+#96+#102 combined** | n/a — DO NOT MERGE | carries the banner-outage→503 fix into #102 after #95 merges |
+| web #21 CMS media upload | web | `cms/20-media-upload` → `cms/16-qa-security` | `29d13cd` | 7/7 green | PASS_WITH_FOLLOWUPS → remediated | **MERGED** `07fcc7f` |
+| web #22 CMS home content | web | `cms/21-home-content` → `cms/20-media-upload` | `ef88d23` | 7/7 green | PASS_WITH_FOLLOWUPS → remediated | **MERGED** `3be81e0` (web main) |
+| backend #105 integration preview (draft) | backend | `integration/media-content` → `main` | `198fc07` | 4/4 green: full suite on #95+#96+#102 combined | n/a | **CLOSED without merge** (evidence only) | carries the banner-outage→503 fix into #102 after #95 merges |
 | backend #104 flaky checkout snapshot tests (new) | backend | `fix/checkout-money-snapshot-flaky` → `main` | see PR | — | test-only | unmerged |
 | web #23 local E2E harness (draft) | web | `e2e/media-content-local` → `main` | `7bcb44e` | 11/11 Playwright journeys, 5.1 min, stack rebuilt from scratch | evidence in `e2e/local-stack/EVIDENCE_2026-10-08.md` | DO NOT MERGE to main as product; harness only |
 | #1, #2 staging infra | infrastructure | `infra-0` → `main`, `infra-1` → `infra-0` | `bfd335e` | none | not reviewed in this workstream | unmerged, not applied |
@@ -46,19 +46,19 @@ everything ──> E2E-MEDIA (cross-channel verification) ──> staging ──
 
 | # | Feature | Repo | Branch / PR | Status | Evidence | External blocker | Next step |
 |---|---|---|---|---|---|---|---|
-| 1 | Media upload init (presigned PUT) | backend | #95 | IMPLEMENTED_UNMERGED | S3MediaStorageIT, MediaUploadEndToEndIT (S3Mock), S3SignatureEnforcementIT (Versity S3 Gateway, SigV4 + preconditions) | — | CEO merge approval |
-| 2 | Magic-byte / MIME / size verification at reference time | backend | main + #95 | IMPLEMENTED_UNMERGED | MediaIngestUnitTest, E2E IT refusals | — | dimension/decode check not implemented (follow-up) |
-| 3 | Write-once uploads (no overwrite of verified bytes) | backend | #95 remediation | IMPLEMENTED_UNMERGED | S3SignatureEnforcementIT: re-PUT → 412 | — | push + re-review |
+| 1 | Media upload init (presigned PUT) | backend | #95 | MERGED_UNVERIFIED (local INTEGRATED_VERIFIED) | S3MediaStorageIT, MediaUploadEndToEndIT (S3Mock), S3SignatureEnforcementIT (Versity S3 Gateway, SigV4 + preconditions) | — | CEO merge approval |
+| 2 | Magic-byte / MIME / size verification at reference time | backend | main | MERGED_UNVERIFIED (local INTEGRATED_VERIFIED) | MediaIngestUnitTest, E2E IT refusals | — | dimension/decode check not implemented (follow-up) |
+| 3 | Write-once uploads (no overwrite of verified bytes) | backend | #95 | MERGED_UNVERIFIED (local INTEGRATED_VERIFIED) | S3SignatureEnforcementIT: re-PUT → 412 | — | push + re-review |
 | 4 | Product media set metadata (roles, alt, order, primary) | backend | main | MERGED_UNVERIFIED | existing ITs; roles limited to PRIMARY/GALLERY | — | role expansion decision (see §5) |
 | 5 | Public delivery URL / CDN base URL | backend | main (`MediaUrlResolver`) | PARTIAL | unit tests only; no CDN exists | CDN not provisioned | MEDIA-INFRA |
 | 6 | Cache-Control / versioned URLs / invalidation | backend + infra | — | NOT_STARTED | keys are unique per upload (implicitly versioned) | CDN | define in MEDIA-INFRA |
 | 7 | Unreferenced-object reaper / lifecycle | backend + infra | — | NOT_STARTED | — | bucket | follow-up PR |
-| 8 | Channel targeting APP/WEB/BOTH (backend) | backend | #96 | IMPLEMENTED_UNMERGED | ContentChannelTargetingIT (real HTTP + Mongo) 5→7 tests | — | push remediation; CEO merge approval |
-| 9 | Banner model: subtitle, desktop image, alt, createdBy/updatedBy, derived scheduled state, reorder, preview, banner uploads | backend | #102 | IMPLEMENTED_UNMERGED | ContentBannerModelIT 6/6 (real HTTP + Mongo) | — | review; campaign links + service-area targeting not implemented (no backend entity) |
-| 10 | CMS media: metadata editor | web | #16 | IMPLEMENTED_UNMERGED | 7/7 CI | — | merge with stack |
-| 11 | CMS media: real upload, progress, preview, replace, retry | web | #21 | IMPLEMENTED_UNMERGED | unit 433, e2e (fake backend + fake storage, no cookie/Authorization to storage asserted), CI 7/7 | depends on #95 | implement |
-| 12 | CMS banners / rails / grids | web | #22 | IMPLEMENTED_UNMERGED | unit 523, e2e 55, CI 7/7 | depends on #102 | implement |
-| 13 | CMS preview (app / desktop / mobile web) | web + backend | #102 + #22 | IMPLEMENTED_UNMERGED | admin-only preview endpoint (ContentBannerModelIT); CMS crops pinned to storefront/app ratios | — | implement |
+| 8 | Channel targeting APP/WEB/BOTH (backend) | backend | #96 | MERGED_UNVERIFIED (local INTEGRATED_VERIFIED) | ContentChannelTargetingIT (real HTTP + Mongo) 5→7 tests | — | push remediation; CEO merge approval |
+| 9 | Banner model: subtitle, desktop image, alt, createdBy/updatedBy, derived scheduled state, reorder, preview, banner uploads | backend | #106 (was #102) | MERGED_UNVERIFIED (local INTEGRATED_VERIFIED) | ContentBannerModelIT 6/6 (real HTTP + Mongo) | — | review; campaign links + service-area targeting not implemented (no backend entity) |
+| 10 | CMS media: metadata editor | web | #16 | MERGED_UNVERIFIED | 7/7 CI | — | merge with stack |
+| 11 | CMS media: real upload, progress, preview, replace, retry | web | #21 | MERGED_UNVERIFIED (API-level journey INTEGRATED_VERIFIED locally; CMS UI not driven) | unit 433, e2e (fake backend + fake storage, no cookie/Authorization to storage asserted), CI 7/7 | depends on #95 | implement |
+| 12 | CMS banners / rails / grids | web | #22 | MERGED_UNVERIFIED (API-level journey INTEGRATED_VERIFIED locally; CMS UI not driven) | unit 523, e2e 55, CI 7/7 | depends on #102 | implement |
+| 13 | CMS preview (app / desktop / mobile web) | web + backend | #106 + #22 | MERGED_UNVERIFIED | admin-only preview endpoint (ContentBannerModelIT); CMS crops pinned to storefront/app ratios | — | implement |
 | 14 | App: CMS banners/rails/grids, channel=app | app | #24 | IMPLEMENTED_UNMERGED | 1089 tests Android + iOS, CI green; pull-to-refresh, foreground refresh, backoff, no-flash rails, a11y, subtitle | needs #96 deployed | on-device check (pull gesture, foreground, TalkBack/VoiceOver) |
 | 15 | App: product images from backend media | app | main | MERGED_UNVERIFIED | remote image pipeline (UI-03) | no real media bucket | E2E with staging storage |
 | 16 | Customer website (home, banners, rails, grids, PDP gallery) | web | #20 | IMPLEMENTED_UNMERGED | unit 114/114, e2e 13/13 (fake backend, channel=web asserted), CI 8/8 | shared rate-limit identity (see §5) | build storefront app |
