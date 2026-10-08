@@ -1296,6 +1296,13 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
 
 ## In review (NOT merged)
 
+- **Category by id** (branch `feature/category-by-id`, from `main` `07be0e4`): **IN REVIEW**. `GET /v1/categories/{id}` returns one consumer-visible taxonomy node of any
+  level as `{id, name, resolvedReleaseId, requestId}` (`allOf(Node, ...)`, the CAT-NODE-1 node flattened like ProductDetail), so a client can name a grid tile or title a deep category
+  page without walking the tree. Visible exactly when `/children` would be 200 for the same id: `ConsumerTaxonomyService.node` is CHILD-1 with no candidates (TAX-REACH-1, charge 1
+  before a 404, cost `1 + |scope|`, PARENT probe), under its own admission label `commerce_node`. Unknown, deprecated/merged (or an ancestor) and consumer-empty are the same flat 404;
+  a malformed id (`^TZ[SCGV]-[0-9]{6}$`) is 400 `INVALID_REQUEST`, refused before anything is read or charged. Same `public, max-age=300` Cache-Control and content-hash ETag/304
+  as the sibling reads. `parent_id` and a level/node type are NOT exposed: CAT-NODE-1 lists `parent_id` as not exposed and defers `nodeType`, so adding them is escalated, not decided here.
+  Evidence: `CommerceCategoryNodeIT` (12 HTTP tests), `ApiContractParityIT`, `OpenApiExportIT`.
 - **HTTP correctness hardening** (branch `fix/http-correctness-hardening`, from `main` `7d491dd`): **IN REVIEW**. `catalog.api.AcceptNegotiationInterceptor` decides
   `Accept` before any application handler that returns a body runs (JSON = `application/json` or `application/*+json`, via Spring MVC's own negotiation manager), so an
   unacceptable `Accept` is a 406 before any write. Before this, the address, cart, quote, COD order, support case, profile change or account deletion was committed and then

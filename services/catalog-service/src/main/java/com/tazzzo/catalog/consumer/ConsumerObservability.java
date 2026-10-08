@@ -60,6 +60,8 @@ public class ConsumerObservability {
         COMMERCE_LIST("commerce_list"), COMMERCE_PDP("commerce_pdp"),
         COMMERCE_SERVICEABILITY("commerce_serviceability"),
         COMMERCE_SEARCH("commerce_search"),
+        // GET /v1/categories/{id}: one node by id, charged and probed like CHILDREN with no candidates.
+        COMMERCE_NODE("commerce_node"),
         CONTENT_HOME("content_home"), CONTENT_FAQS("content_faqs"), APP_CONFIG("app_config");
 
         private final String tag;

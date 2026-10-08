@@ -7,6 +7,7 @@ import com.tazzzo.catalog.consumer.ConsumerTaxonomyService;
 import com.tazzzo.catalog.ratelimit.ClientIpResolver;
 import com.tazzzo.catalog.ratelimit.ClientIpUnresolvableException;
 import com.tazzzo.catalog.ratelimit.InstallationIdResolver;
+import com.tazzzo.commerce.api.dto.NodeDetailDto;
 import com.tazzzo.commerce.api.dto.NodeListResponse;
 import com.tazzzo.commerce.api.dto.PagedProductResponse;
 import com.tazzzo.commerce.api.dto.ProductDetailDto;
@@ -30,6 +31,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Duration;
 import java.util.function.Supplier;
+import java.util.regex.Pattern;
 
 /**
  * The public customer-facing commerce read transport (PR-10B). Q4-style transport ONLY: it parses
@@ -51,6 +53,8 @@ public class CommerceReadController {
     private static final String CACHE_PUBLIC = "public, max-age=300, stale-while-revalidate=60";
     private static final String CACHE_PRIVATE_NO_STORE = "private, no-store";
     private static final String REQUEST_ID_ATTR = com.tazzzo.catalog.api.RequestIdFilter.REQUEST_ID;
+    /** The taxonomy node id grammar (super-category, category, sub-category, vertical), as in docs/api/v1. */
+    private static final Pattern NODE_ID = Pattern.compile("TZ[SCGV]-[0-9]{6}");
 
     private final ConsumerTaxonomyService taxonomy;
     private final CommerceListService list;
@@ -99,7 +103,29 @@ public class CommerceReadController {
     }
 
     /**
-     * PR-10C — categories/children ONLY. Cache-Control is set here (never before the delegate
+     * One consumer-visible taxonomy node by id, so a client can name a node (a grid tile, a deep
+     * category page) without walking the tree. Same reachability, charge and PARENT probe as
+     * CHILDREN with no candidates ({@link ConsumerTaxonomyService#node}): unknown, hidden and
+     * consumer-empty are the same flat 404. A malformed id is this route's own 400, refused before
+     * the release is resolved or anything is charged. Same public Cache-Control and content-hash
+     * ETag as the sibling taxonomy reads, set only on success.
+     */
+    @GetMapping("/categories/{id}")
+    public ResponseEntity<NodeDetailDto> category(@PathVariable("id") String nodeId,
+                                                  @RequestParam(name = "release", required = false) String release,
+                                                  HttpServletRequest request) {
+        return measured(ConsumerObservability.Route.COMMERCE_NODE, () -> {
+            if (!NODE_ID.matcher(nodeId).matches()) {
+                throw new ConsumerFailures.InvalidRequest("malformed node id");
+            }
+            NodeListResponse single = RuntimeToDtoMapper.nodes(taxonomy.node(nodeId, release, identity(request),
+                    ConsumerObservability.Route.COMMERCE_NODE), requestId(request));
+            return conditional(TaxonomyETag.compute("node", nodeId, single), RuntimeToDtoMapper.node(single), request);
+        });
+    }
+
+    /**
+     * PR-10C — categories/children/node ONLY. Cache-Control is set here (never before the delegate
      * call succeeds — see PR-10C cache-safety note on {@link CommerceExceptionHandler}) so an error
      * can never inherit the public cache header. A deterministic content-hash {@code ETag}
      * ({@link TaxonomyETag}) is computed from the ACTUAL visible item set, never from
@@ -108,7 +134,11 @@ public class CommerceReadController {
      */
     private ResponseEntity<NodeListResponse> taxonomyResponse(String route, String nodeId,
                                                               NodeListResponse body, HttpServletRequest request) {
-        String etag = TaxonomyETag.compute(route, nodeId, body);
+        return conditional(TaxonomyETag.compute(route, nodeId, body), body, request);
+    }
+
+    /** The one public-cache + conditional-GET answer every taxonomy read shares. */
+    private <B> ResponseEntity<B> conditional(String etag, B body, HttpServletRequest request) {
         if (TaxonomyETag.matches(request.getHeader(HttpHeaders.IF_NONE_MATCH), etag)) {
             return ResponseEntity.status(HttpStatus.NOT_MODIFIED)
                     .header(HttpHeaders.CACHE_CONTROL, CACHE_PUBLIC)
