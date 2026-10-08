@@ -14,7 +14,29 @@ import java.util.regex.Pattern;
  * search, never at an arbitrary URL; FAQ text is plain text (no markup).
  */
 public record ContentBlock(String blockId, Placement placement, Type type, String title, int sort, Status status, Instant startsAt,
-                           Instant endsAt, Payload payload, Audience audience, long version, Instant createdAt, Instant updatedAt) {
+                           Instant endsAt, Payload payload, Audience audience, long version, Instant createdAt, Instant updatedAt,
+                           String createdBy, String updatedBy) {
+
+    /** Without authorship (a block stored before {@code createdBy}/{@code updatedBy} were recorded reads them as null). */
+    public ContentBlock(String blockId, Placement placement, Type type, String title, int sort, Status status, Instant startsAt,
+                        Instant endsAt, Payload payload, Audience audience, long version, Instant createdAt, Instant updatedAt) {
+        this(blockId, placement, type, title, sort, status, startsAt, endsAt, payload, audience, version, createdAt, updatedAt, null, null);
+    }
+
+    /**
+     * What an editor needs to know about a block at {@code now}, derived (never stored) from status and window: a
+     * PUBLISHED block is SCHEDULED before {@code startsAt}, LIVE inside its window and EXPIRED after {@code endsAt}.
+     */
+    public enum Effective { DRAFT, SCHEDULED, LIVE, EXPIRED, ARCHIVED }
+
+    public Effective effectiveAt(Instant now) {
+        return switch (status) {
+            case DRAFT -> Effective.DRAFT;
+            case ARCHIVED -> Effective.ARCHIVED;
+            case PUBLISHED -> startsAt != null && now.isBefore(startsAt) ? Effective.SCHEDULED
+                    : endsAt != null && !now.isBefore(endsAt) ? Effective.EXPIRED : Effective.LIVE;
+        };
+    }
 
     public enum Placement { HOME, HELP }
 
@@ -82,12 +104,28 @@ public record ContentBlock(String blockId, Placement placement, Type type, Strin
     public enum Status { DRAFT, PUBLISHED, ARCHIVED }
 
     /**
-     * {@code imageAssetKey}/{@code link} for BANNER; {@code ids} (products or category nodes) for the rails/grids;
-     * {@code faqCategory}/{@code question}/{@code answer} for FAQ. Fields that do not belong to the type must be absent.
+     * {@code imageAssetKey}/{@code link} for BANNER, optionally {@code subtitle}, {@code altText} and a wide
+     * {@code desktopImageAssetKey} (absent = the website uses {@code imageAssetKey} everywhere); {@code ids} (products or
+     * category nodes) for the rails/grids; {@code faqCategory}/{@code question}/{@code answer} for FAQ. Fields that do not
+     * belong to the type must be absent.
      */
-    public record Payload(String imageAssetKey, String link, List<String> ids, String faqCategory, String question, String answer) {
+    public record Payload(String imageAssetKey, String link, List<String> ids, String faqCategory, String question, String answer,
+                          String subtitle, String altText, String desktopImageAssetKey) {
         public Payload {
             ids = ids == null ? List.of() : List.copyOf(ids);
+        }
+
+        public Payload(String imageAssetKey, String link, List<String> ids, String faqCategory, String question, String answer) {
+            this(imageAssetKey, link, ids, faqCategory, question, answer, null, null, null);
+        }
+
+        /** A banner payload with its optional presentation fields. */
+        public static Payload banner(String imageAssetKey, String link, String subtitle, String altText, String desktopImageAssetKey) {
+            return new Payload(imageAssetKey, link, null, null, null, null, subtitle, altText, desktopImageAssetKey);
+        }
+
+        boolean hasBannerOnlyFields() {
+            return subtitle != null || altText != null || desktopImageAssetKey != null;
         }
 
         /** A merchandising payload (no FAQ fields). */
@@ -109,6 +147,8 @@ public record ContentBlock(String blockId, Placement placement, Type type, Strin
     public static final int MAX_GRID = 12;
     public static final int MAX_QUESTION = 200;
     public static final int MAX_ANSWER = 2000;
+    public static final int MAX_SUBTITLE = 120;
+    public static final int MAX_ALT = 300;
     static final Pattern PRODUCT_ID = Pattern.compile("TZP-[A-Za-z0-9-]{1,40}");
     static final Pattern NODE_ID = Pattern.compile("TZ[SCGV]-[0-9]{6}");
     static final Pattern LINK = Pattern.compile("(product:TZP-[A-Za-z0-9-]{1,40})|(category:TZ[SCGV]-[0-9]{6})|(search:[\\p{L}\\p{N} ]{2,64})");
@@ -123,6 +163,9 @@ public record ContentBlock(String blockId, Placement placement, Type type, Strin
         if (sort < 0 || sort > 10_000) throw new IllegalArgumentException("sort must be within 0..10000");
         if (startsAt != null && endsAt != null && !startsAt.isBefore(endsAt)) throw new IllegalArgumentException("startsAt must be before endsAt");
         if (type != Type.FAQ && p.hasFaqFields()) throw new IllegalArgumentException("FAQ fields belong to FAQ blocks only");
+        if (type != Type.BANNER && p.hasBannerOnlyFields()) {
+            throw new IllegalArgumentException("subtitle, altText and desktopImageAssetKey belong to BANNER blocks only");
+        }
         switch (type) {
             case BANNER -> {
                 if (!MediaAsset.isSafeKey(p.imageAssetKey())) throw new IllegalArgumentException("banner needs a safe imageAssetKey");
@@ -130,6 +173,11 @@ public record ContentBlock(String blockId, Placement placement, Type type, Strin
                     throw new IllegalArgumentException("banner link must be product:<id>, category:<node id> or search:<text>");
                 }
                 if (!p.ids().isEmpty()) throw new IllegalArgumentException("a banner carries no ids");
+                if (p.desktopImageAssetKey() != null && !MediaAsset.isSafeKey(p.desktopImageAssetKey())) {
+                    throw new IllegalArgumentException("desktopImageAssetKey must be a safe key");
+                }
+                if (p.subtitle() != null) plainText(p.subtitle(), MAX_SUBTITLE, false, "subtitle");
+                if (p.altText() != null) plainText(p.altText(), MAX_ALT, false, "altText");
             }
             case PRODUCT_RAIL -> requireIds(p, PRODUCT_ID, MAX_RAIL, "product");
             case CATEGORY_GRID -> requireIds(p, NODE_ID, MAX_GRID, "category node");

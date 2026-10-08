@@ -40,8 +40,13 @@ public class PublicContentController {
     private static final Logger log = LoggerFactory.getLogger(PublicContentController.class);
     static final String CACHE = "public, max-age=60";
 
+    /**
+     * BANNER: {@code imageUrl} (every client), optional {@code desktopImageUrl} (a wide image for desktop web; absent = use
+     * {@code imageUrl}), optional {@code subtitle}, and {@code altText} (always present: the editor's text, else the title).
+     */
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    record Block(String blockId, String type, String title, String imageUrl, String link, List<String> ids) { }
+    record Block(String blockId, String type, String title, String subtitle, String altText, String imageUrl, String desktopImageUrl,
+                 String link, List<String> ids) { }
 
     record Home(List<Block> blocks, String requestId) { }
 
@@ -88,9 +93,12 @@ public class PublicContentController {
                     skipped++;   // a banner without a resolvable image is dropped, never shown broken
                     continue;
                 }
-                out.add(new Block(b.blockId(), b.type().name(), b.title(), urls.resolve(b.payload().imageAssetKey()), b.payload().link(), null));
+                ContentBlock.Payload p = b.payload();
+                out.add(new Block(b.blockId(), b.type().name(), b.title(), p.subtitle(), ContentAdminController.altOrTitle(b),
+                        urls.resolve(p.imageAssetKey()), p.desktopImageAssetKey() == null ? null : urls.resolve(p.desktopImageAssetKey()),
+                        p.link(), null));
             } else {
-                out.add(new Block(b.blockId(), b.type().name(), b.title(), null, null, b.payload().ids()));
+                out.add(new Block(b.blockId(), b.type().name(), b.title(), null, null, null, null, null, b.payload().ids()));
             }
         }
         if (skipped > 0) log.warn("content_home_banners_skipped count={} reason=media_base_unconfigured", skipped);

@@ -2348,6 +2348,34 @@
         }
       }
     },
+    "/api/v1/admin/content/uploads" : {
+      "post" : {
+        "tags" : [ "content-admin-controller" ],
+        "operationId" : "upload_1",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ContentUploadRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ContentUploadResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/content/blocks" : {
       "get" : {
         "tags" : [ "content-admin-controller" ],
@@ -2444,6 +2472,34 @@
               "*/*" : {
                 "schema" : {
                   "$ref" : "#/components/schemas/BlockResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/content/blocks/reorder" : {
+      "post" : {
+        "tags" : [ "content-admin-controller" ],
+        "operationId" : "reorder",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ReorderRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BlockList"
                 }
               }
             }
@@ -3739,6 +3795,47 @@
         }
       }
     },
+    "/api/v1/admin/content/preview/home" : {
+      "get" : {
+        "tags" : [ "content-admin-controller" ],
+        "operationId" : "previewHome",
+        "parameters" : [ {
+          "name" : "channel",
+          "in" : "query",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "at",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "drafts",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "boolean",
+            "default" : false
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Preview"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/audit-events" : {
       "get" : {
         "tags" : [ "admin-audit-events-controller" ],
@@ -4323,6 +4420,15 @@
           },
           "answer" : {
             "type" : "string"
+          },
+          "subtitle" : {
+            "type" : "string"
+          },
+          "altText" : {
+            "type" : "string"
+          },
+          "desktopImageAssetKey" : {
+            "type" : "string"
           }
         }
       },
@@ -4348,6 +4454,9 @@
           "status" : {
             "type" : "string"
           },
+          "effectiveStatus" : {
+            "type" : "string"
+          },
           "startsAt" : {
             "type" : "string"
           },
@@ -4360,6 +4469,12 @@
           "audience" : {
             "type" : "string"
           },
+          "imageUrl" : {
+            "type" : "string"
+          },
+          "desktopImageUrl" : {
+            "type" : "string"
+          },
           "version" : {
             "type" : "integer",
             "format" : "int64"
@@ -4368,6 +4483,12 @@
             "type" : "string"
           },
           "updatedAt" : {
+            "type" : "string"
+          },
+          "createdBy" : {
+            "type" : "string"
+          },
+          "updatedBy" : {
             "type" : "string"
           }
         }
@@ -5775,6 +5896,45 @@
           }
         }
       },
+      "ContentUploadRequest" : {
+        "type" : "object",
+        "properties" : {
+          "contentType" : {
+            "type" : "string"
+          },
+          "sizeBytes" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }
+      },
+      "ContentUploadResponse" : {
+        "type" : "object",
+        "properties" : {
+          "assetKey" : {
+            "type" : "string"
+          },
+          "method" : {
+            "type" : "string"
+          },
+          "url" : {
+            "type" : "string"
+          },
+          "headers" : {
+            "type" : "object",
+            "additionalProperties" : {
+              "type" : "string"
+            }
+          },
+          "expiresAt" : {
+            "type" : "string"
+          },
+          "maxBytes" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }
+      },
       "StatusRequest" : {
         "type" : "object",
         "properties" : {
@@ -5784,6 +5944,43 @@
           "expectedVersion" : {
             "type" : "integer",
             "format" : "int64"
+          }
+        }
+      },
+      "OrderItem" : {
+        "type" : "object",
+        "properties" : {
+          "blockId" : {
+            "type" : "string"
+          },
+          "expectedVersion" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }
+      },
+      "ReorderRequest" : {
+        "type" : "object",
+        "properties" : {
+          "placement" : {
+            "type" : "string"
+          },
+          "order" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/OrderItem"
+            }
+          }
+        }
+      },
+      "BlockList" : {
+        "type" : "object",
+        "properties" : {
+          "items" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/BlockResponse"
+            }
           }
         }
       },
@@ -6267,7 +6464,16 @@
           "title" : {
             "type" : "string"
           },
+          "subtitle" : {
+            "type" : "string"
+          },
+          "altText" : {
+            "type" : "string"
+          },
           "imageUrl" : {
+            "type" : "string"
+          },
+          "desktopImageUrl" : {
             "type" : "string"
           },
           "link" : {
@@ -6681,14 +6887,67 @@
           }
         }
       },
-      "BlockList" : {
+      "Preview" : {
         "type" : "object",
         "properties" : {
-          "items" : {
+          "channel" : {
+            "type" : "string"
+          },
+          "at" : {
+            "type" : "string"
+          },
+          "includeDrafts" : {
+            "type" : "boolean"
+          },
+          "blocks" : {
             "type" : "array",
             "items" : {
-              "$ref" : "#/components/schemas/BlockResponse"
+              "$ref" : "#/components/schemas/PreviewBlock"
             }
+          }
+        }
+      },
+      "PreviewBlock" : {
+        "type" : "object",
+        "properties" : {
+          "blockId" : {
+            "type" : "string"
+          },
+          "type" : {
+            "type" : "string"
+          },
+          "title" : {
+            "type" : "string"
+          },
+          "subtitle" : {
+            "type" : "string"
+          },
+          "altText" : {
+            "type" : "string"
+          },
+          "imageUrl" : {
+            "type" : "string"
+          },
+          "desktopImageUrl" : {
+            "type" : "string"
+          },
+          "link" : {
+            "type" : "string"
+          },
+          "ids" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "status" : {
+            "type" : "string"
+          },
+          "effectiveStatus" : {
+            "type" : "string"
+          },
+          "audience" : {
+            "type" : "string"
           }
         }
       },

@@ -172,4 +172,32 @@ class ContentModelTest {
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("global");
         assertThatThrownBy(() -> ContentBlock.requireAudience(ContentBlock.Placement.HOME, null)).isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    void the_effective_status_is_derived_from_status_and_window() {
+        Instant now = Instant.parse("2026-10-08T10:00:00Z");
+        java.util.function.BiFunction<Instant, Instant, ContentBlock> published = (from, to) -> new ContentBlock("CB_x", ContentBlock.Placement.HOME,
+                ContentBlock.Type.PRODUCT_RAIL, "T", 1, ContentBlock.Status.PUBLISHED, from, to, ids("TZP-1"), ContentBlock.Audience.BOTH, 1, now, now);
+        assertThat(published.apply(null, null).effectiveAt(now)).isEqualTo(ContentBlock.Effective.LIVE);
+        assertThat(published.apply(now.plusSeconds(1), null).effectiveAt(now)).isEqualTo(ContentBlock.Effective.SCHEDULED);
+        assertThat(published.apply(now, null).effectiveAt(now)).as("start is inclusive").isEqualTo(ContentBlock.Effective.LIVE);
+        assertThat(published.apply(null, now).effectiveAt(now)).as("end is exclusive").isEqualTo(ContentBlock.Effective.EXPIRED);
+        ContentBlock draft = new ContentBlock("CB_x", ContentBlock.Placement.HOME, ContentBlock.Type.PRODUCT_RAIL, "T", 1,
+                ContentBlock.Status.DRAFT, null, null, ids("TZP-1"), ContentBlock.Audience.BOTH, 1, now, now);
+        assertThat(draft.effectiveAt(now)).isEqualTo(ContentBlock.Effective.DRAFT);
+    }
+
+    @Test
+    void banner_presentation_fields_are_plain_text_and_banner_only() {
+        ContentBlock.validate(ContentBlock.Type.BANNER, "T", 1, null, null,
+                ContentBlock.Payload.banner("c/home/a.webp", "search:rice", "Sub", "Alt text", "c/home/wide.webp"));
+        bad("subtitle with a newline", ContentBlock.Type.BANNER, "T", 1, null, null,
+                ContentBlock.Payload.banner("c/home/a.webp", "search:rice", "a\nb", null, null));
+        bad("alt with markup", ContentBlock.Type.BANNER, "T", 1, null, null,
+                ContentBlock.Payload.banner("c/home/a.webp", "search:rice", null, "<b>", null));
+        bad("unsafe desktop key", ContentBlock.Type.BANNER, "T", 1, null, null,
+                ContentBlock.Payload.banner("c/home/a.webp", "search:rice", null, null, "/etc/passwd"));
+        bad("alt on a grid", ContentBlock.Type.CATEGORY_GRID, "T", 1, null, null,
+                new ContentBlock.Payload(null, null, List.of("TZC-000001"), null, null, null, null, "Alt", null));
+    }
 }

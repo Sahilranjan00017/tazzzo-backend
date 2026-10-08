@@ -37,6 +37,22 @@ public final class MediaUploadPolicy {
         }
     }
 
+    /**
+     * A fresh, safe object key for CMS content imagery (banners): {@code <prefix><uuid>.<ext>}. The prefix is the caller's
+     * fixed namespace (e.g. {@code c/home/}), never client input.
+     */
+    public String newContentKey(String prefix, String contentType) {
+        String ext = EXTENSIONS.get(contentType);
+        if (ext == null) {
+            throw new InvalidMediaException("unsupported contentType");
+        }
+        String key = prefix + UUID.randomUUID() + "." + ext;
+        if (!MediaAsset.isSafeKey(key)) {
+            throw new InvalidMediaException("content prefix cannot form a storage key");
+        }
+        return key;
+    }
+
     /** A fresh, safe object key for an owner. {@code ownerId} is reduced to the key alphabet (never trusted as-is). */
     public String newKey(MediaOwnerType ownerType, String ownerId, String contentType) {
         String ext = EXTENSIONS.get(contentType);

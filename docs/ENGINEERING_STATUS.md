@@ -1254,6 +1254,19 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
 
 ## In review (NOT merged)
 
+- **CMS banner model, reorder and admin preview** (branch `feature/content-banner-model`, stacked on `feature/content-channel-audience` / #96): **IN REVIEW**.
+  Additive only. BANNER payload gains optional `subtitle` (<=120 plain text), `altText` (<=300 plain text) and `desktopImageAssetKey`; any other type carrying
+  them is 422. Public `/v1/content/home` banners add `subtitle`, `altText` (always present: editor text else title) and `desktopImageUrl` (absent = use
+  `imageUrl`). Blocks record `createdBy`/`updatedBy` (actor ids; absent on older blocks) and the admin view adds a derived `effectiveStatus`
+  (DRAFT | SCHEDULED | LIVE | EXPIRED | ARCHIVED) and resolved `imageUrl`/`desktopImageUrl`. New admin routes: `POST /api/v1/admin/content/blocks/reorder`
+  (must list every non-archived block once with its version; all-or-nothing, 409 on any change; every move audited `CONTENT_BLOCK_REORDERED`),
+  `GET /api/v1/admin/content/preview/home?channel=app|web&drafts=&at=` (admin-only, read-only, never publishes; drafts never reach `/v1`), and
+  `POST /api/v1/admin/content/uploads` (upload target under `c/home/`, same shape as media uploads; 503 `MEDIA_STORAGE_NOT_CONFIGURED` while storage is off).
+  When storage is configured, a banner's newly referenced image keys must be under `c/home/` and pass `MediaIngestVerifier`. Evidence: `ContentBannerModelIT`
+  (6, real HTTP + Mongo), `ContentModelTest` (+2), `ContentChannelTargetingIT` still green, `ApiContractParityIT`, regenerated `docs/openapi.json`.
+  Not included: campaign link type (no campaign entity exists), service-area targeting, an explicit SCHEDULED stored state (derived instead).
+  Merge note: after #95 merges, map `MediaStorageFailure` from banner verification to 503 in the content advice (today storage-off is the only provider).
+
 - **Channel-targeted content (multichannel D1–D3)** (branch `feature/content-channel-audience`, from `main` `7d491dd`): **IN REVIEW**. `ContentBlock` gains
   `audience` (APP_ONLY | WEB_ONLY | BOTH; a document without the field reads as BOTH, so no data migration, no validator and no index change: the
   `content_by_placement_status_sort` index still serves the query and audience is a residual predicate over ≤200 blocks). HELP (FAQ) content is global
