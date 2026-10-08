@@ -143,6 +143,7 @@ class ContentBannerModelIT extends AbstractConsumerIT {
         // a stale version anywhere refuses the whole reorder
         ResponseEntity<JsonNode> stale = send(HttpMethod.POST, BLOCKS + "/reorder", W, reorder(ic, vc, ib, vb, ia, va - 1));
         assertThat(stale.getStatusCode().value()).isEqualTo(409);
+        assertThat(List.of(version(ia), version(ib), version(ic))).as("all or nothing: no block was written").containsExactly(va, vb, vc);
         assertThat(ids(home("?channel=app"))).as("nothing moved").containsExactly(ia, ib);
         // a list that misses a block (another editor's view) is refused
         assertThat(send(HttpMethod.POST, BLOCKS + "/reorder", W, Map.of("placement", "HOME",

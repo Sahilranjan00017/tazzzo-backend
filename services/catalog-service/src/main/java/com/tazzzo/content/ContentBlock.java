@@ -176,8 +176,8 @@ public record ContentBlock(String blockId, Placement placement, Type type, Strin
                 if (p.desktopImageAssetKey() != null && !MediaAsset.isSafeKey(p.desktopImageAssetKey())) {
                     throw new IllegalArgumentException("desktopImageAssetKey must be a safe key");
                 }
-                if (p.subtitle() != null) plainText(p.subtitle(), MAX_SUBTITLE, false, "subtitle");
-                if (p.altText() != null) plainText(p.altText(), MAX_ALT, false, "altText");
+                if (p.subtitle() != null) displayText(p.subtitle(), MAX_SUBTITLE, "subtitle");
+                if (p.altText() != null) displayText(p.altText(), MAX_ALT, "altText");
             }
             case PRODUCT_RAIL -> requireIds(p, PRODUCT_ID, MAX_RAIL, "product");
             case CATEGORY_GRID -> requireIds(p, NODE_ID, MAX_GRID, "category node");
@@ -212,6 +212,18 @@ public record ContentBlock(String blockId, Placement placement, Type type, Strin
         if (s == null || s.isBlank() || s.length() > max || !s.equals(s.strip())
                 || s.chars().anyMatch(c -> (c < 0x20 && !(newlines && c == '\n')) || c == 0x7F || c == '<' || c == '>')) {
             throw new IllegalArgumentException(what + " must be 1.." + max + " chars of plain text (no markup)");
+        }
+    }
+
+    /**
+     * Plain text shown on customer screens or read by screen readers: {@link #plainText} plus no C1 controls and no
+     * invisible format characters (bidi overrides such as U+202E, zero-width joiners/spaces), which could reorder or hide
+     * what a customer sees.
+     */
+    private static void displayText(String s, int max, String what) {
+        plainText(s, max, false, what);
+        if (s.codePoints().anyMatch(c -> (c >= 0x80 && c <= 0x9F) || Character.getType(c) == Character.FORMAT)) {
+            throw new IllegalArgumentException(what + " must not contain invisible or direction-control characters");
         }
     }
 
