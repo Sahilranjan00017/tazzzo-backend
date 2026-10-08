@@ -21,8 +21,9 @@ Last audit: 2026-10-08 (live GitHub state; backend `main` = `e05f22e`, includes 
 | infra #3 media S3 + CloudFront | infrastructure | `feature/infra-2-media` → `feature/infra-1-staging-foundation` | `b716efd` | fmt + validate both stacks (no CI in repo) | PASS_WITH_FOLLOWUPS → remediated | unmerged; gated off; needs spend approval |
 | web #21 CMS media upload | web | `cms/20-media-upload` → `cms/16-qa-security` | `29d13cd` | 7/7 green | PASS_WITH_FOLLOWUPS → remediated | unmerged (CMS stack) |
 | web #22 CMS home content | web | `cms/21-home-content` → `cms/20-media-upload` | `ef88d23` | 7/7 green | PASS_WITH_FOLLOWUPS → remediated | unmerged (CMS stack) |
-| backend #105 integration preview (draft) | backend | `integration/media-content` → `main` | see PR | full CI on #95+#96+#102 combined | n/a — DO NOT MERGE | carries the banner-outage→503 fix into #102 after #95 merges |
+| backend #105 integration preview (draft) | backend | `integration/media-content` → `main` | `198fc07` | **4/4 green: full suite on #95+#96+#102 combined** | n/a — DO NOT MERGE | carries the banner-outage→503 fix into #102 after #95 merges |
 | backend #104 flaky checkout snapshot tests (new) | backend | `fix/checkout-money-snapshot-flaky` → `main` | see PR | — | test-only | unmerged |
+| web #23 local E2E harness (draft) | web | `e2e/media-content-local` → `main` | `7bcb44e` | 11/11 Playwright journeys, 5.1 min, stack rebuilt from scratch | evidence in `e2e/local-stack/EVIDENCE_2026-10-08.md` | DO NOT MERGE to main as product; harness only |
 | #1, #2 staging infra | infrastructure | `infra-0` → `main`, `infra-1` → `infra-0` | `bfd335e` | none | not reviewed in this workstream | unmerged, not applied |
 
 Overlaps: #95 and #96 both insert at the top of `docs/ENGINEERING_STATUS.md` "In review" — the second to merge needs a
@@ -62,7 +63,7 @@ everything ──> E2E-MEDIA (cross-channel verification) ──> staging ──
 | 15 | App: product images from backend media | app | main | MERGED_UNVERIFIED | remote image pipeline (UI-03) | no real media bucket | E2E with staging storage |
 | 16 | Customer website (home, banners, rails, grids, PDP gallery) | web | #20 | IMPLEMENTED_UNMERGED | unit 114/114, e2e 13/13 (fake backend, channel=web asserted), CI 8/8 | shared rate-limit identity (see §5) | build storefront app |
 | 17 | S3 bucket + CloudFront (staging) | infrastructure | #3 | BLOCKED_EXTERNAL | code written, `terraform validate` passes; gated off by default | usage-billed resources need CEO approval; infra #1/#2 unmerged | approve → bootstrap `allow_media_stack`, staging `enable_media` |
-| 18 | Cross-channel E2E (TEST 1–16) | all | E2E-MEDIA (local harness in progress) | PARTIAL | backend storage ITs on the combined code (#105): upload → write-once → verify → public CDN URL; outage → 503 | staging needs infra approval | after the above |
+| 18 | Cross-channel E2E (TEST 1–16) | all | web #23 (local harness) | INTEGRATED_VERIFIED (local) | TEST 1–4, 7–16 PASS on real backend + S3-compatible store + CDN stand-in + production-mode website; TEST 5/6 app: JVM contract PASS, **on-device NOT_VERIFIED** (debug app has no local base-URL override; iOS not attempted); CMS steps API-driven (CMS has Google-only login, no bypass added) | staging run needs infra approval | after the above |
 
 ## 4. Review remediation log
 
@@ -95,7 +96,8 @@ everything ──> E2E-MEDIA (cross-channel verification) ──> staging ──
 4. **Banner model extension** (#102): additive fields on the public `/v1/content/home` response.
 5. **Website rate-limit identity**: to the backend the whole storefront is one client IP; one visitor can drain the shared
    bucket. Options: dedicated storefront identity/bucket, edge per-IP limit (WAF/CloudFront), batch product read.
-6. **Recommended backend additions** surfaced by both clients: a category node-by-id read (grids of deep nodes),
+6. **Canonical product-id grammar**: the app accepts only `^TZP-[0-9]+$`; backend, CMS and website accept `TZP-[A-Za-z0-9-]{1,40}`. A rail with `TZP-MED-3` renders on web but is dropped by the app. Decide which is canonical.
+7. **Recommended backend additions** surfaced by both clients: a category node-by-id read (grids of deep nodes),
    category images, a batch product read, a banner aspect-ratio contract, and one product-id format (three differ today).
 
 ## 6. Propagation (current, pre-CDN)
