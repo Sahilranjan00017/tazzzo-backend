@@ -115,6 +115,41 @@ paths:
           $ref: '#/components/responses/Unavailable'
         '406':
           $ref: '#/components/responses/PublicNotAcceptable'
+  /v1/categories/{id}:
+    get:
+      tags:
+      - commerce-read
+      operationId: getCategory
+      summary: One consumer-visible taxonomy node by id (any level), to name it without walking the tree.
+      description: 'Visible exactly when `/v1/categories/{id}/children` would answer 200 for the same id and release. Unknown, deprecated or merged (the node or any ancestor), not under a super-category, or consumer-empty are all the same 404. A malformed id is 400. Rate-limit cost is that of a children read with no children.
+
+        '
+      parameters:
+      - $ref: '#/components/parameters/NodeId'
+      - $ref: '#/components/parameters/Release'
+      - $ref: '#/components/parameters/InstallationId'
+      responses:
+        '200':
+          description: OK
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NodeDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '406':
+          $ref: '#/components/responses/PublicNotAcceptable'
   /v1/categories/{id}/products:
     get:
       tags:
@@ -2133,6 +2168,18 @@ components:
           type: string
         name:
           type: string
+    NodeDetail:
+      allOf:
+      - $ref: '#/components/schemas/Node'
+      - type: object
+        required:
+        - resolvedReleaseId
+        - requestId
+        properties:
+          resolvedReleaseId:
+            type: string
+          requestId:
+            type: string
     NodeListResponse:
       type: object
       required:

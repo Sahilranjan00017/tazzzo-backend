@@ -1296,6 +1296,14 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
 
 ## In review (NOT merged)
 
+- **Category by id** (branch `feature/category-by-id`, from `main` `07be0e4`): **IN REVIEW**. `GET /v1/categories/{id}` returns one consumer-visible taxonomy node of any
+  level as `{id, name, resolvedReleaseId, requestId}` (`allOf(Node, ...)`, the CAT-NODE-1 node flattened like ProductDetail), so a client can name a grid tile or title a deep category
+  page without walking the tree. Visible exactly when `/children` would be 200 for the same id: `ConsumerTaxonomyService.node` is CHILD-1 with no candidates (TAX-REACH-1, charge 1
+  before a 404, cost `1 + |scope|`, PARENT probe), under its own admission label `commerce_node`. Unknown, deprecated/merged (or an ancestor) and consumer-empty are the same flat 404;
+  a malformed id (`^TZ[SCGV]-[0-9]{6}$`) is 400 `INVALID_REQUEST`, refused before anything is read or charged. Same `public, max-age=300` Cache-Control and content-hash ETag/304
+  as the sibling reads. `parent_id` and a level/node type are NOT exposed: CAT-NODE-1 lists `parent_id` as not exposed and defers `nodeType`, so adding them is escalated, not decided here.
+  Evidence: `CommerceCategoryNodeIT` (12 HTTP tests), `ApiContractParityIT`, `OpenApiExportIT`.
+
 - **Trusted storefront caller identity** (branch `feature/storefront-caller-identity`, from `main` `07be0e4`): **IN REVIEW**. The Next.js storefront calls the public
   `/v1` reads server-side from one egress IP, so every visitor shared one client-IP admission bucket and one visitor could drain it (reviewed finding). A request that carries
   `X-Tazzzo-Caller: <name>` and a matching `X-Tazzzo-Caller-Secret` (configured as `tazzzo.consumer.trusted-callers[]`, from the environment, no default; SHA-256 digests compared

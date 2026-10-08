@@ -187,6 +187,44 @@ public class ConsumerTaxonomyService {
         return new ConsumerDtos.NodeListResponse(release, project(visible));
     }
 
+    /**
+     * NODE-1 — ONE consumer-visible taxonomy node by id, release-bound. It is CHILD-1 with no child
+     * candidates: the same reachability, the same charge-before-404, the same cost formula and the
+     * same PARENT probe, so this answers 200 for exactly the nodes CHILDREN answers 200 for.
+     * <pre>
+     *   resolve release ONCE
+     *   requested node from the snapshot     absent, non-active or NOT REACHABLE (TAX-REACH-1)
+     *                                        -> charge 1 -> 404, ZERO probes
+     *   cost = 1 + |scope|                   CHILDREN's formula with no candidates
+     *   CHARGE Q5                            before any products query
+     *   PARENT probe                         miss -> 404; error -> 503
+     *   CAT-NODE-1 projection                id and name, nothing else
+     * </pre>
+     *
+     * <p>Returned in the ROOT/CHILDREN envelope with exactly one item, so the transport projects it
+     * through the same node mapping and never sees a snapshot row.
+     */
+    public ConsumerDtos.NodeListResponse node(String nodeId, String explicitRelease,
+                                              ConsumerIdentity identity,
+                                              ConsumerObservability.Route admissionRoute) {
+        String release = releases.resolve(explicitRelease);
+
+        Document requested = snapshots.node(release, nodeId);
+        if (!scopes.isReachable(release, requested)) {
+            gate.charge(admissionRoute, identity, 1);
+            throw new ConsumerFailures.NotFound("node not consumer-reachable: " + nodeId);
+        }
+
+        List<String> scope = scopes.scope(release, nodeId);
+        gate.charge(admissionRoute, identity, 1 + scope.size());
+
+        if (!probe.hasEligibleProduct(admissionRoute,
+                ConsumerObservability.ProbeScope.PARENT, scope)) {
+            throw new ConsumerFailures.NotFound("node consumer-empty: " + nodeId);
+        }
+        return new ConsumerDtos.NodeListResponse(release, project(new ArrayList<>(List.of(requested))));
+    }
+
     /** TR-3 transport order, then CAT-NODE-1 projection: id and name, nothing else. */
     private static List<ConsumerDtos.ConsumerNode> project(List<Document> nodes) {
         nodes.sort(TransportOrder.by(n -> n.getString("name"), n -> n.getString("node_id")));
