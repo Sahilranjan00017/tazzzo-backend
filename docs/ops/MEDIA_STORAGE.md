@@ -53,7 +53,7 @@ Startup logs `media_storage provider=s3 bucket=… region=… endpoint=… crede
    object is bounded in size by the signed `Content-Length` and in count by cms-writer trust).
 2. Task-role policy (least privilege): `s3:PutObject` (only via presign, so the role needs it) and `s3:GetObject` (it
    also authorises HeadObject; there is no `s3:HeadObject` action) on `arn:aws:s3:::<bucket>/p/*` **and** `arn:aws:s3:::<bucket>/c/*` (product media and CMS content imagery, e.g.
-   banners under `c/home/`), plus `s3:ListBucket` on `arn:aws:s3:::<bucket>` with condition `s3:prefix` in `p/*`, `c/*`. **The ListBucket grant is required**: without it S3
+   banners under `c/home/`), plus `s3:ListBucket` on `arn:aws:s3:::<bucket>` (unconditioned: the bucket is dedicated to media, and whether S3's implicit 404-vs-403 check honours an `s3:prefix` condition is undocumented). **The ListBucket grant is required**: without it S3
    answers HeadObject on a missing key with 403, which the service must treat as an outage (503
    `MEDIA_STORAGE_UNAVAILABLE`) rather than "not uploaded yet" (422). Nothing else (no DeleteObject).
    Presigned PUTs are write-once: the signature binds `If-None-Match: *`, so an existing key is never overwritten (S3
