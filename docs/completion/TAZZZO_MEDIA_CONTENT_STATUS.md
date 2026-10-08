@@ -6,7 +6,7 @@ website). Statuses are evidence-based; "code exists" is never "done".
 Allowed statuses: `NOT_STARTED` · `PARTIAL` · `IMPLEMENTED_UNMERGED` · `MERGED_UNVERIFIED` · `INTEGRATED_VERIFIED` ·
 `STAGING_VERIFIED` · `LIVE_VERIFIED` · `BLOCKED_EXTERNAL`.
 
-Last audit: 2026-10-09 (live GitHub state; backend `main` = `07be0e4`; web `main` = `3be81e0`).
+Last audit: 2026-10-09 (live GitHub state; backend `main` = `047ed12`; web `main` = `374333b`).
 
 ## 1. Existing PRs (Phase 0 audit)
 
@@ -17,17 +17,17 @@ Last audit: 2026-10-09 (live GitHub state; backend `main` = `07be0e4`; web `main
 | #16 CMS media | web | `cms/07-media` → `cms/14-audit-status` (stack #5→#19) | `c3ab2cd` | 7/7 green | PASS_WITH_FOLLOWUPS — followed up by #21 | **MERGED** (merge commit, CMS stack #5–#22 all merged; web main `3be81e0`, CI 7/7) |
 | #24 App home content | app | `feature/app-home-content` → `main` | `79173b6` (+ canonical product-id grammar) | 4/4 green; 1098/1098 Android + iOS | final verification READY_TO_MERGE_AFTER_BACKEND_DEPLOY | unmerged — **waits for a deployed backend with channel targeting** |
 | #102 banner model / reorder / preview (new) | backend | `feature/content-banner-model` → `feature/content-channel-audience` | `cd07e50` (as PR #106; #102 was auto-closed when its base branch was deleted) | 4/4 green (one unrelated session-test flake, green on rerun) | PASS_WITH_FOLLOWUPS → remediated; carries the 503 fix from #105 | **MERGED** squash `5191eb7` |
-| web #20 customer storefront (new) | web | `web/01-storefront` → `main` | `fd00305` (= reviewed `7ff5e3b` + web main merged; 0-line diff in apps/storefront) | 9/9 green | PASS_WITH_FOLLOWUPS → remediated; final head verified | unmerged — **merge gate presented** |
+| web #20 customer storefront (new) | web | `web/01-storefront` → `main` | `fd00305` | 9/9 green | PASS_WITH_FOLLOWUPS → remediated | **MERGED** squash `0b8d629` |
 | infra #3 media S3 + CloudFront | infrastructure | `feature/infra-2-media` → `feature/infra-1-staging-foundation` | `b716efd` | fmt + validate both stacks (no CI in repo) | PASS_WITH_FOLLOWUPS → remediated | unmerged; gated off; needs spend approval |
 | web #21 CMS media upload | web | `cms/20-media-upload` → `cms/16-qa-security` | `29d13cd` | 7/7 green | PASS_WITH_FOLLOWUPS → remediated | **MERGED** `07fcc7f` |
 | web #22 CMS home content | web | `cms/21-home-content` → `cms/20-media-upload` | `ef88d23` | 7/7 green | PASS_WITH_FOLLOWUPS → remediated | **MERGED** `3be81e0` (web main) |
 | backend #105 integration preview (draft) | backend | `integration/media-content` → `main` | `198fc07` | 4/4 green: full suite on #95+#96+#102 combined | n/a | **CLOSED without merge** (evidence only) | carries the banner-outage→503 fix into #102 after #95 merges |
 | backend #104 flaky checkout snapshot tests (new) | backend | `fix/checkout-money-snapshot-flaky` → `main` | see PR | — | test-only | unmerged |
 | web #23 local E2E harness (draft) | web | `e2e/media-content-local` → `main` | `f67ff6d` | **rerun 2026-10-09 on the MERGED heads** (backend `5191eb7`, web `3be81e0`, storefront `fd00305`, app `c5caed0`): 11/11 journeys, 4.7 min, fresh stack | `e2e/local-stack/EVIDENCE_2026-10-09.md` (+ 2026-10-08) | harness only; keep as draft |
-| backend #108 trusted storefront caller identity | backend | `feature/storefront-caller-identity` → `main` | `09169dd` | 4/4 green (full suite) | security review PASS_WITH_FOLLOWUPS → rotation (two active secrets) added | unmerged — merge gate presented |
-| backend #109 `GET /v1/categories/{id}` | backend | `feature/category-by-id` → `main` | `417d4e4` | 4/4 green | PASS_WITH_FOLLOWUPS (low only) | unmerged — merge gate presented |
-| backend #110 product-id grammar alignment (cart + OpenAPI) | backend | `fix/product-id-grammar-alignment` → `main` | `50ee395` | 4/4 green | PASS_WITH_FOLLOWUPS (1 medium = decision 5.2b) | unmerged — merge gate presented |
-| web #26 storefront per-IP limit, caller header, placeholder fix | web | `web/02-storefront-ratelimit` → `web/01-storefront` | `b7ed1a3` | 9/9 green | security review PASS_WITH_FOLLOWUPS → fail-closed + prefetch policy test | unmerged — stacked on #20 |
+| backend #108 trusted storefront caller identity | backend | `feature/storefront-caller-identity` → `main` | `09169dd` | 4/4 green (full suite); main CI green after merge | security review PASS_WITH_FOLLOWUPS → rotation (two active secrets) added | **MERGED** squash `c65e434` |
+| backend #109 `GET /v1/categories/{id}` | backend | `feature/category-by-id` → `main` | `e5b5d45` (= reviewed `417d4e4` + main; net diff identical) | 4/4 green; main CI green after merge | PASS_WITH_FOLLOWUPS (low only) | **MERGED** squash `7c549f7` |
+| backend #110 product-id grammar alignment (cart + OpenAPI) | backend | `fix/product-id-grammar-alignment` → `main` | `ead5a19` (= reviewed `50ee395` + main; net diff identical) | 4/4 green | PASS_WITH_FOLLOWUPS (1 medium = decision 5.2b) | **MERGED** squash `047ed12` |
+| web #26 storefront per-IP limit, caller header, placeholder fix | web | `web/02-storefront-ratelimit` → `web/01-storefront` | `330696e` (= reviewed `b7ed1a3` tree, byte-identical, after #20 squash) | 9/9 green; web main 9/9 after merge | security review PASS_WITH_FOLLOWUPS → fail-closed + prefetch policy test | **MERGED** squash `374333b` |
 | #1, #2 staging infra | infrastructure | `infra-0` → `main`, `infra-1` → `infra-0` | `bfd335e` | none | not reviewed in this workstream | unmerged, not applied |
 
 Overlaps: #95 and #96 both insert at the top of `docs/ENGINEERING_STATUS.md` "In review" — the second to merge needs a
@@ -65,7 +65,7 @@ everything ──> E2E-MEDIA (cross-channel verification) ──> staging ──
 | 13 | CMS preview (app / desktop / mobile web) | web + backend | #106 + #22 | MERGED_UNVERIFIED | admin-only preview endpoint (ContentBannerModelIT); CMS crops pinned to storefront/app ratios | — | implement |
 | 14 | App: CMS banners/rails/grids, channel=app | app | #24 | IMPLEMENTED_UNMERGED | 1089 tests Android + iOS, CI green; pull-to-refresh, foreground refresh, backoff, no-flash rails, a11y, subtitle | needs #96 deployed | on-device check (pull gesture, foreground, TalkBack/VoiceOver) |
 | 15 | App: product images from backend media | app | main | MERGED_UNVERIFIED | remote image pipeline (UI-03) | no real media bucket | E2E with staging storage |
-| 16 | Customer website (home, banners, rails, grids, PDP gallery) | web | #20 | IMPLEMENTED_UNMERGED | unit 114/114, e2e 13/13 (fake backend, channel=web asserted), CI 8/8 | shared rate-limit identity (see §5) | build storefront app |
+| 16 | Customer website (home, banners, rails, grids, PDP gallery) | web | #20 + #26 | MERGED_UNVERIFIED (local INTEGRATED_VERIFIED; not deployed) | unit 114/114, e2e 13/13 (fake backend, channel=web asserted), CI 8/8 | shared rate-limit identity (see §5) | build storefront app |
 | 17 | S3 bucket + CloudFront (staging) | infrastructure | #3 | BLOCKED_EXTERNAL | code written, `terraform validate` passes; gated off by default | usage-billed resources need CEO approval; infra #1/#2 unmerged | approve → bootstrap `allow_media_stack`, staging `enable_media` |
 | 18 | Cross-channel E2E (16 journeys) | all | web #23 (local harness) | INTEGRATED_VERIFIED (local, on merged heads) | 2026-10-09 rerun on merged heads: CMS upload → storage → verification → publication → website display, APP/WEB/BOTH, schedule, unpublish, reorder, CDN failure fallback, 403 no-state-change, draft never public, and every rejection (bad MIME, oversize, missing, wrong owner, foreign CORS, write-once 412) PASS on real Mongo/Redis/Versity S3/CDN stand-in + production-mode website. App: JVM contract PASS; **on-device Android/iOS NOT_VERIFIED**. CMS steps API-driven (Google-only login, no bypass). | staging run needs infra approval | after the above |
 
@@ -101,11 +101,18 @@ The exact `terraform plan` cannot be produced until an operator session exists (
 
 ### 5.2 Canonical product-id grammar — **DECIDED: `TZP-[A-Za-z0-9-]{1,40}`**
 Implemented: app #24 `79173b6` (links, rail ids, PDP guard); backend #110 (cart validator + OpenAPI `ProductId` and cart `skuId`).
-App cart check stays numeric until #110 merges, then widens to match.
+App cart check widens to match now that #110 is merged.
+**Read-only audit (2026-10-09):** ~820 distinct ids across backend tests/fixtures/OpenAPI/docs (528), legacy catalog
+service (250), web (~16), app (15) and research (15): **0 invalid** against the canonical grammar; longest 19 chars. There is
+no live database yet (staging/production not provisioned), so this is the complete set of existing ids.
 **5.2b open (needs approval):** the catalogue import / Mongo validator still accepts any `^TZP-` id, so it can create
 products the cart refuses (e.g. `TZP-A.B`, > 40 chars). Enforcing the grammar at import is a non-backward-compatible change
-to catalogue validation (CLAUDE.md: needs explicit approval). Recommended first step: a read-only audit of existing
-`products._id` for non-conforming ids; then enforce for new imports only.
+to catalogue validation (CLAUDE.md: needs explicit approval). Audit done (0 invalid). **Recommendation:** enforce the grammar now, while no real data exists:
+(a) `ProductImportValidator.shape` and product-create API reject non-conforming new ids (400 / `INVALID_ROW`) — a stricter
+input contract, so it needs your approval; the planned crawler id scheme `TZP-{source}-{sha16}` must restrict `{source}` to
+`[A-Za-z0-9-]`, ≤ 19 chars. (b) tighten the Mongo `products` validator (`_id`, `component_product_id`) via an explicit
+`collMod` migration — `error` directly on an empty database, `warn` first on any database that already holds data. (c) no data
+migration needed; a later rename would be expensive (`_id` re-mint plus cart, order, media, event and registry references).
 
 ### 5.3 Website rate-limit identity — **DECIDED and implemented without paid infrastructure**
 - Backend #108: trusted server caller (`X-Tazzzo-Caller` + `X-Tazzzo-Caller-Secret`, SHA-256 + constant-time compare, two
