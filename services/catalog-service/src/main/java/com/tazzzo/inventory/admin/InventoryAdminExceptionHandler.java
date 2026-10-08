@@ -18,7 +18,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /** The admin error envelope for the inventory admin API only. */
-@RestControllerAdvice(assignableTypes = InventoryAdminController.class)
+@RestControllerAdvice(assignableTypes = {InventoryAdminController.class, InventoryAdminListController.class})
 @Order(Ordered.HIGHEST_PRECEDENCE)
 class InventoryAdminExceptionHandler {
 

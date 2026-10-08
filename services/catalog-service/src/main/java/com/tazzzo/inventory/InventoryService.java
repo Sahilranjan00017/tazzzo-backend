@@ -4,6 +4,7 @@ import com.mongodb.MongoWriteException;
 import com.mongodb.client.ClientSession;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.Filters;
+import com.mongodb.client.model.Sorts;
 import com.mongodb.client.model.Updates;
 import com.mongodb.client.result.UpdateResult;
 import com.tazzzo.catalog.events.EventPayload;
@@ -16,8 +17,10 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -398,6 +401,76 @@ public class InventoryService implements InventoryReadPort {
                     : InventoryLookup.of(InventoryLookup.Status.INACTIVE, record));
         }
         return out;
+    }
+
+    /**
+     * A page of inventory rows for the admin list, in {@code (sku_id, fulfillment_location_id)} order — the order of the
+     * unique index, so a keyset cursor {@code (afterSku, afterLocation)} resumes with an index seek. Optional filters:
+     * one fulfilment location, and a derived stock state ({@code IN_STOCK}, {@code LOW_STOCK}, {@code OUT_OF_STOCK} over
+     * ACTIVE rows, or {@code INACTIVE}). The state is computed by the server from the two persisted counters, exactly as
+     * {@link InventoryRecord#stockState()} derives it, so the feed can never disagree with a point read; it is an
+     * {@code $expr} filter and therefore walks the (location-)scoped rows rather than seeking — acceptable for an admin
+     * feed over a launch catalogue, and documented as the cost of not persisting a derived field (ADR-004).
+     */
+    public List<InventoryRecord> list(String fulfillmentLocationId, String state, String afterSku, String afterLocation, int limit) {
+        if (limit < 1 || limit > LIST_MAX_LIMIT + 1) {   // +1: the controller reads one row past its page to detect a next page
+            throw new InvalidInventoryException("limit must be between 1 and " + LIST_MAX_LIMIT);
+        }
+        if (fulfillmentLocationId != null) {
+            new InventoryKey("TZP-0", fulfillmentLocationId);   // the same location rule as every point read
+        }
+        if ((afterSku == null) != (afterLocation == null)) {
+            throw new InvalidInventoryException("invalid cursor");
+        }
+        if (afterSku != null) {
+            try {
+                new InventoryKey(afterSku, afterLocation);
+            } catch (IllegalArgumentException e) {
+                throw new InvalidInventoryException("invalid cursor");
+            }
+        }
+        List<Bson> filters = new ArrayList<>();
+        if (fulfillmentLocationId != null) {
+            filters.add(Filters.eq("fulfillment_location_id", fulfillmentLocationId));
+        }
+        if (afterSku != null) {
+            filters.add(Filters.or(Filters.gt("sku_id", afterSku),
+                    Filters.and(Filters.eq("sku_id", afterSku), Filters.gt("fulfillment_location_id", afterLocation))));
+        }
+        if (state != null) {
+            filters.add(stateFilter(state));
+        }
+        List<InventoryRecord> out = new ArrayList<>();
+        for (Document d : db.getCollection(COLLECTION)
+                .find(filters.isEmpty() ? new Document() : Filters.and(filters))
+                .sort(Sorts.ascending("sku_id", "fulfillment_location_id"))
+                .limit(limit)) {
+            out.add(new InventoryRecord(
+                    d.getString("sku_id"), d.getString("fulfillment_location_id"),
+                    asLong(d.get("on_hand")), asLong(d.get("reserved")),
+                    asLong(d.get("low_stock_threshold")), asLong(d.get("max_purchasable")),
+                    asLong(d.get("version")), d.getBoolean("active", false)));
+        }
+        return out;
+    }
+
+    public static final int LIST_MAX_LIMIT = 200;
+
+    /** The derived state as a query: the SAME arithmetic as {@link InventoryRecord#stockState()}, over the persisted counters. */
+    static Bson stateFilter(String state) {
+        Document available = new Document("$subtract", List.of("$on_hand", "$reserved"));
+        return switch (state) {
+            case "INACTIVE" -> Filters.eq("active", false);
+            case "OUT_OF_STOCK" -> Filters.and(Filters.eq("active", true),
+                    Filters.expr(new Document("$eq", List.of(available, 0L))));
+            case "LOW_STOCK" -> Filters.and(Filters.eq("active", true),
+                    Filters.expr(new Document("$and", List.of(
+                            new Document("$gt", List.of(available, 0L)),
+                            new Document("$lte", List.of(available, "$low_stock_threshold"))))));
+            case "IN_STOCK" -> Filters.and(Filters.eq("active", true),
+                    Filters.expr(new Document("$gt", List.of(available, "$low_stock_threshold"))));
+            default -> throw new InvalidInventoryException("state must be one of IN_STOCK, LOW_STOCK, OUT_OF_STOCK, INACTIVE");
+        };
     }
 
     @Override
