@@ -7,6 +7,7 @@ import com.tazzzo.catalog.consumer.ConsumerTaxonomyService;
 import com.tazzzo.catalog.ratelimit.ClientIpResolver;
 import com.tazzzo.catalog.ratelimit.ClientIpUnresolvableException;
 import com.tazzzo.catalog.ratelimit.InstallationIdResolver;
+import com.tazzzo.catalog.ratelimit.TrustedCallerResolver;
 import com.tazzzo.commerce.api.dto.NodeDetailDto;
 import com.tazzzo.commerce.api.dto.NodeListResponse;
 import com.tazzzo.commerce.api.dto.PagedProductResponse;
@@ -64,12 +65,14 @@ public class CommerceReadController {
     private final ClientIpResolver clientIps;
     private final ConsumerObservability observe;
     private final com.tazzzo.location.GeoPincodeResolver geo;
+    private final TrustedCallerResolver trustedCallers;
 
     public CommerceReadController(ConsumerTaxonomyService taxonomy, CommerceListService list,
                                   CommercePdpService pdp, CommerceServiceabilityService serviceability,
                                   CommerceSearchService search,
                                   ClientIpResolver clientIps, ConsumerObservability observe,
-                                  com.tazzzo.location.GeoPincodeResolver geo) {
+                                  com.tazzzo.location.GeoPincodeResolver geo,
+                                  TrustedCallerResolver trustedCallers) {
         this.taxonomy = taxonomy;
         this.list = list;
         this.pdp = pdp;
@@ -78,6 +81,7 @@ public class CommerceReadController {
         this.clientIps = clientIps;
         this.observe = observe;
         this.geo = geo;
+        this.trustedCallers = trustedCallers;
     }
 
     @GetMapping("/categories")
@@ -283,7 +287,9 @@ public class CommerceReadController {
 
     private ConsumerIdentity identity(HttpServletRequest request) {
         return new ConsumerIdentity(clientIp(request),
-                InstallationIdResolver.resolve(request.getHeader(InstallationIdResolver.HEADER)));
+                InstallationIdResolver.resolve(request.getHeader(InstallationIdResolver.HEADER)),
+                trustedCallers.resolve(request.getHeader(TrustedCallerResolver.CALLER_HEADER),
+                        request.getHeader(TrustedCallerResolver.SECRET_HEADER)));
     }
 
     private String clientIp(HttpServletRequest request) {

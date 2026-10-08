@@ -63,6 +63,8 @@ paths:
       parameters:
       - $ref: '#/components/parameters/Release'
       - $ref: '#/components/parameters/InstallationId'
+      - $ref: '#/components/parameters/TrustedCaller'
+      - $ref: '#/components/parameters/TrustedCallerSecret'
       responses:
         '200':
           description: OK
@@ -93,6 +95,8 @@ paths:
       - $ref: '#/components/parameters/NodeId'
       - $ref: '#/components/parameters/Release'
       - $ref: '#/components/parameters/InstallationId'
+      - $ref: '#/components/parameters/TrustedCaller'
+      - $ref: '#/components/parameters/TrustedCallerSecret'
       responses:
         '200':
           description: OK (a visible vertical returns empty items)
@@ -163,6 +167,8 @@ paths:
       - $ref: '#/components/parameters/Lat'
       - $ref: '#/components/parameters/Lng'
       - $ref: '#/components/parameters/InstallationId'
+      - $ref: '#/components/parameters/TrustedCaller'
+      - $ref: '#/components/parameters/TrustedCallerSecret'
       responses:
         '200':
           description: OK
@@ -196,6 +202,8 @@ paths:
       - $ref: '#/components/parameters/Lat'
       - $ref: '#/components/parameters/Lng'
       - $ref: '#/components/parameters/InstallationId'
+      - $ref: '#/components/parameters/TrustedCaller'
+      - $ref: '#/components/parameters/TrustedCallerSecret'
       responses:
         '200':
           description: OK
@@ -224,6 +232,8 @@ paths:
       - $ref: '#/components/parameters/Lat'
       - $ref: '#/components/parameters/Lng'
       - $ref: '#/components/parameters/InstallationId'
+      - $ref: '#/components/parameters/TrustedCaller'
+      - $ref: '#/components/parameters/TrustedCallerSecret'
       responses:
         '200':
           description: OK
@@ -1412,6 +1422,8 @@ paths:
       - $ref: '#/components/parameters/Lat'
       - $ref: '#/components/parameters/Lng'
       - $ref: '#/components/parameters/InstallationId'
+      - $ref: '#/components/parameters/TrustedCaller'
+      - $ref: '#/components/parameters/TrustedCallerSecret'
       responses:
         '200':
           description: OK (an empty `items` is a normal no-match answer). Never cached.
@@ -1808,6 +1820,8 @@ paths:
           enum:
           - app
           - web
+      - $ref: '#/components/parameters/TrustedCaller'
+      - $ref: '#/components/parameters/TrustedCallerSecret'
       responses:
         '200':
           description: 'OK. `Cache-Control: public, max-age=60`.'
@@ -1874,6 +1888,9 @@ paths:
       summary: 'Operational configuration read at app start: whether the store takes orders, a maintenance banner, the minimum supported and latest app versions per platform (force/soft update), support contacts, and the approved legal documents as https links (a null link means "not published yet"). Absent values mean "no constraint".
 
         '
+      parameters:
+      - $ref: '#/components/parameters/TrustedCaller'
+      - $ref: '#/components/parameters/TrustedCallerSecret'
       responses:
         '200':
           description: 'OK. `Cache-Control: public, max-age=60`.'
@@ -1972,6 +1989,8 @@ paths:
           - PAYMENT
           - REFUND
           - ACCOUNT
+      - $ref: '#/components/parameters/TrustedCaller'
+      - $ref: '#/components/parameters/TrustedCallerSecret'
       responses:
         '200':
           description: 'OK. `Cache-Control: public, max-age=60`.'
@@ -2101,6 +2120,23 @@ components:
         maxLength: 128
         pattern: ^[A-Za-z0-9\-_.:]+$
       description: Optional opaque rate-limit dimension. Never identity/authz.
+    TrustedCaller:
+      name: X-Tazzzo-Caller
+      in: header
+      required: false
+      schema:
+        type: string
+        pattern: ^[a-z][a-z_]{0,19}$
+      description: 'SERVER-TO-SERVER ONLY (the web storefront''s server side; never a browser or the mobile app). The name of a configured trusted caller. Sent together with X-Tazzzo-Caller-Secret: when both match the configuration, this public read is admitted against that caller''s own rate-limit bucket instead of the client-IP/installation buckets. A missing, partial or wrong credential is never refused (no 401): the request is admitted as an ordinary client. Grants no other capability and carries nothing about end users.'
+    TrustedCallerSecret:
+      name: X-Tazzzo-Caller-Secret
+      in: header
+      required: false
+      schema:
+        type: string
+        minLength: 32
+        maxLength: 256
+      description: SERVER-TO-SERVER ONLY. The shared secret configured for X-Tazzzo-Caller, compared in constant time and never logged. Keep it out of any browser-visible code or request.
   headers:
     ETag:
       description: Entity tag for conditional GET on stable/global responses.

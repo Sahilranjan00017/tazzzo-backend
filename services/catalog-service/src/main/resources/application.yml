@@ -91,6 +91,13 @@ tazzzo:
     # in or invented here. Missing or malformed => the LIST route answers 503 before any product
     # work. ROOT and CHILDREN do not need it. v1 rotation may invalidate outstanding cursors.
     cursor-hmac-key-b64: ${TAZZZO_CONSUMER_CURSOR_HMAC_KEY_B64:}
+    # Trusted server-side callers (the Next.js storefront): a list of {name, secret}, NO DEFAULT and deliberately
+    # not listed here -- set it from the secret store as TAZZZO_CONSUMER_TRUSTEDCALLERS_0_NAME (e.g. storefront,
+    # [a-z][a-z_]{0,19}) and TAZZZO_CONSUMER_TRUSTEDCALLERS_0_SECRET (32..256 printable ASCII), plus the optional
+    # TAZZZO_CONSUMER_TRUSTEDCALLERS_0_PREVIOUSSECRET while rotating (docs/ops/DEPLOYMENT.md). A request carrying
+    # X-Tazzzo-Caller + a matching X-Tazzzo-Caller-Secret on a public /v1 read is charged to its own bucket
+    # (tazzzo.consumer-rate-limit.caller) instead of the IP/installation buckets. A missing or wrong credential is
+    # never refused: it is admitted exactly as an ordinary client (one WARN per minute per caller, never the secret).
   customer-auth:
     # PR-11A. Base64 of >= 32 random bytes; signs every customer access token. NO DEFAULT BY
     # DESIGN: the production value is a deployment secret (CEO decision), never checked in or
@@ -193,6 +200,15 @@ tazzzo:
     installation:
       capacity: ${TAZZZO_RATE_LIMIT_INSTALL_CAPACITY:0}
       refill-per-second: ${TAZZZO_RATE_LIMIT_INSTALL_REFILL:0}
+    # The ONE bucket a trusted caller (tazzzo.consumer.trusted-callers) is charged to: it is the whole storefront's
+    # allowance, not a visitor's (per-visitor limits are the storefront's job). Unlike ip/installation it has a
+    # documented STARTING value -- 20000 units burst, 2000 units/s sustained (about 68 uncached root listings at the
+    # seed tree's 294 units each, or 80 page-size-24 lists a second) -- because it only applies once a trusted caller
+    # is configured. It is not load-tested: tune it with the IP budgets. Capacity must stay >= the most expensive
+    # single request (a root listing costs 1 + visible verticals), or that request answers 503.
+    caller:
+      capacity: ${TAZZZO_RATE_LIMIT_CALLER_CAPACITY:20000}
+      refill-per-second: ${TAZZZO_RATE_LIMIT_CALLER_REFILL:2000}
 server:
   # Platform baseline. The application NEVER rewrites scheme/host/port/client address from X-Forwarded-* headers:
   # the only consumer of X-Forwarded-For is the rate limiter's ClientIpResolver, which honours it solely from the
