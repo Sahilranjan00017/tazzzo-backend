@@ -71,6 +71,10 @@ class InventoryAdminListIT extends AbstractApiIT {
 
     static final String LONG_LOC = "仓".repeat(128);
 
+    /** A well-formed cursor (decodes to a real position) that is only too long: refused by the length bound alone. */
+    static final String TOO_LONG_CURSOR = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(
+            ("600:" + "S".repeat(600) + "L".repeat(600)).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+
     private static Document raw(String sku, String loc, long onHand, long reserved) {
         return new Document("sku_id", sku).append("fulfillment_location_id", loc).append("on_hand", onHand).append("reserved", reserved)
                 .append("max_purchasable", 10L).append("version", 1L);
@@ -172,7 +176,7 @@ class InventoryAdminListIT extends AbstractApiIT {
         assertThat(get(LIST, null, JsonNode.class).getStatusCode().value()).isEqualTo(401);
         assertThat(get(LIST, W, JsonNode.class).getStatusCode().value()).as("a writer may read").isEqualTo(200);
         for (String bad : List.of("?limit=0", "?limit=201", "?limit=abc", "?limit=99999999999", "?limit=1&limit=2", "?state=SOLD_OUT",
-                "?state=", "?stat=LOW_STOCK", "?cursor=nobar", "?cursor=" + "A".repeat(1101), "?cursor=MTA6YWI", "?location=" + "L".repeat(129))) {
+                "?state=", "?stat=LOW_STOCK", "?cursor=nobar", "?cursor=" + TOO_LONG_CURSOR, "?cursor=MTA6YWI", "?location=" + "L".repeat(129))) {
             ResponseEntity<JsonNode> r = get(LIST + bad, R, JsonNode.class);
             assertThat(r.getStatusCode().value()).as(bad + " -> " + r.getBody()).isEqualTo(422);
             assertThat(r.getBody().at("/error/code").asText()).isEqualTo("INVALID_INVENTORY");
