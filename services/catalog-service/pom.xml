@@ -16,7 +16,7 @@
     <description>Catalogue backend implementing Implementation Contract V1 (T1-T7, write path, schema bootstrap)</description>
     <properties>
         <java.version>21</java.version>
-        <testcontainers.version>1.21.3</testcontainers.version>
+        <testcontainers.version>1.21.4</testcontainers.version>
         <!--
           Security overrides on the Boot 3.3 line: each stays within the version line Boot manages (patch or the
           next compatible Jackson 2.x minor) and is OSV-clean at the time of writing. They fix: Tomcat request
