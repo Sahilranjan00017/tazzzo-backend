@@ -1303,7 +1303,8 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   instead of the IP/installation buckets. A missing, partial or wrong credential is never a 401: the request is admitted exactly as before, with one WARN per minute per configured
   name (unknown names log as `unknown`; the secret never). No `X-Forwarded-For` trust change, no new route; the two optional headers are documented on the nine admitted `/v1`
   public reads in OpenAPI. Audit: `tazzzo.catalog.consumer.trusted_caller.admissions{route,caller,decision}` plus `dimension=caller` on the existing bucket meters. `/catalog/v1`
-  is unchanged. The storefront's own per-visitor limit is separate work. Evidence: `TrustedCallerRateLimitIT` (real HTTP + Redis), `TrustedCallerResolverTest`,
+  is unchanged. Zero-downtime rotation: an optional `previous-secret` per caller, both slots compared every time without short-circuiting (procedure in
+  `docs/ops/DEPLOYMENT.md`). The storefront's own per-visitor limit is separate work. Evidence: `TrustedCallerRateLimitIT` (real HTTP + Redis), `TrustedCallerResolverTest`,
   `TrustedCallerWiringTest` (including the real environment-variable binding).
 - **HTTP correctness hardening** (branch `fix/http-correctness-hardening`, from `main` `7d491dd`): **IN REVIEW**. `catalog.api.AcceptNegotiationInterceptor` decides
   `Accept` before any application handler that returns a body runs (JSON = `application/json` or `application/*+json`, via Spring MVC's own negotiation manager), so an

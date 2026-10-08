@@ -93,7 +93,8 @@ tazzzo:
     cursor-hmac-key-b64: ${TAZZZO_CONSUMER_CURSOR_HMAC_KEY_B64:}
     # Trusted server-side callers (the Next.js storefront): a list of {name, secret}, NO DEFAULT and deliberately
     # not listed here -- set it from the secret store as TAZZZO_CONSUMER_TRUSTEDCALLERS_0_NAME (e.g. storefront,
-    # [a-z][a-z_]{0,19}) and TAZZZO_CONSUMER_TRUSTEDCALLERS_0_SECRET (32..256 printable ASCII). A request carrying
+    # [a-z][a-z_]{0,19}) and TAZZZO_CONSUMER_TRUSTEDCALLERS_0_SECRET (32..256 printable ASCII), plus the optional
+    # TAZZZO_CONSUMER_TRUSTEDCALLERS_0_PREVIOUSSECRET while rotating (docs/ops/DEPLOYMENT.md). A request carrying
     # X-Tazzzo-Caller + a matching X-Tazzzo-Caller-Secret on a public /v1 read is charged to its own bucket
     # (tazzzo.consumer-rate-limit.caller) instead of the IP/installation buckets. A missing or wrong credential is
     # never refused: it is admitted exactly as an ordinary client (one WARN per minute per caller, never the secret).

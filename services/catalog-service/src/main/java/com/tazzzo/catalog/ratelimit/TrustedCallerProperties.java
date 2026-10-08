@@ -11,7 +11,8 @@ import java.util.List;
  *
  * <p><b>No default, by design.</b> Empty means "no trusted caller": every request is admitted exactly as
  * before. Entries come from the environment ({@code TAZZZO_CONSUMER_TRUSTEDCALLERS_0_NAME},
- * {@code TAZZZO_CONSUMER_TRUSTEDCALLERS_0_SECRET}, ...), never from a checked-in file. The secret is
+ * {@code TAZZZO_CONSUMER_TRUSTEDCALLERS_0_SECRET}, optionally {@code TAZZZO_CONSUMER_TRUSTEDCALLERS_0_PREVIOUSSECRET}
+ * during a rotation), never from a checked-in file. The secret is
  * validated at startup and then reduced to a digest by {@link TrustedCallerResolver}; it is never logged,
  * and {@link Caller#toString()} omits it.
  */
@@ -33,6 +34,11 @@ public class TrustedCallerProperties {
         private String name;
         /** Shared secret, at least {@link TrustedCallerResolver#MIN_SECRET_LENGTH} characters. */
         private String secret;
+        /**
+         * Optional second accepted secret, for zero-downtime rotation: same rules as {@code secret}, must differ
+         * from it, and is removed once every caller instance sends the new one.
+         */
+        private String previousSecret;
 
         public String getName() {
             return name;
@@ -48,6 +54,14 @@ public class TrustedCallerProperties {
 
         public void setSecret(String secret) {
             this.secret = secret;
+        }
+
+        public String getPreviousSecret() {
+            return previousSecret;
+        }
+
+        public void setPreviousSecret(String previousSecret) {
+            this.previousSecret = previousSecret;
         }
 
         /** Never the secret. */

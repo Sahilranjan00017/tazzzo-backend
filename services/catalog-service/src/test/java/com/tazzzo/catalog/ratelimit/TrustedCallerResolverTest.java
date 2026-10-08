@@ -163,6 +163,53 @@ class TrustedCallerResolverTest {
         assertThat(warnings().get(2)).contains("caller=storefront").contains("suppressed_since_last=3");
     }
 
+    // ---------- zero-downtime rotation: two accepted secrets ----------
+
+    static final String NEW_SECRET = "sf-new-fedcba9876543210fedcba9876543210";
+
+    private static TrustedCallerProperties.Caller rotating(String name, String secret, String previous) {
+        TrustedCallerProperties.Caller c = caller(name, secret);
+        c.setPreviousSecret(previous);
+        return c;
+    }
+
+    @Test
+    void during_a_rotation_either_secret_admits_as_the_caller_and_a_third_does_not() {
+        TrustedCallerResolver r = new TrustedCallerResolver(List.of(rotating("storefront", NEW_SECRET, SECRET)), clock::get);
+        assertThat(r.resolve("storefront", NEW_SECRET)).as("the new (current) secret").contains("storefront");
+        assertThat(r.resolve("storefront", SECRET)).as("the previous secret").contains("storefront");
+        assertThat(r.resolve("storefront", SAME_LENGTH_LAST_CHAR)).as("a third secret").isEmpty();
+        assertThat(r.resolve("storefront", NEW_SECRET + "x")).isEmpty();
+        assertThat(warnings()).singleElement().asString().contains("reason=wrong_secret");
+        assertThat(everythingLogged()).doesNotContain(SECRET).doesNotContain(NEW_SECRET);
+    }
+
+    @Test
+    void an_empty_previous_secret_means_none_and_nothing_else_is_accepted() {
+        for (String none : new String[]{null, ""}) {
+            TrustedCallerResolver r = new TrustedCallerResolver(List.of(rotating("storefront", SECRET, none)), clock::get);
+            assertThat(r.resolve("storefront", SECRET)).contains("storefront");
+            assertThat(r.resolve("storefront", NEW_SECRET)).isEmpty();
+        }
+    }
+
+    @Test
+    void a_previous_secret_is_validated_like_the_secret_and_never_echoed() {
+        String weak = "too-short-previous-secret";
+        assertThatThrownBy(() -> new TrustedCallerResolver(List.of(rotating("storefront", SECRET, weak))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("trusted-callers[0].previous-secret").hasMessageNotContaining(weak)
+                .hasMessageNotContaining(SECRET);
+        String spaced = "sf 0123456789abcdef0123456789abcdef-prev";
+        assertThatThrownBy(() -> new TrustedCallerResolver(List.of(rotating("storefront", SECRET, spaced))))
+                .hasMessageContaining("previous-secret").hasMessageNotContaining(spaced);
+        assertThatThrownBy(() -> new TrustedCallerResolver(List.of(rotating("storefront", SECRET, SECRET))))
+                .as("a previous secret equal to the secret is a duplicate")
+                .hasMessageContaining("previous-secret").hasMessageContaining("equals its secret")
+                .hasMessageNotContaining(SECRET);
+        assertThat(rotating("storefront", SECRET, NEW_SECRET).toString()).doesNotContain(SECRET).doesNotContain(NEW_SECRET);
+    }
+
     // ---------- startup validation (never echoes the secret) ----------
 
     @Test
@@ -205,23 +252,35 @@ class TrustedCallerResolverTest {
     @Test
     void the_secret_is_compared_only_through_MessageDigest_isEqual() throws IOException {
         List<String> calls = new ArrayList<>();
+        List<Integer> resolveOpcodes = new ArrayList<>();
         try (InputStream in = TrustedCallerResolver.class.getResourceAsStream("TrustedCallerResolver.class")) {
             new ClassReader(in).accept(new ClassVisitor(SpringAsmInfo.ASM_VERSION) {
                 @Override
                 public MethodVisitor visitMethod(int access, String name, String desc, String sig, String[] ex) {
+                    boolean resolve = "resolve".contentEquals(name);
                     return new MethodVisitor(SpringAsmInfo.ASM_VERSION) {
                         @Override
                         public void visitMethodInsn(int op, String owner, String m, String d, boolean itf) {
                             calls.add(owner + "." + m);
+                        }
+
+                        @Override
+                        public void visitInsn(int op) {
+                            if (resolve) resolveOpcodes.add(op);
                         }
                     };
                 }
             }, 0);
         }
         assertThat(calls).contains("java/security/MessageDigest.isEqual");
+        assertThat(calls.stream().filter("java/security/MessageDigest.isEqual"::equals).count())
+                .as("the current/previous comparisons plus the previous==current startup check").isEqualTo(3);
         assertThat(calls).doesNotContain("java/lang/String.equals", "java/lang/String.contentEquals",
                 "java/lang/String.compareTo", "java/lang/String.equalsIgnoreCase", "java/util/Arrays.equals",
                 "java/util/Objects.equals", "java/lang/Object.equals");
+        // The two slot results are combined with the non-short-circuit boolean operators (IOR/IAND), so the
+        // second comparison always runs; '||' / '&&' would compile to conditional jumps instead.
+        assertThat(resolveOpcodes).contains(org.springframework.asm.Opcodes.IOR, org.springframework.asm.Opcodes.IAND);
     }
 
     @Test

@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -39,9 +40,12 @@ import java.util.regex.Pattern;
  *
  * <p><b>Secrets.</b> Only SHA-256 digests are kept, and they are compared with {@link MessageDigest#isEqual},
  * whose running time does not depend on where the inputs differ; equal-length digests also hide the secret's
- * length. An unknown name is compared against a dummy digest so it costs the same. A presented name is only
- * ever logged when it is a configured name; anything else is logged as {@code unknown}, so request data
- * never reaches the log.
+ * length. <b>Rotation:</b> each caller has a current secret and an optional {@code previous-secret}; the
+ * presented secret is compared against BOTH slots every time (an absent previous slot holds random bytes and
+ * is masked out) and the results are combined without short-circuiting, so the work is the same whichever
+ * secret matches, or none. An unknown name is compared against two dummy digests so it costs the same. A
+ * presented name is only ever logged when it is a configured name; anything else is logged as
+ * {@code unknown}, so request data never reaches the log.
  */
 public final class TrustedCallerResolver {
 
@@ -61,9 +65,12 @@ public final class TrustedCallerResolver {
 
     enum Rejection { MISSING_NAME, MISSING_SECRET, UNKNOWN_NAME, WRONG_SECRET }
 
-    private final Map<String, byte[]> digests;
+    /** A caller's two comparison slots; {@code previous} is random bytes, masked out, when none is configured. */
+    private record Credential(byte[] current, byte[] previous, boolean hasPrevious) { }
+
+    private final Map<String, Credential> credentials;
     private final Map<String, WarnWindow> warnWindows;
-    private final byte[] dummyDigest;
+    private final Credential dummy;
     private final LongSupplier nanoClock;
 
     public TrustedCallerResolver(List<TrustedCallerProperties.Caller> callers) {
@@ -72,7 +79,7 @@ public final class TrustedCallerResolver {
 
     TrustedCallerResolver(List<TrustedCallerProperties.Caller> callers, LongSupplier nanoClock) {
         this.nanoClock = nanoClock;
-        Map<String, byte[]> byName = new LinkedHashMap<>();
+        Map<String, Credential> byName = new LinkedHashMap<>();
         List<TrustedCallerProperties.Caller> entries = callers == null ? List.of() : callers;
         for (int i = 0; i < entries.size(); i++) {
             TrustedCallerProperties.Caller caller = entries.get(i);
@@ -84,18 +91,20 @@ public final class TrustedCallerResolver {
             if (byName.containsKey(name)) {
                 throw new IllegalStateException(where + ".name '" + name + "' is configured twice");
             }
-            // NEITHER the value NOR any fragment of it may appear in these messages.
-            String secret = caller.getSecret();
-            if (secret == null || secret.length() < MIN_SECRET_LENGTH || secret.length() > MAX_SECRET_LENGTH
-                    || !printableAscii(secret)) {
-                throw new IllegalStateException(where + ".secret for '" + name + "' must be "
-                        + MIN_SECRET_LENGTH + ".." + MAX_SECRET_LENGTH
-                        + " printable ASCII characters without spaces (value withheld)");
+            // NEITHER value NOR any fragment of one may appear in these messages.
+            byte[] current = validSecretDigest(caller.getSecret(), where + ".secret", name);
+            String previousSecret = caller.getPreviousSecret();
+            boolean hasPrevious = previousSecret != null && !previousSecret.isEmpty();
+            byte[] previous = hasPrevious
+                    ? validSecretDigest(previousSecret, where + ".previous-secret", name) : randomBytes();
+            if (hasPrevious && MessageDigest.isEqual(current, previous)) {
+                throw new IllegalStateException(where + ".previous-secret for '" + name
+                        + "' equals its secret (value withheld): remove it once rotation is complete");
             }
-            byName.put(name, sha256(secret));
+            byName.put(name, new Credential(current, previous, hasPrevious));
         }
-        this.digests = Map.copyOf(byName);
-        this.dummyDigest = sha256("tazzzo-trusted-caller-no-such-name");
+        this.credentials = Map.copyOf(byName);
+        this.dummy = new Credential(randomBytes(), randomBytes(), true);
         // The window map is FIXED at construction: request data can never add a key to it.
         Map<String, WarnWindow> windows = new LinkedHashMap<>();
         long now = nanoClock.getAsLong();
@@ -104,13 +113,13 @@ public final class TrustedCallerResolver {
         }
         windows.put(UNKNOWN, new WarnWindow(now));
         this.warnWindows = Map.copyOf(windows);
-        if (!digests.isEmpty()) {
+        if (!credentials.isEmpty()) {
             log.info("trusted consumer callers configured: {}", new ArrayList<>(byName.keySet()));
         }
     }
 
     public boolean hasCallers() {
-        return !digests.isEmpty();
+        return !credentials.isEmpty();
     }
 
     /**
@@ -125,7 +134,7 @@ public final class TrustedCallerResolver {
             return Optional.empty();                       // the ordinary anonymous request
         }
         String name = hasName ? callerHeader.trim() : null;
-        byte[] expected = name == null ? null : digests.get(name);
+        Credential expected = name == null ? null : credentials.get(name);
         String logKey = expected == null ? UNKNOWN : name;
         if (!hasName) {
             warn(logKey, Rejection.MISSING_NAME);
@@ -135,7 +144,12 @@ public final class TrustedCallerResolver {
             warn(logKey, Rejection.MISSING_SECRET);
             return Optional.empty();
         }
-        boolean match = MessageDigest.isEqual(sha256(secretHeader), expected == null ? dummyDigest : expected);
+        Credential against = expected == null ? dummy : expected;
+        byte[] presented = sha256(secretHeader);
+        // Both slots, every time, combined with the NON-short-circuit operators: constant work whichever matches.
+        boolean matchesCurrent = MessageDigest.isEqual(presented, against.current());
+        boolean matchesPrevious = MessageDigest.isEqual(presented, against.previous());
+        boolean match = matchesCurrent | (matchesPrevious & against.hasPrevious());
         if (expected == null) {
             warn(logKey, Rejection.UNKNOWN_NAME);
             return Optional.empty();
@@ -159,6 +173,23 @@ public final class TrustedCallerResolver {
         } else {
             window.suppressed.incrementAndGet();
         }
+    }
+
+    private static byte[] validSecretDigest(String secret, String property, String name) {
+        if (secret == null || secret.length() < MIN_SECRET_LENGTH || secret.length() > MAX_SECRET_LENGTH
+                || !printableAscii(secret)) {
+            throw new IllegalStateException(property + " for '" + name + "' must be "
+                    + MIN_SECRET_LENGTH + ".." + MAX_SECRET_LENGTH
+                    + " printable ASCII characters without spaces (value withheld)");
+        }
+        return sha256(secret);
+    }
+
+    /** Has no known preimage, so a comparison slot holding it can never be matched by a presented secret. */
+    private static byte[] randomBytes() {
+        byte[] out = new byte[32];
+        new SecureRandom().nextBytes(out);
+        return out;
     }
 
     private static boolean printableAscii(String s) {

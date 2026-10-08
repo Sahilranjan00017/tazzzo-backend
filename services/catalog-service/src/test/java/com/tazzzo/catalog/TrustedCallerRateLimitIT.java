@@ -36,6 +36,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 class TrustedCallerRateLimitIT extends AbstractConsumerIT {
 
     static final String STOREFRONT_SECRET = "it-storefront-secret-7f3a9c2e5b1d4086a2c4";
+    /** Accepted alongside STOREFRONT_SECRET, as during a rotation. */
+    static final String STOREFRONT_PREVIOUS_SECRET = "it-storefront-previous-3e8b1f6a9c2d4705b1e7";
     static final String PARTNER_SECRET = "it-partner-secret-0b8e6d4c2a1f3957e8d0b";
     static final String LOG_PROBE_SECRET = "it-log-probe-secret-5c1e9a7d3b2f4068c6e2";
     static final String WRONG_SECRET = "it-storefront-secret-7f3a9c2e5b1d4086a2cX";
@@ -60,6 +62,7 @@ class TrustedCallerRateLimitIT extends AbstractConsumerIT {
         r.add("tazzzo.consumer-rate-limit.caller.refill-per-second", () -> "0.001");
         r.add("tazzzo.consumer.trusted-callers[0].name", () -> "storefront");
         r.add("tazzzo.consumer.trusted-callers[0].secret", () -> STOREFRONT_SECRET);
+        r.add("tazzzo.consumer.trusted-callers[0].previous-secret", () -> STOREFRONT_PREVIOUS_SECRET);
         r.add("tazzzo.consumer.trusted-callers[1].name", () -> "partner");
         r.add("tazzzo.consumer.trusted-callers[1].secret", () -> PARTNER_SECRET);
         r.add("tazzzo.consumer.trusted-callers[2].name", () -> "log_probe");
@@ -152,6 +155,19 @@ class TrustedCallerRateLimitIT extends AbstractConsumerIT {
     }
 
     @Test
+    void during_a_rotation_both_secrets_charge_the_one_caller_bucket_and_a_third_falls_back_to_the_ip() {
+        for (int i = 0; i < IP_CAPACITY; i++) assertThat(anonymous()).isEqualTo(200);
+        assertThat(anonymous()).as("IP bucket empty").isEqualTo(429);
+        assertThat(status(APP_CONFIG, caller("storefront", STOREFRONT_PREVIOUS_SECRET)))
+                .as("the previous secret admits as the caller").isEqualTo(200);
+        assertThat(status(APP_CONFIG, caller("storefront", WRONG_SECRET)))
+                .as("a third secret is an ordinary client: the empty IP bucket").isEqualTo(429);
+        for (int i = 1; i < CALLER_CAPACITY; i++) assertThat(storefront()).as("current secret #" + i).isEqualTo(200);
+        assertThat(status(APP_CONFIG, caller("storefront", STOREFRONT_PREVIOUS_SECRET)))
+                .as("both secrets spend the SAME caller bucket, not one each").isEqualTo(429);
+    }
+
+    @Test
     void the_commerce_read_routes_honour_the_trusted_caller_too() {
         String pdp = "/v1/products/TZP-DOES-NOT-EXIST";
         for (int i = 0; i < IP_CAPACITY; i++) assertThat(anonymous()).isEqualTo(200);
@@ -169,7 +185,8 @@ class TrustedCallerRateLimitIT extends AbstractConsumerIT {
         assertThat(storefront()).isEqualTo(200);
 
         String logged = output.getAll();
-        assertThat(logged).doesNotContain(STOREFRONT_SECRET).doesNotContain(LOG_PROBE_SECRET).doesNotContain(WRONG_SECRET);
+        assertThat(logged).doesNotContain(STOREFRONT_SECRET).doesNotContain(LOG_PROBE_SECRET).doesNotContain(WRONG_SECRET)
+                .doesNotContain(STOREFRONT_PREVIOUS_SECRET);
         assertThat(logged.lines().filter(l -> l.contains("trusted_caller_rejected caller=log_probe")).count())
                 .as("two rejections within the minute: one WARN").isEqualTo(1);
         assertThat(logged).contains("trusted_caller_rejected caller=log_probe reason=wrong_secret");

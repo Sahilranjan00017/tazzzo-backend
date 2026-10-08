@@ -85,6 +85,39 @@ class TrustedCallerWiringTest {
                 });
     }
 
+    @Test
+    void the_previous_secret_environment_variable_binds_for_rotation() {
+        String previous = "wiring-fixture-previous-0123456789abcdef";
+        runner.withPropertyValues(REDIS)
+                .withPropertyValues("tazzzo.consumer-rate-limit.caller.capacity=100",
+                        "tazzzo.consumer-rate-limit.caller.refill-per-second=10")
+                .withInitializer(ctx -> ctx.getEnvironment().getPropertySources().addFirst(
+                        new SystemEnvironmentPropertySource(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME,
+                                Map.of("TAZZZO_CONSUMER_TRUSTEDCALLERS_0_NAME", "storefront",
+                                        "TAZZZO_CONSUMER_TRUSTEDCALLERS_0_SECRET", SECRET,
+                                        "TAZZZO_CONSUMER_TRUSTEDCALLERS_0_PREVIOUSSECRET", previous))))
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    TrustedCallerResolver resolver = context.getBean(TrustedCallerResolver.class);
+                    assertThat(resolver.resolve("storefront", SECRET)).contains("storefront");
+                    assertThat(resolver.resolve("storefront", previous)).as("bound from the env var").contains("storefront");
+                });
+    }
+
+    @Test
+    void an_invalid_previous_secret_fails_to_start_without_revealing_it() {
+        String weak = "short-previous";
+        runner.withPropertyValues("tazzzo.consumer-rate-limit.mode=DISABLED",
+                        "tazzzo.consumer.trusted-callers[0].name=storefront",
+                        "tazzzo.consumer.trusted-callers[0].secret=" + SECRET,
+                        "tazzzo.consumer.trusted-callers[0].previous-secret=" + weak)
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context).getFailure().hasStackTraceContaining("trusted-callers[0].previous-secret");
+                    assertThat(stackTrace(context.getStartupFailure())).doesNotContain(weak).doesNotContain(SECRET);
+                });
+    }
+
     private static String stackTrace(Throwable t) {
         java.io.StringWriter out = new java.io.StringWriter();
         t.printStackTrace(new java.io.PrintWriter(out));
