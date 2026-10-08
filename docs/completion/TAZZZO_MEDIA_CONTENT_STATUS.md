@@ -12,11 +12,14 @@ Last audit: 2026-10-08 (live GitHub state; backend `main` = `e05f22e`, includes 
 
 | PR | Repo | Branch → base | Head | CI | Independent review | Merge |
 |---|---|---|---|---|---|---|
-| #95 S3-compatible media storage | backend | `feature/media-storage-s3` → `main` | `68f3a07` (main merged in at `9f94c41`, remediation on top) | pre-remediation 4/4 green; remediation: full local suite 3264/0 failures, CI re-running | PASS_WITH_FOLLOWUPS (2 major, 5 minor) → remediated, re-review running | unmerged, needs CEO approval |
-| #96 APP/WEB/BOTH targeting | backend | `feature/content-channel-audience` → `main` | `a41e619` | targeted ITs 17/17 local; CI re-running | PASS_WITH_FOLLOWUPS (no blocker) → remediated, re-review running | unmerged, needs CEO approval |
+| #95 S3-compatible media storage | backend | `feature/media-storage-s3` → `main` | `c8f57de` | 4/4 green (full suite in CI) | PASS_WITH_FOLLOWUPS → remediated; re-review PASS_WITH_FOLLOWUPS (minors fixed in `69b214c`) | unmerged, needs CEO approval | unmerged, needs CEO approval |
+| #96 APP/WEB/BOTH targeting | backend | `feature/content-channel-audience` → `main` | `8b059bb` (main merged) | 4/4 green (full suite in CI) | PASS_WITH_FOLLOWUPS → remediated; re-review PASS_WITH_FOLLOWUPS | unmerged, needs CEO approval |
 | #16 CMS media | web | `cms/07-media` → `cms/14-audit-status` (stack #5→#19) | `c3ab2cd` | 7/7 green | PASS_WITH_FOLLOWUPS — metadata editor only, **uploads no bytes** | unmerged; whole CMS stack unmerged |
-| #24 App home content | app | `feature/app-home-content` → `main` | `6e2c4e2` | 4/4 green (linux + macos/iOS) | PASS_WITH_FOLLOWUPS; 1065/1065 unit tests | unmerged; **must not ship before #96 is deployed** |
-| #102 banner model / reorder / preview (new) | backend | `feature/content-banner-model` → `feature/content-channel-audience` | `cdac046` | targeted ITs 25/25 local; CI running | review running | unmerged; retarget to main after #96 |
+| #24 App home content | app | `feature/app-home-content` → `main` | `c5eb772` (remediation of all 8 findings) | 4/4 green (linux + macos/iOS); 1089/1089 Android + iOS | PASS_WITH_FOLLOWUPS → remediated; re-review running | unmerged; **must not ship before #96 is deployed** |
+| #102 banner model / reorder / preview (new) | backend | `feature/content-banner-model` → `feature/content-channel-audience` | `db3623c` | targeted ITs 28/28 local; CI runs once retargeted to `main` (workflow is main-only) | PASS_WITH_FOLLOWUPS → fixes in `6ee6d54`, `db3623c` | unmerged; retarget to main after #96 |
+| web #20 customer storefront (new) | web | `web/01-storefront` → `main` | `fe396d9` (remediation in progress) | 8/8 green incl. storefront e2e 13/13 | PASS_WITH_FOLLOWUPS (3 major, 4 minor) → remediation in progress | unmerged |
+| infra #3 media S3 + CloudFront (new) | infrastructure | `feature/infra-2-media` → `feature/infra-1-staging-foundation` | see PR | `terraform validate` both stacks | not yet reviewed | unmerged; gated off; needs spend approval |
+| backend #104 flaky checkout snapshot tests (new) | backend | `fix/checkout-money-snapshot-flaky` → `main` | see PR | — | test-only | unmerged |
 | #1, #2 staging infra | infrastructure | `infra-0` → `main`, `infra-1` → `infra-0` | `bfd335e` | none | not reviewed in this workstream | unmerged, not applied |
 
 Overlaps: #95 and #96 both insert at the top of `docs/ENGINEERING_STATUS.md` "In review" — the second to merge needs a
@@ -52,10 +55,10 @@ everything ──> E2E-MEDIA (cross-channel verification) ──> staging ──
 | 11 | CMS media: real upload, progress, preview, replace, retry | web | MEDIA-CMS (not opened) | NOT_STARTED | review: "uploads no bytes" | **local disk full (<1.5 GB) blocks build/test**; depends on #95 | implement |
 | 12 | CMS banners / rails / grids | web | CONTENT-CMS (not opened) | NOT_STARTED | nav lists "Home content" as planned; no page | **local disk full**; contract ready in #102 | implement |
 | 13 | CMS preview (app / desktop / mobile web) | web + backend | — | NOT_STARTED | — | depends on 9, 12 | implement |
-| 14 | App: CMS banners/rails/grids, channel=app | app | #24 | IMPLEMENTED_UNMERGED | 1065 unit tests; iOS compiles in CI | needs #96 deployed; **local disk full blocks remediation** | follow-ups: grid non-root ids, refresh, rail flash, thread safety, a11y, subtitle |
+| 14 | App: CMS banners/rails/grids, channel=app | app | #24 | IMPLEMENTED_UNMERGED | 1089 tests Android + iOS, CI green; pull-to-refresh, foreground refresh, backoff, no-flash rails, a11y, subtitle | needs #96 deployed | on-device check (pull gesture, foreground, TalkBack/VoiceOver) |
 | 15 | App: product images from backend media | app | main | MERGED_UNVERIFIED | remote image pipeline (UI-03) | no real media bucket | E2E with staging storage |
-| 16 | Customer website (home, banners, rails, grids, PDP gallery) | web | CONTENT-WEB (not opened) | NOT_STARTED | `tazzzo-web/apps` contains only `admin` | **local disk full** | build storefront app |
-| 17 | S3 bucket + CloudFront (staging) | infrastructure | MEDIA-INFRA | BLOCKED_EXTERNAL | — | paid AWS resources need CEO approval; infra #1/#2 unmerged | Terraform can be written; apply needs approval |
+| 16 | Customer website (home, banners, rails, grids, PDP gallery) | web | #20 | IMPLEMENTED_UNMERGED | unit 114/114, e2e 13/13 (fake backend, channel=web asserted), CI 8/8 | shared rate-limit identity (see §5) | build storefront app |
+| 17 | S3 bucket + CloudFront (staging) | infrastructure | #3 | BLOCKED_EXTERNAL | code written, `terraform validate` passes; gated off by default | usage-billed resources need CEO approval; infra #1/#2 unmerged | approve → bootstrap `allow_media_stack`, staging `enable_media` |
 | 18 | Cross-channel E2E (TEST 1–16) | all | E2E-MEDIA | NOT_STARTED | — | needs 11, 12, 16, staging | after the above |
 
 ## 4. Review remediation log
@@ -86,7 +89,11 @@ everything ──> E2E-MEDIA (cross-channel verification) ──> staging ──
 2. **Paid resources**: S3 bucket + CloudFront for staging (infra #1/#2 + MEDIA-INFRA).
 3. **Image roles**: the backend `ImageRole` contract has only PRIMARY and GALLERY. Adding FRONT_PACK, BACK_PACK,
    NUTRITION, INGREDIENTS, LIFESTYLE is a cross-repo contract change (backend + app must tolerate unknown roles first).
-4. **Banner model extension** (CONTENT-BE-2): additive fields on the public `/v1/content/home` response.
+4. **Banner model extension** (#102): additive fields on the public `/v1/content/home` response.
+5. **Website rate-limit identity**: to the backend the whole storefront is one client IP; one visitor can drain the shared
+   bucket. Options: dedicated storefront identity/bucket, edge per-IP limit (WAF/CloudFront), batch product read.
+6. **Recommended backend additions** surfaced by both clients: a category node-by-id read (grids of deep nodes),
+   category images, a batch product read, a banner aspect-ratio contract, and one product-id format (three differ today).
 
 ## 6. Propagation (current, pre-CDN)
 
