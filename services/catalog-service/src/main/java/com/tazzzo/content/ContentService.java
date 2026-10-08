@@ -173,8 +173,9 @@ public class ContentService {
             ContentBlock b;
             try {
                 b = toBlock(d);
-            } catch (IllegalArgumentException e) {
-                // one unreadable stored value (e.g. an audience outside the enum) hides that block, never the whole page
+            } catch (IllegalArgumentException | ClassCastException | NullPointerException e) {
+                // one unreadable stored document (an audience outside the enum, a mistyped or missing field) hides that block,
+                // never the whole page
                 log.warn("content_block_unreadable id={} reason={}", d.get("_id"), e.getMessage());
                 continue;
             }
