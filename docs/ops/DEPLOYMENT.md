@@ -36,6 +36,7 @@ Inject these from the platform secret store. Never put them in an image, a file 
 - `TAZZZO_CUSTOMER_SESSION_REFRESH_HMAC_KEY_B64`.
 - `TAZZZO_CUSTOMER_AUTH_OTP_HMAC_KEY_B64`.
 - `TAZZZO_RATE_LIMIT_REDIS_URL`: TLS (`rediss://`) to the managed Valkey/Redis.
+- **Trusted storefront caller (optional):** `TAZZZO_CONSUMER_TRUSTEDCALLERS_0_NAME` (e.g. `storefront`) and `TAZZZO_CONSUMER_TRUSTEDCALLERS_0_SECRET` (32..256 printable ASCII, e.g. `openssl rand -base64 48`). The storefront's server sends the same pair as `X-Tazzzo-Caller` / `X-Tazzzo-Caller-Secret` and is then admitted on its own bucket (`TAZZZO_RATE_LIMIT_CALLER_CAPACITY` / `…_REFILL`, defaults 20000 / 2000 per second, not load-tested). Rotation: deploy the new secret to both sides together; a mismatch is never refused, it only falls back to the shared IP bucket (with one WARN a minute).
 - **OTP SMS gateway credentials:** `docs/ops/OTP_GATEWAY.md` (#65).
 
 ### Configuration

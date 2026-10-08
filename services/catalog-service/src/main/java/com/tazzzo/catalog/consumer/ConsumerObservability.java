@@ -46,10 +46,12 @@ public class ConsumerObservability {
     public static final String PROBE_FAILURES = "tazzzo.catalog.consumer.visibility.probe.failures";
     /** PR-10C: WHY a request was unavailable/internal-error, recorded only on those two outcomes. */
     public static final String FAILURE_CLASS = "tazzzo.catalog.consumer.commerce.failure_class";
+    /** One count per admission decision for a verified trusted caller (route, caller, decision). */
+    public static final String TRUSTED_CALLER_ADMISSIONS = "tazzzo.catalog.consumer.trusted_caller.admissions";
 
     /** The complete tag vocabulary. A guard test asserts no meter carries any other key. */
     public static final Set<String> ALLOWED_TAG_KEYS =
-            Set.of("route", "outcome", "dimension", "decision", "result", "scope", "failure_class");
+            Set.of("route", "outcome", "dimension", "decision", "result", "scope", "failure_class", "caller");
 
     public enum Route {
         ROOT("root"), CHILDREN("children"), LIST("list"), PDP("pdp"),
@@ -214,6 +216,19 @@ public class ConsumerObservability {
                         .register(registry).record(o.saturation());
             }
         });
+    }
+
+    /**
+     * Audit of a trusted caller's admission. {@code caller} is a CONFIGURED name that
+     * {@code TrustedCallerResolver} verified (bounded by configuration, {@code [a-z][a-z_]{0,19}}), never a
+     * raw header value and never the secret.
+     */
+    public void trustedCallerAdmission(Route route, String caller, Admission admission) {
+        String decision = admission instanceof Admission.Allowed ? "allowed"
+                : admission instanceof Admission.RateLimited ? "rate_limited" : "unavailable";
+        safely(() -> Counter.builder(TRUSTED_CALLER_ADMISSIONS)
+                .tag("route", route.tag()).tag("caller", caller).tag("decision", decision)
+                .register(registry).increment());
     }
 
     public void probe(Route route, ProbeScope scope, ProbeResult result, Duration elapsed) {
