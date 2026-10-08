@@ -53,14 +53,19 @@ public final class MediaUploadPolicy {
         return key;
     }
 
+    /** The key namespace of one owner: every key issued for it starts with this, and only such keys may be referenced by it. */
+    public String ownerPrefix(MediaOwnerType ownerType, String ownerId) {
+        String safeOwner = ownerId.replaceAll("[^A-Za-z0-9_-]", "-");
+        return "p/" + ownerType.name().toLowerCase(java.util.Locale.ROOT) + "/" + safeOwner + "/";
+    }
+
     /** A fresh, safe object key for an owner. {@code ownerId} is reduced to the key alphabet (never trusted as-is). */
     public String newKey(MediaOwnerType ownerType, String ownerId, String contentType) {
         String ext = EXTENSIONS.get(contentType);
         if (ext == null) {
             throw new InvalidMediaException("unsupported contentType");
         }
-        String safeOwner = ownerId.replaceAll("[^A-Za-z0-9_-]", "-");
-        String key = "p/" + ownerType.name().toLowerCase(java.util.Locale.ROOT) + "/" + safeOwner + "/" + UUID.randomUUID() + "." + ext;
+        String key = ownerPrefix(ownerType, ownerId) + UUID.randomUUID() + "." + ext;
         if (!MediaAsset.isSafeKey(key)) {
             throw new InvalidMediaException("owner id cannot form a storage key");
         }

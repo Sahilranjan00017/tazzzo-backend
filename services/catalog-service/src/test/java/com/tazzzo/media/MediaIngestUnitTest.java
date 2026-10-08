@@ -70,4 +70,15 @@ class MediaIngestUnitTest {
         assertThatThrownBy(() -> new MediaIngestVerifier(storage(Optional.of(new StoredObject(10, "image/jpeg", "<svg/>".getBytes()))), policy).verify("k/x.jpg", null))
                 .isInstanceOf(InvalidMediaException.class).hasMessageContaining("not an allowed image");
     }
+
+    @Test
+    void the_verifier_refuses_bytes_stored_under_another_image_type_even_when_no_type_is_declared() {
+        MediaUploadPolicy policy = new MediaUploadPolicy(100);
+        // jpeg bytes the store would serve as image/png: delivered mislabelled, so refused
+        assertThatThrownBy(() -> new MediaIngestVerifier(storage(Optional.of(new StoredObject(50, "image/png", JPEG))), policy).verify("p/x/y.png", null))
+                .isInstanceOf(InvalidMediaException.class).hasMessageContaining("stored contentType");
+        // parameters and case are not a mismatch; a store that reports no type is judged on the bytes alone
+        new MediaIngestVerifier(storage(Optional.of(new StoredObject(50, "IMAGE/JPEG; charset=binary", JPEG))), policy).verify("p/x/y.jpg", null);
+        new MediaIngestVerifier(storage(Optional.of(new StoredObject(50, null, JPEG))), policy).verify("p/x/y.jpg", null);
+    }
 }

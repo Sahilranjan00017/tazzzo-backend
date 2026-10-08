@@ -12,6 +12,7 @@ import com.tazzzo.common.audit.DomainAudit;
 import com.tazzzo.common.audit.DomainEvent;
 import com.tazzzo.media.InvalidMediaException;
 import com.tazzzo.media.MediaIngestVerifier;
+import com.tazzzo.media.MediaStorageFailure;
 import org.bson.Document;
 import org.bson.conversions.Bson;
 import org.slf4j.Logger;
@@ -320,6 +321,10 @@ public class ContentService {
                 media.verify(key, null);
             } catch (InvalidMediaException e) {
                 throw new ContentFailure(ContentFailure.Reason.INVALID, e.getMessage());
+            } catch (MediaStorageFailure e) {
+                // storage unreachable or refusing: an outage (retry later), never "invalid" and never a 500
+                log.warn("content_image_verify_storage_failure reason={}", e.getMessage());
+                throw new ContentFailure(ContentFailure.Reason.STORAGE_OUTAGE, "media storage is unavailable; try again");
             }
         }
     }

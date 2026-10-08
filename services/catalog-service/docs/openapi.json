@@ -4181,6 +4181,9 @@
           },
           "contentType" : {
             "type" : "string"
+          },
+          "url" : {
+            "type" : "string"
           }
         }
       },

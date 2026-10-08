@@ -246,7 +246,7 @@ public class ContentAdminController {
                 case INVALID -> HttpStatus.UNPROCESSABLE_ENTITY;
                 case NOT_FOUND -> HttpStatus.NOT_FOUND;
                 case STALE_VERSION, STATE_CONFLICT -> HttpStatus.CONFLICT;
-                case STORAGE_UNAVAILABLE -> HttpStatus.SERVICE_UNAVAILABLE;
+                case STORAGE_UNAVAILABLE, STORAGE_OUTAGE -> HttpStatus.SERVICE_UNAVAILABLE;
             };
             String code = switch (e.reason()) {
                 case INVALID -> "INVALID_CONTENT";
@@ -254,6 +254,7 @@ public class ContentAdminController {
                 case STALE_VERSION -> "STALE_VERSION";
                 case STATE_CONFLICT -> "STATE_CONFLICT";
                 case STORAGE_UNAVAILABLE -> "MEDIA_STORAGE_NOT_CONFIGURED";
+                case STORAGE_OUTAGE -> "MEDIA_STORAGE_UNAVAILABLE";
             };
             Map<String, String> b = new LinkedHashMap<>();
             b.put("code", code);

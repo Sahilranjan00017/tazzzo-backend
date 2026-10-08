@@ -16,9 +16,16 @@ public interface MediaStorage {
     /** False when no storage is configured: uploads are refused and media set writes stay metadata-only (unverified). */
     boolean enabled();
 
-    /** An upload instruction for exactly {@code assetKey}, accepting {@code contentType} and at most {@code maxBytes}. */
-    UploadTarget createUpload(String assetKey, String contentType, long maxBytes);
+    /**
+     * An upload instruction for exactly {@code assetKey}, {@code contentType} and {@code sizeBytes} (the declared size: a
+     * provider that can bind it in the signature must, so a larger body is refused by the store).
+     */
+    UploadTarget createUpload(String assetKey, String contentType, long sizeBytes);
 
-    /** The stored object (size, stored content type, first bytes), or empty when no such object exists. */
+    /**
+     * The stored object (size, stored content type, first bytes), or empty when no such object exists.
+     *
+     * @throws MediaStorageFailure the store could not be reached or refused the request (never "not found")
+     */
     Optional<StoredObject> inspect(String assetKey);
 }
