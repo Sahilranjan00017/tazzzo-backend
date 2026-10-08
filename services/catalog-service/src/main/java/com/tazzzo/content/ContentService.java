@@ -12,6 +12,8 @@ import com.tazzzo.common.audit.DomainAudit;
 import com.tazzzo.common.audit.DomainEvent;
 import org.bson.Document;
 import org.bson.conversions.Bson;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.security.SecureRandom;
@@ -40,6 +42,7 @@ public class ContentService {
     static final String CONFIG_ID = "app_config";
     static final int MAX_BLOCKS_PER_PLACEMENT = 200;
     private static final SecureRandom RANDOM = new SecureRandom();
+    private static final Logger log = LoggerFactory.getLogger(ContentService.class);
 
     private final MongoDatabase db;
     private final Tx tx;
@@ -109,12 +112,14 @@ public class ContentService {
         }
         Instant now = clock.instant().truncatedTo(ChronoUnit.MILLIS);
         Map<String, Object> detail = au == current.audience() ? Map.of() : Map.of("audience", au.name(), "from", current.audience().name());
-        cas(actor, id, expectedVersion, List.of("DRAFT", "PUBLISHED"), "CONTENT_BLOCK_UPDATED", detail, Updates.combine(
+        List<Bson> changes = new ArrayList<>(List.of(
                 Updates.set("title", title), Updates.set("sort", sort), Updates.set("payload", payloadDoc(payload)),
-                Updates.set("audience", au.name()),
                 startsAt == null ? Updates.unset("startsAt") : Updates.set("startsAt", Date.from(startsAt)),
                 endsAt == null ? Updates.unset("endsAt") : Updates.set("endsAt", Date.from(endsAt)),
                 Updates.set("updatedAt", Date.from(now))));
+        // an older client's PUT (no audience) leaves the stored field as it is: a legacy document is not rewritten
+        if (audience != null) changes.add(Updates.set("audience", au.name()));
+        cas(actor, id, expectedVersion, List.of("DRAFT", "PUBLISHED"), "CONTENT_BLOCK_UPDATED", detail, Updates.combine(changes));
         return get(id);
     }
 
@@ -165,7 +170,14 @@ public class ContentService {
                         Filters.or(Filters.exists("endsAt", false), Filters.gt("endsAt", n)),
                         channelFilter(channel)))
                 .sort(Sorts.ascending("sort", "_id")).limit(MAX_BLOCKS_PER_PLACEMENT)) {
-            ContentBlock b = toBlock(d);
+            ContentBlock b;
+            try {
+                b = toBlock(d);
+            } catch (IllegalArgumentException e) {
+                // one unreadable stored value (e.g. an audience outside the enum) hides that block, never the whole page
+                log.warn("content_block_unreadable id={} reason={}", d.get("_id"), e.getMessage());
+                continue;
+            }
             // the same rules, applied twice: query and domain can never disagree
             if (b.isLiveAt(now) && b.audience().visibleTo(channel)) out.add(b);
         }
@@ -177,10 +189,13 @@ public class ContentService {
         return live(placement, null);
     }
 
-    /** A legacy document has no {@code audience} and means BOTH. */
+    /**
+     * A legacy document has no {@code audience} (or an explicit null) and means BOTH; {@code eq(field, null)} matches
+     * both forms, exactly as {@link ContentBlock#audience(String)} reads them.
+     */
     private static Bson audienceFilter(ContentBlock.Audience audience) {
         return audience == ContentBlock.Audience.BOTH
-                ? Filters.or(Filters.exists("audience", false), Filters.eq("audience", audience.name()))
+                ? Filters.or(Filters.eq("audience", null), Filters.eq("audience", audience.name()))
                 : Filters.eq("audience", audience.name());
     }
 
@@ -188,7 +203,7 @@ public class ContentService {
         List<String> admitted = new ArrayList<>(List.of(ContentBlock.Audience.BOTH.name()));
         if (channel == ContentBlock.Channel.APP) admitted.add(ContentBlock.Audience.APP_ONLY.name());
         if (channel == ContentBlock.Channel.WEB) admitted.add(ContentBlock.Audience.WEB_ONLY.name());
-        return Filters.or(Filters.exists("audience", false), Filters.in("audience", admitted));
+        return Filters.or(Filters.eq("audience", null), Filters.in("audience", admitted));
     }
 
     /**

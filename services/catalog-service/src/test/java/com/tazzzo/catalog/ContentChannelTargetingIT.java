@@ -81,6 +81,37 @@ class ContentChannelTargetingIT extends AbstractConsumerIT {
     }
 
     @Test
+    void an_explicit_null_audience_reads_as_both_and_an_unreadable_one_hides_only_that_block() {
+        String both = publish(create(block("CATEGORY_GRID", "Aisles", 1, Map.of("ids", List.of("TZC-000001")), "BOTH")));
+        String nulled = legacyPublishedBlock("Null audience", 2);
+        db.getCollection("content_blocks").updateOne(new Document("_id", nulled), new Document("$set", new Document("audience", null)));
+        String corrupt = legacyPublishedBlock("Corrupt audience", 3);
+        db.getCollection("content_blocks").updateOne(new Document("_id", corrupt), new Document("$set", new Document("audience", "EVERYONE")));
+
+        // query and domain agree: an explicit null is legacy BOTH on every channel and in the admin BOTH filter
+        assertThat(homeIds("")).containsExactly(both, nulled);
+        assertThat(homeIds("?channel=app")).containsExactly(both, nulled);
+        assertThat(homeIds("?channel=web")).containsExactly(both, nulled);
+        assertThat(ids(send(HttpMethod.GET, BLOCKS + "?audience=BOTH", R, null).getBody())).contains(both, nulled);
+    }
+
+    @Test
+    void an_older_client_update_does_not_rewrite_a_legacy_document() {
+        String legacy = legacyPublishedBlock("Legacy rail", 1);
+        Map<String, Object> upd = new LinkedHashMap<>();
+        upd.put("title", "Legacy rail (renamed)");
+        upd.put("sort", 1);
+        upd.put("payload", Map.of("ids", List.of("TZP-9")));
+        upd.put("expectedVersion", 1L);
+        ResponseEntity<JsonNode> r = send(HttpMethod.PUT, BLOCKS + "/" + legacy, W, upd);
+        assertThat(r.getStatusCode().value()).as(String.valueOf(r.getBody())).isEqualTo(200);
+        assertThat(r.getBody().get("audience").asText()).isEqualTo("BOTH");
+        Document stored = db.getCollection("content_blocks").find(new Document("_id", legacy)).first();
+        assertThat(stored.getString("title")).isEqualTo("Legacy rail (renamed)");
+        assertThat(stored.containsKey("audience")).as("no silent, unaudited rewrite").isFalse();
+    }
+
+    @Test
     void the_channel_parameter_is_a_closed_choice_and_the_only_parameter() {
         for (String q : new String[]{"?channel=ios", "?channel=APP", "?channel=", "?channel=app&channel=web", "?channel=app&x=1", "?x=1"}) {
             ResponseEntity<JsonNode> r = get("/v1/content/home" + q, JsonNode.class);
