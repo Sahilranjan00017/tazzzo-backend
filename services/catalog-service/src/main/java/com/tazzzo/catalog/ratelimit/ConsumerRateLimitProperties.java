@@ -45,6 +45,12 @@ public class ConsumerRateLimitProperties {
 
     private Bucket ip = new Bucket();
     private Bucket installation = new Bucket();
+    /**
+     * The bucket a trusted server-side caller ({@code tazzzo.consumer.trusted-callers}) is charged to INSTEAD
+     * of the IP/installation buckets. Only required when a trusted caller is configured; the documented
+     * starting values live in {@code application.yml}.
+     */
+    private Bucket caller = new Bucket();
 
     public static class Bucket {
         /** Burst allowance. 0 means unconfigured. */
@@ -167,5 +173,13 @@ public class ConsumerRateLimitProperties {
 
     public void setInstallation(Bucket installation) {
         this.installation = installation;
+    }
+
+    public Bucket getCaller() {
+        return caller;
+    }
+
+    public void setCaller(Bucket caller) {
+        this.caller = caller;
     }
 }

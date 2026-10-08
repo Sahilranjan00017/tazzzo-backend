@@ -1296,6 +1296,34 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
 
 ## In review (NOT merged)
 
+- **Product-id grammar alignment** (branch `fix/product-id-grammar-alignment`, from `main` `07be0e4`): **IN REVIEW**. One product/SKU id grammar on the `/v1` surface,
+  `^TZP-[A-Za-z0-9-]{1,40}$` (the `ContentBlock.PRODUCT_ID` grammar the CMS and storefront already use). Enforced in code at ONE site: `CartController` PUT/DELETE
+  `/v1/customer/cart/items/{skuId}` widens from `^TZP-[0-9]{1,18}$` (a strict superset: every previously accepted id is still accepted), so a cataloguable id such as
+  `TZP-MED-3` can be carted; out-of-grammar ids stay the indistinguishable 404. Doc-only: the OpenAPI cart `skuId` (2 operations) and the shared `ProductId` path parameter
+  (`/v1/products/{id}`, previously `^TZP-[0-9]+$`, which the PDP never enforced: `CommerceApiIT` already serves `TZP-L001`; the new bound excludes only a numeric id over 40 digits, and none exists in any seed,
+  fixture or doc — the longest is 23 characters). Safety: the id is only compared by equality and
+  stored as a value (cart lines, quote/order lines, inventory keys bounded at 128 chars), its characters are URL-unreserved, and `SurfaceClassifier` refuses any percent escape
+  before routing. Nothing else validates a product id against a narrower grammar (the `products` validator requires only `^TZP-`); no data migration. Evidence: `CartHttpIT`
+  (grammar test with visible products under refused ids), `ApiContractParityIT`.
+
+- **Category by id** (branch `feature/category-by-id`, from `main` `07be0e4`): **IN REVIEW**. `GET /v1/categories/{id}` returns one consumer-visible taxonomy node of any
+  level as `{id, name, resolvedReleaseId, requestId}` (`allOf(Node, ...)`, the CAT-NODE-1 node flattened like ProductDetail), so a client can name a grid tile or title a deep category
+  page without walking the tree. Visible exactly when `/children` would be 200 for the same id: `ConsumerTaxonomyService.node` is CHILD-1 with no candidates (TAX-REACH-1, charge 1
+  before a 404, cost `1 + |scope|`, PARENT probe), under its own admission label `commerce_node`. Unknown, deprecated/merged (or an ancestor) and consumer-empty are the same flat 404;
+  a malformed id (`^TZ[SCGV]-[0-9]{6}$`) is 400 `INVALID_REQUEST`, refused before anything is read or charged. Same `public, max-age=300` Cache-Control and content-hash ETag/304
+  as the sibling reads. `parent_id` and a level/node type are NOT exposed: CAT-NODE-1 lists `parent_id` as not exposed and defers `nodeType`, so adding them is escalated, not decided here.
+  Evidence: `CommerceCategoryNodeIT` (12 HTTP tests), `ApiContractParityIT`, `OpenApiExportIT`.
+
+- **Trusted storefront caller identity** (branch `feature/storefront-caller-identity`, from `main` `07be0e4`): **IN REVIEW**. The Next.js storefront calls the public
+  `/v1` reads server-side from one egress IP, so every visitor shared one client-IP admission bucket and one visitor could drain it (reviewed finding). A request that carries
+  `X-Tazzzo-Caller: <name>` and a matching `X-Tazzzo-Caller-Secret` (configured as `tazzzo.consumer.trusted-callers[]`, from the environment, no default; SHA-256 digests compared
+  with `MessageDigest.isEqual`) is now charged to its own bucket `caller:<name>` (`tazzzo.consumer-rate-limit.caller.*`, documented starting values 20000 / 2000 per second)
+  instead of the IP/installation buckets. A missing, partial or wrong credential is never a 401: the request is admitted exactly as before, with one WARN per minute per configured
+  name (unknown names log as `unknown`; the secret never). No `X-Forwarded-For` trust change, no new route; the two optional headers are documented on the nine admitted `/v1`
+  public reads in OpenAPI. Audit: `tazzzo.catalog.consumer.trusted_caller.admissions{route,caller,decision}` plus `dimension=caller` on the existing bucket meters. `/catalog/v1`
+  is unchanged. Zero-downtime rotation: an optional `previous-secret` per caller, both slots compared every time without short-circuiting (procedure in
+  `docs/ops/DEPLOYMENT.md`). The storefront's own per-visitor limit is separate work. Evidence: `TrustedCallerRateLimitIT` (real HTTP + Redis), `TrustedCallerResolverTest`,
+  `TrustedCallerWiringTest` (including the real environment-variable binding).
 - **HTTP correctness hardening** (branch `fix/http-correctness-hardening`, from `main` `7d491dd`): **IN REVIEW**. `catalog.api.AcceptNegotiationInterceptor` decides
   `Accept` before any application handler that returns a body runs (JSON = `application/json` or `application/*+json`, via Spring MVC's own negotiation manager), so an
   unacceptable `Accept` is a 406 before any write. Before this, the address, cart, quote, COD order, support case, profile change or account deletion was committed and then

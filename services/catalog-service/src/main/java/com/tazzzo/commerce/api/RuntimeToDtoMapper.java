@@ -2,6 +2,7 @@ package com.tazzzo.commerce.api;
 
 import com.tazzzo.catalog.consumer.ConsumerAttributeResponse;
 import com.tazzzo.catalog.consumer.ConsumerDtos;
+import com.tazzzo.commerce.api.dto.NodeDetailDto;
 import com.tazzzo.commerce.api.dto.NodeDto;
 import com.tazzzo.commerce.api.dto.NodeListResponse;
 import com.tazzzo.commerce.api.dto.PagedProductResponse;
@@ -88,6 +89,14 @@ final class RuntimeToDtoMapper {
         return new NodeListResponse(
                 requireStr(src.resolvedReleaseId(), "resolvedReleaseId"), items,
                 requireStr(requestId, "requestId"));
+    }
+
+    /** The by-id read: the single node of an already-mapped one-item envelope, flattened. */
+    static NodeDetailDto node(NodeListResponse single) {
+        if (single.items().size() != 1) {
+            throw new IllegalStateException("node read must carry exactly one item, got " + single.items().size());
+        }
+        return new NodeDetailDto(single.items().get(0), single.resolvedReleaseId(), single.requestId());
     }
 
     static ServiceabilityResponseDto serviceability(CommerceServiceabilityService.View v, String requestId) {

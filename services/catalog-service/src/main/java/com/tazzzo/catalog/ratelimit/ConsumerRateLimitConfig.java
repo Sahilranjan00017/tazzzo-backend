@@ -27,7 +27,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
  * finding a permissive one.
  */
 @Configuration
-@EnableConfigurationProperties(ConsumerRateLimitProperties.class)
+@EnableConfigurationProperties({ConsumerRateLimitProperties.class, TrustedCallerProperties.class})
 public class ConsumerRateLimitConfig {
 
     private static final Logger log = LoggerFactory.getLogger(ConsumerRateLimitConfig.class);
@@ -50,6 +50,15 @@ public class ConsumerRateLimitConfig {
     @Bean
     public ClientIpResolver clientIpResolver(ConsumerRateLimitProperties properties) {
         return new ClientIpResolver(properties.getTrustedProxyCidrs());
+    }
+
+    /**
+     * Always created, like the IP resolver: an invalid entry (bad name, short secret, duplicate) fails at
+     * startup, and an empty list means every request is admitted exactly as before.
+     */
+    @Bean
+    public TrustedCallerResolver trustedCallerResolver(TrustedCallerProperties properties) {
+        return new TrustedCallerResolver(properties.getTrustedCallers());
     }
 
     @Configuration
@@ -106,8 +115,14 @@ public class ConsumerRateLimitConfig {
 
         @Bean
         public ConsumerRateLimiter consumerRateLimiter(ConsumerRateLimitProperties properties,
-                                                       RateLimitStore store) {
-            return new ConsumerRateLimiter(store, properties.getIp(), properties.getInstallation());
+                                                       RateLimitStore store,
+                                                       TrustedCallerResolver trustedCallers) {
+            if (trustedCallers.hasCallers() && !properties.getCaller().isConfigured()) {
+                throw new IllegalStateException("tazzzo.consumer.trusted-callers is set, so "
+                        + "tazzzo.consumer-rate-limit.caller.capacity and caller.refill-per-second are required");
+            }
+            return new ConsumerRateLimiter(store, properties.getIp(), properties.getInstallation(),
+                    properties.getCaller());
         }
     }
 }

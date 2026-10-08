@@ -42,8 +42,11 @@ public class ConsumerAdmissionGate {
         }
         int cost = (int) Math.min(units, Integer.MAX_VALUE);
         observe.cost(route, cost);
-        Admission admission = rateLimiter.admit(identity.clientIp(), identity.installationId(), cost);
+        Admission admission = identity.trustedCaller().isPresent()
+                ? rateLimiter.admitCaller(identity.trustedCaller().get(), cost)
+                : rateLimiter.admit(identity.clientIp(), identity.installationId(), cost);
         observe.admission(route, admission);
+        identity.trustedCaller().ifPresent(caller -> observe.trustedCallerAdmission(route, caller, admission));
         if (admission instanceof Admission.RateLimited limited) {
             throw new ConsumerFailures.RateLimited(limited.retryAfter());
         }

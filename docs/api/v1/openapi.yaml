@@ -63,6 +63,8 @@ paths:
       parameters:
       - $ref: '#/components/parameters/Release'
       - $ref: '#/components/parameters/InstallationId'
+      - $ref: '#/components/parameters/TrustedCaller'
+      - $ref: '#/components/parameters/TrustedCallerSecret'
       responses:
         '200':
           description: OK
@@ -93,6 +95,8 @@ paths:
       - $ref: '#/components/parameters/NodeId'
       - $ref: '#/components/parameters/Release'
       - $ref: '#/components/parameters/InstallationId'
+      - $ref: '#/components/parameters/TrustedCaller'
+      - $ref: '#/components/parameters/TrustedCallerSecret'
       responses:
         '200':
           description: OK (a visible vertical returns empty items)
@@ -103,6 +107,41 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/NodeListResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '406':
+          $ref: '#/components/responses/PublicNotAcceptable'
+  /v1/categories/{id}:
+    get:
+      tags:
+      - commerce-read
+      operationId: getCategory
+      summary: One consumer-visible taxonomy node by id (any level), to name it without walking the tree.
+      description: 'Visible exactly when `/v1/categories/{id}/children` would answer 200 for the same id and release. Unknown, deprecated or merged (the node or any ancestor), not under a super-category, or consumer-empty are all the same 404. A malformed id is 400. Rate-limit cost is that of a children read with no children.
+
+        '
+      parameters:
+      - $ref: '#/components/parameters/NodeId'
+      - $ref: '#/components/parameters/Release'
+      - $ref: '#/components/parameters/InstallationId'
+      responses:
+        '200':
+          description: OK
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NodeDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
         '429':
@@ -128,6 +167,8 @@ paths:
       - $ref: '#/components/parameters/Lat'
       - $ref: '#/components/parameters/Lng'
       - $ref: '#/components/parameters/InstallationId'
+      - $ref: '#/components/parameters/TrustedCaller'
+      - $ref: '#/components/parameters/TrustedCallerSecret'
       responses:
         '200':
           description: OK
@@ -161,6 +202,8 @@ paths:
       - $ref: '#/components/parameters/Lat'
       - $ref: '#/components/parameters/Lng'
       - $ref: '#/components/parameters/InstallationId'
+      - $ref: '#/components/parameters/TrustedCaller'
+      - $ref: '#/components/parameters/TrustedCallerSecret'
       responses:
         '200':
           description: OK
@@ -189,6 +232,8 @@ paths:
       - $ref: '#/components/parameters/Lat'
       - $ref: '#/components/parameters/Lng'
       - $ref: '#/components/parameters/InstallationId'
+      - $ref: '#/components/parameters/TrustedCaller'
+      - $ref: '#/components/parameters/TrustedCallerSecret'
       responses:
         '200':
           description: OK
@@ -813,7 +858,7 @@ paths:
         required: true
         schema:
           type: string
-          pattern: ^TZP-[0-9]{1,18}$
+          pattern: ^TZP-[A-Za-z0-9-]{1,40}$
       - name: If-Match
         in: header
         required: true
@@ -886,7 +931,7 @@ paths:
         required: true
         schema:
           type: string
-          pattern: ^TZP-[0-9]{1,18}$
+          pattern: ^TZP-[A-Za-z0-9-]{1,40}$
       - name: If-Match
         in: header
         required: true
@@ -1377,6 +1422,8 @@ paths:
       - $ref: '#/components/parameters/Lat'
       - $ref: '#/components/parameters/Lng'
       - $ref: '#/components/parameters/InstallationId'
+      - $ref: '#/components/parameters/TrustedCaller'
+      - $ref: '#/components/parameters/TrustedCallerSecret'
       responses:
         '200':
           description: OK (an empty `items` is a normal no-match answer). Never cached.
@@ -1773,6 +1820,8 @@ paths:
           enum:
           - app
           - web
+      - $ref: '#/components/parameters/TrustedCaller'
+      - $ref: '#/components/parameters/TrustedCallerSecret'
       responses:
         '200':
           description: 'OK. `Cache-Control: public, max-age=60`.'
@@ -1839,6 +1888,9 @@ paths:
       summary: 'Operational configuration read at app start: whether the store takes orders, a maintenance banner, the minimum supported and latest app versions per platform (force/soft update), support contacts, and the approved legal documents as https links (a null link means "not published yet"). Absent values mean "no constraint".
 
         '
+      parameters:
+      - $ref: '#/components/parameters/TrustedCaller'
+      - $ref: '#/components/parameters/TrustedCallerSecret'
       responses:
         '200':
           description: 'OK. `Cache-Control: public, max-age=60`.'
@@ -1937,6 +1989,8 @@ paths:
           - PAYMENT
           - REFUND
           - ACCOUNT
+      - $ref: '#/components/parameters/TrustedCaller'
+      - $ref: '#/components/parameters/TrustedCallerSecret'
       responses:
         '200':
           description: 'OK. `Cache-Control: public, max-age=60`.'
@@ -2014,7 +2068,7 @@ components:
       required: true
       schema:
         type: string
-        pattern: ^TZP-[0-9]+$
+        pattern: ^TZP-[A-Za-z0-9-]{1,40}$
     PageSize:
       name: page_size
       in: query
@@ -2066,6 +2120,23 @@ components:
         maxLength: 128
         pattern: ^[A-Za-z0-9\-_.:]+$
       description: Optional opaque rate-limit dimension. Never identity/authz.
+    TrustedCaller:
+      name: X-Tazzzo-Caller
+      in: header
+      required: false
+      schema:
+        type: string
+        pattern: ^[a-z][a-z_]{0,19}$
+      description: 'SERVER-TO-SERVER ONLY (the web storefront''s server side; never a browser or the mobile app). The name of a configured trusted caller. Sent together with X-Tazzzo-Caller-Secret: when both match the configuration, this public read is admitted against that caller''s own rate-limit bucket instead of the client-IP/installation buckets. A missing, partial or wrong credential is never refused (no 401): the request is admitted as an ordinary client. Grants no other capability and carries nothing about end users.'
+    TrustedCallerSecret:
+      name: X-Tazzzo-Caller-Secret
+      in: header
+      required: false
+      schema:
+        type: string
+        minLength: 32
+        maxLength: 256
+      description: SERVER-TO-SERVER ONLY. The shared secret configured for X-Tazzzo-Caller, compared in constant time and never logged. Keep it out of any browser-visible code or request.
   headers:
     ETag:
       description: Entity tag for conditional GET on stable/global responses.
@@ -2097,6 +2168,18 @@ components:
           type: string
         name:
           type: string
+    NodeDetail:
+      allOf:
+      - $ref: '#/components/schemas/Node'
+      - type: object
+        required:
+        - resolvedReleaseId
+        - requestId
+        properties:
+          resolvedReleaseId:
+            type: string
+          requestId:
+            type: string
     NodeListResponse:
       type: object
       required:

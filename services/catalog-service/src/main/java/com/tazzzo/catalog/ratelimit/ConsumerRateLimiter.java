@@ -17,22 +17,35 @@ import java.util.Optional;
  * when a syntactically valid identifier was supplied. Every applicable bucket must pass, and the
  * debit is all-or-nothing (Q5-ATOMIC-1). The IP bucket remains the abuse backstop precisely because
  * rotating installation ids must buy nothing.
+ *
+ * <p>The one exception is a VERIFIED trusted server-side caller ({@link #admitCaller}): it is charged to its own
+ * bucket only, because its egress IP is every visitor's IP.
  */
 public class ConsumerRateLimiter {
 
     static final String IP_BUCKET_PREFIX = "rl:consumer:ip:";
     static final String INSTALL_BUCKET_PREFIX = "rl:consumer:install:";
+    static final String CALLER_BUCKET_PREFIX = "rl:consumer:caller:";
 
     private final RateLimitStore store;
     private final ConsumerRateLimitProperties.Bucket ipBucket;
     private final ConsumerRateLimitProperties.Bucket installationBucket;
+    private final ConsumerRateLimitProperties.Bucket callerBucket;
 
     public ConsumerRateLimiter(RateLimitStore store,
                                ConsumerRateLimitProperties.Bucket ipBucket,
                                ConsumerRateLimitProperties.Bucket installationBucket) {
+        this(store, ipBucket, installationBucket, null);
+    }
+
+    public ConsumerRateLimiter(RateLimitStore store,
+                               ConsumerRateLimitProperties.Bucket ipBucket,
+                               ConsumerRateLimitProperties.Bucket installationBucket,
+                               ConsumerRateLimitProperties.Bucket callerBucket) {
         this.store = store;
         this.ipBucket = ipBucket;
         this.installationBucket = installationBucket;
+        this.callerBucket = callerBucket;
     }
 
     /**
@@ -54,5 +67,21 @@ public class ConsumerRateLimiter {
                 INSTALL_BUCKET_PREFIX + id,
                 installationBucket.getCapacity(), installationBucket.getRefillPerSecond())));
         return store.tryConsume(buckets, cost);
+    }
+
+    /**
+     * A trusted server-side caller is charged to its OWN bucket only, independent of the IP and installation
+     * buckets: its egress IP is shared by every visitor it serves, so charging that IP would let one visitor
+     * drain everyone's allowance. The caller enforces per-visitor limits on its own side.
+     *
+     * @param callerName a name {@link TrustedCallerResolver} verified — never a raw header value
+     */
+    public Admission admitCaller(String callerName, int cost) {
+        if (callerName == null || callerName.isBlank() || callerBucket == null || !callerBucket.isConfigured()) {
+            // Startup refuses trusted callers without a caller bucket; this is the invariant's backstop.
+            return new Admission.Unavailable("caller bucket not configured");
+        }
+        return store.tryConsume(List.of(new BucketSpec(BucketDimension.CALLER, CALLER_BUCKET_PREFIX + callerName,
+                callerBucket.getCapacity(), callerBucket.getRefillPerSecond())), cost);
     }
 }
