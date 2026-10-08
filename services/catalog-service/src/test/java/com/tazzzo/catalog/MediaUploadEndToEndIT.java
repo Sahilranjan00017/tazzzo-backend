@@ -133,6 +133,8 @@ class MediaUploadEndToEndIT extends AbstractApiIT {
         ResponseEntity<JsonNode> created = put(SET, set(List.of(asset("a1", key, "PRIMARY", 0, "image/png")), null));
         assertThat(created.getStatusCode().value()).as(String.valueOf(created.getBody())).isEqualTo(201);
         assertThat(created.getBody().get("assets").get(0).get("assetKey").asText()).isEqualTo(key);
+        assertThat(created.getBody().get("assets").get(0).get("url").asText()).as("the CMS can display what it saved")
+                .isEqualTo("https://cdn.example.test/" + key);
         assertThat(created.getBody().get("version").asLong()).isEqualTo(1);
 
         // 6. a second asset of another type, referenced with its CAS version
