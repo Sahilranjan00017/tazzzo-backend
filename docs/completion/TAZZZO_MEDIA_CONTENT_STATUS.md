@@ -6,7 +6,7 @@ website). Statuses are evidence-based; "code exists" is never "done".
 Allowed statuses: `NOT_STARTED` · `PARTIAL` · `IMPLEMENTED_UNMERGED` · `MERGED_UNVERIFIED` · `INTEGRATED_VERIFIED` ·
 `STAGING_VERIFIED` · `LIVE_VERIFIED` · `BLOCKED_EXTERNAL`.
 
-Last audit: 2026-10-09 (live GitHub state; backend `main` = `5191eb7`; web `main` = `3be81e0`).
+Last audit: 2026-10-09 (live GitHub state; backend `main` = `2ee1fd5` (#103 merged on `5191eb7`); web `main` = `3be81e0`).
 
 ## 1. Existing PRs (Phase 0 audit)
 
@@ -23,7 +23,7 @@ Last audit: 2026-10-09 (live GitHub state; backend `main` = `5191eb7`; web `main
 | web #22 CMS home content | web | `cms/21-home-content` → `cms/20-media-upload` | `ef88d23` | 7/7 green | PASS_WITH_FOLLOWUPS → remediated | **MERGED** `3be81e0` (web main) |
 | backend #105 integration preview (draft) | backend | `integration/media-content` → `main` | `198fc07` | 4/4 green: full suite on #95+#96+#102 combined | n/a | **CLOSED without merge** (evidence only) | carries the banner-outage→503 fix into #102 after #95 merges |
 | backend #104 flaky checkout snapshot tests (new) | backend | `fix/checkout-money-snapshot-flaky` → `main` | see PR | — | test-only | unmerged |
-| web #23 local E2E harness (draft) | web | `e2e/media-content-local` → `main` | `7bcb44e` | 11/11 Playwright journeys, 5.1 min, stack rebuilt from scratch | evidence in `e2e/local-stack/EVIDENCE_2026-10-08.md` | DO NOT MERGE to main as product; harness only |
+| web #23 local E2E harness (draft) | web | `e2e/media-content-local` → `main` | `f67ff6d` | **rerun 2026-10-09 on the MERGED heads** (backend `5191eb7`, web `3be81e0`, storefront `fd00305`, app `c5caed0`): 11/11 journeys, 4.7 min, fresh stack | `e2e/local-stack/EVIDENCE_2026-10-09.md` (+ 2026-10-08) | harness only; keep as draft |
 | #1, #2 staging infra | infrastructure | `infra-0` → `main`, `infra-1` → `infra-0` | `bfd335e` | none | not reviewed in this workstream | unmerged, not applied |
 
 Overlaps: #95 and #96 both insert at the top of `docs/ENGINEERING_STATUS.md` "In review" — the second to merge needs a
@@ -63,7 +63,7 @@ everything ──> E2E-MEDIA (cross-channel verification) ──> staging ──
 | 15 | App: product images from backend media | app | main | MERGED_UNVERIFIED | remote image pipeline (UI-03) | no real media bucket | E2E with staging storage |
 | 16 | Customer website (home, banners, rails, grids, PDP gallery) | web | #20 | IMPLEMENTED_UNMERGED | unit 114/114, e2e 13/13 (fake backend, channel=web asserted), CI 8/8 | shared rate-limit identity (see §5) | build storefront app |
 | 17 | S3 bucket + CloudFront (staging) | infrastructure | #3 | BLOCKED_EXTERNAL | code written, `terraform validate` passes; gated off by default | usage-billed resources need CEO approval; infra #1/#2 unmerged | approve → bootstrap `allow_media_stack`, staging `enable_media` |
-| 18 | Cross-channel E2E (TEST 1–16) | all | web #23 (local harness) | INTEGRATED_VERIFIED (local) | TEST 1–4, 7–16 PASS on real backend + S3-compatible store + CDN stand-in + production-mode website; TEST 5/6 app: JVM contract PASS, **on-device NOT_VERIFIED** (debug app has no local base-URL override; iOS not attempted); CMS steps API-driven (CMS has Google-only login, no bypass added) | staging run needs infra approval | after the above |
+| 18 | Cross-channel E2E (16 journeys) | all | web #23 (local harness) | INTEGRATED_VERIFIED (local, on merged heads) | 2026-10-09 rerun on merged heads: CMS upload → storage → verification → publication → website display, APP/WEB/BOTH, schedule, unpublish, reorder, CDN failure fallback, 403 no-state-change, draft never public, and every rejection (bad MIME, oversize, missing, wrong owner, foreign CORS, write-once 412) PASS on real Mongo/Redis/Versity S3/CDN stand-in + production-mode website. App: JVM contract PASS; **on-device Android/iOS NOT_VERIFIED**. CMS steps API-driven (Google-only login, no bypass). | staging run needs infra approval | after the above |
 
 ## 4. Review remediation log
 
