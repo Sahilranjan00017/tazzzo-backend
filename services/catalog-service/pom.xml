@@ -28,7 +28,20 @@
         <tomcat.version>10.1.60</tomcat.version>
         <jackson-bom.version>2.18.11</jackson-bom.version>
         <netty.version>4.1.139.Final</netty.version>
+        <!-- Media object storage (S3-compatible): presigned direct-to-storage uploads and object inspection only. -->
+        <awssdk.version>2.55.11</awssdk.version>
     </properties>
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>software.amazon.awssdk</groupId>
+                <artifactId>bom</artifactId>
+                <version>${awssdk.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
     <dependencies>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -93,6 +106,34 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+        <!--
+          Media storage: the S3 client (HeadObject, ranged GetObject for magic bytes) and presigner (direct-to-storage
+          PUT). The JDK URL-connection HTTP client is used; the SDK's Apache 4, Apache 5 and Netty clients are excluded
+          so no extra HTTP stack ships in the image (verified with dependency:build-classpath, no httpclient/httpcore
+          jars). The same adapter speaks to S3Mock and CloudServer in tests.
+        -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>software.amazon.awssdk</groupId>
+                    <artifactId>apache-client</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>software.amazon.awssdk</groupId>
+                    <artifactId>apache5-client</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>software.amazon.awssdk</groupId>
+                    <artifactId>netty-nio-client</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>url-connection-client</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
