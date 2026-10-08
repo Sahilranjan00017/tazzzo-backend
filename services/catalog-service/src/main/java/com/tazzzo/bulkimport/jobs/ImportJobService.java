@@ -165,12 +165,16 @@ public class ImportJobService {
     private String lockAppend(ImportJob job) {
         String token = ImportJobRepository.newLeaseToken();
         if (!repo.lockAppend(job.id(), token, APPEND_LOCK_MS)) {
-            throw ImportJobException.conflict("another upload to this job is in progress; wait for it to finish");
+            throw ImportJobException.conflict("another upload or correction is in progress, or the job is no longer OPEN; reload it and retry");
         }
         return token;
     }
 
-    /** Replace one row's payload (a correction after REJECTED). The job must be OPEN or REJECTED; REJECTED goes back to OPEN. */
+    /**
+     * Replace one row's payload (a correction after REJECTED). The job must be OPEN or REJECTED; REJECTED goes back to OPEN.
+     * The replacement holds the job's append lock, which validation refuses to start under, so a correction can never
+     * interleave with a validation pass (a verdict for the old payload landing on the new one, or a fresh verdict wiped).
+     */
     public ImportJob correctRow(String id, long row, CreateProductRequest request, Actor actor) {
         ImportJob job = require(id);
         if (job.status() != ImportJob.Status.OPEN && job.status() != ImportJob.Status.REJECTED) {
@@ -179,11 +183,15 @@ public class ImportJobService {
         if (row < 0 || row >= job.rowsTotal()) throw ImportJobException.invalid("row must be 0.." + (job.rowsTotal() - 1));
         if (request == null) throw ImportJobException.invalid("a product row is required");
         if (job.status() == ImportJob.Status.REJECTED) job = reopen(job, actor);
+        String lock = lockAppend(job);
         try {
+            job = underLock(id, lock);
             repo.replaceRowPayload(job.id(), row, toPayload(request), dedupKey(request), identityKeys(request));
         } catch (com.mongodb.MongoWriteException e) {
             if (e.getError().getCode() != 11000) throw e;
             throw ImportJobException.invalid("the product id, a GTIN or the internal key of this row already belongs to another row of this job");
+        } finally {
+            repo.unlockAppend(id, lock);
         }
         return job;
     }

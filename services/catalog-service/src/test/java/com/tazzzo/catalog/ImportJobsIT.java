@@ -491,6 +491,21 @@ class ImportJobsIT extends AbstractApiIT {
     }
 
     @Test
+    void a_correction_is_serialised_with_uploads_and_validation() {
+        String id = create("correct-lock");
+        csv(id, HEADER + line("TZP-IW-001", 1), W);
+        HttpEntity<Object> fix = new HttpEntity<>(BulkProductImportIT.row("TZP-IW-001", 1), headers(W));
+        // while an upload (or another correction) holds the lock, a correction is refused instead of interleaving
+        assertThat(repo.lockAppend(id, "upload-x", 60_000)).isTrue();
+        assertThat(rest.exchange(url(JOBS + "/" + id + "/rows/0"), HttpMethod.PUT, fix, JsonNode.class).getStatusCode().value()).isEqualTo(409);
+        repo.unlockAppend(id, "upload-x");
+        assertThat(rest.exchange(url(JOBS + "/" + id + "/rows/0"), HttpMethod.PUT, fix, JsonNode.class).getStatusCode().value()).isEqualTo(200);
+        Document doc = db.getCollection("import_jobs").find(new Document("_id", id)).first();
+        assertThat(doc.containsKey("append_lock_token")).as("the correction released its lock").isFalse();
+        assertThat(act(id, "validate", W).getStatusCode().value()).isEqualTo(200);
+    }
+
+    @Test
     void validation_waits_for_an_upload_and_an_upload_whose_job_left_open_adds_nothing() {
         String id = create("upload-race");
         csv(id, HEADER + line("TZP-IU-001", 1), W);
