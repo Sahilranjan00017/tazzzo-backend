@@ -858,7 +858,7 @@ paths:
         required: true
         schema:
           type: string
-          pattern: ^TZP-[0-9]{1,18}$
+          pattern: ^TZP-[A-Za-z0-9-]{1,40}$
       - name: If-Match
         in: header
         required: true
@@ -931,7 +931,7 @@ paths:
         required: true
         schema:
           type: string
-          pattern: ^TZP-[0-9]{1,18}$
+          pattern: ^TZP-[A-Za-z0-9-]{1,40}$
       - name: If-Match
         in: header
         required: true
@@ -2068,7 +2068,7 @@ components:
       required: true
       schema:
         type: string
-        pattern: ^TZP-[0-9]+$
+        pattern: ^TZP-[A-Za-z0-9-]{1,40}$
     PageSize:
       name: page_size
       in: query

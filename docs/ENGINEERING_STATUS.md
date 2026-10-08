@@ -1296,6 +1296,16 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
 
 ## In review (NOT merged)
 
+- **Product-id grammar alignment** (branch `fix/product-id-grammar-alignment`, from `main` `07be0e4`): **IN REVIEW**. One product/SKU id grammar on the `/v1` surface,
+  `^TZP-[A-Za-z0-9-]{1,40}$` (the `ContentBlock.PRODUCT_ID` grammar the CMS and storefront already use). Enforced in code at ONE site: `CartController` PUT/DELETE
+  `/v1/customer/cart/items/{skuId}` widens from `^TZP-[0-9]{1,18}$` (a strict superset: every previously accepted id is still accepted), so a cataloguable id such as
+  `TZP-MED-3` can be carted; out-of-grammar ids stay the indistinguishable 404. Doc-only: the OpenAPI cart `skuId` (2 operations) and the shared `ProductId` path parameter
+  (`/v1/products/{id}`, previously `^TZP-[0-9]+$`, which the PDP never enforced: `CommerceApiIT` already serves `TZP-L001`; the new bound excludes only a numeric id over 40 digits, and none exists in any seed,
+  fixture or doc — the longest is 23 characters). Safety: the id is only compared by equality and
+  stored as a value (cart lines, quote/order lines, inventory keys bounded at 128 chars), its characters are URL-unreserved, and `SurfaceClassifier` refuses any percent escape
+  before routing. Nothing else validates a product id against a narrower grammar (the `products` validator requires only `^TZP-`); no data migration. Evidence: `CartHttpIT`
+  (grammar test with visible products under refused ids), `ApiContractParityIT`.
+
 - **Category by id** (branch `feature/category-by-id`, from `main` `07be0e4`): **IN REVIEW**. `GET /v1/categories/{id}` returns one consumer-visible taxonomy node of any
   level as `{id, name, resolvedReleaseId, requestId}` (`allOf(Node, ...)`, the CAT-NODE-1 node flattened like ProductDetail), so a client can name a grid tile or title a deep category
   page without walking the tree. Visible exactly when `/children` would be 200 for the same id: `ConsumerTaxonomyService.node` is CHILD-1 with no candidates (TAX-REACH-1, charge 1

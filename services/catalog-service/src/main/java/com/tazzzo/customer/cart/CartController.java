@@ -34,8 +34,13 @@ public class CartController {
 
     private static final int MAX_IF_MATCH_LENGTH = 40;
     private static final Pattern IF_MATCH = Pattern.compile("^\"?cart-([0-9]{1,15})\"?$");
-    /** The canonical SKU/product id grammar of the existing public contract (frozen OpenAPI ProductId). */
-    private static final Pattern SKU = Pattern.compile("^TZP-[0-9]{1,18}$");
+    /**
+     * The canonical SKU/product id grammar, the same as {@code ContentBlock.PRODUCT_ID} and the OpenAPI
+     * ProductId: a superset of the earlier {@code ^TZP-[0-9]{1,18}$}, so ids such as {@code TZP-MED-3}
+     * that the catalogue already creates (it requires only {@code ^TZP-}) can be carted. Only URL-unreserved characters, at most 44 in
+     * all; the id is only ever compared by equality and stored as a value, never used as a key path.
+     */
+    private static final Pattern SKU = Pattern.compile("^TZP-[A-Za-z0-9-]{1,40}$");
 
     private final CartService service;
     private final CartEnricher enricher;
