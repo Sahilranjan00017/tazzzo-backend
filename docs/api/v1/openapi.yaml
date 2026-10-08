@@ -1803,8 +1803,18 @@ paths:
                           - CATEGORY_GRID
                         title:
                           type: string
+                        subtitle:
+                          type: string
+                          description: BANNER only, optional plain text (<= 120 chars).
+                        altText:
+                          type: string
+                          description: BANNER only, always present - the editor's alt text, else the title.
                         imageUrl:
                           type: string
+                          description: BANNER only. The image every client may use (mobile / app).
+                        desktopImageUrl:
+                          type: string
+                          description: BANNER only, optional wide image for desktop web; absent means use imageUrl.
                         link:
                           type: string
                         ids:
