@@ -201,6 +201,10 @@ class ContentModelTest {
                 ContentBlock.Payload.banner("c/home/a.webp", "search:rice", "a\u200Bb", null, null));
         ContentBlock.validate(ContentBlock.Type.BANNER, "T", 1, null, null,
                 ContentBlock.Payload.banner("c/home/a.webp", "search:rice", "ताज़ा आम", "नारंगी आम की टोकरी", null));
+        ContentBlock.validate(ContentBlock.Type.BANNER, "T", 1, null, null,
+                ContentBlock.Payload.banner("c/home/a.webp", "search:ताज़ा आम", null, null, null));   // Devanagari matras/nukta are marks (\p{M})
+        bad("search with punctuation", ContentBlock.Type.BANNER, "T", 1, null, null,
+                ContentBlock.Payload.banner("c/home/a.webp", "search:rice;drop", null, null, null));
         bad("unsafe desktop key", ContentBlock.Type.BANNER, "T", 1, null, null,
                 ContentBlock.Payload.banner("c/home/a.webp", "search:rice", null, null, "/etc/passwd"));
         bad("alt on a grid", ContentBlock.Type.CATEGORY_GRID, "T", 1, null, null,
