@@ -11,6 +11,7 @@ import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
 import software.amazon.awssdk.http.urlconnection.UrlConnectionHttpClient;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -30,6 +31,13 @@ import java.time.Duration;
 class MediaStorageConfig {
 
     private static final Logger log = LoggerFactory.getLogger(MediaStorageConfig.class);
+
+    /**
+     * Bounds how long an admin media-set write can be held by an unreachable store (inspect runs on the request thread,
+     * once per newly referenced asset): each attempt 2s, the whole call (SDK retries included) 5s, then a 503.
+     */
+    static final ClientOverrideConfiguration CLIENT_TIMEOUTS = ClientOverrideConfiguration.builder()
+            .apiCallAttemptTimeout(Duration.ofSeconds(2)).apiCallTimeout(Duration.ofSeconds(5)).build();
 
     /** Fails startup with the key named when the provider is not one of the closed choices (no silent "no bean"). */
     @Bean
@@ -56,7 +64,8 @@ class MediaStorageConfig {
         URI endpoint = p.endpointUri();
         S3Configuration serviceConfig = S3Configuration.builder().pathStyleAccessEnabled(p.isPathStyle()).build();
         S3ClientBuilder client = S3Client.builder().region(region).credentialsProvider(credentials)
-                .httpClientBuilder(UrlConnectionHttpClient.builder()).serviceConfiguration(serviceConfig);
+                .httpClientBuilder(UrlConnectionHttpClient.builder()).serviceConfiguration(serviceConfig)
+                .overrideConfiguration(CLIENT_TIMEOUTS);
         S3Presigner.Builder presigner = S3Presigner.builder().region(region).credentialsProvider(credentials)
                 .serviceConfiguration(serviceConfig);
         if (endpoint != null) {

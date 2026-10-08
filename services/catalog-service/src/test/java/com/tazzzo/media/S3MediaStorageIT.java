@@ -74,7 +74,7 @@ class S3MediaStorageIT {
         assertThat(target.method()).isEqualTo("PUT");
         assertThat(target.expiresAt()).isAfter(Instant.now().plusSeconds(200));
         assertThat(target.headers()).as("one canonical spelling per signed header, host excluded")
-                .containsOnlyKeys("Content-Type", "Content-Length")
+                .containsOnlyKeys("Content-Type", "Content-Length", "If-None-Match").containsEntry("If-None-Match", "*")
                 .containsEntry("Content-Type", "image/png").containsEntry("Content-Length", String.valueOf(PNG.length));
 
         assertThat(storage.inspect(key)).as("nothing stored before the upload").isEmpty();

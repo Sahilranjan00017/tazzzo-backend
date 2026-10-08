@@ -27,7 +27,9 @@ import java.util.Optional;
  * <p>The service never touches image bytes. {@link #createUpload} returns a presigned {@code PUT} for exactly one
  * server-generated key whose signature binds the {@code Content-Type} AND {@code Content-Length} headers: a client that
  * uploads a different type, a different size, a different key, or after {@code expiresAt} is refused by the store
- * itself (any SigV4-verifying store, AWS S3 included). The bytes are checked again when the key is REFERENCED, by
+ * itself (any SigV4-verifying store, AWS S3 included). The signature also binds {@code If-None-Match: *}, so the PUT can
+ * only CREATE the object: once bytes exist under a key (and may already have been verified and referenced) the same URL
+ * cannot replace them; a replacement is always a new key. The bytes are checked again when the key is REFERENCED, by
  * {@link MediaIngestVerifier} through {@link #inspect}, which reads the object's real size, stored type and first
  * bytes, so a non-image upload of the declared size can never enter a media set (it occupies the bucket until an
  * unreferenced-object reaper removes it; none exists yet).
@@ -80,7 +82,7 @@ public final class S3MediaStorage implements MediaStorage {
             throw new InvalidMediaException("sizeBytes must be positive");
         }
         PutObjectRequest put = PutObjectRequest.builder().bucket(bucket).key(assetKey).contentType(contentType)
-                .contentLength(sizeBytes).build();
+                .contentLength(sizeBytes).ifNoneMatch("*").build();   // write-once: never overwrite verified bytes
         PresignedPutObjectRequest presigned = presigner.presignPutObject(PutObjectPresignRequest.builder()
                 .signatureDuration(presignTtl).putObjectRequest(put).build());
         // the client must send exactly the signed headers (host excluded: the URL carries it); one canonical spelling each
@@ -92,6 +94,7 @@ public final class S3MediaStorage implements MediaStorage {
         }
         headers.put("Content-Type", contentType);
         headers.put("Content-Length", Long.toString(sizeBytes));
+        headers.put("If-None-Match", "*");
         return new UploadTarget("PUT", presigned.url().toString(), headers, presigned.expiration());
     }
 
@@ -127,8 +130,10 @@ public final class S3MediaStorage implements MediaStorage {
             byte[] first = new byte[0];
             if (size > 0) {
                 long last = Math.min(size, HEAD_BYTES) - 1;
-                ResponseBytes<GetObjectResponse> bytes = s3.getObject(GetObjectRequest.builder().bucket(bucket).key(assetKey)
-                        .range("bytes=0-" + last).build(), ResponseTransformer.toBytes());
+                // pinned to the object HEAD described: a swap between the two calls fails (412) instead of mixing objects
+                GetObjectRequest.Builder get = GetObjectRequest.builder().bucket(bucket).key(assetKey).range("bytes=0-" + last);
+                if (head.eTag() != null) get.ifMatch(head.eTag());
+                ResponseBytes<GetObjectResponse> bytes = s3.getObject(get.build(), ResponseTransformer.toBytes());
                 first = bytes.asByteArray();
             }
             return Optional.of(new StoredObject(size, head.contentType(), first));

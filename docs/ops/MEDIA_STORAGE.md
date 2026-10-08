@@ -22,11 +22,19 @@ magic bytes match the declared type) before the key can enter the set → the pu
 Startup logs `media_storage provider=s3 bucket=… region=… endpoint=… credentials=static|default-chain`; never a credential value.
 
 ## What the adapter guarantees, and what it does not
-- The presigned URL is for **exactly one key** and **binds `Content-Type` and `Content-Length`** (the declared
-  `sizeBytes`; `X-Amz-SignedHeaders=content-length;content-type;host`, pinned by `S3MediaStorageIT`): a different key,
-  type, a larger body, a tampered signature or an expired one is refused by any store that verifies SigV4. AWS S3 does;
-  so does Scality CloudServer, against which `S3SignatureEnforcementIT` proves every refusal locally. Adobe S3Mock (the
-  flow-test store) verifies no signatures.
+- The presigned URL is for **exactly one key** and **binds `Content-Type`, `Content-Length`** (the declared
+  `sizeBytes`) **and `If-None-Match: *`** (`X-Amz-SignedHeaders=content-length;content-type;host;if-none-match`): a
+  different key, type, a larger body, a dropped precondition, a tampered signature or an expired one is refused by any
+  store that verifies SigV4 (403). AWS S3 does; so does Versity S3 Gateway, against which `S3SignatureEnforcementIT`
+  proves every refusal locally. Adobe S3Mock (the flow-test store) verifies no signatures.
+- **Write-once:** because of `If-None-Match: *`, the URL can only create the object; re-using it after the bytes exist
+  is refused (412), so bytes that were verified and referenced can never be swapped under the same key. Replacing an
+  image always means a new upload target (a new key) and a media-set write.
+- `inspect` pins its ranged read to the ETag its HeadObject saw (`If-Match`), so an object changed between the two
+  calls fails the read instead of mixing two objects' metadata and bytes.
+- The stored `Content-Type` must equal the type the bytes sniff as (also when the asset declares no type), so an image
+  is never delivered under another image type's label.
+- Storage calls are bounded: 2 s per attempt, 5 s per call including SDK retries, then 503 `MEDIA_STORAGE_UNAVAILABLE`.
 - The client must send the returned headers as given (one canonical spelling each, `Content-Length` equal to the body).
 - A newly referenced key must have been issued for **that owner** (`p/<ownerType>/<ownerId>/…`): a key uploaded for one
   product cannot be attached to another (422), even though storage holds a valid image under it.
@@ -43,8 +51,13 @@ Startup logs `media_storage provider=s3 bucket=… region=… endpoint=… crede
    origin with `Content-Type`; **lifecycle**: abort incomplete multipart after 1 day, and expire objects under
    `p/` that are not referenced (the reference reaper is a later PR; until then, expire nothing — an unreferenced
    object is bounded in size by the signed `Content-Length` and in count by cms-writer trust).
-2. Task-role policy (least privilege): `s3:PutObject` (only via presign, so the role needs it), `s3:GetObject`,
-   `s3:HeadObject` on `arn:aws:s3:::<bucket>/p/*`; nothing else, no `ListBucket`.
+2. Task-role policy (least privilege): `s3:PutObject` (only via presign, so the role needs it) and `s3:GetObject` (it
+   also authorises HeadObject; there is no `s3:HeadObject` action) on `arn:aws:s3:::<bucket>/p/*`, plus `s3:ListBucket`
+   on `arn:aws:s3:::<bucket>` with condition `s3:prefix` = `p/*`. **The ListBucket grant is required**: without it S3
+   answers HeadObject on a missing key with 403, which the service must treat as an outage (503
+   `MEDIA_STORAGE_UNAVAILABLE`) rather than "not uploaded yet" (422). Nothing else (no DeleteObject).
+   Presigned PUTs are write-once: the signature binds `If-None-Match: *`, so an existing key is never overwritten (S3
+   answers 412); CORS must therefore also allow the `If-None-Match` request header.
 3. CloudFront distribution with the bucket as origin (OAC), serving `https://cdn.tazzzo.com`; `Cache-Control` set by a
    response-headers policy. Do not repoint `public-base-url` until the hostname is operational (CDN-HOST-1 rule).
 
@@ -61,8 +74,11 @@ TAZZZO_MEDIA_S3_PATH_STYLE=true TAZZZO_MEDIA_S3_ACCESS_KEY=local TAZZZO_MEDIA_S3
 - `S3MediaStorageIT`: adapter against S3Mock (real presigned PUT, inspect size/type/magic bytes, ranged head on a
   large object, empty object, unreachable store → `MediaStorageFailure`, unsafe keys, bad config) plus the
   signature-contract check on the presigned URL (signed headers, TTL, no secret).
-- `S3SignatureEnforcementIT`: Scality CloudServer (SigV4-verifying, pinned by digest): wrong type, no type, larger body,
-  another key and a tampered signature are refused (403); the signed request succeeds; stored type is the signed one.
+- `S3SignatureEnforcementIT`: Versity S3 Gateway v1.8.0 (SigV4- and precondition-enforcing, pinned by digest): wrong
+  type, no type, larger body, another key, a tampered signature and a dropped `If-None-Match` are refused (403); the
+  signed request succeeds; stored type is the signed one; a second PUT on the same URL is refused (412) and the stored
+  bytes are unchanged; an `If-Match` read after the object changed fails (412). (Scality CloudServer, used before,
+  verifies signatures but ignores `If-None-Match`, so it cannot prove write-once.)
 - `MediaUploadEndToEndIT`: the whole admin flow over HTTP with `provider=s3` against S3Mock (upload target → real PUT →
   media set verified → readable), and the rejections (not uploaded, wrong declared type, another owner's key, policy,
   unknown product, reader role).
