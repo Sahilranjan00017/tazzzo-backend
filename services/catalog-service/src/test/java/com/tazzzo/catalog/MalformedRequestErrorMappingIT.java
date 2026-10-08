@@ -39,7 +39,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Error-handling hardening, over real HTTP: a malformed body is a 400, an unsupported {@code Content-Type} a 415 and an
  * unacceptable {@code Accept} a 406 at EVERY controller-scoped error boundary -- never the 500 (logged as ERROR) their
  * {@code Exception} catch-alls used to produce. Each body keeps its domain's documented shape and code vocabulary,
- * carries the request id, and leaks nothing; an {@code Accept} header never changes an error's outcome; authentication
+ * carries the request id, and leaks nothing; an unacceptable {@code Accept} is refused (406) before the handler runs; authentication
  * still runs first; and no expected client error writes an ERROR line or a stack trace.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, classes = CatalogApplication.class)
@@ -136,8 +136,8 @@ class MalformedRequestErrorMappingIT extends AbstractConsumerIT {
             clientError(call("POST", p, "text/plain", null, "x", null), 415, "OTP_INVALID_REQUEST");
             clientError(call("POST", p, "multipart/form-data; boundary=zz", null, "--zz--", null), 415, "OTP_INVALID_REQUEST");
             clientError(call("POST", p, null, null, "{}", null), 415, "OTP_INVALID_REQUEST");
-            // an invalid body with an Accept the route cannot produce: still the documented 400, still JSON
-            clientError(call("POST", p, J, XML, "{}", null), 400, "OTP_INVALID_REQUEST");
+            // an Accept the route cannot produce is refused first (406, before the body is read), in the documented shape
+            clientError(call("POST", p, J, XML, "{}", null), 406, "OTP_INVALID_REQUEST");
         }
         quiet(log);
     }
@@ -148,7 +148,7 @@ class MalformedRequestErrorMappingIT extends AbstractConsumerIT {
             clientError(call("POST", p, J, null, "{", null), 400, "INVALID_REQUEST");
             clientError(call("POST", p, "text/plain", null, "x", null), 415, "INVALID_REQUEST");
             clientError(call("POST", p, XML, null, "<a/>", null), 415, "INVALID_REQUEST");
-            clientError(call("POST", p, J, XML, "{}", null), 400, "INVALID_REQUEST");
+            clientError(call("POST", p, J, XML, "{}", null), 406, "INVALID_REQUEST");
         }
         quiet(log);
     }
@@ -157,7 +157,7 @@ class MalformedRequestErrorMappingIT extends AbstractConsumerIT {
     void customer_profile(CapturedOutput log) throws Exception {
         clientError(call("PATCH", "/v1/customer/profile", J, null, "{", customer), 400, "INVALID_REQUEST");
         clientError(call("PATCH", "/v1/customer/profile", "text/plain", null, "x", customer), 415, "INVALID_REQUEST");
-        clientError(call("PATCH", "/v1/customer/profile", J, XML, "{", customer), 400, "INVALID_REQUEST");
+        clientError(call("PATCH", "/v1/customer/profile", J, XML, "{", customer), 406, "INVALID_REQUEST");
         acceptInvariant("GET", "/v1/customer/profile", customer, "INVALID_REQUEST");
         quiet(log);
     }
@@ -166,7 +166,7 @@ class MalformedRequestErrorMappingIT extends AbstractConsumerIT {
     void address(CapturedOutput log) throws Exception {
         clientError(call("POST", "/v1/customer/addresses", J, null, "{", customer), 400, "INVALID_REQUEST");
         clientError(call("POST", "/v1/customer/addresses", "text/plain", null, "x", customer), 415, "INVALID_REQUEST");
-        clientError(call("POST", "/v1/customer/addresses", "text/plain", XML, "x", customer), 415, "INVALID_REQUEST");
+        clientError(call("POST", "/v1/customer/addresses", "text/plain", XML, "x", customer), 406, "INVALID_REQUEST");
         acceptInvariant("GET", "/v1/customer/addresses", customer, "INVALID_REQUEST");
         acceptInvariant("GET", "/v1/customer/addresses/ADR_doesnotexist0000000000", customer, "INVALID_REQUEST");
         quiet(log);
@@ -176,7 +176,7 @@ class MalformedRequestErrorMappingIT extends AbstractConsumerIT {
     void account_deletion(CapturedOutput log) throws Exception {
         clientError(call("POST", "/v1/customer/account/deletion", "text/plain", null, "x", customer), 415, "INVALID_REQUEST");
         clientError(call("POST", "/v1/customer/account/deletion", J, null, "{", customer), 400, "INVALID_REQUEST");
-        clientError(call("POST", "/v1/customer/account/deletion", J, XML, "{\"confirm\":\"NO\"}", customer), 400,
+        clientError(call("POST", "/v1/customer/account/deletion", J, XML, "{\"confirm\":\"NO\"}", customer), 406,
                 "INVALID_REQUEST");
         quiet(log);
     }
@@ -184,7 +184,7 @@ class MalformedRequestErrorMappingIT extends AbstractConsumerIT {
     @Test
     void customer_support(CapturedOutput log) throws Exception {
         clientError(call("POST", "/v1/customer/support/cases", "text/plain", null, "x", customer), 415, "INVALID_REQUEST");
-        clientError(call("POST", "/v1/customer/support/cases", "text/plain", XML, "x", customer), 415, "INVALID_REQUEST");
+        clientError(call("POST", "/v1/customer/support/cases", "text/plain", XML, "x", customer), 406, "INVALID_REQUEST");
         clientError(call("POST", "/v1/customer/support/cases", J, null, "{", customer), 400, "INVALID_REQUEST");
         acceptInvariant("GET", "/v1/customer/support/cases", customer, "INVALID_REQUEST");
         quiet(log);
@@ -201,8 +201,8 @@ class MalformedRequestErrorMappingIT extends AbstractConsumerIT {
         Res missing = call("GET", "/api/v1/admin/support/cases/SUP_none", null, J, null, agent);
         Res missingXml = call("GET", "/api/v1/admin/support/cases/SUP_none", null, XML, null, agent);
         assertThat(missing.status).isBetween(400, 499);
-        assertThat(missingXml.status).as("Accept never changes an error's outcome").isEqualTo(missing.status);
-        assertThat(missingXml.body.at("/error/code").asText()).isEqualTo(missing.body.at("/error/code").asText());
+        assertThat(missingXml.status).as("refused before the handler runs").isEqualTo(406);
+        assertThat(missingXml.body.at("/error/code").asText()).isEqualTo("NOT_ACCEPTABLE");
         json(missingXml);
         acceptInvariant("GET", "/api/v1/admin/support/cases", agent, "NOT_ACCEPTABLE");
         quiet(log);
@@ -220,7 +220,7 @@ class MalformedRequestErrorMappingIT extends AbstractConsumerIT {
         clientError(call("PUT", "/v1/customer/cart/items/TZP-NONE", "text/plain", null, "x", customer), 415,
                 "UNSUPPORTED_MEDIA_TYPE");
         clientError(call("PUT", "/v1/customer/cart/items/TZP-NONE", J, null, "{", customer), 400, "INVALID_REQUEST");
-        clientError(call("PUT", "/v1/customer/cart/items/TZP-NONE", J, XML, "{", customer), 400, "INVALID_REQUEST");
+        clientError(call("PUT", "/v1/customer/cart/items/TZP-NONE", J, XML, "{", customer), 406, "INVALID_REQUEST");
         acceptInvariant("GET", "/v1/customer/cart", customer, "INVALID_REQUEST");
         quiet(log);
     }
@@ -229,15 +229,15 @@ class MalformedRequestErrorMappingIT extends AbstractConsumerIT {
     void checkout(CapturedOutput log) throws Exception {
         clientError(call("POST", "/v1/customer/checkout/quote", "text/plain", null, "x", customer), 415,
                 "UNSUPPORTED_MEDIA_TYPE");
-        clientError(call("POST", "/v1/customer/checkout/quote", J, XML, "{", customer), 400, "INVALID_REQUEST");
-        acceptInvariant("GET", "/v1/customer/checkout/quote/QTE_none", customer, "INVALID_REQUEST");
+        clientError(call("POST", "/v1/customer/checkout/quote", J, XML, "{", customer), 406, "INVALID_REQUEST");
+        acceptInvariant("GET", "/v1/customer/checkout/quotes/QTE_none", customer, "INVALID_REQUEST");
         quiet(log);
     }
 
     @Test
     void order(CapturedOutput log) throws Exception {
         clientError(call("POST", "/v1/customer/orders", "text/plain", null, "x", customer), 415, "UNSUPPORTED_MEDIA_TYPE");
-        clientError(call("POST", "/v1/customer/orders", J, XML, "{", customer), 400, "INVALID_REQUEST");
+        clientError(call("POST", "/v1/customer/orders", J, XML, "{", customer), 406, "INVALID_REQUEST");
         acceptInvariant("GET", "/v1/customer/orders", customer, "INVALID_REQUEST");
         acceptInvariant("GET", "/v1/customer/orders/ORD_none", customer, "INVALID_REQUEST");
         quiet(log);
@@ -322,22 +322,18 @@ class MalformedRequestErrorMappingIT extends AbstractConsumerIT {
     }
 
     /**
-     * An {@code Accept} the route cannot satisfy turns a success into a 406 and never changes an error's outcome -- and in
-     * both cases the answer is a JSON error body, never a 500 or an empty body.
+     * An {@code Accept} the route cannot satisfy is refused with 406 BEFORE the handler runs, whatever the handler would
+     * have answered (so a 406 can never follow a side effect), as a JSON error body -- never a 500 or an empty body.
      */
     private void acceptInvariant(String method, String path, String bearer, String codeOn406) throws Exception {
         Res asJson = call(method, path, null, J, null, bearer);
         Res asXml = call(method, path, null, XML, null, bearer);
         // a deliberate 503 (e.g. no published catalogue release here) is a documented outcome; a 500 never is
         assertThat(asJson.status).as(path + " " + asJson.raw).isNotEqualTo(500);
+        assertThat(asJson.status).as("a JSON client is never refused: " + asJson.raw).isNotEqualTo(406);
         json(asXml);
-        if (asJson.status / 100 == 2) {
-            assertThat(asXml.status).as(path + " " + asXml.raw).isEqualTo(406);
-            assertThat(code(asXml)).isEqualTo(codeOn406);
-        } else {
-            assertThat(asXml.status).as(path + " " + asXml.raw).isEqualTo(asJson.status);
-            assertThat(code(asXml)).isEqualTo(code(asJson));
-        }
+        assertThat(asXml.status).as(path + " " + asXml.raw).isEqualTo(406);
+        assertThat(code(asXml)).isEqualTo(codeOn406);
     }
 
     private static String code(Res r) {
