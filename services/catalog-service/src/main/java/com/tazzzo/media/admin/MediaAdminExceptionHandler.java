@@ -10,6 +10,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -21,6 +22,8 @@ import java.util.Map;
 @RestControllerAdvice(assignableTypes = MediaAdminController.class)
 @Order(Ordered.HIGHEST_PRECEDENCE)
 class MediaAdminExceptionHandler {
+
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(MediaAdminExceptionHandler.class);
 
     @ExceptionHandler(ProductNotFoundException.class)
     ResponseEntity<ErrorBody> noProduct(HttpServletRequest req) {
@@ -47,11 +50,19 @@ class MediaAdminExceptionHandler {
         return envelope(HttpStatus.SERVICE_UNAVAILABLE, "MEDIA_STORAGE_NOT_CONFIGURED", "media storage is not configured", req);
     }
 
+    /** The configured store could not be reached or refused us: an outage, reported as such (class name only, no stack). */
+    @ExceptionHandler(com.tazzzo.media.MediaStorageFailure.class)
+    ResponseEntity<ErrorBody> storageFailed(com.tazzzo.media.MediaStorageFailure e, HttpServletRequest req) {
+        log.warn("media_storage_unavailable type={} request_id={}", e.getMessage(), req.getAttribute(RequestIdFilter.REQUEST_ID));
+        return envelope(HttpStatus.SERVICE_UNAVAILABLE, "MEDIA_STORAGE_UNAVAILABLE", "media storage is unavailable", req);
+    }
+
     private static ResponseEntity<ErrorBody> envelope(HttpStatus status, String code, String message, HttpServletRequest req) {
         Map<String, String> body = new LinkedHashMap<>();
         body.put("code", code);
         body.put("message", message == null ? "" : message);
         body.put("request_id", String.valueOf(req.getAttribute(RequestIdFilter.REQUEST_ID)));
-        return ResponseEntity.status(status).body(new ErrorBody(body));
+        return ResponseEntity.status(status).contentType(MediaType.APPLICATION_JSON) // never negotiated by Accept
+                .body(new ErrorBody(body));
     }
 }

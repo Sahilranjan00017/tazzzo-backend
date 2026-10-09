@@ -1600,10 +1600,32 @@ class CheckoutQuoteIT extends AbstractApiIT {
                 .isEqualTo(moneyJson(10_000, 0, 10_000));
         assertThat(res.getBody().get("benefitPreview").toString()).isEqualTo(ONLY_NOT_APPLIED);
         assertThat(res.getBody().get("subtotalPaise").asLong()).as("top-level subtotal unchanged").isEqualTo(10_000);
-        assertThat(res.getBody().toString().toLowerCase()).doesNotContain("tax").doesNotContain("fee")
-                .doesNotContain("coupon").doesNotContain("coin").doesNotContain("wallet").doesNotContain("reason")
-                .doesNotContain("membership").doesNotContain("plan").doesNotContain("payment")
-                .doesNotContain("amountdue").doesNotContain("grandtotal");
+        // field NAMES only: the body's random ids (quote, address, idempotency) can contain any substring by chance
+        for (String name : fieldNames(res.getBody())) {
+            assertThat(name.toLowerCase()).as("no undeclared money field: " + name)
+                    .doesNotContain("tax").doesNotContain("fee").doesNotContain("coupon").doesNotContain("coin")
+                    .doesNotContain("wallet").doesNotContain("reason").doesNotContain("membership").doesNotContain("plan")
+                    .doesNotContain("payment").doesNotContain("amountdue").doesNotContain("grandtotal");
+        }
+    }
+
+    /** Every field name in the JSON tree, nested objects and arrays included. */
+    private static java.util.List<String> fieldNames(JsonNode node) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        collectFieldNames(node, out);
+        return out;
+    }
+
+    private static void collectFieldNames(JsonNode node, java.util.List<String> out) {
+        if (node == null) return;
+        if (node.isObject()) {
+            node.fields().forEachRemaining(f -> {
+                out.add(f.getKey());
+                collectFieldNames(f.getValue(), out);
+            });
+        } else if (node.isArray()) {
+            node.forEach(child -> collectFieldNames(child, out));
+        }
     }
 
     @Test void a_replay_and_a_get_after_a_membership_change_return_the_original_stored_money_preview() {

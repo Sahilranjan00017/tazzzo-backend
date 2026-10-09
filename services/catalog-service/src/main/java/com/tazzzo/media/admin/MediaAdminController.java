@@ -13,6 +13,7 @@ import com.tazzzo.media.MediaService;
 import com.tazzzo.media.MediaSet;
 import com.tazzzo.media.MediaStorage;
 import com.tazzzo.media.MediaUploadPolicy;
+import com.tazzzo.media.MediaUrlResolver;
 import com.tazzzo.media.UploadTarget;
 import com.tazzzo.media.UpsertMediaSetCommand;
 import jakarta.servlet.http.HttpServletRequest;
@@ -36,8 +37,8 @@ import java.util.Set;
  * INTERNAL admin transport for product/SKU media. Two steps, never proxying bytes: (1) {@code POST …/uploads} returns a
  * short-lived direct-to-storage target for ONE server-generated key; (2) {@code PUT …/{ownerType}/{ownerId}} replaces the
  * owner's WHOLE ordered set (CAS; the set-level invariants -- one PRIMARY at order 0, unique ids/orders -- live in the
- * domain) and, when storage is configured, verifies every NEWLY referenced key against what storage really holds (exists,
- * within the size ceiling, magic bytes match the declared type). The owner must be an existing product; the audit actor is
+ * domain) and, when storage is configured, verifies every NEWLY referenced key: it must have been issued for THIS owner
+ * (key prefix), and storage must really hold it (exists, within the size ceiling, magic bytes match the declared type). The owner must be an existing product; the audit actor is
  * the authenticated principal.
  */
 @RestController
@@ -51,8 +52,10 @@ public class MediaAdminController {
     record UploadResponse(String assetKey, String method, String url, Map<String, String> headers, String expiresAt,
                           long maxBytes) { }
 
+    /** {@code url}: the resolved public URL (absent while no media base is configured), so the CMS can show the image. */
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
     record AssetDto(String assetId, String assetKey, String role, Integer sortOrder, String altText, Integer width,
-                    Integer height, String contentType) { }
+                    Integer height, String contentType, String url) { }
 
     record SetRequest(List<AssetDto> assets, Long expectedVersion) { }
 
@@ -63,14 +66,16 @@ public class MediaAdminController {
     private final MediaUploadPolicy policy;
     private final MediaIngestVerifier verifier;
     private final ProductQueryService products;
+    private final MediaUrlResolver urls;
 
     public MediaAdminController(MediaService media, MediaStorage storage, MediaUploadPolicy policy,
-                                MediaIngestVerifier verifier, ProductQueryService products) {
+                                MediaIngestVerifier verifier, ProductQueryService products, MediaUrlResolver urls) {
         this.media = media;
         this.storage = storage;
         this.policy = policy;
         this.verifier = verifier;
         this.products = products;
+        this.urls = urls;
     }
 
     @PostMapping("/uploads")
@@ -85,7 +90,7 @@ public class MediaAdminController {
             throw new MediaStorageUnavailableException();
         }
         String key = policy.newKey(type, body.ownerId(), body.contentType());
-        UploadTarget target = storage.createUpload(key, body.contentType(), policy.maxBytes());
+        UploadTarget target = storage.createUpload(key, body.contentType(), body.sizeBytes());
         return ResponseEntity.status(HttpStatus.CREATED).body(new UploadResponse(key, target.method(), target.url(),
                 target.headers(), target.expiresAt().toString(), policy.maxBytes()));
     }
@@ -117,8 +122,12 @@ public class MediaAdminController {
             if (current != null) {
                 current.assets().forEach(a -> existing.add(a.assetKey()));
             }
+            String prefix = policy.ownerPrefix(type, ownerId);
             for (MediaAsset a : assets) {
                 if (!existing.contains(a.assetKey())) {
+                    if (!a.assetKey().startsWith(prefix)) {
+                        throw new InvalidMediaException("asset key was not uploaded for this owner");
+                    }
                     verifier.verify(a.assetKey(), a.contentType());
                 }
             }
@@ -149,10 +158,10 @@ public class MediaAdminController {
         }
     }
 
-    private static SetResponse view(MediaSet s) {
+    private SetResponse view(MediaSet s) {
         return new SetResponse(s.ownerType().name().toLowerCase(Locale.ROOT), s.ownerId(), s.version(), s.active(),
                 s.assets().stream().map(a -> new AssetDto(a.assetId(), a.assetKey(), a.role().name(), a.sortOrder(), a.altText(),
-                        a.width(), a.height(), a.contentType())).toList());
+                        a.width(), a.height(), a.contentType(), urls.isConfigured() ? urls.resolve(a.assetKey()) : null)).toList());
     }
 
     /** Uploads were requested but no object storage is configured. */
