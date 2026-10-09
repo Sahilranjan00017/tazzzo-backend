@@ -1310,6 +1310,12 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   prioritise hook rebuilds in `claim`, before the catalogue approaches that size. A tick at the 20,000 ceiling takes ≈ 24 s (one upsert per SKU), which
   stretches a 1M pass to ≈ 4.6 h; a `bulkWrite` in `reconcileDrift` would remove that.
 
+- **Catalogue capacity harness** (branch `feature/catalogue-capacity-harness`, from `main` `7d491dd`): **IN REVIEW**. `CatalogCapacityIT`, enabled only by
+  `TAZZZO_CAPACITY_SKUS=<N>`, seeds N TEST DATA products through the real write shapes (validator-conformant documents, `PricingService`,
+  `InventoryService`, `ProductCardProjectionService.rebuildOne`) and measures list, product detail, search, admin list, import throughput, rebuild cost,
+  collection/index sizes and query plans (asserting no collection scan). Test-only: no production code. Runbook `docs/ops/CAPACITY_HARNESS.md`; results
+  in the completion tracker. First run at 5,000: list p95 15 ms, PDP p95 8 ms, search p95 22 ms, admin list p95 1.3 ms, rebuild p50 2.0 ms, import 127 rows/s.
+
 - **Product-id grammar alignment** (branch `fix/product-id-grammar-alignment`, from `main` `07be0e4`): **IN REVIEW**. One product/SKU id grammar on the `/v1` surface,
   `^TZP-[A-Za-z0-9-]{1,40}$` (the `ContentBlock.PRODUCT_ID` grammar the CMS and storefront already use). Enforced in code at ONE site: `CartController` PUT/DELETE
   `/v1/customer/cart/items/{skuId}` widens from `^TZP-[0-9]{1,18}$` (a strict superset: every previously accepted id is still accepted), so a cataloguable id such as
