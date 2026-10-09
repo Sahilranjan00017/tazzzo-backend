@@ -187,6 +187,7 @@
           "in" : "path",
           "required" : true,
           "schema" : {
+            "pattern" : "^TZP-[A-Za-z0-9-]{1,40}$",
             "type" : "string"
           }
         } ],
@@ -211,6 +212,7 @@
           "in" : "path",
           "required" : true,
           "schema" : {
+            "pattern" : "^TZP-[A-Za-z0-9-]{1,40}$",
             "type" : "string"
           }
         } ],
@@ -321,6 +323,7 @@
           "in" : "path",
           "required" : true,
           "schema" : {
+            "pattern" : "^TZP-[A-Za-z0-9-]{1,40}$",
             "type" : "string"
           }
         }, {
@@ -352,6 +355,7 @@
           "in" : "path",
           "required" : true,
           "schema" : {
+            "pattern" : "^TZP-[A-Za-z0-9-]{1,40}$",
             "type" : "string"
           }
         }, {
@@ -1402,6 +1406,7 @@
           "in" : "path",
           "required" : true,
           "schema" : {
+            "pattern" : "^TZP-[A-Za-z0-9-]{1,40}$",
             "type" : "string"
           }
         }, {
@@ -1445,6 +1450,7 @@
           "in" : "path",
           "required" : true,
           "schema" : {
+            "pattern" : "^TZP-[A-Za-z0-9-]{1,40}$",
             "type" : "string"
           }
         }, {
@@ -1488,6 +1494,7 @@
           "in" : "path",
           "required" : true,
           "schema" : {
+            "pattern" : "^TZP-[A-Za-z0-9-]{1,40}$",
             "type" : "string"
           }
         } ],
@@ -1524,6 +1531,7 @@
           "in" : "path",
           "required" : true,
           "schema" : {
+            "pattern" : "^TZP-[A-Za-z0-9-]{1,40}$",
             "type" : "string"
           }
         }, {
@@ -1531,6 +1539,7 @@
           "in" : "path",
           "required" : true,
           "schema" : {
+            "pattern" : "^TZP-[A-Za-z0-9-]{1,40}$",
             "type" : "string"
           }
         } ],
@@ -1557,6 +1566,7 @@
           "in" : "path",
           "required" : true,
           "schema" : {
+            "pattern" : "^TZP-[A-Za-z0-9-]{1,40}$",
             "type" : "string"
           }
         } ],
@@ -1593,6 +1603,7 @@
           "in" : "path",
           "required" : true,
           "schema" : {
+            "pattern" : "^TZP-[A-Za-z0-9-]{1,40}$",
             "type" : "string"
           }
         } ],
@@ -1629,6 +1640,7 @@
           "in" : "path",
           "required" : true,
           "schema" : {
+            "pattern" : "^TZP-[A-Za-z0-9-]{1,40}$",
             "type" : "string"
           }
         }, {
@@ -1663,6 +1675,7 @@
           "in" : "path",
           "required" : true,
           "schema" : {
+            "pattern" : "^TZP-[A-Za-z0-9-]{1,40}$",
             "type" : "string"
           }
         }, {
@@ -2101,6 +2114,7 @@
           "in" : "path",
           "required" : true,
           "schema" : {
+            "pattern" : "^TZP-[A-Za-z0-9-]{1,40}$",
             "type" : "string"
           }
         }, {
@@ -2144,6 +2158,7 @@
           "in" : "path",
           "required" : true,
           "schema" : {
+            "pattern" : "^TZP-[A-Za-z0-9-]{1,40}$",
             "type" : "string"
           }
         }, {
@@ -2657,6 +2672,7 @@
           "in" : "path",
           "required" : true,
           "schema" : {
+            "pattern" : "^TZP-[A-Za-z0-9-]{1,40}$",
             "type" : "string"
           }
         } ],
@@ -2681,6 +2697,7 @@
           "in" : "path",
           "required" : true,
           "schema" : {
+            "pattern" : "^TZP-[A-Za-z0-9-]{1,40}$",
             "type" : "string"
           }
         }, {
@@ -5169,6 +5186,7 @@
         "type" : "object",
         "properties" : {
           "componentProductId" : {
+            "pattern" : "^TZP-[A-Za-z0-9-]{1,40}$",
             "type" : "string"
           },
           "qty" : {
@@ -5184,6 +5202,7 @@
         "type" : "object",
         "properties" : {
           "id" : {
+            "pattern" : "^TZP-[A-Za-z0-9-]{1,40}$",
             "type" : "string"
           },
           "productType" : {
@@ -5254,6 +5273,7 @@
         "type" : "object",
         "properties" : {
           "componentProductId" : {
+            "pattern" : "^TZP-[A-Za-z0-9-]{1,40}$",
             "type" : "string"
           },
           "qty" : {

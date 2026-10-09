@@ -43,6 +43,7 @@ public class MintService {
     public String mint(Actor actor, ProductDraft d) {
         // fail closed BEFORE any transaction, event or write: an admin mutation is never unattributed
         Objects.requireNonNull(actor, "actor");
+        com.tazzzo.catalog.domain.ProductIds.require(d.id(), "id");
         // Service-tier enforcement (the I-6 bypass closes HERE, not in the validator):
         List<org.bson.Document> governanceItems = governance.validate(
                 d.verticalId(), d.attributes() == null ? Map.of() : d.attributes(), d.evidenceRefs());

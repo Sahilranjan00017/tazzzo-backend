@@ -93,6 +93,48 @@ class ApiContractParityIT extends AbstractApiIT {
         return node;
     }
 
+    /**
+     * The product id grammar is published three ways (hand-written YAML ProductId and cart skuId, generated create body and
+     * admin path params); every one must be exactly the Java constant, so the contract cannot drift from enforcement.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void the_published_product_id_patterns_equal_the_java_grammar() throws IOException {
+        String expected = com.tazzzo.catalog.domain.ProductIds.REGEX;
+        Map<String, Object> doc = new Yaml().load(Files.readString(CONTRACT));
+        Map<String, Object> productId = ((Map<String, Map<String, Object>>) ((Map<String, Object>) doc.get("components")).get("parameters"))
+                .get("ProductId");
+        assertThat(((Map<String, Object>) productId.get("schema")).get("pattern")).as("YAML ProductId").isEqualTo(expected);
+        Map<String, Object> cartItem = (Map<String, Object>) ((Map<String, Object>) doc.get("paths")).get("/v1/customer/cart/items/{skuId}");
+        int skuParams = 0;
+        for (Map.Entry<String, Object> op : cartItem.entrySet()) {
+            if (!HTTP.contains(op.getKey())) continue;
+            for (Object o : (java.util.List<Object>) ((Map<String, Object>) op.getValue()).get("parameters")) {
+                Map<String, Object> param = resolve(doc, (Map<String, Object>) o);
+                if (!"skuId".equals(param.get("name"))) continue;
+                skuParams++;
+                assertThat(((Map<String, Object>) param.get("schema")).get("pattern")).as("YAML cart skuId " + op.getKey()).isEqualTo(expected);
+            }
+        }
+        assertThat(skuParams).as("cart skuId path params checked").isGreaterThanOrEqualTo(2);
+
+        com.fasterxml.jackson.databind.JsonNode spec = get("/v3/api-docs", READ_TOKEN, com.fasterxml.jackson.databind.JsonNode.class).getBody();
+        assertThat(spec.at("/components/schemas/CreateProductRequest/properties/id/pattern").asText()).as("create id").isEqualTo(expected);
+        assertThat(spec.at("/components/schemas/BundleComponentDto/properties/componentProductId/pattern").asText()).isEqualTo(expected);
+        assertThat(spec.at("/components/schemas/PackOfDto/properties/componentProductId/pattern").asText()).isEqualTo(expected);
+        assertThat(pathParamPattern(spec, "/api/v1/products/{id}", "get", "id")).as("admin product id").isEqualTo(expected);
+        assertThat(pathParamPattern(spec, "/api/v1/products/{id}/classify", "post", "id")).isEqualTo(expected);
+        assertThat(pathParamPattern(spec, "/api/v1/admin/prices/{skuId}", "get", "skuId")).as("admin price skuId").isEqualTo(expected);
+        assertThat(pathParamPattern(spec, "/api/v1/admin/inventory/{skuId}/{locationId}", "get", "skuId")).as("admin inventory skuId").isEqualTo(expected);
+    }
+
+    private static String pathParamPattern(com.fasterxml.jackson.databind.JsonNode spec, String path, String method, String name) {
+        for (com.fasterxml.jackson.databind.JsonNode p : spec.at("/paths").get(path).get(method).get("parameters")) {
+            if (name.equals(p.get("name").asText())) return p.at("/schema/pattern").asText();
+        }
+        throw new AssertionError("no parameter " + name + " on " + method + " " + path);
+    }
+
     /** Every documented 4xx/5xx of every /v1 operation is a JSON error body that requires a code and a message. */
     @Test
     @SuppressWarnings("unchecked")

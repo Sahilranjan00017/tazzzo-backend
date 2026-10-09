@@ -366,6 +366,52 @@ class CartHttpIT extends AbstractApiIT {
                 .contains("TZP-med-3x", "TZP-1234567890123456789");
     }
 
+    private static JsonNode readJson(String body) {
+        try {
+            return JSON.readTree(body);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            throw new AssertionError(e);
+        }
+    }
+
+    private ResponseEntity<String> putEncoded(String token, String rawId, int qty, String ifMatch) {
+        String encoded = java.net.URLEncoder.encode(rawId, java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20");
+        HttpHeaders h = new HttpHeaders();
+        h.setContentType(MediaType.APPLICATION_JSON);
+        h.setBearerAuth(token);
+        h.set("If-Match", ifMatch);
+        return rest.exchange(java.net.URI.create(url("/v1/customer/cart/items/" + encoded)), HttpMethod.PUT,
+                new HttpEntity<>(Map.of("quantity", qty), h), String.class);
+    }
+
+    /** The shared id corpus (ProductIdCorpus): the cart accepts exactly the valid ids, even for products that exist. */
+    @Test void the_cart_accepts_and_refuses_exactly_the_shared_product_id_corpus() {
+        String t = token();
+        long version = 0;
+        for (String id : com.tazzzo.catalog.ProductIdCorpus.VALID) {
+            if (db.getCollection("products").countDocuments(new Document("_id", id)) == 0) {   // other tests here create some
+                sku(id, 1000, 5);
+            }
+            ResponseEntity<String> r = putEncoded(t, id, 1, tag(version));
+            assertThat(r.getStatusCode().value()).as(id + " -> " + r.getBody()).isEqualTo(200);
+            assertThat(item(readJson(r.getBody()), id).get("quantity").asInt()).isEqualTo(1);
+            version++;
+        }
+        for (String id : com.tazzzo.catalog.ProductIdCorpus.INVALID) {
+            if (id.startsWith("TZP-")) {
+                if (db.getCollection("products").countDocuments(new Document("_id", id)) == 0) {
+                    try {
+                        sku(id, 1000, 5);   // exists, priced and stocked wherever the other services allow it
+                    } catch (RuntimeException e) {
+                        // pricing/inventory refuse some control-character ids themselves; the refusal is then doubly certain
+                    }
+                }
+            }
+            assertThat(putEncoded(t, id, 1, tag(version)).getStatusCode().is2xxSuccessful()).as(id).isFalse();
+        }
+        assertThat(cart(t).getBody().get("version").asLong()).as("no refused id mutated the cart").isEqualTo(version);
+    }
+
     @Test void the_fifty_first_distinct_sku_is_409_but_updating_an_existing_line_still_works() {
         String t = token();
         List<String> skus = new ArrayList<>();

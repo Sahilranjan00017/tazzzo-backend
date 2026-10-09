@@ -1296,6 +1296,16 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
 
 ## In review (NOT merged)
 
+- **Product id grammar on the write path** (branch `fix/product-id-grammar-write-path`, from `main` `0d61e41`): **IN REVIEW**. One canonical grammar
+  `^TZP-[A-Za-z0-9-]{1,40}$` (full match, no case normalisation: `TZP-Med-3` is valid and preserved) lives in `catalog/domain/ProductIds`. Cart and content
+  blocks (rail ids and `product:` links) now reuse it; create (`ProductController.toDraft`, 400 `MALFORMED_REQUEST`), `MintService`, `BundleService` and
+  `VariantPackService` (id and component ids) and the normal bulk import (`ProductImportValidator.shape()`, explicit `INVALID_ROW`) enforce it, so ids such as
+  `TZP-`, `TZP-a_b`, `TZP-x y` or 100-char ids can no longer be created yet un-cartable. The Mongo `$jsonSchema` (`^TZP-`) is unchanged and stays a backstop.
+  Generated `docs/openapi.json` gains the pattern (additive, 20 lines) on the create body id, bundle/pack component ids and the admin product/price/inventory
+  id path params; `ApiContractParityIT` asserts the YAML and generated patterns equal the Java constant. Not included: `bulkimport/jobs` (PR #100; follow-up),
+  Mongo validator/migration tightening (separate later PR). Evidence: `ProductIdGrammarTest`, `ProductImportIdShapeTest`, `ProductIdGrammarIT`,
+  `ProductIdLifecycleIT`, `CartHttpIT`, `ApiContractParityIT`.
+
 - **Spring Boot 4.1 migration, step 1: platform upgrade with Jackson 2 retained** (branch `feature/spring-boot-4-migration`, from `main` `0d61e41`): **IN REVIEW**.
   ADR-016 (supersedes the framework version in ADR-013). `spring-boot-starter-parent` 3.3.13 -> **4.1.1** (latest GA on Maven Central; 4.2 is milestones only);
   Spring Framework 7.0.9, Spring Data MongoDB 5.1.1, Lettuce 7.5.2, Tomcat 11.0.24, Micrometer 1.17.1. springdoc 2.6.0 -> 3.1.1 (OpenAPI kept at 3.0.1),

@@ -4,6 +4,7 @@ import com.tazzzo.common.audit.Actor;
 import com.mongodb.client.model.Filters;
 import com.tazzzo.catalog.domain.PackOf;
 import com.tazzzo.catalog.domain.ProductDocuments;
+import com.tazzzo.catalog.domain.ProductIds;
 import com.tazzzo.catalog.domain.ProductDraft;
 import com.tazzzo.catalog.events.EventPayload;
 import com.tazzzo.catalog.repo.WritePath;
@@ -53,10 +54,12 @@ public class VariantPackService {
         if (!"variant_pack".equals(draft.productType())) {
             throw new IllegalArgumentException("draft is not a variant_pack");
         }
+        ProductIds.require(draft.id(), "id");
         PackOf packOf = draft.packOf();
         if (packOf == null || packOf.componentProductId() == null) {
             throw new VariantPackException("variant_pack requires pack_of");
         }
+        ProductIds.require(packOf.componentProductId(), "packOf.componentProductId");
         // qty >= 2 is also a validator rule; rejected here so the API returns a coded 422
         // rather than a raw write error, and so the reason names the field.
         if (packOf.qty() < 2) {
