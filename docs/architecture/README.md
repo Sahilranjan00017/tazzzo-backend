@@ -19,9 +19,10 @@ point for the frozen decisions, contracts, and implementation sequence.
 | [010](adr/ADR-010-public-error-envelope.md) | Public error envelope |
 | [011](adr/ADR-011-api-compatibility.md) | API backward-compatibility rules |
 | [012](adr/ADR-012-cms-presentation-boundary.md) | CMS controls merchandising, app owns visual system |
-| [013](adr/ADR-013-backend-runtime-baseline.md) | Java 21 / Spring Boot 3.3.5 baseline |
+| [013](adr/ADR-013-backend-runtime-baseline.md) | Java 21 / Spring Boot 3.3.5 baseline (framework version superseded by 016) |
 | [014](adr/ADR-014-observability-request-id.md) | Observability / request-id |
 | [015](adr/ADR-015-idempotent-writes.md) | Idempotency for writes |
+| [016](adr/ADR-016-spring-boot-4-runtime-baseline.md) | Java 21 / Spring Boot 4.1 baseline (Jackson 2 retained) |
 
 ## API contract (`/v1`, frozen — not implemented)
 - Machine-readable: [`../api/v1/openapi.yaml`](../api/v1/openapi.yaml)

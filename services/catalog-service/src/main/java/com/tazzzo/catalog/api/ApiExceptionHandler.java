@@ -118,7 +118,11 @@ public class ApiExceptionHandler {
      *  e.g. MergeService "both products must be active". Never masked as not-found. */
     @ExceptionHandler({IllegalStateException.class, com.tazzzo.catalog.tx.ProductStateException.class})
     public ResponseEntity<?> stateConflict(RuntimeException ex, HttpServletRequest req) {
-        return envelope(HttpStatus.CONFLICT, "STATE_CONFLICT", ex.getMessage(), req);
+        // an IllegalStateException raised by the container or a library (org.apache.*, org.springframework.*) can carry
+        // request internals (a parameter name/value, a limit): never echoed. The domain's own messages are unchanged.
+        String type = ex.getClass().getName();
+        boolean foreign = type.startsWith("org.apache.") || type.startsWith("org.springframework.");
+        return envelope(HttpStatus.CONFLICT, "STATE_CONFLICT", foreign ? "state conflict" : ex.getMessage(), req);
     }
 
     // M3: Spring MVC exceptions must map to their proper client codes; the catch-all below

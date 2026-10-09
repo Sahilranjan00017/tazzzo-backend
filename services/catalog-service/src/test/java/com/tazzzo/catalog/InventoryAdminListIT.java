@@ -199,6 +199,36 @@ class InventoryAdminListIT extends AbstractApiIT {
         assertThat(get(LIST + "?limit=200", R, JsonNode.class).getStatusCode().value()).isEqualTo(200);
     }
 
+    /**
+     * The list iterates getParameterMap(); an undecodable query must be refused by the platform MalformedQueryFilter with its
+     * fixed admin 400 envelope BEFORE the controller runs, while well-formed bad grammar keeps the endpoint's own 422.
+     */
+    @Test
+    void an_undecodable_query_is_the_filters_fixed_400_not_the_lists_422() throws Exception {
+        for (String q : List.of("x=%ZZ", "limit=1&cursor=%C3%28")) {
+            JsonNode body = rawGet(LIST + "?" + q, R, 400);
+            assertThat(body.at("/error/code").asText()).as(q).isEqualTo("MALFORMED_REQUEST");
+            assertThat(body.at("/error/message").asText()).isEqualTo("query string is malformed");
+            assertThat(body.at("/error/request_id").asText()).startsWith("req_");
+            assertThat(body.toString()).doesNotContain("INVALID_INVENTORY").doesNotContain("%ZZ");
+        }
+        JsonNode grammar = rawGet(LIST + "?limit=abc", R, 422);
+        assertThat(grammar.at("/error/code").asText()).isEqualTo("INVALID_INVENTORY");
+    }
+
+    private JsonNode rawGet(String target, String token, int expectedStatus) throws Exception {
+        try (java.net.Socket socket = new java.net.Socket("localhost", port)) {
+            socket.setSoTimeout(15000);
+            socket.getOutputStream().write(("GET " + target + " HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n"
+                    + "Authorization: Bearer " + token + "\r\n\r\n").getBytes(java.nio.charset.StandardCharsets.ISO_8859_1));
+            socket.getOutputStream().flush();
+            String all = new String(socket.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            assertThat(Integer.parseInt(all.substring(9, 12))).as(target + " " + all).isEqualTo(expectedStatus);
+            String raw = all.substring(all.indexOf("\r\n\r\n") + 4);
+            return new com.fasterxml.jackson.databind.ObjectMapper().readTree(raw.substring(raw.indexOf('{'), raw.lastIndexOf('}') + 1));
+        }
+    }
+
     @Test
     void the_admin_contract_names_the_stock_list_shapes() throws Exception {
         JsonNode spec = new com.fasterxml.jackson.databind.ObjectMapper().readTree(java.nio.file.Files.readString(java.nio.file.Path.of("docs/openapi.json")));

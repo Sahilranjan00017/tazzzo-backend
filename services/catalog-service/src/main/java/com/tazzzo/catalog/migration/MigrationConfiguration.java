@@ -38,7 +38,7 @@ public class MigrationConfiguration {
                                                    MongoDatabase db, SchemaBootstrap bootstrap, TaxonomyLoader loader,
                                                    DiscriminatingAttributeRegistry discriminators,
                                                    MigrationExitHandler exitHandler, DatastoreReadiness readiness,
-                                                   @Value("${spring.data.mongodb.uri:}") String uri,
+                                                   @Value("${spring.mongodb.uri:}") String uri,
                                                    @Value("${tazzzo.schema.bootstrap-on-startup:false}") boolean legacyBootstrap,
                                                    @Value("${tazzzo.schema.load-taxonomy-seed:false}") boolean legacyLoadSeed) {
         return new MigrationStartupRunner(runner, props, client, db, bootstrap, loader, discriminators,

@@ -6,7 +6,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -29,6 +30,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * never authorize the internal {@code /api/**} surface; the existing internal bearer rules remain
  * exactly as before this PR.
  */
+@AutoConfigureTestRestTemplate
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, classes = CatalogApplication.class)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class CrossSurfaceAuthIsolationIT {
@@ -46,8 +48,8 @@ class CrossSurfaceAuthIsolationIT {
 
     @DynamicPropertySource
     static void props(DynamicPropertyRegistry r) {
-        r.add("spring.data.mongodb.uri", MONGO::getReplicaSetUrl);
-        r.add("spring.data.mongodb.database", () -> "tazzzo_cross_surface_it");
+        r.add("spring.mongodb.uri", MONGO::getReplicaSetUrl);
+        r.add("spring.mongodb.database", () -> "tazzzo_cross_surface_it");
         r.add("tazzzo.schema.bootstrap-on-startup", () -> "false");
         r.add("tazzzo.scheduler.enabled", () -> "false");
         r.add("tazzzo.consumer-rate-limit.mode", () -> "DISABLED");

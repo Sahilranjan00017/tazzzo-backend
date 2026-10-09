@@ -1,10 +1,12 @@
 package com.tazzzo.catalog.api;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.servlet.http.HttpServletRequest;
 import com.tazzzo.catalog.api.ApiDtos.*;
 import com.tazzzo.catalog.domain.BundleComponent;
 import com.tazzzo.catalog.domain.GtinBinding;
 import com.tazzzo.catalog.domain.PackOf;
+import com.tazzzo.catalog.domain.ProductIds;
 import com.tazzzo.catalog.domain.ProductDraft;
 import com.tazzzo.catalog.schema.TaxonomyService;
 import com.tazzzo.catalog.tx.*;
@@ -106,13 +108,13 @@ public class ProductController {
     }
 
     @GetMapping("/{id}")
-    public ProductResponse get(@PathVariable String id) {
+    public ProductResponse get(@PathVariable @Schema(pattern = ProductIds.REGEX) String id) {
         return read(id);
     }
 
     /** Optimistic concurrency: If-Match carries the product version; stale -> STALE_VERSION. */
     @PatchMapping("/{id}")
-    public ProductResponse patch(@PathVariable String id,
+    public ProductResponse patch(@PathVariable @Schema(pattern = ProductIds.REGEX) String id,
                                  @RequestHeader("If-Match") int expectedVersion,
                                  @RequestBody PatchProductRequest body,
                                     HttpServletRequest httpRequest) {
@@ -121,7 +123,7 @@ public class ProductController {
     }
 
     @PostMapping("/{id}/classify")
-    public ProductResponse classify(@PathVariable String id, @RequestBody ClassifyRequest body,
+    public ProductResponse classify(@PathVariable @Schema(pattern = ProductIds.REGEX) String id, @RequestBody ClassifyRequest body,
                                     HttpServletRequest httpRequest) {
         classifyService.classify(AdminActors.require(httpRequest), id, body.verticalId(), body.releaseId(), body.status(),
                 body.confidence() == null ? 1.0 : body.confidence(),
@@ -130,7 +132,7 @@ public class ProductController {
     }
 
     @PostMapping("/{id}/publish")
-    public ProductResponse publish(@PathVariable String id, @RequestBody PublishClaimRequest body,
+    public ProductResponse publish(@PathVariable @Schema(pattern = ProductIds.REGEX) String id, @RequestBody PublishClaimRequest body,
                                     HttpServletRequest httpRequest) {
         publishService.publishClaim(AdminActors.require(httpRequest), id, body.attributeKey(),
                 body.evidenceRefs() == null ? List.of() : body.evidenceRefs());
@@ -138,14 +140,14 @@ public class ProductController {
     }
 
     @PostMapping("/{id}/gtins")
-    public ProductResponse bindGtin(@PathVariable String id, @RequestBody GtinBindRequest body,
+    public ProductResponse bindGtin(@PathVariable @Schema(pattern = ProductIds.REGEX) String id, @RequestBody GtinBindRequest body,
                                     HttpServletRequest httpRequest) {
         gtinBindService.bind(AdminActors.require(httpRequest), id, body.gtin(), body.market());
         return read(id);
     }
 
     @PostMapping("/{id}/activate")
-    public ProductResponse activate(@PathVariable String id,
+    public ProductResponse activate(@PathVariable @Schema(pattern = ProductIds.REGEX) String id,
                                     @RequestHeader("If-Match") int expectedVersion,
                                     HttpServletRequest httpRequest) {
         lifecycle.activate(AdminActors.require(httpRequest), id, expectedVersion);
@@ -153,7 +155,7 @@ public class ProductController {
     }
 
     @PostMapping("/{id}/retire")
-    public ProductResponse retire(@PathVariable String id,
+    public ProductResponse retire(@PathVariable @Schema(pattern = ProductIds.REGEX) String id,
                                   @RequestHeader("If-Match") int expectedVersion,
                                   @RequestBody(required = false) RetireRequest body,
                                     HttpServletRequest httpRequest) {
@@ -162,7 +164,7 @@ public class ProductController {
     }
 
     @PostMapping("/{id}/revive")
-    public ProductResponse revive(@PathVariable String id,
+    public ProductResponse revive(@PathVariable @Schema(pattern = ProductIds.REGEX) String id,
                                   @RequestHeader("If-Match") int expectedVersion,
                                   @RequestBody(required = false) ReviveRequest body,
                                     HttpServletRequest httpRequest) {
@@ -171,7 +173,7 @@ public class ProductController {
     }
 
     @PostMapping("/{id}/archive")
-    public ProductResponse archive(@PathVariable String id,
+    public ProductResponse archive(@PathVariable @Schema(pattern = ProductIds.REGEX) String id,
                                    @RequestHeader("If-Match") int expectedVersion,
                                     HttpServletRequest httpRequest) {
         lifecycle.archive(AdminActors.require(httpRequest), id, expectedVersion);
@@ -180,8 +182,8 @@ public class ProductController {
 
     /** Merge is ASYNC by contract: the core txn commits, the finalizer completes it. */
     @PostMapping("/{id}/merge/{survivorId}")
-    public ResponseEntity<AcceptedResponse> merge(@PathVariable String id,
-                                                  @PathVariable String survivorId,
+    public ResponseEntity<AcceptedResponse> merge(@PathVariable @Schema(pattern = ProductIds.REGEX) String id,
+                                                  @PathVariable @Schema(pattern = ProductIds.REGEX) String survivorId,
                                     HttpServletRequest httpRequest) {
         mergeService.startMerge(AdminActors.require(httpRequest), id, survivorId);
         return ResponseEntity.accepted().body(new AcceptedResponse("merging",
@@ -190,6 +192,16 @@ public class ProductController {
 
     /** The single create mapping, shared with the bulk product import so a bulk row means exactly what a create means. */
     public static ProductDraft toDraft(CreateProductRequest b) {
+        // the canonical id grammar, before anything is built or written (400 MALFORMED_REQUEST)
+        ProductIds.require(b.id(), "id");
+        if (b.bundleContents() != null) {
+            for (var c : b.bundleContents()) {
+                ProductIds.require(c == null ? null : c.componentProductId(), "componentProductId");
+            }
+        }
+        if (b.packOf() != null) {
+            ProductIds.require(b.packOf().componentProductId(), "packOf.componentProductId");
+        }
         List<GtinBinding> gtins = b.gtins() == null ? null
                 : b.gtins().stream().map(g -> new GtinBinding(g.value(), g.market())).toList();
         List<BundleComponent> components = b.bundleContents() == null ? null

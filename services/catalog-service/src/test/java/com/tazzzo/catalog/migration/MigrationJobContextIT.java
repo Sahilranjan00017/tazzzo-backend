@@ -38,7 +38,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         "tazzzo.schema.load-taxonomy-seed=false",
         "tazzzo.scheduler.enabled=false",
         "tazzzo.consumer-rate-limit.mode=DISABLED",
-        "spring.data.mongodb.database=tazzzo_job_context_it"})
+        "spring.mongodb.database=tazzzo_job_context_it"})
 @Import(MigrationJobContextIT.RecordingExit.class)
 class MigrationJobContextIT {
 
@@ -51,7 +51,7 @@ class MigrationJobContextIT {
 
     @DynamicPropertySource
     static void mongo(DynamicPropertyRegistry registry) {
-        registry.add("spring.data.mongodb.uri", MONGO::getReplicaSetUrl);
+        registry.add("spring.mongodb.uri", MONGO::getReplicaSetUrl);
     }
 
     @TestConfiguration

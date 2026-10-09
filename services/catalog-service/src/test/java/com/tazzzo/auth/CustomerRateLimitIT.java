@@ -10,7 +10,8 @@ import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.Timeout;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -38,6 +39,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Per-customer read/write admission on {@code /v1/customer/**} against a real Redis: separate buckets per customer and
  * per kind, 429 + Retry-After in the customer envelope, and an unauthenticated request is a 401 that costs nothing.
  */
+@AutoConfigureTestRestTemplate
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         classes = {CatalogApplication.class, CustomerRateLimitIT.Probe.class})
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -58,8 +60,8 @@ class CustomerRateLimitIT {
 
     @DynamicPropertySource
     static void props(DynamicPropertyRegistry r) {
-        r.add("spring.data.mongodb.uri", MONGO::getReplicaSetUrl);
-        r.add("spring.data.mongodb.database", () -> "tazzzo_customer_rl_it");
+        r.add("spring.mongodb.uri", MONGO::getReplicaSetUrl);
+        r.add("spring.mongodb.database", () -> "tazzzo_customer_rl_it");
         r.add("tazzzo.schema.bootstrap-on-startup", () -> "false");
         r.add("tazzzo.scheduler.enabled", () -> "false");
         r.add("tazzzo.consumer-rate-limit.mode", () -> "REDIS");

@@ -155,8 +155,8 @@ Configuration reference (no value here is a secret):
 
 | Variable | Property | Default | Meaning |
 |---|---|---|---|
-| `MONGODB_URI` | `spring.data.mongodb.uri` | localhost (**refused** for staging/production) | the connection string — secret |
-| `MONGODB_DATABASE` | `spring.data.mongodb.database` | `tazzzo` | `tazzzo_staging` for staging |
+| `MONGODB_URI` | `spring.mongodb.uri` | localhost (**refused** for staging/production) | the connection string — secret |
+| `MONGODB_DATABASE` | `spring.mongodb.database` | `tazzzo` | `tazzzo_staging` for staging |
 | `TAZZZO_MIGRATION_ENVIRONMENT` | `tazzzo.migration.environment` | unset | `local`/`test`/`dev`/`staging`/`production`. **A label, not a boundary:** enforcement is also decided by the connection string (§6.2) |
 | `TAZZZO_MIGRATION_MODE` | `tazzzo.migration.mode` | `VERIFY` | `VERIFY` (service), `DRY_RUN` / `APPLY` (job) |
 | `TAZZZO_DATASTORE_PRIVILEGE_VERIFICATION` | `tazzzo.datastore.privilege-verification` | `AUTO` | `AUTO` enforces for staging/production; `ENFORCE` enforces everywhere. **There is no setting that turns enforcement off for staging or production.** |

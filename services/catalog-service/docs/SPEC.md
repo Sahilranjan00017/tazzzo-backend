@@ -7,7 +7,7 @@ report, never work around); C-3 event-before-state ordering; C-4 every mutation 
 event payload at compile time; T-RULE-1 expected-rejection tests assert the failing clause.
 
 ## Stack
-Java 21 (build with JAVA_HOME=$(/usr/libexec/java_home -v 21)), Spring Boot 3.3.5,
+Java 21 (build with JAVA_HOME=$(/usr/libexec/java_home -v 21)), Spring Boot 4.1.1,
 spring-data-mongodb, Testcontainers `MongoDBContainer("mongo:7")` (single-node replica set →
 multi-doc transactions work). No Lombok. Use Java records where natural. Package root:
 `com.tazzzo.catalog`.
@@ -76,7 +76,7 @@ SchemaBootstrap pre-creates ALL collections (txns cannot create collections impl
 with validators anyway; be explicit).
 
 ## Tests (src/test/java/com/tazzzo/catalog/…) — Testcontainers, @Testcontainers/@Container static
-Shared base: AbstractMongoIT starts MongoDBContainer("mongo:7"), sets spring.data.mongodb.uri via
+Shared base: AbstractMongoIT starts MongoDBContainer("mongo:7"), sets spring.mongodb.uri via
 @DynamicPropertySource, runs SchemaBootstrap.
 1. ValidatorContractIT — port of docs/contract_attack.js G/I battery: AT1-a..d (incl. the
    zero-drift metadata diff), G-6, G-16/G-16b, I-1,I-2,I-3,I-3b,I-6(bypass accepted),I-7,I-9,

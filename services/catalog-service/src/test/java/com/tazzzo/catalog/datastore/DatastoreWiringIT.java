@@ -34,8 +34,8 @@ class DatastoreWiringIT {
 
     private static String[] args(String uri, String... extra) {
         List<String> a = new ArrayList<>(List.of(
-                "--spring.data.mongodb.uri=" + uri,
-                "--spring.data.mongodb.database=" + DB,
+                "--spring.mongodb.uri=" + uri,
+                "--spring.mongodb.database=" + DB,
                 "--tazzzo.schema.load-taxonomy-seed=false",
                 "--tazzzo.scheduler.enabled=false",
                 "--tazzzo.consumer-rate-limit.mode=DISABLED"));
@@ -70,7 +70,7 @@ class DatastoreWiringIT {
     @Test
     void production_with_no_configured_uri_fails_fast_instead_of_falling_back_to_localhost() {
         long start = System.nanoTime();
-        // no spring.data.mongodb.uri: application.yml's localhost default applies, which is exactly the misconfiguration to catch
+        // no spring.mongodb.uri: application.yml's localhost default applies, which is exactly the misconfiguration to catch
         assertThatThrownBy(() -> new SpringApplicationBuilder(CatalogApplication.class).web(WebApplicationType.NONE).run(
                 "--tazzzo.schema.load-taxonomy-seed=false", "--tazzzo.scheduler.enabled=false", "--tazzzo.consumer-rate-limit.mode=DISABLED",
                 "--tazzzo.migration.mode=VERIFY", "--tazzzo.migration.environment=production"))
@@ -83,7 +83,7 @@ class DatastoreWiringIT {
     @Test
     void an_unset_environment_with_a_remote_uri_is_refused() {
         assertThatThrownBy(() -> new SpringApplicationBuilder(CatalogApplication.class).web(WebApplicationType.NONE).run(
-                "--spring.data.mongodb.uri=mongodb://appuser:pw@db.example.net:27017/tazzzo?replicaSet=rs0",
+                "--spring.mongodb.uri=mongodb://appuser:pw@db.example.net:27017/tazzzo?replicaSet=rs0",
                 "--tazzzo.schema.load-taxonomy-seed=false", "--tazzzo.scheduler.enabled=false", "--tazzzo.consumer-rate-limit.mode=DISABLED",
                 "--tazzzo.migration.mode=VERIFY", "--tazzzo.migration.environment="))
                 .isInstanceOf(DatastoreContractException.class)
@@ -96,7 +96,7 @@ class DatastoreWiringIT {
             long start = System.nanoTime();
             // the label is metadata: a remote cluster that states none of the contract is refused whatever it is called
             assertThatThrownBy(() -> new SpringApplicationBuilder(CatalogApplication.class).web(WebApplicationType.NONE).run(
-                    "--spring.data.mongodb.uri=mongodb+srv://appuser:pw@cluster0.abcde.mongodb.net/tazzzo",
+                    "--spring.mongodb.uri=mongodb+srv://appuser:pw@cluster0.abcde.mongodb.net/tazzzo",
                     "--tazzzo.schema.load-taxonomy-seed=false", "--tazzzo.scheduler.enabled=false", "--tazzzo.consumer-rate-limit.mode=DISABLED",
                     "--tazzzo.migration.mode=APPLY_ON_STARTUP", "--tazzzo.migration.environment=" + env))
                     .as(env).isInstanceOf(DatastoreContractException.class)
