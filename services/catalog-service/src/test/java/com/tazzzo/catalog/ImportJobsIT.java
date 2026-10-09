@@ -787,10 +787,11 @@ class ImportJobsIT extends AbstractApiIT {
         String id = create("chunked-413");
         csv(id, HEADER + line("TZP-CK-001", 1), W);
         long version = job(id).get("version").asLong();
-        // well over the 2 MiB bulk bound: many valid rows are stored before the bound trips, then all of them are rolled back
+        // just over the 2 MiB bulk bound (by less than Tomcat's 64 KiB max-swallow-size, so the client reliably reads the 413 instead of a reset):
+        // hundreds of valid-shape rows are stored before the bound trips, then all of them are rolled back
         StringBuilder big = new StringBuilder(HEADER);
         String wide = "w".repeat(3_000);   // wide valid-shape rows: the bound trips after a few hundred inserts, not tens of thousands
-        for (int i = 2; big.length() < 2_200_000; i++) big.append(line("TZP-CK-" + i, i).replace("Job rice", wide));
+        for (int i = 2; big.length() < 2_097_152 + 8_192; i++) big.append(line("TZP-CK-" + i, i).replace("Job rice", wide));
         ResponseEntity<String> over = chunkedCsv(id, big.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8), W);
         assertThat(over.getStatusCode().value()).as(over.getBody()).isEqualTo(413);
         JsonNode err = new com.fasterxml.jackson.databind.ObjectMapper().readTree(over.getBody());
