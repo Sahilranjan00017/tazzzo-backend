@@ -5,8 +5,8 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <!-- final 3.3 patch release; supported-platform migration (3.5 / 4.x) is a separate workstream -->
-        <version>3.3.13</version>
+        <!-- latest GA of the supported 4.1 line (ADR-016); 3.3 is out of OSS support -->
+        <version>4.1.1</version>
         <relativePath/>
     </parent>
     <groupId>com.tazzzo</groupId>
@@ -16,18 +16,12 @@
     <description>Catalogue backend implementing Implementation Contract V1 (T1-T7, write path, schema bootstrap)</description>
     <properties>
         <java.version>21</java.version>
-        <testcontainers.version>1.21.3</testcontainers.version>
         <!--
-          Security overrides on the Boot 3.3 line: each stays within the version line Boot manages (patch or the
-          next compatible Jackson 2.x minor) and is OSV-clean at the time of writing. They fix: Tomcat request
-          smuggling via invalid chunk extensions (CVE-2026-24880) and the multipart DoS family; the jackson-core
-          number-parsing ReDoS reachable through Double request fields (CVE-2026-89407) and the related 2.17.x
-          advisories (no 2.17 fix exists); Netty 4.1 client advisories. Remove an override once the Boot BOM
-          manages an equal or newer version. Evidence: docs/security/DEPENDENCY_SECURITY_REVIEW_2026-10.md
+          Jackson 2 line: 2.21.5 (Boot 4.1.1 BOM) takes ~27 s on a 60 KB numeric string coerced into a Double request field
+          (AddressCoordinateParsingIT, the jackson-core number-parsing ReDoS class previously fixed by a 2.18.11 override);
+          2.21.7 is fast again (verified by that test). Remove once the Boot BOM manages >= 2.21.7.
         -->
-        <tomcat.version>10.1.60</tomcat.version>
-        <jackson-bom.version>2.18.11</jackson-bom.version>
-        <netty.version>4.1.139.Final</netty.version>
+        <jackson-2-bom.version>2.21.7</jackson-2-bom.version>
         <!-- Media object storage (S3-compatible): presigned direct-to-storage uploads and object inspection only. -->
         <awssdk.version>2.55.11</awssdk.version>
     </properties>
@@ -51,10 +45,19 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
+        <!--
+          Boot 4 defaults to Jackson 3 (tools.jackson). The service code, its tests and the generated OpenAPI contract are
+          written against Jackson 2 (com.fasterxml.jackson), so this step keeps Jackson 2 as the active JSON stack through
+          Boot's Jackson 2 compatibility module (ADR-016). Migration to Jackson 3 is a separate follow-up.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-jackson2</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.springdoc</groupId>
             <artifactId>springdoc-openapi-starter-webmvc-api</artifactId>
-            <version>2.6.0</version>
+            <version>3.1.1</version>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -140,16 +143,25 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- Boot 4 moved TestRestTemplate out of spring-boot-test into its own module -->
         <dependency>
-            <groupId>org.testcontainers</groupId>
-            <artifactId>mongodb</artifactId>
-            <version>${testcontainers.version}</version>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-resttestclient</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-restclient</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.testcontainers</groupId>
-            <artifactId>junit-jupiter</artifactId>
-            <version>${testcontainers.version}</version>
+            <artifactId>testcontainers-mongodb</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-junit-jupiter</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>

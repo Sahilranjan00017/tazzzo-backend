@@ -47,8 +47,8 @@ class SchedulerIT {
 
     @DynamicPropertySource
     static void props(DynamicPropertyRegistry r) {
-        r.add("spring.data.mongodb.uri", MONGO::getReplicaSetUrl);
-        r.add("spring.data.mongodb.database", () -> "tazzzo_sched_it");
+        r.add("spring.mongodb.uri", MONGO::getReplicaSetUrl);
+        r.add("spring.mongodb.database", () -> "tazzzo_sched_it");
         r.add("tazzzo.schema.bootstrap-on-startup", () -> "false");
         r.add("tazzzo.scheduler.enabled", () -> "true");     // scheduler ON for this suite
         // Q5-c: the limiter mode has NO production default, so every Spring context must state

@@ -143,7 +143,7 @@ class HoldingVerticalGovernanceIT extends AbstractApiIT {
                 draft("TZP-F1-C", RICE, "provisional",
                         Map.of("pack_size", 5, "pack_unit", "kg", BOGUS_KEY, "xyz")),
                 CMS_TOKEN, JsonNode.class);
-        assertThat(res.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+        assertThat(res.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT);
         assertThat(res.getBody().at("/error/code").asText())
                 .as("the strict branch is untouched: leniency must not leak to real verticals")
                 .isEqualTo("ATTRIBUTE_VIOLATION");
@@ -163,7 +163,7 @@ class HoldingVerticalGovernanceIT extends AbstractApiIT {
                 draft("TZP-F1-D", MintService.UNCLASSIFIED, "review",
                         Map.of("organic_certified", true)),
                 CMS_TOKEN, JsonNode.class);
-        assertThat(res.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+        assertThat(res.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT);
         assertThat(res.getBody().at("/error/code").asText()).isEqualTo("ATTRIBUTE_VIOLATION");
         assertThat(res.getBody().at("/error/message").asText()).contains("organic_certified");
         assertThat(db.getCollection("products").find(eq("_id", "TZP-F1-D")).first()).isNull();
@@ -176,7 +176,7 @@ class HoldingVerticalGovernanceIT extends AbstractApiIT {
                 draft("TZP-F1-E", MintService.UNCLASSIFIED, "review",
                         Map.of("pack_size", "five", "pack_unit", "kg")),
                 CMS_TOKEN, JsonNode.class);
-        assertThat(res.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+        assertThat(res.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT);
         assertThat(res.getBody().at("/error/code").asText()).isEqualTo("ATTRIBUTE_VIOLATION");
         assertThat(res.getBody().at("/error/message").asText()).contains("pack_size");
         assertThat(db.getCollection("products").find(eq("_id", "TZP-F1-E")).first()).isNull();

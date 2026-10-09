@@ -24,8 +24,8 @@ class ConsumerRootLimiterDisabledIT extends AbstractConsumerIT {
 
     @DynamicPropertySource
     static void props(DynamicPropertyRegistry r) {
-        r.add("spring.data.mongodb.uri", MONGO::getReplicaSetUrl);
-        r.add("spring.data.mongodb.database", () -> "tazzzo_root_disabled_it");
+        r.add("spring.mongodb.uri", MONGO::getReplicaSetUrl);
+        r.add("spring.mongodb.database", () -> "tazzzo_root_disabled_it");
         r.add("tazzzo.schema.bootstrap-on-startup", () -> "false");
         r.add("tazzzo.scheduler.enabled", () -> "false");
         r.add("tazzzo.consumer-rate-limit.mode", () -> "DISABLED");
@@ -38,6 +38,22 @@ class ConsumerRootLimiterDisabledIT extends AbstractConsumerIT {
         loader.load(db);
         changes.recordBaseline(TestActors.TEST, "R1");
         eligibleProduct("TZP-1", "TZV-000001");
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    org.springframework.context.ApplicationContext context;
+
+    /**
+     * CatalogApplication excludes DataRedisAutoConfiguration / DataRedisRepositoriesAutoConfiguration (the Boot 4
+     * names): with the limiter DISABLED nothing may build a default localhost Redis connection.
+     */
+    @Test
+    void no_redis_connection_factory_or_template_bean_exists_when_the_limiter_is_disabled() throws Exception {
+        for (String type : new String[]{"org.springframework.data.redis.connection.RedisConnectionFactory",
+                "org.springframework.data.redis.core.StringRedisTemplate",
+                "org.springframework.data.redis.core.RedisTemplate"}) {
+            assertThat(context.getBeanNamesForType(Class.forName(type))).as(type).isEmpty();
+        }
     }
 
     @Test

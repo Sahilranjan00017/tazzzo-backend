@@ -12,7 +12,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -39,6 +40,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * real migration job, and the application starts in the default {@code VERIFY} mode. If any code path on these flows issued
  * DDL, or touched the migration bookkeeping, the server would answer {@code Unauthorized} and the flow would fail.
  */
+@AutoConfigureTestRestTemplate
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class RuntimeIdentityEndToEndIT {
@@ -51,8 +53,8 @@ class RuntimeIdentityEndToEndIT {
         AuthenticatedReplicaSet.resetDatabase();
         // the controlled migration job, under the migrator identity (it also applies the approved seed-schema data migration)
         try (var ignored = new SpringApplicationBuilder(CatalogApplication.class).web(WebApplicationType.NONE).run(
-                "--spring.data.mongodb.uri=" + AuthenticatedReplicaSet.uri(MIGRATOR_USER, USER_PASSWORD, DB),
-                "--spring.data.mongodb.database=" + DB,
+                "--spring.mongodb.uri=" + AuthenticatedReplicaSet.uri(MIGRATOR_USER, USER_PASSWORD, DB),
+                "--spring.mongodb.database=" + DB,
                 "--tazzzo.migration.mode=APPLY", "--tazzzo.migration.environment=dev", "--tazzzo.migration.exit-after-run=false",
                 "--tazzzo.migration.approved-data-migrations=V0004__seed_schemas_pack_fields_not_required",
                 "--tazzzo.schema.load-taxonomy-seed=false", "--tazzzo.scheduler.enabled=false",
@@ -63,8 +65,8 @@ class RuntimeIdentityEndToEndIT {
 
     @DynamicPropertySource
     static void props(DynamicPropertyRegistry r) {
-        r.add("spring.data.mongodb.uri", () -> AuthenticatedReplicaSet.uri(RUNTIME_USER, USER_PASSWORD, DB));
-        r.add("spring.data.mongodb.database", () -> DB);
+        r.add("spring.mongodb.uri", () -> AuthenticatedReplicaSet.uri(RUNTIME_USER, USER_PASSWORD, DB));
+        r.add("spring.mongodb.database", () -> DB);
         r.add("tazzzo.migration.mode", () -> "VERIFY");
         r.add("tazzzo.migration.environment", () -> "dev");
         r.add("tazzzo.schema.bootstrap-on-startup", () -> "false");

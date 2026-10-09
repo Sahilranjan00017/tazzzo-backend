@@ -121,7 +121,7 @@
     "/api/v1/admin/service-areas/{pincode}" : {
       "get" : {
         "tags" : [ "service-area-admin-controller" ],
-        "operationId" : "get_7",
+        "operationId" : "get",
         "parameters" : [ {
           "name" : "pincode",
           "in" : "path",
@@ -181,7 +181,7 @@
     "/api/v1/admin/prices/{skuId}" : {
       "get" : {
         "tags" : [ "price-admin-controller" ],
-        "operationId" : "get_8",
+        "operationId" : "get_1",
         "parameters" : [ {
           "name" : "skuId",
           "in" : "path",
@@ -243,7 +243,7 @@
     "/api/v1/admin/media/{ownerType}/{ownerId}" : {
       "get" : {
         "tags" : [ "media-admin-controller" ],
-        "operationId" : "get_10",
+        "operationId" : "get_2",
         "parameters" : [ {
           "name" : "ownerType",
           "in" : "path",
@@ -317,7 +317,7 @@
     "/api/v1/admin/inventory/{skuId}/{locationId}" : {
       "get" : {
         "tags" : [ "inventory-admin-controller" ],
-        "operationId" : "get_11",
+        "operationId" : "get_3",
         "parameters" : [ {
           "name" : "skuId",
           "in" : "path",
@@ -393,7 +393,7 @@
     "/api/v1/admin/delivery-slots/{serviceAreaId}/{windowId}" : {
       "get" : {
         "tags" : [ "delivery-slot-admin-controller" ],
-        "operationId" : "get_12",
+        "operationId" : "get_4",
         "parameters" : [ {
           "name" : "serviceAreaId",
           "in" : "path",
@@ -467,7 +467,7 @@
     "/api/v1/admin/content/blocks/{id}" : {
       "get" : {
         "tags" : [ "content-admin-controller" ],
-        "operationId" : "get_13",
+        "operationId" : "get_5",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -825,7 +825,7 @@
     "/v1/customer/addresses" : {
       "get" : {
         "tags" : [ "address-controller" ],
-        "operationId" : "list_3",
+        "operationId" : "list_2",
         "responses" : {
           "200" : {
             "description" : "OK",
@@ -1344,7 +1344,7 @@
     "/api/v1/products" : {
       "get" : {
         "tags" : [ "product-controller" ],
-        "operationId" : "list_4_1",
+        "operationId" : "list_3",
         "parameters" : [ {
           "name" : "canonicalKey",
           "in" : "query",
@@ -2394,7 +2394,7 @@
     "/api/v1/admin/content/blocks" : {
       "get" : {
         "tags" : [ "content-admin-controller" ],
-        "operationId" : "list_8",
+        "operationId" : "list_4",
         "parameters" : [ {
           "name" : "placement",
           "in" : "query",
@@ -2525,7 +2525,7 @@
     "/v1/customer/profile" : {
       "get" : {
         "tags" : [ "customer-profile-controller" ],
-        "operationId" : "get_1",
+        "operationId" : "get_6",
         "responses" : {
           "200" : {
             "description" : "OK",
@@ -2576,7 +2576,7 @@
     "/v1/customer/addresses/{addressId}" : {
       "get" : {
         "tags" : [ "address-controller" ],
-        "operationId" : "get_3",
+        "operationId" : "get_7",
         "parameters" : [ {
           "name" : "addressId",
           "in" : "path",
@@ -2666,7 +2666,7 @@
     "/api/v1/products/{id}" : {
       "get" : {
         "tags" : [ "product-controller" ],
-        "operationId" : "get_4",
+        "operationId" : "get_8",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -2898,7 +2898,7 @@
     "/v1/customer/support/cases/{caseId}" : {
       "get" : {
         "tags" : [ "customer-support-controller" ],
-        "operationId" : "get",
+        "operationId" : "get_9",
         "parameters" : [ {
           "name" : "caseId",
           "in" : "path",
@@ -2950,7 +2950,7 @@
     "/v1/customer/delivery/slots" : {
       "get" : {
         "tags" : [ "delivery-slot-controller" ],
-        "operationId" : "list_2",
+        "operationId" : "list_5",
         "parameters" : [ {
           "name" : "pin",
           "in" : "query",
@@ -3009,7 +3009,7 @@
     "/v1/customer/cart" : {
       "get" : {
         "tags" : [ "cart-controller" ],
-        "operationId" : "get_2",
+        "operationId" : "get_10",
         "parameters" : [ {
           "name" : "addressId",
           "in" : "query",
@@ -3539,7 +3539,7 @@
     "/api/v1/evidence/{id}" : {
       "get" : {
         "tags" : [ "evidence-controller" ],
-        "operationId" : "get_5",
+        "operationId" : "get_11",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -3617,7 +3617,7 @@
     "/api/v1/admin/support/cases" : {
       "get" : {
         "tags" : [ "staff-support-controller" ],
-        "operationId" : "list_4",
+        "operationId" : "list_6",
         "parameters" : [ {
           "name" : "status",
           "in" : "query",
@@ -3657,7 +3657,7 @@
     "/api/v1/admin/support/cases/{caseId}" : {
       "get" : {
         "tags" : [ "staff-support-controller" ],
-        "operationId" : "get_6",
+        "operationId" : "get_12",
         "parameters" : [ {
           "name" : "caseId",
           "in" : "path",
@@ -3683,7 +3683,7 @@
     "/api/v1/admin/service-areas" : {
       "get" : {
         "tags" : [ "service-area-admin-controller" ],
-        "operationId" : "list_5",
+        "operationId" : "list_7",
         "parameters" : [ {
           "name" : "limit",
           "in" : "query",
@@ -3717,7 +3717,7 @@
     "/api/v1/admin/orders" : {
       "get" : {
         "tags" : [ "staff-order-controller" ],
-        "operationId" : "list_6",
+        "operationId" : "list_8",
         "parameters" : [ {
           "name" : "status",
           "in" : "query",
@@ -3757,7 +3757,7 @@
     "/api/v1/admin/orders/{orderId}" : {
       "get" : {
         "tags" : [ "staff-order-controller" ],
-        "operationId" : "get_9",
+        "operationId" : "get_13",
         "parameters" : [ {
           "name" : "orderId",
           "in" : "path",
@@ -3801,7 +3801,7 @@
     "/api/v1/admin/delivery-slots/{serviceAreaId}" : {
       "get" : {
         "tags" : [ "delivery-slot-admin-controller" ],
-        "operationId" : "list_7",
+        "operationId" : "list_9",
         "parameters" : [ {
           "name" : "serviceAreaId",
           "in" : "path",
@@ -3889,7 +3889,7 @@
     "/api/v1/admin/audit-events" : {
       "get" : {
         "tags" : [ "admin-audit-events-controller" ],
-        "operationId" : "list_9",
+        "operationId" : "list_10",
         "responses" : {
           "200" : {
             "description" : "OK",
@@ -6273,6 +6273,102 @@
       "ProductDetailDto" : {
         "type" : "object",
         "properties" : {
+          "skuId" : {
+            "type" : "string"
+          },
+          "productId" : {
+            "type" : "string"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "brandCode" : {
+            "type" : "string"
+          },
+          "brandName" : {
+            "type" : "string"
+          },
+          "thumbnailUrl" : {
+            "type" : "string"
+          },
+          "packSize" : {
+            "type" : "string"
+          },
+          "unit" : {
+            "type" : "string"
+          },
+          "sellingPricePaise" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "mrpPaise" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "discountPercent" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "discountAmountPaise" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "offerSummary" : {
+            "type" : "string"
+          },
+          "categoryId" : {
+            "type" : "string"
+          },
+          "verticalId" : {
+            "type" : "string"
+          },
+          "badges" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "rating" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "ratingCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "sponsored" : {
+            "type" : "boolean"
+          },
+          "stockState" : {
+            "type" : "string",
+            "enum" : [ "IN_STOCK", "LOW_STOCK", "OUT_OF_STOCK", "UNKNOWN" ]
+          },
+          "lowStockRemaining" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "maxOrderQuantity" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "minimumOrderQuantity" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "serviceable" : {
+            "type" : "boolean"
+          },
+          "etaMinutesMin" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "etaMinutesMax" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "buyable" : {
+            "type" : "boolean"
+          },
           "description" : {
             "type" : "string"
           },
@@ -6619,6 +6715,12 @@
       "NodeDetailDto" : {
         "type" : "object",
         "properties" : {
+          "id" : {
+            "type" : "string"
+          },
+          "name" : {
+            "type" : "string"
+          },
           "resolvedReleaseId" : {
             "type" : "string"
           },
