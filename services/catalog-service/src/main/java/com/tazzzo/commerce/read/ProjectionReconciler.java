@@ -51,6 +51,8 @@ public class ProjectionReconciler {
 
     private String driftCheckpoint;  // null = scan from start
     private String orphanCheckpoint;
+    private int driftPacedLimit;      // the per-pass limit chosen at the last wrap (0 = not yet paced)
+    private int orphanPacedLimit;
 
     public ProjectionReconciler(MongoDatabase db, ProjectionRebuildQueue queue) {
         this(db, queue, null);
@@ -87,6 +89,54 @@ public class ProjectionReconciler {
             observability.reconcileEnqueued(FreshnessObservability.ReconcilePass.DRIFT, productIds.size());
         }
         return productIds.size();
+    }
+
+    /**
+     * The drift pass with a limit PACED to the catalogue: at the start of each full pass (checkpoint at the start) the
+     * eligible products are counted and the per-pass limit becomes {@link #pacedLimit}, so a full pass completes within
+     * {@code fullPassMs} whatever the catalogue size (measured: 500 per 5 min is 17 h at 100k SKUs and a week at 1M).
+     * The count happens once per wrap, never per tick.
+     */
+    public int reconcileDriftPaced(long intervalMs, long fullPassMs, int minLimit, int maxLimit) {
+        if (driftCheckpoint == null || driftPacedLimit == 0) {
+            long eligible = db.getCollection("products").countDocuments(ConsumerEligibility.filter());
+            driftPacedLimit = pacedLimit(eligible, intervalMs, fullPassMs, minLimit, maxLimit);
+            log.info("freshness_reconcile_drift_paced eligible={} limit={} interval_ms={} full_pass_ms={}", eligible,
+                    driftPacedLimit, intervalMs, fullPassMs);
+        }
+        return reconcileDrift(driftPacedLimit);
+    }
+
+    /** The orphan pass paced the same way, over the projection rows. */
+    public int reconcileOrphansPaced(long intervalMs, long fullPassMs, int minLimit, int maxLimit) {
+        if (orphanCheckpoint == null || orphanPacedLimit == 0) {
+            long rows = db.getCollection(PROJECTION).countDocuments();
+            orphanPacedLimit = pacedLimit(rows, intervalMs, fullPassMs, minLimit, maxLimit);
+            log.info("freshness_reconcile_orphan_paced rows={} limit={} interval_ms={} full_pass_ms={}", rows,
+                    orphanPacedLimit, intervalMs, fullPassMs);
+        }
+        return reconcileOrphans(orphanPacedLimit);
+    }
+
+    /**
+     * Rows per pass so that {@code count} rows are covered within {@code fullPassMs} at one pass per {@code intervalMs}:
+     * {@code ceil(count * intervalMs / fullPassMs)}, never below {@code minLimit} (the floor keeps small catalogues on
+     * the historical pace) and never above {@code maxLimit} (a bounded tick, whatever the count).
+     */
+    public static int pacedLimit(long count, long intervalMs, long fullPassMs, int minLimit, int maxLimit) {
+        if (intervalMs < 1 || fullPassMs < 1) throw new IllegalArgumentException("intervalMs and fullPassMs must be positive");
+        if (minLimit < 1 || maxLimit < minLimit) throw new IllegalArgumentException("limits must satisfy 1 <= min <= max");
+        long needed;
+        if (count <= 0) {
+            needed = 0;
+        } else {
+            try {
+                needed = Math.addExact(Math.multiplyExact(count, intervalMs), fullPassMs - 1) / fullPassMs;   // ceil without floating point
+            } catch (ArithmeticException overflow) {
+                needed = Long.MAX_VALUE;   // saturate: the product exceeds a long, so the ceiling applies
+            }
+        }
+        return (int) Math.min(maxLimit, Math.max(minLimit, needed));
     }
 
     /** Enqueue rebuilds for projection rows whose product is no longer eligible (worker removes). */

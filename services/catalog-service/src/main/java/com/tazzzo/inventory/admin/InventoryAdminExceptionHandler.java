@@ -19,7 +19,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /** The admin error envelope for the inventory admin API only. */
-@RestControllerAdvice(assignableTypes = InventoryAdminController.class)
+@RestControllerAdvice(assignableTypes = {InventoryAdminController.class, InventoryAdminListController.class})
 @Order(Ordered.HIGHEST_PRECEDENCE)
 class InventoryAdminExceptionHandler {
 
@@ -36,6 +36,11 @@ class InventoryAdminExceptionHandler {
     @ExceptionHandler(InventoryConflictException.class)
     ResponseEntity<ErrorBody> conflict(InventoryConflictException e, HttpServletRequest req) {
         return envelope(HttpStatus.CONFLICT, "STALE_VERSION", e.getMessage(), req);
+    }
+
+    @ExceptionHandler(com.tazzzo.inventory.InventoryListTimeoutException.class)
+    ResponseEntity<ErrorBody> listTimeout(RuntimeException e, HttpServletRequest req) {
+        return envelope(HttpStatus.SERVICE_UNAVAILABLE, "LIST_TIMEOUT", e.getMessage(), req);
     }
 
     @ExceptionHandler({InvalidInventoryException.class, IllegalArgumentException.class})

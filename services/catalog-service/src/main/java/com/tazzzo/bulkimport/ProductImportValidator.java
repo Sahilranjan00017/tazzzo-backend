@@ -153,6 +153,9 @@ public final class ProductImportValidator {
                 {"classificationStatus", r.classificationStatus()}}) {
             if (f[1] == null || ((String) f[1]).isBlank()) return f[0] + " is required";
         }
+        if (!com.tazzzo.catalog.domain.ProductIds.isValid(r.id())) {
+            return "id must match " + com.tazzzo.catalog.domain.ProductIds.REGEX;
+        }
         if (!"single".equals(r.productType())) {
             return "productType must be single (variant packs and bundles reference other products: create them with "
                     + "POST /api/v1/products once their components exist)";

@@ -75,8 +75,8 @@ class DatastorePrivilegeIT {
     /** Runs the real application as a one-shot NON-WEB job under {@code user}'s identity. A failed job throws. */
     private ConfigurableApplicationContext job(String user, MigrationMode mode, String... extra) {
         List<String> args = new ArrayList<>(List.of(
-                "--spring.data.mongodb.uri=" + AuthenticatedReplicaSet.uri(user, USER_PASSWORD, DB),
-                "--spring.data.mongodb.database=" + DB,
+                "--spring.mongodb.uri=" + AuthenticatedReplicaSet.uri(user, USER_PASSWORD, DB),
+                "--spring.mongodb.database=" + DB,
                 "--tazzzo.migration.mode=" + mode,
                 "--tazzzo.migration.environment=dev",
                 "--tazzzo.migration.exit-after-run=false",

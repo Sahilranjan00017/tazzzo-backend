@@ -49,11 +49,27 @@ public class CommerceProjectionScheduler {
     private final ProjectionReconciler reconciler;
     private final int drainBatchSize;
     private final int reconcileLimit;
+    private final int reconcileMaxLimit;
+    private final long reconcileMs;
+    private final long reconcileFullPassMs;
 
+    /**
+     * @param reconcileLimit the FLOOR of rows per reconcile pass (the historical fixed pace)
+     * @param reconcileMaxLimit the ceiling of rows per pass, whatever the catalogue size
+     * @param reconcileMs the pass interval (the same property drives the {@code @Scheduled} delay below)
+     * @param reconcileFullPassMs the target for one full pass over the catalogue; the per-pass limit is raised from the
+     *                            floor as the catalogue grows so this target holds (see {@link ProjectionReconciler#pacedLimit})
+     */
     public CommerceProjectionScheduler(
             MongoClient client, MongoDatabase db, FreshnessObservability observability,
             @Value("${tazzzo.scheduler.card-rebuild-batch-size:200}") int drainBatchSize,
-            @Value("${tazzzo.scheduler.card-reconcile-limit:500}") int reconcileLimit) {
+            @Value("${tazzzo.scheduler.card-reconcile-limit:500}") int reconcileLimit,
+            @Value("${tazzzo.scheduler.card-reconcile-max-limit:20000}") int reconcileMaxLimit,
+            @Value("${tazzzo.scheduler.card-reconcile-ms:300000}") long reconcileMs,
+            @Value("${tazzzo.scheduler.card-reconcile-full-pass-ms:14400000}") long reconcileFullPassMs) {
+        // validated once at startup: a misconfiguration refuses to start (never silently clamped) and names the property
+        validatePacing(reconcileLimit, reconcileMaxLimit, reconcileMs, reconcileFullPassMs);
+        ProjectionReconciler.pacedLimit(0, reconcileMs, reconcileFullPassMs, reconcileLimit, reconcileMaxLimit);
         Clock clock = Clock.systemUTC();
         Tx tx = new Tx(client);
         WritePath writePath = new WritePath(db);
@@ -69,6 +85,25 @@ public class CommerceProjectionScheduler {
         this.reconciler = new ProjectionReconciler(db, queue, observability);
         this.drainBatchSize = drainBatchSize;
         this.reconcileLimit = reconcileLimit;
+        this.reconcileMaxLimit = reconcileMaxLimit;
+        this.reconcileMs = reconcileMs;
+        this.reconcileFullPassMs = reconcileFullPassMs;
+    }
+
+    static void validatePacing(int limit, int maxLimit, long ms, long fullPassMs) {
+        if (ms < 1) {
+            throw new IllegalStateException("tazzzo.scheduler.card-reconcile-ms (TAZZZO_SCHEDULER_CARD_RECONCILE_MS) must be a "
+                    + "positive number of milliseconds, was " + ms);
+        }
+        if (fullPassMs < 1) {
+            throw new IllegalStateException("tazzzo.scheduler.card-reconcile-full-pass-ms (TAZZZO_SCHEDULER_CARD_RECONCILE_FULL_PASS_MS) "
+                    + "must be a positive number of milliseconds, was " + fullPassMs);
+        }
+        if (limit < 1 || maxLimit < limit) {
+            throw new IllegalStateException("tazzzo.scheduler.card-reconcile-limit (TAZZZO_SCHEDULER_CARD_RECONCILE_LIMIT)="
+                    + limit + " and tazzzo.scheduler.card-reconcile-max-limit (TAZZZO_SCHEDULER_CARD_RECONCILE_MAX_LIMIT)="
+                    + maxLimit + " must satisfy 1 <= card-reconcile-limit <= card-reconcile-max-limit; raise the max or lower the limit");
+        }
     }
 
     @Scheduled(fixedDelayString = "${tazzzo.scheduler.card-rebuild-ms:15000}")
@@ -78,8 +113,8 @@ public class CommerceProjectionScheduler {
 
     @Scheduled(fixedDelayString = "${tazzzo.scheduler.card-reconcile-ms:300000}")
     public void reconcile() {
-        guard("card_reconcile_drift", () -> reconciler.reconcileDrift(reconcileLimit));
-        guard("card_reconcile_orphan", () -> reconciler.reconcileOrphans(reconcileLimit));
+        guard("card_reconcile_drift", () -> reconciler.reconcileDriftPaced(reconcileMs, reconcileFullPassMs, reconcileLimit, reconcileMaxLimit));
+        guard("card_reconcile_orphan", () -> reconciler.reconcileOrphansPaced(reconcileMs, reconcileFullPassMs, reconcileLimit, reconcileMaxLimit));
     }
 
     private void guard(String name, Runnable task) {

@@ -101,7 +101,7 @@ class ApiContractIT extends AbstractApiIT {
         Map<String, Object> bad = product("TZP-API-3", "api|3",
                 Map.of("pack_size", 1, "pack_unit", "kg", "not_a_real_key", "x"));
         assertErrorCode(post("/api/v1/products", bad, CMS_TOKEN, JsonNode.class),
-                HttpStatus.UNPROCESSABLE_ENTITY, "ATTRIBUTE_VIOLATION");
+                HttpStatus.UNPROCESSABLE_CONTENT, "ATTRIBUTE_VIOLATION");
         // taxonomy change with no open release -> NO_OPEN_RELEASE (409)
         assertErrorCode(post("/api/v1/taxonomy/nodes/" + BASMATI + "/rename",
                         Map.of("name", "X", "expectedVersion", 1), CMS_TOKEN, JsonNode.class),

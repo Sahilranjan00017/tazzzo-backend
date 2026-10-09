@@ -4,7 +4,7 @@ Guidance for Claude Code (and any AI assistant) working in this repository.
 
 ## Stack
 - **Java 21** (Temurin 21). The shell may default to a newer JDK — always build/test with Java 21.
-- **Spring Boot 3.3.5** services.
+- **Spring Boot 4.1.x** services (ADR-016; Jackson 2 retained via `spring-boot-jackson2` until the Jackson 3 follow-up).
 - **Maven wrapper** (`./mvnw`) only — do not rely on a globally installed `mvn`.
 
 ## Repository layout

@@ -771,4 +771,79 @@ class ImportJobsIT extends AbstractApiIT {
         assertThat(list.get("jobs").findValuesAsText("id")).contains(id);
         assertThat(get(JOBS + "/" + id + "/errors.csv", R, String.class).getStatusCode().value()).isEqualTo(200);
     }
+
+    @Test
+    void a_malformed_query_on_the_job_routes_gets_the_platform_filters_fixed_400() throws java.io.IOException {
+        for (String path : new String[]{JOBS + "?limit=%ZZ", JOBS + "/IMPJ-000000000000000000000000/rows?from=%ZZ"}) {
+            try (java.net.Socket socket = new java.net.Socket("localhost", port)) {   // java.net.URI refuses %ZZ: go raw
+                socket.setSoTimeout(15000);
+                socket.getOutputStream().write(("GET " + path + " HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n"
+                        + "Authorization: Bearer " + R + "\r\n\r\n").getBytes(java.nio.charset.StandardCharsets.ISO_8859_1));
+                socket.getOutputStream().flush();
+                String all = new String(socket.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+                assertThat(all.substring(9, 12)).as(path).isEqualTo("400");
+                String body = all.substring(all.indexOf('{'), all.lastIndexOf('}') + 1);
+                assertThat(body).contains("\"MALFORMED_REQUEST\"").contains("query string is malformed")
+                        .doesNotContain("%ZZ").doesNotContain("limit").doesNotContain("Exception");
+            }
+        }
+    }
+
+    @Test
+    void invalid_product_ids_are_per_row_invalid_block_apply_and_are_corrected_with_case_preserved() {
+        String id = create("id grammar");
+        String[] bad = {"TZP-a_b", "TZP-", "TZP-" + "x".repeat(41), "TZP-1\n", "tzp-1", "TZP-a b"};
+        List<Map<String, Object>> rows = new java.util.ArrayList<>();
+        for (int i = 0; i < bad.length; i++) rows.add(grammarRow(bad[i], i + 1));
+        rows.add(grammarRow("TZP-med-3", 7));      // valid, and distinct from the next row and from TZP-Med-3
+        rows.add(grammarRow("TZP-MED-3", 8));
+        ResponseEntity<JsonNode> added = post(JOBS + "/" + id + "/rows", Map.of("rows", rows), W, JsonNode.class);
+        assertThat(added.getStatusCode().value()).as(String.valueOf(added.getBody())).isEqualTo(200);
+        assertThat(added.getBody().get("rowsTotal").asLong()).isEqualTo(8);
+        assertThat(added.getBody().get("duplicates").asLong()).as("med-3 and MED-3 are different ids").isZero();
+
+        act(id, "validate", W);
+        assertThat(worker.tick().endedAs()).isEqualTo(ImportJob.Status.REJECTED);
+        JsonNode j = job(id);
+        assertThat(j.get("counts").get("invalid").asLong()).isEqualTo(6);
+        assertThat(j.get("counts").get("valid").asLong()).isEqualTo(2);
+        JsonNode page = get(JOBS + "/" + id + "/rows?from=0&limit=8", R, JsonNode.class).getBody().get("rows");
+        for (int i = 0; i < 6; i++) {
+            assertThat(page.get(i).get("validation").get("outcome").asText()).as("row " + i).isEqualTo("INVALID");
+            assertThat(page.get(i).get("validation").get("code").asText()).as("row " + i).isEqualTo("INVALID_ROW");
+            assertThat(page.get(i).get("validation").get("message").asText()).contains("^TZP-[A-Za-z0-9-]{1,40}$");
+        }
+        assertThat(page.get(6).get("validation").get("outcome").asText()).isEqualTo("VALID");
+        assertThat(page.get(7).get("validation").get("outcome").asText()).isEqualTo("VALID");
+        String errors = rest.exchange(url(JOBS + "/" + id + "/errors.csv"), HttpMethod.GET, new HttpEntity<>(headers(R)), String.class).getBody();
+        assertThat(errors.split(",validation,INVALID,INVALID_ROW,", -1).length - 1).as("six INVALID_ROW lines in errors.csv").isEqualTo(6);
+        assertThat(errors).contains("TZP-a_b").contains("tzp-1").contains("TZP-a b");
+        assertThat(act(id, "apply", W).getStatusCode().value()).as("a REJECTED job cannot be applied").isEqualTo(409);
+        assertThat(db.getCollection("products").countDocuments(new Document("_id", new Document("$regex", "^(?i)tzp-(med-3|a_b|1|a b)")))).isZero();
+
+        String[] fixed = {"TZP-Med-3", "TZP-PG-2", "TZP-PG-3", "TZP-PG-4", "TZP-PG-5", "TZP-PG-6"};
+        for (int i = 0; i < 6; i++) {
+            ResponseEntity<JsonNode> put = rest.exchange(url(JOBS + "/" + id + "/rows/" + i), HttpMethod.PUT,
+                    new HttpEntity<>(grammarRow(fixed[i], i + 1), headers(W)), JsonNode.class);
+            assertThat(put.getStatusCode().value()).as("row " + i + " " + put.getBody()).isEqualTo(200);
+        }
+        act(id, "validate", W);
+        assertThat(worker.tick().endedAs()).isEqualTo(ImportJob.Status.VALIDATED);
+        assertThat(job(id).get("counts").get("valid").asLong()).isEqualTo(8);
+        assertThat(act(id, "apply", W).getStatusCode().value()).isEqualTo(200);
+        assertThat(worker.tick().endedAs()).isEqualTo(ImportJob.Status.COMPLETED);
+        assertThat(job(id).get("counts").get("applied").asLong()).isEqualTo(8);
+        for (String created : new String[]{"TZP-Med-3", "TZP-med-3", "TZP-MED-3"}) {
+            assertThat(db.getCollection("products").find(new Document("_id", created)).first()).as(created).isNotNull();
+        }
+        assertThat(db.getCollection("products").countDocuments(new Document("_id", new Document("$regex", "^TZP-(Med|med|MED)-3$"))))
+                .as("three distinct, case-preserved products").isEqualTo(3);
+    }
+
+    static Map<String, Object> grammarRow(String productId, int n) {
+        Map<String, Object> m = BulkProductImportIT.row(productId, n);
+        m.put("brandCode", "BR-JOB");
+        m.put("internalKey", "grammar|" + n);
+        return m;
+    }
 }

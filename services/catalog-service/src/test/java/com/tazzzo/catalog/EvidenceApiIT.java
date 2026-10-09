@@ -94,7 +94,7 @@ class EvidenceApiIT extends AbstractApiIT {
         Map<String, Object> withBytes = evidenceBody("EV-API-2", "x");
         withBytes.put("payload", "JVBERi0xLjQK...");
         assertErrorCode(post("/api/v1/evidence", withBytes, CMS_TOKEN, JsonNode.class),
-                HttpStatus.UNPROCESSABLE_ENTITY, "PAYLOAD_NOT_ACCEPTED");
+                HttpStatus.UNPROCESSABLE_CONTENT, "PAYLOAD_NOT_ACCEPTED");
         Map<String, Object> badId = evidenceBody("NOT-EV-3", "x");
         assertErrorCode(post("/api/v1/evidence", badId, CMS_TOKEN, JsonNode.class),
                 HttpStatus.BAD_REQUEST, "MALFORMED_REQUEST");
@@ -189,7 +189,7 @@ class EvidenceApiIT extends AbstractApiIT {
         // the gate now refuses a new claim on that evidence
         assertErrorCode(post("/api/v1/products/TZP-EV-1/publish",
                 Map.of("attributeKey", "lab_ok2", "evidenceRefs", List.of("EV-FLOW")),
-                CMS_TOKEN, JsonNode.class), HttpStatus.UNPROCESSABLE_ENTITY, "EVIDENCE_GATE");
+                CMS_TOKEN, JsonNode.class), HttpStatus.UNPROCESSABLE_CONTENT, "EVIDENCE_GATE");
 
         // run the worker -> per-product revalidation obligation exists
         taintService.runTaintWorker(50, -1);
@@ -203,7 +203,7 @@ class EvidenceApiIT extends AbstractApiIT {
         assertThat(post("/api/v1/evidence/EV-FLOW/retract", Map.of("to", "retracted"),
                 CMS_TOKEN, JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
         assertErrorCode(post("/api/v1/evidence/EV-FLOW/retract", Map.of("to", "active"),
-                CMS_TOKEN, JsonNode.class), HttpStatus.UNPROCESSABLE_ENTITY,
+                CMS_TOKEN, JsonNode.class), HttpStatus.UNPROCESSABLE_CONTENT,
                 "INVALID_VALIDITY_TRANSITION");
         assertErrorCode(post("/api/v1/evidence/EV-GHOST/retract", Map.of("to", "retracted"),
                 CMS_TOKEN, JsonNode.class), HttpStatus.NOT_FOUND, "NOT_FOUND");

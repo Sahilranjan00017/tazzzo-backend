@@ -27,8 +27,8 @@ public abstract class AbstractMongoIT {
 
     @DynamicPropertySource
     static void mongoProps(DynamicPropertyRegistry registry) {
-        registry.add("spring.data.mongodb.uri", MONGO::getReplicaSetUrl);
-        registry.add("spring.data.mongodb.database", () -> "tazzzo_it");
+        registry.add("spring.mongodb.uri", MONGO::getReplicaSetUrl);
+        registry.add("spring.mongodb.database", () -> "tazzzo_it");
         registry.add("tazzzo.schema.bootstrap-on-startup", () -> "false");
         // M1: background workers must NOT run inside these suites — MergeCrashIT,
         // TaintCrashIT and RollupStallIT assert crash WINDOWS that a live scheduler closes.

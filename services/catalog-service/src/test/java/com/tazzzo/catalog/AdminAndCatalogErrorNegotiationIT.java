@@ -66,8 +66,8 @@ class AdminAndCatalogErrorNegotiationIT extends AbstractConsumerIT {
 
     @DynamicPropertySource
     static void props(DynamicPropertyRegistry r) {
-        r.add("spring.data.mongodb.uri", MONGO::getReplicaSetUrl);
-        r.add("spring.data.mongodb.database", () -> "tazzzo_error_negotiation_it");
+        r.add("spring.mongodb.uri", MONGO::getReplicaSetUrl);
+        r.add("spring.mongodb.database", () -> "tazzzo_error_negotiation_it");
         r.add("tazzzo.scheduler.enabled", () -> "false");
         r.add("tazzzo.auth.cms-token", () -> CMS);
         r.add("tazzzo.auth.read-token", () -> "read-test-token");

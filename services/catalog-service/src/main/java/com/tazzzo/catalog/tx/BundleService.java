@@ -5,6 +5,7 @@ import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.Updates;
 import com.tazzzo.catalog.domain.BundleComponent;
 import com.tazzzo.catalog.domain.ProductDocuments;
+import com.tazzzo.catalog.domain.ProductIds;
 import com.tazzzo.catalog.domain.ProductDraft;
 import com.tazzzo.catalog.events.EventPayload;
 import com.tazzzo.catalog.repo.WritePath;
@@ -38,6 +39,12 @@ public class BundleService {
         Objects.requireNonNull(actor, "actor");
         if (!"bundle".equals(bundle.productType())) {
             throw new IllegalArgumentException("draft is not a bundle");
+        }
+        ProductIds.require(bundle.id(), "id");
+        if (bundle.bundleContents() != null) {
+            for (BundleComponent comp : bundle.bundleContents()) {
+                ProductIds.require(comp == null ? null : comp.componentProductId(), "componentProductId");
+            }
         }
         tx.run(session -> {
             EventPayload linked = new EventPayload("BUNDLE_LINKED", bundle.id(),

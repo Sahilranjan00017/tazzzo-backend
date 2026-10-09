@@ -1,6 +1,8 @@
 package com.tazzzo.catalog.api;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.tazzzo.catalog.domain.ProductIds;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.util.List;
 import java.util.Map;
@@ -38,11 +40,11 @@ public final class ApiDtos {
     // ---- products
     public record GtinDto(String value, String market) { }
 
-    public record BundleComponentDto(String componentProductId, int qty, String verticalIdSnapshot) { }
+    public record BundleComponentDto(@Schema(pattern = ProductIds.REGEX) String componentProductId, int qty, String verticalIdSnapshot) { }
 
-    public record PackOfDto(String componentProductId, int qty) { }
+    public record PackOfDto(@Schema(pattern = ProductIds.REGEX) String componentProductId, int qty) { }
 
-    public record CreateProductRequest(String id, String productType, String identityType,
+    public record CreateProductRequest(@Schema(pattern = ProductIds.REGEX) String id, String productType, String identityType,
                                        String internalKey, List<GtinDto> gtins, String brandCode,
                                        String title, String verticalId, String releaseId,
                                        String classificationStatus, Map<String, Object> attributes,

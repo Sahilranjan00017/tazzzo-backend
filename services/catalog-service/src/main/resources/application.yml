@@ -1,4 +1,15 @@
 spring:
+  mvc:
+    formcontent:
+      filter:
+        # No endpoint reads form-urlencoded bodies (every body is JSON; query parameters stay with the container).
+        # FormContentFilter would decode a PUT/PATCH/DELETE form body with URLDecoder and throw outside controller
+        # advice on a malformed one (%ZZ), answering Boot's default error JSON. Disabled; FormContentFilterDisabledIT.
+        enabled: false
+  http:
+    converters:
+      # Boot 4 prefers Jackson 3; this step of the Boot 4 migration keeps Jackson 2 (ADR-016).
+      preferred-json-mapper: jackson2
   servlet:
     multipart:
       # No endpoint accepts multipart (media goes straight to object storage, imports are JSON). Without a
@@ -13,10 +24,13 @@ spring:
         size: 4          # M2: four workers, four threads — no head-of-line blocking
   application:
     name: tazzzo-catalog-service
-  data:
-    mongodb:
-      uri: ${MONGODB_URI:mongodb://localhost:27017/tazzzo?replicaSet=rs0}
-      database: ${MONGODB_DATABASE:tazzzo}
+  mongodb:
+    uri: ${MONGODB_URI:mongodb://localhost:27017/tazzzo?replicaSet=rs0}
+    database: ${MONGODB_DATABASE:tazzzo}
+springdoc:
+  api-docs:
+    # springdoc 3 defaults to OpenAPI 3.1; the published contract is 3.0.1 and stays so in this migration step.
+    version: openapi_3_0
 tazzzo:
   # R5 (DB-3): a normally started application NEVER mutates the database schema. Evolution is done by the
   # explicit, locked, recorded migration job (docs/database/DATABASE_MIGRATION_RUNBOOK.md).
@@ -53,6 +67,18 @@ tazzzo:
     rollup-lag-seconds: 120                     # never aggregate events younger than this
     taint-batch-size: 100
     stamp-batch-size: 100
+    # product_card_base freshness loop (needs card-projection-enabled=true as well; off in every test profile).
+    # The reconcile pass is PACED to the catalogue: its per-pass limit is max(card-reconcile-limit,
+    # min(card-reconcile-max-limit, ceil(eligibleProducts * card-reconcile-ms / card-reconcile-full-pass-ms))),
+    # counted once per full pass, so a full drift pass completes within card-reconcile-full-pass-ms at any size
+    # (measured without pacing: 500 per 5 min = 17 h at 100k SKUs, a week at 1M).
+    card-rebuild-ms: ${TAZZZO_SCHEDULER_CARD_REBUILD_MS:15000}
+    card-rebuild-batch-size: ${TAZZZO_SCHEDULER_CARD_REBUILD_BATCH_SIZE:200}
+    # card-reconcile-ms MUST be a plain number of milliseconds (e.g. 300000); ISO-8601 durations (PT5M) are not accepted.
+    card-reconcile-ms: ${TAZZZO_SCHEDULER_CARD_RECONCILE_MS:300000}
+    card-reconcile-limit: ${TAZZZO_SCHEDULER_CARD_RECONCILE_LIMIT:500}            # floor per pass
+    card-reconcile-max-limit: ${TAZZZO_SCHEDULER_CARD_RECONCILE_MAX_LIMIT:20000}  # ceiling per pass
+    card-reconcile-full-pass-ms: ${TAZZZO_SCHEDULER_CARD_RECONCILE_FULL_PASS_MS:14400000}  # 4 h
     # Async import jobs (POST /api/v1/admin/imports/jobs): subordinate switch, same shape as card-projection-enabled.
     import-jobs-enabled: ${TAZZZO_IMPORT_JOBS_ENABLED:true}
     import-jobs-tick-ms: ${TAZZZO_IMPORT_JOBS_TICK_MS:5000}
@@ -226,6 +252,8 @@ server:
   forward-headers-strategy: none
   max-http-request-header-size: 16KB
   tomcat:
+    # Explicit (it is also the default): more query/form parameters than this is refused 400 by MalformedQueryFilter.
+    max-parameter-count: 1000
     # Stop draining a body the application already refused with 413 (see tazzzo.http.max-request-body-bytes).
     max-swallow-size: ${TAZZZO_HTTP_MAX_BODY_BYTES:65536}
   # Stop accepting new requests on SIGTERM and let in-flight ones finish (bounded by

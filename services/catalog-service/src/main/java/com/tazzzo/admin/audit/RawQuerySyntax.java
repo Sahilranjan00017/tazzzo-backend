@@ -5,6 +5,7 @@ import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import java.util.function.Supplier;
 
 /**
  * Syntax-only validation of the RAW query string of an audit-read request, run BEFORE the servlet parameter map is trusted.
@@ -34,6 +35,20 @@ public final class RawQuerySyntax {
     static final String MALFORMED = "query string is malformed";
 
     private RawQuerySyntax() {
+    }
+
+    /**
+     * Binds the container's parameters for the audit read. Tomcat 11 (Spring Boot 4) REFUSES an undecodable parameter by
+     * throwing {@link IllegalStateException} from {@code getParameterMap()} instead of silently dropping it (Tomcat 10 did).
+     * That is the same malformed-query refusal this class exists to produce, so it is mapped to the same 400 and fixed
+     * message rather than surfacing as a generic state conflict.
+     */
+    public static Map<String, String[]> bind(Supplier<Map<String, String[]>> parameterMap) {
+        try {
+            return parameterMap.get();
+        } catch (IllegalStateException e) {
+            throw new AuditQueryRejected(MALFORMED);
+        }
     }
 
     public static void requireWellFormed(String rawQuery, Map<String, String[]> boundParameters) {
