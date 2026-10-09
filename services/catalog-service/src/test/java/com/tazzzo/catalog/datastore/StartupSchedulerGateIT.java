@@ -107,8 +107,8 @@ class StartupSchedulerGateIT {
 
     private static String[] args(String db, String... extra) {
         List<String> a = new java.util.ArrayList<>(List.of(
-                "--spring.data.mongodb.uri=" + MONGO.getReplicaSetUrl(),
-                "--spring.data.mongodb.database=" + db,
+                "--spring.mongodb.uri=" + MONGO.getReplicaSetUrl(),
+                "--spring.mongodb.database=" + db,
                 "--tazzzo.schema.load-taxonomy-seed=false",
                 "--tazzzo.consumer-rate-limit.mode=DISABLED",
                 "--tazzzo.scheduler.enabled=true",

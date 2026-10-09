@@ -37,7 +37,7 @@ public class DatastoreConfiguration {
     public DatastoreStartupVerifier datastoreStartupVerifier(MongoClient client, MongoDatabase db,
                                                              MigrationProperties migration, DatastoreProperties properties,
                                                              DatastoreReadiness readiness,
-                                                             @Value("${spring.data.mongodb.uri:}") String uri) {
+                                                             @Value("${spring.mongodb.uri:}") String uri) {
         return new DatastoreStartupVerifier(client, db.getName(), migration, properties, uri, SchemaBootstrap.COLLECTIONS, readiness);
     }
 }

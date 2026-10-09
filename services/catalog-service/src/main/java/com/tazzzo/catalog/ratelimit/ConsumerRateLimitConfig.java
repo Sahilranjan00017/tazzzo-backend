@@ -90,11 +90,16 @@ public class ConsumerRateLimitConfig {
             }
             RedisStandaloneConfiguration standalone =
                     new RedisStandaloneConfiguration(uri.getHost(), uri.getPort());
-            if (uri.getPassword() != null && uri.getPassword().length > 0) {
-                standalone.setPassword(RedisPassword.of(uri.getPassword()));
+            // Lettuce 7 removed RedisURI#getPassword/#getUsername; credentials are read from the URI's
+            // (static, non-blocking) credentials provider. Behaviour is unchanged: same fields, same checks.
+            io.lettuce.core.RedisCredentialsProvider credentialsProvider = uri.getCredentialsProvider();
+            io.lettuce.core.RedisCredentials credentials = credentialsProvider == null
+                    ? null : credentialsProvider.resolveCredentials().block();
+            if (credentials != null && credentials.hasPassword() && credentials.getPassword().length > 0) {
+                standalone.setPassword(RedisPassword.of(credentials.getPassword()));
             }
-            if (uri.getUsername() != null && !uri.getUsername().isBlank()) {
-                standalone.setUsername(uri.getUsername());
+            if (credentials != null && credentials.hasUsername() && !credentials.getUsername().isBlank()) {
+                standalone.setUsername(credentials.getUsername());
             }
             LettuceClientConfiguration.LettuceClientConfigurationBuilder client =
                     LettuceClientConfiguration.builder();
