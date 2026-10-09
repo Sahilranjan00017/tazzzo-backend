@@ -119,6 +119,11 @@ class CartHttpIT extends AbstractApiIT {
     private String sku(long sellingPaise, int onHand) {
         String id = "TZP-9" + String.format("%05d", ++skuSeq) + (System.nanoTime() % 1000);
         id = id.substring(0, Math.min(id.length(), 12));
+        return sku(id, sellingPaise, onHand);
+    }
+
+    /** The same visible, priced, stocked SKU under a caller-chosen id (the products validator requires only {@code ^TZP-}). */
+    private String sku(String id, long sellingPaise, int onHand) {
         db.getCollection("products").insertOne(new Document("_id", id).append("product_type", "single")
                 .append("identity", new Document("type", "internal").append("internal_key", id))
                 .append("brand_code", "BR").append("title", "T " + id).append("lifecycle", "active")
@@ -322,6 +327,43 @@ class CartHttpIT extends AbstractApiIT {
         assertThat(unknown.getBody().get("code").asText()).isEqualTo(malformed.getBody().get("code").asText());
         assertThat(put(t, a, 20, tag(0)).getStatusCode().value()).isEqualTo(200);
         assertThat(cart(t).getBody().get("version").asLong()).isEqualTo(1);
+    }
+
+    /**
+     * The cart accepts the catalogue's id grammar {@code ^TZP-[A-Za-z0-9-]{1,40}$}, a superset of the earlier
+     * {@code ^TZP-[0-9]{1,18}$}. Every refused {@code TZP-} id below belongs to a VISIBLE, priced, stocked product, so
+     * its 404 can only come from the grammar, never from "unknown".
+     */
+    @Test void the_sku_grammar_accepts_catalogue_ids_and_still_refuses_everything_outside_it() {
+        String t = token();
+        long version = 0;
+        for (String id : List.of("TZP-MED-3", "TZP-med-3x", "TZP-123456789012345678", "TZP-1234567890123456789",
+                "TZP-" + "A".repeat(40), "TZP--")) {
+            sku(id, 1000, 5);
+            ResponseEntity<JsonNode> r = put(t, id, 1, tag(version));
+            assertThat(r.getStatusCode().value()).as(id + " -> " + r.getBody()).isEqualTo(200);
+            assertThat(item(r.getBody(), id).get("quantity").asInt()).isEqualTo(1);
+            version++;
+        }
+        for (String id : List.of("TZP-" + "A".repeat(41), "TZP-", "TZP-..", "TZP-a.b", "TZP-a_b", "TZP-a~b",
+                "tzp-1", "Tzp-1", "XTZP-1")) {
+            if (id.startsWith("TZP-")) {
+                sku(id, 1000, 5);       // the products validator refuses any other prefix, so those cannot exist at all
+            }
+            assertThat(put(t, id, 1, tag(version)).getStatusCode().value()).as(id).isEqualTo(404);
+            assertThat(call(HttpMethod.DELETE, "/v1/customer/cart/items/" + id, t, tag(version), null)
+                    .getStatusCode().value()).as("DELETE " + id).isEqualTo(404);
+        }
+        // a traversal-shaped id never reaches the cart: a second path segment matches no route, an encoded one no surface
+        for (String path : List.of("TZP-../x", "TZP-..%2Fx")) {
+            assertThat(call(HttpMethod.PUT, "/v1/customer/cart/items/" + path, t, tag(version), Map.of("quantity", 1))
+                    .getStatusCode().is2xxSuccessful()).as(path).isFalse();
+        }
+        assertThat(cart(t).getBody().get("version").asLong()).as("no refused id mutated the cart").isEqualTo(version);
+        ResponseEntity<JsonNode> removed = call(HttpMethod.DELETE, "/v1/customer/cart/items/TZP-MED-3", t, tag(version), null);
+        assertThat(removed.getStatusCode().value()).isEqualTo(200);
+        assertThat(removed.getBody().get("items").findValuesAsText("skuId")).doesNotContain("TZP-MED-3")
+                .contains("TZP-med-3x", "TZP-1234567890123456789");
     }
 
     @Test void the_fifty_first_distinct_sku_is_409_but_updating_an_existing_line_still_works() {

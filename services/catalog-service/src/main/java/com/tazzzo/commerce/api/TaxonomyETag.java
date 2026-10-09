@@ -14,8 +14,8 @@ import java.util.HexFormat;
 import java.util.List;
 
 /**
- * PR-10C — deterministic {@code ETag} for {@code /v1/categories} and
- * {@code /v1/categories/{id}/children} ONLY. A content-hash ETag, not a separately-tracked
+ * PR-10C — deterministic {@code ETag} for {@code /v1/categories},
+ * {@code /v1/categories/{id}/children} and {@code /v1/categories/{id}} ONLY. A content-hash ETag, not a separately-tracked
  * version: it is computed from the ACTUAL response representation (route, node id, resolved
  * release, and the exact visible item set) rather than from {@code resolvedReleaseId} alone.
  *

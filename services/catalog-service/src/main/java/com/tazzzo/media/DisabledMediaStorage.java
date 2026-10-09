@@ -11,7 +11,7 @@ public final class DisabledMediaStorage implements MediaStorage {
     }
 
     @Override
-    public UploadTarget createUpload(String assetKey, String contentType, long maxBytes) {
+    public UploadTarget createUpload(String assetKey, String contentType, long sizeBytes) {
         throw new IllegalStateException("no media storage configured");
     }
 
