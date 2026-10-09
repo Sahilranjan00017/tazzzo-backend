@@ -77,8 +77,8 @@ class MalformedRequestErrorMappingIT extends AbstractConsumerIT {
 
     @DynamicPropertySource
     static void props(DynamicPropertyRegistry r) {
-        r.add("spring.data.mongodb.uri", MONGO::getReplicaSetUrl);
-        r.add("spring.data.mongodb.database", () -> "tazzzo_error_mapping_it");
+        r.add("spring.mongodb.uri", MONGO::getReplicaSetUrl);
+        r.add("spring.mongodb.database", () -> "tazzzo_error_mapping_it");
         r.add("tazzzo.scheduler.enabled", () -> "false");
         r.add("tazzzo.auth.cms-token", () -> "cms-test-token");
         r.add("tazzzo.auth.read-token", () -> "read-test-token");

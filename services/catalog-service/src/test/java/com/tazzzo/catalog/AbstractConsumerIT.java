@@ -8,9 +8,10 @@ import com.tazzzo.catalog.tx.TaxonomyChangeService;
 import com.mongodb.client.MongoDatabase;
 import org.bson.Document;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.autoconfigure.mongo.MongoClientSettingsBuilderCustomizer;
+import org.springframework.boot.mongodb.autoconfigure.MongoClientSettingsBuilderCustomizer;
 import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Bean;
 import org.springframework.http.HttpEntity;
@@ -32,6 +33,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * rather than an intention: a rejected request must produce EXACTLY ZERO product finds, and an
  * admitted one exactly one per candidate.
  */
+@AutoConfigureTestRestTemplate
 public abstract class AbstractConsumerIT {
 
     static final MongoDBContainer MONGO = new MongoDBContainer("mongo:7");

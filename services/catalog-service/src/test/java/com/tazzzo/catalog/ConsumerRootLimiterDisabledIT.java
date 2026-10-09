@@ -24,8 +24,8 @@ class ConsumerRootLimiterDisabledIT extends AbstractConsumerIT {
 
     @DynamicPropertySource
     static void props(DynamicPropertyRegistry r) {
-        r.add("spring.data.mongodb.uri", MONGO::getReplicaSetUrl);
-        r.add("spring.data.mongodb.database", () -> "tazzzo_root_disabled_it");
+        r.add("spring.mongodb.uri", MONGO::getReplicaSetUrl);
+        r.add("spring.mongodb.database", () -> "tazzzo_root_disabled_it");
         r.add("tazzzo.schema.bootstrap-on-startup", () -> "false");
         r.add("tazzzo.scheduler.enabled", () -> "false");
         r.add("tazzzo.consumer-rate-limit.mode", () -> "DISABLED");
