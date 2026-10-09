@@ -1,5 +1,6 @@
 package com.tazzzo.pricing.admin;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import com.tazzzo.catalog.api.AdminActors;
 import com.tazzzo.catalog.tx.ProductQueryService;
 import com.tazzzo.common.money.Currency;
@@ -45,7 +46,7 @@ public class PriceAdminController {
     }
 
     @GetMapping
-    public PriceResponse get(@PathVariable("skuId") String skuId) {
+    public PriceResponse get(@PathVariable("skuId") @Schema(pattern = com.tazzzo.catalog.domain.ProductIds.REGEX) String skuId) {
         products.requireProduct(skuId);
         PriceLookup lookup = pricing.findCurrentPrice(skuId);
         Price p = lookup.price();
@@ -57,7 +58,7 @@ public class PriceAdminController {
     }
 
     @PutMapping
-    public ResponseEntity<PriceResponse> put(@PathVariable("skuId") String skuId, @RequestBody PriceRequest body,
+    public ResponseEntity<PriceResponse> put(@PathVariable("skuId") @Schema(pattern = com.tazzzo.catalog.domain.ProductIds.REGEX) String skuId, @RequestBody PriceRequest body,
                                              HttpServletRequest request) {
         if (body == null || body.sellingPricePaise() == null || body.mrpPaise() == null) {
             throw new InvalidPriceException("sellingPricePaise and mrpPaise are required");

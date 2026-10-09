@@ -149,9 +149,9 @@ public record ContentBlock(String blockId, Placement placement, Type type, Strin
     public static final int MAX_ANSWER = 2000;
     public static final int MAX_SUBTITLE = 120;
     public static final int MAX_ALT = 300;
-    static final Pattern PRODUCT_ID = Pattern.compile("TZP-[A-Za-z0-9-]{1,40}");
+    static final Pattern PRODUCT_ID = com.tazzzo.catalog.domain.ProductIds.PATTERN;
     static final Pattern NODE_ID = Pattern.compile("TZ[SCGV]-[0-9]{6}");
-    static final Pattern LINK = Pattern.compile("(product:TZP-[A-Za-z0-9-]{1,40})|(category:TZ[SCGV]-[0-9]{6})|(search:[\\p{L}\\p{M}\\p{N} ]{2,64})");
+    static final Pattern LINK = Pattern.compile("(product:" + com.tazzzo.catalog.domain.ProductIds.BODY + ")|(category:TZ[SCGV]-[0-9]{6})|(search:[\\p{L}\\p{M}\\p{N} ]{2,64})");
 
     /** @throws IllegalArgumentException the first violated rule */
     public static void validate(Type type, String title, int sort, Instant startsAt, Instant endsAt, Payload p) {

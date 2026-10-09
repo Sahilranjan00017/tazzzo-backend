@@ -1296,6 +1296,16 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
 
 ## In review (NOT merged)
 
+- **Product id grammar on the write path** (branch `fix/product-id-grammar-write-path`, from `main` `0d61e41`): **IN REVIEW**. One canonical grammar
+  `^TZP-[A-Za-z0-9-]{1,40}$` (full match, no case normalisation: `TZP-Med-3` is valid and preserved) lives in `catalog/domain/ProductIds`. Cart and content
+  blocks (rail ids and `product:` links) now reuse it; create (`ProductController.toDraft`, 400 `MALFORMED_REQUEST`), `MintService`, `BundleService` and
+  `VariantPackService` (id and component ids) and the normal bulk import (`ProductImportValidator.shape()`, explicit `INVALID_ROW`) enforce it, so ids such as
+  `TZP-`, `TZP-a_b`, `TZP-x y` or 100-char ids can no longer be created yet un-cartable. The Mongo `$jsonSchema` (`^TZP-`) is unchanged and stays a backstop.
+  Generated `docs/openapi.json` gains the pattern (additive, 20 lines) on the create body id, bundle/pack component ids and the admin product/price/inventory
+  id path params; `ApiContractParityIT` asserts the YAML and generated patterns equal the Java constant. Not included: `bulkimport/jobs` (PR #100; follow-up),
+  Mongo validator/migration tightening (separate later PR). Evidence: `ProductIdGrammarTest`, `ProductImportIdShapeTest`, `ProductIdGrammarIT`,
+  `ProductIdLifecycleIT`, `CartHttpIT`, `ApiContractParityIT`.
+
 - **Catalogue capacity harness** (branch `feature/catalogue-capacity-harness`, from `main` `7d491dd`): **IN REVIEW**. `CatalogCapacityIT`, enabled only by
   `TAZZZO_CAPACITY_SKUS=<N>`, seeds N TEST DATA products through the real write shapes (validator-conformant documents, `PricingService`,
   `InventoryService`, `ProductCardProjectionService.rebuildOne`) and measures list, product detail, search, admin list, import throughput, rebuild cost,
