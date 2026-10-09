@@ -45,4 +45,10 @@ class ProjectionReconcilePacingTest {
         assertThatThrownBy(() -> ProjectionReconciler.pacedLimit(10, FIVE_MIN, FOUR_H, 0, 10)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> ProjectionReconciler.pacedLimit(10, FIVE_MIN, FOUR_H, 10, 5)).isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    void count_times_interval_overflow_saturates_at_the_ceiling_instead_of_wrapping() {
+        assertThat(ProjectionReconciler.pacedLimit(Long.MAX_VALUE, FIVE_MIN, FOUR_H, 500, 20_000)).isEqualTo(20_000);
+        assertThat(ProjectionReconciler.pacedLimit(Long.MAX_VALUE / 2, Long.MAX_VALUE / 2, 1, 500, 20_000)).isEqualTo(20_000);
+    }
 }

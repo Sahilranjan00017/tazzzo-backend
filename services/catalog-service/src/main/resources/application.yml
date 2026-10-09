@@ -60,6 +60,7 @@ tazzzo:
     # (measured without pacing: 500 per 5 min = 17 h at 100k SKUs, a week at 1M).
     card-rebuild-ms: ${TAZZZO_SCHEDULER_CARD_REBUILD_MS:15000}
     card-rebuild-batch-size: ${TAZZZO_SCHEDULER_CARD_REBUILD_BATCH_SIZE:200}
+    # card-reconcile-ms MUST be a plain number of milliseconds (e.g. 300000); ISO-8601 durations (PT5M) are not accepted.
     card-reconcile-ms: ${TAZZZO_SCHEDULER_CARD_RECONCILE_MS:300000}
     card-reconcile-limit: ${TAZZZO_SCHEDULER_CARD_RECONCILE_LIMIT:500}            # floor per pass
     card-reconcile-max-limit: ${TAZZZO_SCHEDULER_CARD_RECONCILE_MAX_LIMIT:20000}  # ceiling per pass

@@ -126,7 +126,16 @@ public class ProjectionReconciler {
     public static int pacedLimit(long count, long intervalMs, long fullPassMs, int minLimit, int maxLimit) {
         if (intervalMs < 1 || fullPassMs < 1) throw new IllegalArgumentException("intervalMs and fullPassMs must be positive");
         if (minLimit < 1 || maxLimit < minLimit) throw new IllegalArgumentException("limits must satisfy 1 <= min <= max");
-        long needed = count <= 0 ? 0 : (count * intervalMs + fullPassMs - 1) / fullPassMs;   // ceil without floating point
+        long needed;
+        if (count <= 0) {
+            needed = 0;
+        } else {
+            try {
+                needed = Math.addExact(Math.multiplyExact(count, intervalMs), fullPassMs - 1) / fullPassMs;   // ceil without floating point
+            } catch (ArithmeticException overflow) {
+                needed = Long.MAX_VALUE;   // saturate: the product exceeds a long, so the ceiling applies
+            }
+        }
         return (int) Math.min(maxLimit, Math.max(minLimit, needed));
     }
 

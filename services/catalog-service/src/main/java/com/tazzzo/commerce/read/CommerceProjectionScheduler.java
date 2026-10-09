@@ -67,7 +67,8 @@ public class CommerceProjectionScheduler {
             @Value("${tazzzo.scheduler.card-reconcile-max-limit:20000}") int reconcileMaxLimit,
             @Value("${tazzzo.scheduler.card-reconcile-ms:300000}") long reconcileMs,
             @Value("${tazzzo.scheduler.card-reconcile-full-pass-ms:14400000}") long reconcileFullPassMs) {
-        // validated once at startup: a misconfiguration refuses to start rather than pacing wrongly for months
+        // validated once at startup: a misconfiguration refuses to start (never silently clamped) and names the property
+        validatePacing(reconcileLimit, reconcileMaxLimit, reconcileMs, reconcileFullPassMs);
         ProjectionReconciler.pacedLimit(0, reconcileMs, reconcileFullPassMs, reconcileLimit, reconcileMaxLimit);
         Clock clock = Clock.systemUTC();
         Tx tx = new Tx(client);
@@ -87,6 +88,22 @@ public class CommerceProjectionScheduler {
         this.reconcileMaxLimit = reconcileMaxLimit;
         this.reconcileMs = reconcileMs;
         this.reconcileFullPassMs = reconcileFullPassMs;
+    }
+
+    static void validatePacing(int limit, int maxLimit, long ms, long fullPassMs) {
+        if (ms < 1) {
+            throw new IllegalStateException("tazzzo.scheduler.card-reconcile-ms (TAZZZO_SCHEDULER_CARD_RECONCILE_MS) must be a "
+                    + "positive number of milliseconds, was " + ms);
+        }
+        if (fullPassMs < 1) {
+            throw new IllegalStateException("tazzzo.scheduler.card-reconcile-full-pass-ms (TAZZZO_SCHEDULER_CARD_RECONCILE_FULL_PASS_MS) "
+                    + "must be a positive number of milliseconds, was " + fullPassMs);
+        }
+        if (limit < 1 || maxLimit < limit) {
+            throw new IllegalStateException("tazzzo.scheduler.card-reconcile-limit (TAZZZO_SCHEDULER_CARD_RECONCILE_LIMIT)="
+                    + limit + " and tazzzo.scheduler.card-reconcile-max-limit (TAZZZO_SCHEDULER_CARD_RECONCILE_MAX_LIMIT)="
+                    + maxLimit + " must satisfy 1 <= card-reconcile-limit <= card-reconcile-max-limit; raise the max or lower the limit");
+        }
     }
 
     @Scheduled(fixedDelayString = "${tazzzo.scheduler.card-rebuild-ms:15000}")
