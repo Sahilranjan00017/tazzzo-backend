@@ -16,7 +16,9 @@ public enum BucketDimension {
     /** Per-customer READS on the customer-authenticated surface; keyed by the opaque customer id (no PII). */
     CUSTOMER_READ("customer_read"),
     /** Per-customer WRITES on the customer-authenticated surface; keyed by the opaque customer id (no PII). */
-    CUSTOMER_WRITE("customer_write");
+    CUSTOMER_WRITE("customer_write"),
+    /** A trusted server-side caller's own public-read bucket; keyed by its configured name (no PII, no secret). */
+    CALLER("caller");
 
     private final String tag;
 

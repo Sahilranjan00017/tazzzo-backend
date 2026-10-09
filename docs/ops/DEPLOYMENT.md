@@ -36,6 +36,7 @@ Inject these from the platform secret store. Never put them in an image, a file 
 - `TAZZZO_CUSTOMER_SESSION_REFRESH_HMAC_KEY_B64`.
 - `TAZZZO_CUSTOMER_AUTH_OTP_HMAC_KEY_B64`.
 - `TAZZZO_RATE_LIMIT_REDIS_URL`: TLS (`rediss://`) to the managed Valkey/Redis.
+- **Trusted storefront caller (optional):** `TAZZZO_CONSUMER_TRUSTEDCALLERS_0_NAME` (e.g. `storefront`) and `TAZZZO_CONSUMER_TRUSTEDCALLERS_0_SECRET` (32..256 printable ASCII, e.g. `openssl rand -base64 48`). The storefront's server sends the same pair as `X-Tazzzo-Caller` / `X-Tazzzo-Caller-Secret` and is then admitted on its own bucket (`TAZZZO_RATE_LIMIT_CALLER_CAPACITY` / `…_REFILL`, defaults 20000 / 2000 per second, not load-tested). Rotation is zero-downtime (below). A mismatch is never refused; it only falls back to the shared IP bucket, with one WARN a minute.
 - **OTP SMS gateway credentials:** `docs/ops/OTP_GATEWAY.md` (#65).
 
 ### Configuration
@@ -45,6 +46,16 @@ Inject these from the platform secret store. Never put them in an image, a file 
 - **OTP:** `TAZZZO_OTP_PROVIDER_MODE` and its per-IP/phone/challenge budgets.
 - **Shutdown:** `TAZZZO_SHUTDOWN_GRACE` (default `25s`). Keep it below the orchestrator's kill timeout (commonly 30 s).
 - **Unmerged PRs** add their own keys: customer rate limits (#69), notifications (N2), geo/media providers (#57, #62) and the HTTP platform limits (#55). Their docs list them.
+
+### Trusted storefront caller
+- **Rotation (zero downtime).** Each caller accepts up to two secrets: `…_SECRET` and an optional `TAZZZO_CONSUMER_TRUSTEDCALLERS_0_PREVIOUSSECRET`. Both are validated the same way and must differ, and neither is ever logged.
+  1. **Add new as previous.** Set the new secret as `…_PREVIOUSSECRET` on the backend; `…_SECRET` stays the old one. Roll the backend. Both secrets are now accepted.
+  2. **Roll the storefront** to send the new secret. Wait until no instance still sends the old one: the `trusted_caller_rejected caller=storefront` WARN stays silent and `admissions{decision="allowed"}` keeps flowing.
+  3. **Promote.** On the backend, set `…_SECRET` to the new secret and `…_PREVIOUSSECRET` to the old one. Roll the backend.
+  4. **Remove old.** Unset `…_PREVIOUSSECRET`. Roll the backend. Only the new secret is accepted.
+- **Budget.** The caller-bucket defaults (`TAZZZO_RATE_LIMIT_CALLER_CAPACITY=20000`, `…_REFILL=2000`) are not load-tested. Size them in staging against real storefront traffic, together with the IP budgets. Capacity must stay at or above the costliest single request (a root listing), or that request answers 503.
+- **Alert.** Alert on `tazzzo.catalog.consumer.trusted_caller.admissions{decision="rate_limited"}`: a sustained non-zero rate means the whole storefront is being throttled. Also watch `decision="unavailable"` (limiter store down, or a request costing more than capacity) and the `trusted_caller_rejected` WARN (a misconfigured secret, or a mid-rotation storefront).
+- **Network.** Make the backend reachable only from private networks: a security group or source-CIDR allow-list admitting the load balancer and the storefront's egress, never the public internet directly. A leaked caller secret lets its holder bypass the per-IP limits up to the whole caller budget, so restricting who can reach the backend at all is the backstop. Rotate immediately on suspected leakage.
 
 ## Container contract
 - **Port:** 8080 (HTTP). TLS terminates at the load balancer.

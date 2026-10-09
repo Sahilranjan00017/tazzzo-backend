@@ -10,8 +10,13 @@ import com.tazzzo.catalog.tx.Tx;
 import com.tazzzo.common.audit.Actor;
 import com.tazzzo.common.audit.DomainAudit;
 import com.tazzzo.common.audit.DomainEvent;
+import com.tazzzo.media.InvalidMediaException;
+import com.tazzzo.media.MediaIngestVerifier;
+import com.tazzzo.media.MediaStorageFailure;
 import org.bson.Document;
 import org.bson.conversions.Bson;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.security.SecureRandom;
@@ -40,17 +45,23 @@ public class ContentService {
     static final String CONFIG_ID = "app_config";
     static final int MAX_BLOCKS_PER_PLACEMENT = 200;
     private static final SecureRandom RANDOM = new SecureRandom();
+    private static final Logger log = LoggerFactory.getLogger(ContentService.class);
 
     private final MongoDatabase db;
     private final Tx tx;
     private final Clock clock;
     private final DomainAudit audit;
+    private final MediaIngestVerifier media;
 
-    public ContentService(MongoDatabase db, Tx tx, Clock clock) {
+    /** Content image keys are issued under this prefix ({@code POST /api/v1/admin/content/uploads}). */
+    public static final String CONTENT_KEY_PREFIX = "c/home/";
+
+    public ContentService(MongoDatabase db, Tx tx, Clock clock, MediaIngestVerifier media) {
         this.db = db;
         this.tx = tx;
         this.clock = clock;
         this.audit = new DomainAudit(db, clock);
+        this.media = media;
     }
 
     private MongoCollection<Document> blocks() {
@@ -59,17 +70,22 @@ public class ContentService {
 
     // ---------------------------------------------------------------- blocks
 
+    /** {@code audience} null = BOTH (an older client); targeting is HOME-only (D3). */
     public ContentBlock create(Actor actor, String placement, String type, String title, int sort, Instant startsAt, Instant endsAt,
-                              ContentBlock.Payload payload) {
+                              ContentBlock.Payload payload, String audience) {
         Objects.requireNonNull(actor, "actor");
         ContentBlock.Placement pl = parse(ContentBlock.Placement.class, placement);
         ContentBlock.Type ty = parse(ContentBlock.Type.class, type);
+        ContentBlock.Audience au;
         try {
             ContentBlock.requirePlacement(pl, ty);
+            au = ContentBlock.audience(audience);
+            ContentBlock.requireAudience(pl, au);
         } catch (IllegalArgumentException e) {
             throw new ContentFailure(ContentFailure.Reason.INVALID, e.getMessage());
         }
         validate(ty, title, sort, startsAt, endsAt, payload);
+        verifyNewImages(payload, null);
         if (blocks().countDocuments(Filters.and(Filters.eq("placement", pl.name()), Filters.ne("status", "ARCHIVED"))) >= MAX_BLOCKS_PER_PLACEMENT) {
             throw new ContentFailure(ContentFailure.Reason.STATE_CONFLICT, "too many blocks in this placement; archive some");
         }
@@ -77,28 +93,44 @@ public class ContentService {
         String id = newId();
         Document d = new Document("_id", id).append("placement", pl.name()).append("type", ty.name()).append("title", title)
                 .append("sort", sort).append("status", ContentBlock.Status.DRAFT.name()).append("payload", payloadDoc(payload))
-                .append("version", 1L).append("createdAt", Date.from(now)).append("updatedAt", Date.from(now));
+                .append("audience", au.name())
+                .append("version", 1L).append("createdAt", Date.from(now)).append("updatedAt", Date.from(now))
+                .append("createdBy", actor.id()).append("updatedBy", actor.id());
         if (startsAt != null) d.append("startsAt", Date.from(startsAt));
         if (endsAt != null) d.append("endsAt", Date.from(endsAt));
         tx.run(session -> {
-            audit.append(session, new DomainEvent("content_block", id, "CONTENT_BLOCK_CREATED", Map.of("type", ty.name(), "placement", pl.name()), actor));
+            audit.append(session, new DomainEvent("content_block", id, "CONTENT_BLOCK_CREATED",
+                    Map.of("type", ty.name(), "placement", pl.name(), "audience", au.name()), actor));
             blocks().insertOne(session, d);
         });
         return get(id);
     }
 
+    /** {@code audience} null = keep the current one (an older client's PUT never erases targeting, multichannel §5.2). */
     public ContentBlock update(Actor actor, String id, long expectedVersion, String title, int sort, Instant startsAt, Instant endsAt,
-                               ContentBlock.Payload payload) {
+                               ContentBlock.Payload payload, String audience) {
         Objects.requireNonNull(actor, "actor");
         ContentBlock current = get(id);
         if (current.status() == ContentBlock.Status.ARCHIVED) throw new ContentFailure(ContentFailure.Reason.STATE_CONFLICT, "an archived block is final");
         validate(current.type(), title, sort, startsAt, endsAt, payload);
+        verifyNewImages(payload, current.payload());
+        ContentBlock.Audience au;
+        try {
+            au = audience == null ? current.audience() : ContentBlock.audience(audience);
+            ContentBlock.requireAudience(current.placement(), au);
+        } catch (IllegalArgumentException e) {
+            throw new ContentFailure(ContentFailure.Reason.INVALID, e.getMessage());
+        }
         Instant now = clock.instant().truncatedTo(ChronoUnit.MILLIS);
-        cas(actor, id, expectedVersion, List.of("DRAFT", "PUBLISHED"), "CONTENT_BLOCK_UPDATED", Map.of(), Updates.combine(
+        Map<String, Object> detail = au == current.audience() ? Map.of() : Map.of("audience", au.name(), "from", current.audience().name());
+        List<Bson> changes = new ArrayList<>(List.of(
                 Updates.set("title", title), Updates.set("sort", sort), Updates.set("payload", payloadDoc(payload)),
                 startsAt == null ? Updates.unset("startsAt") : Updates.set("startsAt", Date.from(startsAt)),
                 endsAt == null ? Updates.unset("endsAt") : Updates.set("endsAt", Date.from(endsAt)),
                 Updates.set("updatedAt", Date.from(now))));
+        // an older client's PUT (no audience) leaves the stored field as it is: a legacy document is not rewritten
+        if (audience != null) changes.add(Updates.set("audience", au.name()));
+        cas(actor, id, expectedVersion, List.of("DRAFT", "PUBLISHED"), "CONTENT_BLOCK_UPDATED", detail, Updates.combine(changes));
         return get(id);
     }
 
@@ -121,11 +153,12 @@ public class ContentService {
         return toBlock(d);
     }
 
-    /** Admin list of one placement (bounded), optional status, in display order. */
-    public List<ContentBlock> list(String placement, String status) {
+    /** Admin list of one placement (bounded), optional status and audience, in display order. */
+    public List<ContentBlock> list(String placement, String status, String audience) {
         ContentBlock.Placement pl = parse(ContentBlock.Placement.class, placement);
         List<Bson> f = new ArrayList<>(List.of(Filters.eq("placement", pl.name())));
         if (status != null) f.add(Filters.eq("status", parse(ContentBlock.Status.class, status).name()));
+        if (audience != null) f.add(audienceFilter(parse(ContentBlock.Audience.class, audience)));
         List<ContentBlock> out = new ArrayList<>();
         for (Document d : blocks().find(Filters.and(f)).sort(Sorts.ascending("sort", "_id")).limit(MAX_BLOCKS_PER_PLACEMENT)) {
             out.add(toBlock(d));
@@ -133,19 +166,56 @@ public class ContentService {
         return out;
     }
 
-    /** The public view: PUBLISHED blocks of the placement whose window contains "now", in display order. */
-    public List<ContentBlock> live(ContentBlock.Placement placement) {
+    /**
+     * The public view: PUBLISHED blocks of the placement whose window contains "now" and whose audience admits
+     * {@code channel}, in display order. {@code channel} null (a request without the parameter, as every client before
+     * multichannel sent) sees BOTH only, so nothing targeted ever leaks to an unidentified platform; the filter is
+     * authoritative here on the backend (D2), never on a client.
+     */
+    public List<ContentBlock> live(ContentBlock.Placement placement, ContentBlock.Channel channel) {
         Instant now = clock.instant();
         Date n = Date.from(now);
         List<ContentBlock> out = new ArrayList<>();
         for (Document d : blocks().find(Filters.and(Filters.eq("placement", placement.name()), Filters.eq("status", "PUBLISHED"),
                         Filters.or(Filters.exists("startsAt", false), Filters.lte("startsAt", n)),
-                        Filters.or(Filters.exists("endsAt", false), Filters.gt("endsAt", n))))
+                        Filters.or(Filters.exists("endsAt", false), Filters.gt("endsAt", n)),
+                        channelFilter(channel)))
                 .sort(Sorts.ascending("sort", "_id")).limit(MAX_BLOCKS_PER_PLACEMENT)) {
-            ContentBlock b = toBlock(d);
-            if (b.isLiveAt(now)) out.add(b);   // the same rule, applied twice: query and domain can never disagree
+            ContentBlock b;
+            try {
+                b = toBlock(d);
+            } catch (IllegalArgumentException | ClassCastException | NullPointerException e) {
+                // one unreadable stored document (an audience outside the enum, a mistyped or missing field) hides that block,
+                // never the whole page
+                log.warn("content_block_unreadable id={} reason={}", d.get("_id"), e.getMessage());
+                continue;
+            }
+            // the same rules, applied twice: query and domain can never disagree
+            if (b.isLiveAt(now) && b.audience().visibleTo(channel)) out.add(b);
         }
         return out;
+    }
+
+    /** Global content (HELP) as every client sees it. */
+    public List<ContentBlock> live(ContentBlock.Placement placement) {
+        return live(placement, null);
+    }
+
+    /**
+     * A legacy document has no {@code audience} (or an explicit null) and means BOTH; {@code eq(field, null)} matches
+     * both forms, exactly as {@link ContentBlock#audience(String)} reads them.
+     */
+    private static Bson audienceFilter(ContentBlock.Audience audience) {
+        return audience == ContentBlock.Audience.BOTH
+                ? Filters.or(Filters.eq("audience", null), Filters.eq("audience", audience.name()))
+                : Filters.eq("audience", audience.name());
+    }
+
+    private static Bson channelFilter(ContentBlock.Channel channel) {
+        List<String> admitted = new ArrayList<>(List.of(ContentBlock.Audience.BOTH.name()));
+        if (channel == ContentBlock.Channel.APP) admitted.add(ContentBlock.Audience.APP_ONLY.name());
+        if (channel == ContentBlock.Channel.WEB) admitted.add(ContentBlock.Audience.WEB_ONLY.name());
+        return Filters.or(Filters.eq("audience", null), Filters.in("audience", admitted));
     }
 
     /**
@@ -162,6 +232,101 @@ public class ContentService {
         out.sort(java.util.Comparator.comparing((ContentBlock b) -> ContentBlock.FaqCategory.valueOf(b.payload().faqCategory()))
                 .thenComparingInt(ContentBlock::sort).thenComparing(ContentBlock::blockId));
         return out;
+    }
+
+    /** One entry of a reorder: the block and the version the editor saw. */
+    public record OrderEntry(String blockId, long expectedVersion) { }
+
+    /**
+     * Re-sequences a placement in one transaction: {@code order} must name every non-archived block of the placement exactly
+     * once (a list that no longer matches, because another editor created or archived a block meanwhile, is a conflict),
+     * each at the version the editor saw; block {@code i} gets {@code sort = (i + 1) * 10}. All or nothing: one stale
+     * version refuses the whole reorder. Every moved block is audited.
+     */
+    public List<ContentBlock> reorder(Actor actor, String placement, List<OrderEntry> order) {
+        Objects.requireNonNull(actor, "actor");
+        ContentBlock.Placement pl = parse(ContentBlock.Placement.class, placement);
+        if (order == null || order.isEmpty() || order.size() > MAX_BLOCKS_PER_PLACEMENT) {
+            throw new ContentFailure(ContentFailure.Reason.INVALID, "order must list 1.." + MAX_BLOCKS_PER_PLACEMENT + " blocks");
+        }
+        java.util.Set<String> requested = new java.util.HashSet<>();
+        for (OrderEntry e : order) {
+            if (e == null || e.blockId() == null || !requested.add(e.blockId())) {
+                throw new ContentFailure(ContentFailure.Reason.INVALID, "order must name each block once");
+            }
+        }
+        java.util.Set<String> current = new java.util.HashSet<>();
+        for (Document d : blocks().find(Filters.and(Filters.eq("placement", pl.name()), Filters.ne("status", "ARCHIVED")))
+                .projection(new Document("_id", 1))) {
+            current.add(d.getString("_id"));
+        }
+        if (!current.equals(requested)) {
+            throw new ContentFailure(ContentFailure.Reason.STALE_VERSION, "the placement's blocks changed; reload them");
+        }
+        Date now = Date.from(clock.instant().truncatedTo(ChronoUnit.MILLIS));
+        tx.run(session -> {
+            for (int i = 0; i < order.size(); i++) {
+                OrderEntry e = order.get(i);
+                int sort = (i + 1) * 10;
+                audit.append(session, new DomainEvent("content_block", e.blockId(), "CONTENT_BLOCK_REORDERED",
+                        new LinkedHashMap<>(Map.of("sort", sort)), actor));
+                if (blocks().updateOne(session, Filters.and(Filters.eq("_id", e.blockId()), Filters.eq("placement", pl.name()),
+                                Filters.eq("version", e.expectedVersion()), Filters.in("status", List.of("DRAFT", "PUBLISHED"))),
+                        Updates.combine(Updates.set("sort", sort), Updates.set("updatedAt", now), Updates.set("updatedBy", actor.id()),
+                                Updates.inc("version", 1L))).getModifiedCount() != 1) {
+                    throw new ContentFailure(ContentFailure.Reason.STALE_VERSION, "a block changed; reload them");
+                }
+            }
+        });
+        return list(pl.name(), null, null).stream().filter(b -> b.status() != ContentBlock.Status.ARCHIVED).toList();
+    }
+
+    /**
+     * What {@code channel} would see on {@code placement} at {@code at} (default now): the public selection rules, applied to
+     * PUBLISHED blocks and, when {@code includeDrafts}, to DRAFT blocks as if they were published. Admin-only: drafts are
+     * never reachable through the public API.
+     */
+    public List<ContentBlock> preview(ContentBlock.Placement placement, ContentBlock.Channel channel, Instant at, boolean includeDrafts) {
+        Instant when = at == null ? clock.instant() : at;
+        List<String> statuses = includeDrafts ? List.of("PUBLISHED", "DRAFT") : List.of("PUBLISHED");
+        List<ContentBlock> out = new ArrayList<>();
+        for (Document d : blocks().find(Filters.and(Filters.eq("placement", placement.name()), Filters.in("status", statuses),
+                        channelFilter(channel)))
+                .sort(Sorts.ascending("sort", "_id")).limit(MAX_BLOCKS_PER_PLACEMENT)) {
+            ContentBlock b;
+            try {
+                b = toBlock(d);
+            } catch (IllegalArgumentException e) {
+                continue;
+            }
+            boolean inWindow = (b.startsAt() == null || !when.isBefore(b.startsAt())) && (b.endsAt() == null || when.isBefore(b.endsAt()));
+            if (inWindow && b.audience().visibleTo(channel)) out.add(b);
+        }
+        return out;
+    }
+
+    /**
+     * When storage is configured, an image key a banner newly references (not already on {@code before}) must have been
+     * issued for content and must hold an allowed image in storage. Keys a block already carries are not re-checked.
+     */
+    private void verifyNewImages(ContentBlock.Payload payload, ContentBlock.Payload before) {
+        if (media == null || !media.verifying()) return;
+        for (String key : java.util.Arrays.asList(payload.imageAssetKey(), payload.desktopImageAssetKey())) {
+            if (key == null) continue;
+            if (before != null && (key.equals(before.imageAssetKey()) || key.equals(before.desktopImageAssetKey()))) continue;
+            if (!key.startsWith(CONTENT_KEY_PREFIX)) {
+                throw new ContentFailure(ContentFailure.Reason.INVALID, "image key was not uploaded for content");
+            }
+            try {
+                media.verify(key, null);
+            } catch (InvalidMediaException e) {
+                throw new ContentFailure(ContentFailure.Reason.INVALID, e.getMessage());
+            } catch (MediaStorageFailure e) {
+                // storage unreachable or refusing: an outage (retry later), never "invalid" and never a 500
+                log.warn("content_image_verify_storage_failure reason={}", e.getMessage());
+                throw new ContentFailure(ContentFailure.Reason.STORAGE_OUTAGE, "media storage is unavailable; try again");
+            }
+        }
     }
 
     // -------------------------------------------------------------- app config
@@ -216,7 +381,7 @@ public class ContentService {
         tx.run(session -> {
             audit.append(session, new DomainEvent("content_block", id, eventType, new LinkedHashMap<>(detail), actor));
             if (blocks().updateOne(session, Filters.and(Filters.eq("_id", id), Filters.eq("version", expectedVersion), Filters.in("status", from)),
-                    Updates.combine(update, Updates.inc("version", 1L))).getModifiedCount() != 1) {
+                    Updates.combine(update, Updates.set("updatedBy", actor.id()), Updates.inc("version", 1L))).getModifiedCount() != 1) {
                 throw new ContentFailure(ContentFailure.Reason.STALE_VERSION, "the block changed; reload it");
             }
         });
@@ -246,6 +411,9 @@ public class ContentService {
         if (p.faqCategory() != null) d.append("faqCategory", p.faqCategory());
         if (p.question() != null) d.append("question", p.question());
         if (p.answer() != null) d.append("answer", p.answer());
+        if (p.subtitle() != null) d.append("subtitle", p.subtitle());
+        if (p.altText() != null) d.append("altText", p.altText());
+        if (p.desktopImageAssetKey() != null) d.append("desktopImageAssetKey", p.desktopImageAssetKey());
         return d;
     }
 
@@ -256,8 +424,11 @@ public class ContentService {
                 ContentBlock.Status.valueOf(d.getString("status")), d.getDate("startsAt") == null ? null : d.getDate("startsAt").toInstant(),
                 d.getDate("endsAt") == null ? null : d.getDate("endsAt").toInstant(),
                 new ContentBlock.Payload(p.getString("imageAssetKey"), p.getString("link"), p.getList("ids", String.class),
-                        p.getString("faqCategory"), p.getString("question"), p.getString("answer")),
-                ((Number) d.get("version")).longValue(), d.getDate("createdAt").toInstant(), d.getDate("updatedAt").toInstant());
+                        p.getString("faqCategory"), p.getString("question"), p.getString("answer"),
+                        p.getString("subtitle"), p.getString("altText"), p.getString("desktopImageAssetKey")),
+                ContentBlock.audience(d.getString("audience")),
+                ((Number) d.get("version")).longValue(), d.getDate("createdAt").toInstant(), d.getDate("updatedAt").toInstant(),
+                d.getString("createdBy"), d.getString("updatedBy"));
     }
 
     private static String newId() {

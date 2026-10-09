@@ -40,5 +40,11 @@ public final class MediaIngestVerifier {
         if (declaredContentType != null && !declaredContentType.equals(sniffed)) {
             throw new InvalidMediaException("declared contentType does not match the stored bytes");
         }
+        // the store serves the type it holds: bytes of one image type stored as another would be delivered mislabelled
+        String stored = object.contentType() == null ? null
+                : object.contentType().split(";", 2)[0].strip().toLowerCase(java.util.Locale.ROOT);
+        if (stored != null && !stored.equals(sniffed)) {
+            throw new InvalidMediaException("stored contentType does not match the stored bytes");
+        }
     }
 }
