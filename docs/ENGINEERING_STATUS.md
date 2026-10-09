@@ -1354,6 +1354,40 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   Generated OpenAPI: same paths/operations; deltas are renumbered `operationId` suffixes and the previously missing `@JsonUnwrapped` card fields on
   `ProductDetailDto`/`NodeDetailDto`. Not done: Jackson 3 migration (separate follow-up PR), container image build against the pinned base (Docker Hub rate limit during verification).
 
+- **Asynchronous product import jobs** (branch `feature/async-import-jobs`, from `main` `7d491dd`): **IN REVIEW**. The synchronous product import
+  (500 rows, request held open, whole-file reject) cannot load a catalogue of tens of thousands of SKUs. `bulkimport.jobs` adds a job engine:
+  `POST /api/v1/admin/imports/jobs`, rows streamed in as RFC 4180 CSV (the CMS wizard's column aliases, typed attribute cells) or JSON in any
+  number of requests, a leased background worker (`ImportJobScheduler`, gated by `tazzzo.scheduler.enabled` AND `import-jobs-enabled`) that
+  validates and applies in persisted 500-row batches from a cursor, explicit approval (`apply`) recorded as `approvedBy` and attributing every
+  mint, `PAUSED`/`resume` on a datastore failure without re-applying, `cancel` (noticed before the next mint), per-row verdicts (`GET rows`,
+  `errors.csv`), DB-enforced one row per product id / GTIN / internal key per job (two partial unique indexes, across appends and batches), one
+  upload at a time per job, CAS on `version` for every admin transition, `domain_events` audit of each admin transition. Each applied row's verdict,
+  the cursor and the counters are recorded in one lease-guarded transaction after the mint (validation batches and the datastore pause likewise),
+  so a lost lease or a cancel can never leave counts and verdicts disagreeing (independent review of the first head found exactly that; fixed).
+  Second independent review (2026-10-08, NEEDS-CHANGES, 0 HIGH / 4 MEDIUM) — all fixed: the pause path wrote without the lease; an apply-time
+  UNCHANGED row was counted nowhere (now `valid`/`unchanged` are reclassified so a COMPLETED job has `applied + failed == valid`); validation could
+  start during an upload (now refused while the append lock is held; `rows_total` is only raised while OPEN under the lock, `page` never reads
+  past it, an abandoned upload's rows are removed); a mint could outlive the lease (lease default 120 s → 300 s, above the driver's transaction
+  retry budget; an identity collision is re-checked and recorded UNCHANGED when the product is the row's own). Also fixed while testing: lease
+  ownership was judged by `getModifiedCount()`, so a renewal in the same millisecond as the previous lease write was misread as a lost lease
+  (now `getMatchedCount()`); LOWs fixed: CSV column cap enforced while reading, GTIN-identity rows no longer claim an internal-key slot,
+  `recordApply` returns through `Tx.call`. Six mutants re-introducing these bugs are each killed by `ImportJobsIT`. V0016's checksum changed
+  with its fifth index; V0016 has only ever run in tests (the branch is unmerged and nothing is deployed), so no environment needs a re-pin.
+  Third independent review (of `cafcaf2`, NEEDS-CHANGES) — fixed: re-validating a REJECTED job cleared verdicts AFTER the job became claimable,
+  racing the worker (verdicts are now never bulk-cleared: each pass re-verdicts every row from row 0); the collision re-check's "is it the row's
+  own product" guard had no killing test (added); an upload read `rows_total` before its lock (now re-read under it); the append lock now dies
+  with every state change; (final review, PASS) a row correction now holds the append lock, so it cannot interleave with a validation pass.
+  Known limit kept: rows of an upload whose process died stay behind and block later uploads to that job (cancel it).
+  `ProductImportValidator.validateRows` is the per-row (non-throwing) form of the same checks; the synchronous import now delegates to it and is
+  otherwise unchanged. Collections `import_jobs`/`import_rows` and five indexes via migration `V0016` (`MigrationRegistryTest` pins the checksum;
+  `IndexContractIT`, `DatastorePrivilegeIT` 16 applied, `DatabaseDocsConsistencyTest` updated with the retention/inventory/manifest/runbook rows).
+  Lease `import-jobs-lease-ms` 300 s. Limits: `tazzzo.imports.max-rows-per-job` 250,000, `max-active-jobs` 10, request chunk bounded by the bulk body limit (2 MiB ≈ 20k CSV rows).
+  Evidence: `ImportJobsIT` (17 scenarios incl. a 621-row multi-batch file, pause/resume exactly-once, cancel-while-minting, lease lost mid-apply,
+  cross-append identities, stale versions/limits/expired leases/append lock, pause after a lost lease, collision re-check, same-ms renewal,
+  validation during an upload), `ImportCsvParserTest`; `docs/ops/BULK_IMPORT.md`.
+  Third review (NEEDS_CHANGES) remediation: explicit stable `operationId`s on every `ImportJobController` method (no existing operationId changes; the regenerated `docs/openapi.json` is additive, verified by a structural diff against `main`); CSV upload is atomic (any failure removes only that upload's rows, guarded by the append lock, `rowsTotal` untouched, corrected file re-uploadable; tests for a failure at a later line, oversize cell, too many columns, the row cap and a lost lock); the append lock is renewed every 50 rows and a lost lock fails the upload with `409`; `rowsTotal` publication and corrections bump the job `version`; `errors.csv` neutralises formula cells, is one bounded single pass in row order; product ids are no longer upper-cased in the CSV reader or the dedup key (no case normalisation is the approved policy). Updated to `main` `90c9e6f` (Spring Boot 4.1.1 #113, product-id grammar #112, inventory list #101, projection pacing #99): jobs inherit the canonical id grammar `^TZP-[A-Za-z0-9-]{1,40}$` through `ProductImportValidator.shape()` (full match, no case normalisation; invalid ids are per-row `INVALID_ROW`, listed in `errors.csv`, block apply and are corrected by `PUT` row), covered by `ImportJobsIT.invalid_product_ids_...` (mutation-checked: bypassing the grammar in `shape()` fails it) and a malformed-query case (`MalformedQueryFilter` answers the fixed 400 before the controller). V0016 is still the next free migration. Known limits are listed in `docs/ops/BULK_IMPORT.md`.
+  Not done: price/stock job kinds, purge policy for old jobs, a CMS screen for jobs, canonical-identity duplicates across batches (apply-time FAILED).
+
 - **Catalogue capacity harness** (branch `feature/catalogue-capacity-harness`, from `main` `7d491dd`): **IN REVIEW**. `CatalogCapacityIT`, enabled only by
   `TAZZZO_CAPACITY_SKUS=<N>`, seeds N TEST DATA products through the real write shapes (validator-conformant documents, `PricingService`,
   `InventoryService`, `ProductCardProjectionService.rebuildOne`) and measures list, product detail, search, admin list, import throughput, rebuild cost,

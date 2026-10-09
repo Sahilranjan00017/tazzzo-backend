@@ -158,7 +158,7 @@ public class BulkImportService {
     }
 
     /** A product row that the catalogue rejected on its own terms (a race with another writer, a governance change). */
-    static boolean catalogueDomainFailure(RuntimeException e) {
+    public static boolean catalogueDomainFailure(RuntimeException e) {
         return e instanceof com.tazzzo.catalog.tx.IdentityCollisionException
                 || e instanceof com.tazzzo.catalog.tx.AttributeViolationException
                 || e instanceof com.tazzzo.catalog.tx.EvidenceGateException

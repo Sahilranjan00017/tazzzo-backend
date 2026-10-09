@@ -390,6 +390,50 @@
         }
       }
     },
+    "/api/v1/admin/imports/jobs/{id}/rows/{row}" : {
+      "put" : {
+        "tags" : [ "import-job-controller" ],
+        "operationId" : "correctImportJobRow",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "row",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/CreateProductRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/JobView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/delivery-slots/{serviceAreaId}/{windowId}" : {
       "get" : {
         "tags" : [ "delivery-slot-admin-controller" ],
@@ -2249,6 +2293,298 @@
         }
       }
     },
+    "/api/v1/admin/imports/jobs" : {
+      "get" : {
+        "tags" : [ "import-job-controller" ],
+        "operationId" : "listImportJobs",
+        "parameters" : [ {
+          "name" : "status",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "after",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "limit",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32",
+            "default" : 50
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "object",
+                  "additionalProperties" : {
+                    "type" : "object"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post" : {
+        "tags" : [ "import-job-controller" ],
+        "operationId" : "createImportJob",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/CreateJobRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/JobView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/imports/jobs/{id}/validate" : {
+      "post" : {
+        "tags" : [ "import-job-controller" ],
+        "operationId" : "validateImportJob",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/VersionedRequest"
+              }
+            }
+          }
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/JobView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/imports/jobs/{id}/rows" : {
+      "get" : {
+        "tags" : [ "import-job-controller" ],
+        "operationId" : "listImportJobRows",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "from",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64",
+            "default" : 0
+          }
+        }, {
+          "name" : "limit",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32",
+            "default" : 100
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "object",
+                  "additionalProperties" : {
+                    "type" : "object"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post" : {
+        "tags" : [ "import-job-controller" ],
+        "operationId" : "appendImportJobRows",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/RowsRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Appended"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/imports/jobs/{id}/resume" : {
+      "post" : {
+        "tags" : [ "import-job-controller" ],
+        "operationId" : "resumeImportJob",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/VersionedRequest"
+              }
+            }
+          }
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/JobView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/imports/jobs/{id}/cancel" : {
+      "post" : {
+        "tags" : [ "import-job-controller" ],
+        "operationId" : "cancelImportJob",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/VersionedRequest"
+              }
+            }
+          }
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/JobView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/imports/jobs/{id}/apply" : {
+      "post" : {
+        "tags" : [ "import-job-controller" ],
+        "operationId" : "applyImportJob",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/VersionedRequest"
+              }
+            }
+          }
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/JobView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/imports/inventory" : {
       "post" : {
         "tags" : [ "bulk-import-controller" ],
@@ -3816,6 +4152,51 @@
         }
       }
     },
+    "/api/v1/admin/imports/jobs/{id}" : {
+      "get" : {
+        "tags" : [ "import-job-controller" ],
+        "operationId" : "getImportJob",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/JobView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/imports/jobs/{id}/errors.csv" : {
+      "get" : {
+        "tags" : [ "import-job-controller" ],
+        "operationId" : "downloadImportJobErrorsCsv",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK"
+          }
+        }
+      }
+    },
     "/api/v1/admin/delivery-slots/{serviceAreaId}" : {
       "get" : {
         "tags" : [ "delivery-slot-admin-controller" ],
@@ -4350,6 +4731,173 @@
           },
           "active" : {
             "type" : "boolean"
+          }
+        }
+      },
+      "BundleComponentDto" : {
+        "type" : "object",
+        "properties" : {
+          "componentProductId" : {
+            "pattern" : "^TZP-[A-Za-z0-9-]{1,40}$",
+            "type" : "string"
+          },
+          "qty" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "verticalIdSnapshot" : {
+            "type" : "string"
+          }
+        }
+      },
+      "CreateProductRequest" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "pattern" : "^TZP-[A-Za-z0-9-]{1,40}$",
+            "type" : "string"
+          },
+          "productType" : {
+            "type" : "string"
+          },
+          "identityType" : {
+            "type" : "string"
+          },
+          "internalKey" : {
+            "type" : "string"
+          },
+          "gtins" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/GtinDto"
+            }
+          },
+          "brandCode" : {
+            "type" : "string"
+          },
+          "title" : {
+            "type" : "string"
+          },
+          "verticalId" : {
+            "type" : "string"
+          },
+          "releaseId" : {
+            "type" : "string"
+          },
+          "classificationStatus" : {
+            "type" : "string"
+          },
+          "attributes" : {
+            "type" : "object",
+            "additionalProperties" : {
+              "type" : "object"
+            }
+          },
+          "evidenceRefs" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "bundleContents" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/BundleComponentDto"
+            }
+          },
+          "packOf" : {
+            "$ref" : "#/components/schemas/PackOfDto"
+          }
+        }
+      },
+      "GtinDto" : {
+        "type" : "object",
+        "properties" : {
+          "value" : {
+            "type" : "string"
+          },
+          "market" : {
+            "type" : "string"
+          }
+        }
+      },
+      "PackOfDto" : {
+        "type" : "object",
+        "properties" : {
+          "componentProductId" : {
+            "pattern" : "^TZP-[A-Za-z0-9-]{1,40}$",
+            "type" : "string"
+          },
+          "qty" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }
+      },
+      "JobView" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string"
+          },
+          "kind" : {
+            "type" : "string"
+          },
+          "status" : {
+            "type" : "string"
+          },
+          "note" : {
+            "type" : "string"
+          },
+          "createdBy" : {
+            "type" : "object",
+            "additionalProperties" : {
+              "type" : "string"
+            }
+          },
+          "approvedBy" : {
+            "type" : "object",
+            "additionalProperties" : {
+              "type" : "string"
+            }
+          },
+          "rowsTotal" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "nextRow" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "counts" : {
+            "type" : "object",
+            "additionalProperties" : {
+              "type" : "integer",
+              "format" : "int64"
+            }
+          },
+          "attemptCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "lastError" : {
+            "type" : "string"
+          },
+          "createdAt" : {
+            "type" : "string"
+          },
+          "updatedAt" : {
+            "type" : "string"
+          },
+          "startedAt" : {
+            "type" : "string"
+          },
+          "finishedAt" : {
+            "type" : "string"
+          },
+          "version" : {
+            "type" : "integer",
+            "format" : "int64"
           }
         }
       },
@@ -5200,106 +5748,6 @@
           }
         }
       },
-      "BundleComponentDto" : {
-        "type" : "object",
-        "properties" : {
-          "componentProductId" : {
-            "pattern" : "^TZP-[A-Za-z0-9-]{1,40}$",
-            "type" : "string"
-          },
-          "qty" : {
-            "type" : "integer",
-            "format" : "int32"
-          },
-          "verticalIdSnapshot" : {
-            "type" : "string"
-          }
-        }
-      },
-      "CreateProductRequest" : {
-        "type" : "object",
-        "properties" : {
-          "id" : {
-            "pattern" : "^TZP-[A-Za-z0-9-]{1,40}$",
-            "type" : "string"
-          },
-          "productType" : {
-            "type" : "string"
-          },
-          "identityType" : {
-            "type" : "string"
-          },
-          "internalKey" : {
-            "type" : "string"
-          },
-          "gtins" : {
-            "type" : "array",
-            "items" : {
-              "$ref" : "#/components/schemas/GtinDto"
-            }
-          },
-          "brandCode" : {
-            "type" : "string"
-          },
-          "title" : {
-            "type" : "string"
-          },
-          "verticalId" : {
-            "type" : "string"
-          },
-          "releaseId" : {
-            "type" : "string"
-          },
-          "classificationStatus" : {
-            "type" : "string"
-          },
-          "attributes" : {
-            "type" : "object",
-            "additionalProperties" : {
-              "type" : "object"
-            }
-          },
-          "evidenceRefs" : {
-            "type" : "array",
-            "items" : {
-              "type" : "string"
-            }
-          },
-          "bundleContents" : {
-            "type" : "array",
-            "items" : {
-              "$ref" : "#/components/schemas/BundleComponentDto"
-            }
-          },
-          "packOf" : {
-            "$ref" : "#/components/schemas/PackOfDto"
-          }
-        }
-      },
-      "GtinDto" : {
-        "type" : "object",
-        "properties" : {
-          "value" : {
-            "type" : "string"
-          },
-          "market" : {
-            "type" : "string"
-          }
-        }
-      },
-      "PackOfDto" : {
-        "type" : "object",
-        "properties" : {
-          "componentProductId" : {
-            "pattern" : "^TZP-[A-Za-z0-9-]{1,40}$",
-            "type" : "string"
-          },
-          "qty" : {
-            "type" : "integer",
-            "format" : "int32"
-          }
-        }
-      },
       "ProductResponse" : {
         "type" : "object",
         "properties" : {
@@ -5924,6 +6372,54 @@
             "type" : "string"
           },
           "expectedVersion" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }
+      },
+      "CreateJobRequest" : {
+        "type" : "object",
+        "properties" : {
+          "kind" : {
+            "type" : "string"
+          },
+          "note" : {
+            "type" : "string"
+          }
+        }
+      },
+      "VersionedRequest" : {
+        "type" : "object",
+        "properties" : {
+          "version" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }
+      },
+      "RowsRequest" : {
+        "type" : "object",
+        "properties" : {
+          "rows" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/CreateProductRequest"
+            }
+          }
+        }
+      },
+      "Appended" : {
+        "type" : "object",
+        "properties" : {
+          "rowsAdded" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "rowsTotal" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "duplicates" : {
             "type" : "integer",
             "format" : "int64"
           }

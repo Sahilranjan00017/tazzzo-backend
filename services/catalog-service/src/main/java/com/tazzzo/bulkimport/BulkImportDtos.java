@@ -3,7 +3,7 @@ package com.tazzzo.bulkimport;
 import java.util.List;
 
 /** Wire shapes of the bulk price/stock import. Boxed fields so a missing value is reported, never defaulted to 0. */
-final class BulkImportDtos {
+public final class BulkImportDtos {
 
     private BulkImportDtos() { }
 
@@ -17,7 +17,7 @@ final class BulkImportDtos {
     record StockImportRequest(Boolean dryRun, List<StockRow> rows) { }
 
     /** {@code row} is the 0-based index in the submitted array. */
-    record RowError(int row, String code, String message) { }
+    public record RowError(int row, String code, String message) { }
 
     /**
      * Outcome per row: VALID (dry run), APPLIED, FAILED (code + message), or NOT_ATTEMPTED (the run stopped early because

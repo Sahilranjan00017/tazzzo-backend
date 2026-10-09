@@ -72,6 +72,9 @@ public class SchemaBootstrap {
             // PR-11C: customer login session + refresh-token verifier. expiresAt/revokedAt are
             // APPLICATION predicates; the TTL index below is cleanup only, never authorization.
             "customer_sessions",
+            // Async imports: one document per import job (status machine, cursor, counters, lease) and one per
+            // submitted row (payload + per-phase verdict). Catalogue data and admin actor ids only; no customer data.
+            "import_jobs", "import_rows",
             // PR-12A: customer-owned editable profile (displayName/email only). Keyed by
             // customerId as _id -- no separate customerId index needed. Never phoneNormalized,
             // session state, or anything auth owns; a distinct domain from "customers" (auth

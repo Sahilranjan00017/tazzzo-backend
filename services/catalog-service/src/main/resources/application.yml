@@ -79,6 +79,15 @@ tazzzo:
     card-reconcile-limit: ${TAZZZO_SCHEDULER_CARD_RECONCILE_LIMIT:500}            # floor per pass
     card-reconcile-max-limit: ${TAZZZO_SCHEDULER_CARD_RECONCILE_MAX_LIMIT:20000}  # ceiling per pass
     card-reconcile-full-pass-ms: ${TAZZZO_SCHEDULER_CARD_RECONCILE_FULL_PASS_MS:14400000}  # 4 h
+    # Async import jobs (POST /api/v1/admin/imports/jobs): subordinate switch, same shape as card-projection-enabled.
+    import-jobs-enabled: ${TAZZZO_IMPORT_JOBS_ENABLED:true}
+    import-jobs-tick-ms: ${TAZZZO_IMPORT_JOBS_TICK_MS:5000}
+    import-jobs-batch-size: ${TAZZZO_IMPORT_JOBS_BATCH_SIZE:500}      # rows validated/applied per persisted step
+    import-jobs-tick-budget-ms: ${TAZZZO_IMPORT_JOBS_TICK_BUDGET_MS:30000}
+    import-jobs-lease-ms: ${TAZZZO_IMPORT_JOBS_LEASE_MS:300000}     # must exceed the tick budget AND the ~120 s transaction retry budget of one mint
+  imports:
+    max-rows-per-job: ${TAZZZO_IMPORTS_MAX_ROWS_PER_JOB:250000}
+    max-active-jobs: ${TAZZZO_IMPORTS_MAX_ACTIVE_JOBS:10}
   media:
     # Object storage for product images. provider: disabled (uploads refused, media sets metadata-only) | s3.
     # For AWS: bucket + region; credentials from the task role. endpoint/path-style/access-key/secret-key are for an

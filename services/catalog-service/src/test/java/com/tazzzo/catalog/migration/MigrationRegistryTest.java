@@ -38,6 +38,7 @@ class MigrationRegistryTest {
         RELEASED.put("V0013__content_blocks_index", "SCHEMA|true|02a290d4061230c67507f9b79f2a7542fd2683d5eaf979cbd48aed879c861df0");
         RELEASED.put("V0014__notification_outbox_indexes", "SCHEMA|true|98a7a8a43f3941c052877173afcd9060e3e3427f23428a8ba4f8b1aab4cf29b8");
         RELEASED.put("V0015__address_idempotency_indexes", "SCHEMA|true|e20ea8f00718f510127f92313e1fb3161b8627003ad82826dfcdfc7812dbcce0");
+        RELEASED.put("V0016__import_job_indexes", "SCHEMA|true|be7ac104a2f6a2f349a90f06361ed6a7455f744e34ff594a4547c04ae84e258c");
         RELEASED.put("V0101__drop_unused_session_by_customer_index", "SCHEMA|false|0ed42be55eda44aa3b60891e4e52ef394aac6c94293a253da23d5de9e18b606d");
         RELEASED.put("V0102__drop_unused_canonical_keys_product_id_index", "SCHEMA|false|f846da155273d5338fa0ac4285c3cad0478cbc0b40bfe7dca8859136f8b15e36");
     }
