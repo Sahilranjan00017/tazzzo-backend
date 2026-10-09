@@ -40,6 +40,22 @@ class ConsumerRootLimiterDisabledIT extends AbstractConsumerIT {
         eligibleProduct("TZP-1", "TZV-000001");
     }
 
+    @org.springframework.beans.factory.annotation.Autowired
+    org.springframework.context.ApplicationContext context;
+
+    /**
+     * CatalogApplication excludes DataRedisAutoConfiguration / DataRedisRepositoriesAutoConfiguration (the Boot 4
+     * names): with the limiter DISABLED nothing may build a default localhost Redis connection.
+     */
+    @Test
+    void no_redis_connection_factory_or_template_bean_exists_when_the_limiter_is_disabled() throws Exception {
+        for (String type : new String[]{"org.springframework.data.redis.connection.RedisConnectionFactory",
+                "org.springframework.data.redis.core.StringRedisTemplate",
+                "org.springframework.data.redis.core.RedisTemplate"}) {
+            assertThat(context.getBeanNamesForType(Class.forName(type))).as(type).isEmpty();
+        }
+    }
+
     @Test
     void a_disabled_limiter_means_the_consumer_surface_refuses_to_serve() {
         PRODUCT_FINDS.set(0);

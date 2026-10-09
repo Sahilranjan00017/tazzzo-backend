@@ -224,6 +224,8 @@ server:
   forward-headers-strategy: none
   max-http-request-header-size: 16KB
   tomcat:
+    # Explicit (it is also the default): more query/form parameters than this is refused 400 by MalformedQueryFilter.
+    max-parameter-count: 1000
     # Stop draining a body the application already refused with 413 (see tazzzo.http.max-request-body-bytes).
     max-swallow-size: ${TAZZZO_HTTP_MAX_BODY_BYTES:65536}
   # Stop accepting new requests on SIGTERM and let in-flight ones finish (bounded by
