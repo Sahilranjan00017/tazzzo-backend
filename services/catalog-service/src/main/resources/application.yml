@@ -1,4 +1,11 @@
 spring:
+  mvc:
+    formcontent:
+      filter:
+        # No endpoint reads form-urlencoded bodies (every body is JSON; query parameters stay with the container).
+        # FormContentFilter would decode a PUT/PATCH/DELETE form body with URLDecoder and throw outside controller
+        # advice on a malformed one (%ZZ), answering Boot's default error JSON. Disabled; FormContentFilterDisabledIT.
+        enabled: false
   http:
     converters:
       # Boot 4 prefers Jackson 3; this step of the Boot 4 migration keeps Jackson 2 (ADR-016).

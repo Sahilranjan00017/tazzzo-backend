@@ -183,6 +183,135 @@ class MalformedQueryAllSurfacesIT extends AbstractConsumerIT {
         assertThat(raw("/v1/customer/orders", customer).status).isEqualTo(200);
     }
 
+    static final String FORM = "application/x-www-form-urlencoded";
+    static final List<String> BAD_FORMS = List.of("a=%ZZ", "%C3%28", "%");
+
+    @Autowired org.springframework.context.ApplicationContext context;
+
+    /** No endpoint reads a form body, so Spring's FormContentFilter (which URLDecodes PUT/PATCH/DELETE form bodies) is not installed. */
+    @Test
+    void spring_form_content_filter_is_not_installed() {
+        assertThat(context.getBeanNamesForType(org.springframework.web.filter.FormContentFilter.class)).isEmpty();
+        assertThat(context.getBeansOfType(jakarta.servlet.Filter.class).values())
+                .noneMatch(f -> f instanceof org.springframework.web.filter.FormContentFilter);
+        assertThat(context.getBeansOfType(org.springframework.boot.web.servlet.FilterRegistrationBean.class).values())
+                .noneMatch(r -> r.getFilter() instanceof org.springframework.web.filter.FormContentFilter);
+    }
+
+    /**
+     * A malformed form body on PUT/PATCH/DELETE is never decoded by a filter, so it can no longer escape controller advice as
+     * Boot's default error JSON. The natural result is the route's own fixed envelope (404/405/400/415, or the unchanged 200
+     * of a route that ignores its body); never a 500, never a timestamp/path/status key, never an echo, never an ERROR log.
+     */
+    @Test
+    void malformed_form_bodies_on_put_patch_delete_get_a_fixed_envelope_on_every_surface(CapturedOutput log) throws Exception {
+        // {method, target, token, extra header, expected status, expected code}
+        Object[][] matrix = {
+            {"PUT", "/v1/products", null, null, 404, "NOT_FOUND"},
+            {"PATCH", "/v1/products", null, null, 404, "NOT_FOUND"},
+            {"DELETE", "/v1/products", null, null, 404, "NOT_FOUND"},
+            {"PUT", "/v1/customer/cart", customer, null, 400, "INVALID_REQUEST"},
+            {"PATCH", "/v1/customer/cart", customer, null, 400, "INVALID_REQUEST"},
+            {"DELETE", "/v1/customer/cart", customer, null, 200, null},
+            {"PUT", "/v1/customer/cart/items/TZV-000001", customer, null, 415, "UNSUPPORTED_MEDIA_TYPE"},
+            {"PATCH", "/v1/customer/profile", customer, "If-Match: \"x\"", 415, "INVALID_REQUEST"},
+            {"PUT", "/api/v1/products/by-key", CMS, null, 405, "METHOD_NOT_ALLOWED"},
+            {"PATCH", "/api/v1/products/by-key", CMS, null, 400, "MISSING_HEADER"},
+            {"PATCH", "/api/v1/products/by-key", CMS, "If-Match: 1", 415, "UNSUPPORTED_MEDIA_TYPE"},
+            {"DELETE", "/api/v1/products/by-key", CMS, null, 405, "METHOD_NOT_ALLOWED"},
+        };
+        for (Object[] m : matrix) {
+            for (String body : BAD_FORMS) {
+                String what = m[0] + " " + m[1] + " " + body;
+                Raw res = raw((String) m[0], (String) m[1], (String) m[2], FORM, body, (String) m[3]);
+                assertThat(res.status).as(what + " " + res.body).isEqualTo((int) m[4]);
+                noDefaultErrorJson(what, res, (String) m[1], (String) m[5]);
+            }
+        }
+        assertThat(log.getOut()).doesNotContain(" ERROR ").doesNotContain("IllegalArgumentException")
+                .doesNotContain("URLDecoder").doesNotContain("%ZZ").doesNotContain("%C3%28");
+    }
+
+    /** Authentication still answers before anything is decided about the body. */
+    @Test
+    void malformed_form_bodies_are_still_answered_by_authentication_first(CapturedOutput log) throws Exception {
+        for (String m : List.of("PUT", "PATCH", "DELETE")) {
+            for (String body : BAD_FORMS) {
+                for (String t : new String[]{null, "wrong-token"}) {
+                    for (String target : List.of("/api/v1/products/by-key", "/v1/customer/cart", "/v1/customer/cart/items/TZV-000001",
+                            "/api/v1/products/PRD_x")) {
+                        Raw res = raw(m, target, t, FORM, body, null);
+                        assertThat(res.status).as(m + " " + target + " " + res.body).isEqualTo(401);
+                        noDefaultErrorJson(m + " " + target, res, target, "UNAUTHENTICATED");
+                    }
+                }
+            }
+        }
+        assertThat(log.getOut()).doesNotContain(" ERROR ");
+    }
+
+    /** Negative controls: ordinary JSON bodies on PUT/PATCH/DELETE are read exactly as before. */
+    @Test
+    void json_bodies_on_put_patch_delete_are_unaffected() throws Exception {
+        Raw found = raw("PATCH", "/api/v1/products/PRD_missing", CMS, J, "{\"title\":\"x\"}", "If-Match: 1");
+        assertThat(found.status).as(found.body).isEqualTo(404);
+        assertThat(found.json().at("/error/code").asText()).isEqualTo("NOT_FOUND");
+        Raw bad = raw("PATCH", "/api/v1/products/PRD_missing", CMS, J, "{bad", "If-Match: 1");
+        assertThat(bad.status).as(bad.body).isEqualTo(400);
+        assertThat(bad.json().at("/error/code").asText()).isEqualTo("MALFORMED_REQUEST");
+        Raw put = raw("PUT", "/v1/customer/cart/items/TZV-000001", customer, J, "{\"quantity\":2}", null);
+        assertThat(put.status).as(put.body).isEqualTo(404);
+        assertThat(put.json().path("code").asText()).isEqualTo("NOT_FOUND");
+        Raw badPut = raw("PUT", "/v1/customer/cart/items/TZV-000001", customer, J, "{bad", null);
+        assertThat(badPut.status).as(badPut.body).isEqualTo(400);
+        Raw patch = raw("PATCH", "/v1/customer/profile", customer, J, "{}", null);
+        assertThat(patch.status).as(patch.body).isEqualTo(428);
+        Raw del = raw("DELETE", "/v1/customer/cart/items/TZV-000001", customer, J, "{}", null);
+        assertThat(del.status).as(del.body).isEqualTo(404);
+        Raw clear = raw("DELETE", "/v1/customer/cart", customer, J, "{}", null);
+        assertThat(clear.status).as(clear.body).isEqualTo(200);
+        assertThat(clear.json().path("itemCount").asInt(-1)).isZero();
+    }
+
+    /** Bulk import stays JSON-only: JSON is read, text/csv and octet-stream are refused as before, and a POST form body is still the Tomcat 400. */
+    @Test
+    void import_routes_are_unchanged() throws Exception {
+        String path = "/api/v1/admin/imports/products";
+        Raw json = raw("POST", path, CMS, J, "{\"dryRun\":true,\"rows\":[]}", null);
+        assertThat(json.status).as(json.body).isEqualTo(422);
+        assertThat(json.json().at("/error/code").asText()).isEqualTo("INVALID_IMPORT");
+        for (String type : List.of("text/csv", "application/octet-stream")) {
+            Raw res = raw("POST", path, CMS, type, "a,b\n1,2\n", null);
+            assertThat(res.status).as(type + " " + res.body).isEqualTo(415);
+            assertThat(res.json().at("/error/code").asText()).isEqualTo("UNSUPPORTED_MEDIA_TYPE");
+        }
+        Raw form = raw("POST", path, CMS, FORM, "a=%ZZ", null);
+        assertThat(form.status).as(form.body).isEqualTo(400);
+        assertThat(form.json().at("/error/code").asText()).isEqualTo("MALFORMED_REQUEST");
+    }
+
+    /** Fixed envelope of the surface; none of Boot's default error keys; nothing of the body echoed. */
+    private static void noDefaultErrorJson(String what, Raw res, String target, String code) {
+        com.fasterxml.jackson.databind.JsonNode j = res.json();
+        assertThat(res.body).as(what).doesNotContain("timestamp").doesNotContain("\"path\"").doesNotContain("ZZ")
+                .doesNotContain("%C3").doesNotContain("\tat ").doesNotContain("Exception").doesNotContain("URLDecoder");
+        if (res.status == 200) {
+            return;
+        }
+        if (target.startsWith("/api/")) {
+            assertThat(j.has("status")).as(what).isFalse();
+            assertThat(j.path("error").isObject()).as(what + " " + res.body).isTrue();
+            assertThat(j.at("/error/code").asText()).as(what).isEqualTo(code);
+            assertThat(j.at("/error/request_id").asText()).as(what).startsWith("req_");
+        } else {
+            assertThat(j.has("status") || j.has("error")).as(what + " " + res.body).isFalse();
+            assertThat(j.path("code").asText()).as(what).isEqualTo(code);
+            assertThat(j.path("message").asText()).as(what).isNotBlank();
+            String id = j.has("request_id") ? j.path("request_id").asText() : j.path("requestId").asText();
+            assertThat(id).as(what).startsWith("req_");
+        }
+    }
+
     // ---------- helpers ----------
 
     private static String manyParams(int n) {
@@ -212,18 +341,30 @@ class MalformedQueryAllSurfacesIT extends AbstractConsumerIT {
 
     /** Raw HTTP/1.1 GET so the malformed query reaches the server byte-for-byte. */
     Raw raw(String target, String token) throws IOException {
+        return raw("GET", target, token, null, null, null);
+    }
+
+    /** Raw HTTP/1.1 request so the malformed query or body reaches the server byte-for-byte. */
+    Raw raw(String method, String target, String token, String contentType, String body, String extra) throws IOException {
         try (java.net.Socket socket = new java.net.Socket("localhost", port)) {
             socket.setSoTimeout(15000);
-            String request = "GET " + target + " HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n"
-                    + (token == null ? "" : "Authorization: Bearer " + token + "\r\n") + "\r\n";
+            byte[] payload = body == null ? new byte[0] : body.getBytes(StandardCharsets.ISO_8859_1);
+            String request = method + " " + target + " HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n"
+                    + (token == null ? "" : "Authorization: Bearer " + token + "\r\n")
+                    + (contentType == null ? "" : "Content-Type: " + contentType + "\r\n")
+                    + (body == null ? "" : "Content-Length: " + payload.length + "\r\n")
+                    + (extra != null ? extra + "\r\n"
+                    : target.startsWith("/v1/customer/cart") && !"GET".equals(method) ? "If-Match: \"cart-0\"\r\n" : "")
+                    + "\r\n";
             socket.getOutputStream().write(request.getBytes(StandardCharsets.ISO_8859_1));
+            socket.getOutputStream().write(payload);
             socket.getOutputStream().flush();
             String all = new String(socket.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
             int status = Integer.parseInt(all.substring(9, 12));
-            String body = all.substring(all.indexOf("\r\n\r\n") + 4);
-            int open = body.indexOf('{');
-            int close = body.lastIndexOf('}');
-            return new Raw(status, open >= 0 && close > open ? body.substring(open, close + 1) : body);
+            String raw = all.substring(all.indexOf("\r\n\r\n") + 4);
+            int open = raw.indexOf('{');
+            int close = raw.lastIndexOf('}');
+            return new Raw(status, open >= 0 && close > open ? raw.substring(open, close + 1) : raw);
         }
     }
 }
