@@ -1296,6 +1296,20 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
 
 ## In review (NOT merged)
 
+- **Paced projection reconciliation** (branch `feature/projection-reconcile-pacing`, from `main` `7d491dd`): **IN REVIEW**. The capacity harness measured the
+  drift pass as a configuration limit (500 rows per 5 min = 17 h at 100k SKUs, a week at 1M; compute is 6.7 ms/SKU). `ProjectionReconciler.pacedLimit` now
+  derives the per-pass limit from the eligible count — `max(card-reconcile-limit, min(card-reconcile-max-limit, ceil(count × card-reconcile-ms /
+  card-reconcile-full-pass-ms)))` — counted once per wrap, not per tick; the scheduler calls the paced drift and orphan passes and refuses to start on a
+  misconfiguration. Defaults: floor 500 (unchanged behaviour at ≤ 24k SKUs), ceiling 20,000, target 4 h (25k → 521/pass, 100k → 2,084/pass, 1M → capped
+  at 20,000, ≈ 4.2 h). The six `card-*` properties are now in `application.yml` with env overrides. Evidence: `ProjectionReconcilePacingTest`,
+  `ProjectionReconcilePacingIT`, `CommerceProjectionSchedulerPacingIT`; `FreshnessFoundationIT` unchanged.
+  **Known limit (follow-up, not in this change):** the queue drain is still a fixed `card-rebuild-batch-size` (200 per 15 s = 4,000 per 5 min). Above
+  ≈ 192k SKUs the paced reconcile enqueues more per tick than the drain removes; the queue is upserted per SKU so it is bounded by the catalogue size, but
+  `ProjectionRebuildWorker.claim` takes rows in natural order, so a reconcile backlog then sits in front of hook-triggered rebuilds of genuinely changed
+  products and freshness latency degrades to backlog-drain time (≈ 21 h for a full 1M pass). Scale `card-rebuild-batch-size` with the catalogue, or
+  prioritise hook rebuilds in `claim`, before the catalogue approaches that size. A tick at the 20,000 ceiling takes ≈ 24 s (one upsert per SKU), which
+  stretches a 1M pass to ≈ 4.6 h; a `bulkWrite` in `reconcileDrift` would remove that.
+
 - **Inventory admin list and low-stock feed** (branch `feature/inventory-admin-list`, PR #101, from `main` `7d491dd`): **IN REVIEW**. The CMS stock
   workspace (tazzzo-web #10) could only look up one `(sku, location)` because the backend had no stock list. `GET /api/v1/admin/inventory?location=&state=&limit=&cursor=`
   (operationId `listStock`) lists rows in `(sku_id, fulfillment_location_id)` order — the unique index's order, no in-memory sort — with an opaque

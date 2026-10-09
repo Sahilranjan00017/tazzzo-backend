@@ -53,6 +53,46 @@ class CommerceProjectionSchedulerConfigTest {
                 .run(ctx -> assertThat(ctx).hasSingleBean(CommerceProjectionScheduler.class));
     }
 
+    /** The pacing configuration is validated at construction: a nonsensical value refuses to start, never paces wrongly. */
+    @Test void a_misconfigured_pacing_refuses_to_start() {
+        for (String bad : new String[]{"tazzzo.scheduler.card-reconcile-ms=0", "tazzzo.scheduler.card-reconcile-full-pass-ms=0",
+                "tazzzo.scheduler.card-reconcile-limit=0", "tazzzo.scheduler.card-reconcile-max-limit=10"}) {
+            runner.withPropertyValues("tazzzo.scheduler.enabled=true", "tazzzo.scheduler.card-projection-enabled=true", bad)
+                    .run(ctx -> assertThat(ctx).as(bad).hasFailed());
+        }
+        runner.withPropertyValues("tazzzo.scheduler.enabled=true", "tazzzo.scheduler.card-projection-enabled=true",
+                        "tazzzo.scheduler.card-reconcile-limit=500", "tazzzo.scheduler.card-reconcile-max-limit=500")
+                .run(ctx -> assertThat(ctx).as("floor == ceiling is a valid fixed pace").hasSingleBean(CommerceProjectionScheduler.class));
+    }
+
+    /** An existing floor above the new 20,000 default ceiling fails fast with a message naming both properties and env vars. */
+    @Test void a_floor_above_the_default_ceiling_fails_naming_the_properties() {
+        runner.withPropertyValues("tazzzo.scheduler.enabled=true", "tazzzo.scheduler.card-projection-enabled=true",
+                        "tazzzo.scheduler.card-reconcile-limit=30000")
+                .run(ctx -> {
+                    assertThat(ctx).hasFailed();
+                    assertThat(rootMessage(ctx.getStartupFailure()))
+                            .contains("tazzzo.scheduler.card-reconcile-limit", "TAZZZO_SCHEDULER_CARD_RECONCILE_LIMIT",
+                                    "tazzzo.scheduler.card-reconcile-max-limit", "TAZZZO_SCHEDULER_CARD_RECONCILE_MAX_LIMIT",
+                                    "=30000", "=20000");
+                });
+        runner.withPropertyValues("tazzzo.scheduler.enabled=true", "tazzzo.scheduler.card-projection-enabled=true",
+                        "tazzzo.scheduler.card-reconcile-limit=30000", "tazzzo.scheduler.card-reconcile-max-limit=40000")
+                .run(ctx -> assertThat(ctx).as("raising the max too is the documented fix").hasSingleBean(CommerceProjectionScheduler.class));
+    }
+
+    @Test void a_non_positive_reconcile_interval_names_its_property() {
+        runner.withPropertyValues("tazzzo.scheduler.enabled=true", "tazzzo.scheduler.card-projection-enabled=true",
+                        "tazzzo.scheduler.card-reconcile-ms=0")
+                .run(ctx -> assertThat(rootMessage(ctx.getStartupFailure()))
+                        .contains("tazzzo.scheduler.card-reconcile-ms", "TAZZZO_SCHEDULER_CARD_RECONCILE_MS", "milliseconds"));
+    }
+
+    private static String rootMessage(Throwable t) {
+        while (t.getCause() != null) t = t.getCause();
+        return t.getMessage();
+    }
+
     @SuppressWarnings("unchecked")
     private static <T> T stub(Class<T> iface) {
         return (T) Proxy.newProxyInstance(iface.getClassLoader(),

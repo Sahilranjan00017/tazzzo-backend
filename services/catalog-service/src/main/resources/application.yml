@@ -67,6 +67,18 @@ tazzzo:
     rollup-lag-seconds: 120                     # never aggregate events younger than this
     taint-batch-size: 100
     stamp-batch-size: 100
+    # product_card_base freshness loop (needs card-projection-enabled=true as well; off in every test profile).
+    # The reconcile pass is PACED to the catalogue: its per-pass limit is max(card-reconcile-limit,
+    # min(card-reconcile-max-limit, ceil(eligibleProducts * card-reconcile-ms / card-reconcile-full-pass-ms))),
+    # counted once per full pass, so a full drift pass completes within card-reconcile-full-pass-ms at any size
+    # (measured without pacing: 500 per 5 min = 17 h at 100k SKUs, a week at 1M).
+    card-rebuild-ms: ${TAZZZO_SCHEDULER_CARD_REBUILD_MS:15000}
+    card-rebuild-batch-size: ${TAZZZO_SCHEDULER_CARD_REBUILD_BATCH_SIZE:200}
+    # card-reconcile-ms MUST be a plain number of milliseconds (e.g. 300000); ISO-8601 durations (PT5M) are not accepted.
+    card-reconcile-ms: ${TAZZZO_SCHEDULER_CARD_RECONCILE_MS:300000}
+    card-reconcile-limit: ${TAZZZO_SCHEDULER_CARD_RECONCILE_LIMIT:500}            # floor per pass
+    card-reconcile-max-limit: ${TAZZZO_SCHEDULER_CARD_RECONCILE_MAX_LIMIT:20000}  # ceiling per pass
+    card-reconcile-full-pass-ms: ${TAZZZO_SCHEDULER_CARD_RECONCILE_FULL_PASS_MS:14400000}  # 4 h
   media:
     # Object storage for product images. provider: disabled (uploads refused, media sets metadata-only) | s3.
     # For AWS: bucket + region; credentials from the task role. endpoint/path-style/access-key/secret-key are for an
