@@ -60,6 +60,9 @@ class InventoryAdminListIT extends AbstractApiIT {
         db.getCollection("inventory").insertOne(noSku);
         db.getCollection("inventory").insertOne(raw("TZP-INV-77", "FL-C", 3, 0).append("fulfillment_location_id", 42).append("low_stock_threshold", 5L).append("active", true));
         db.getCollection("inventory").insertOne(raw("TZP-INV-9", "FL-C", 3, 0).append("on_hand", "x").append("low_stock_threshold", 5L).append("active", true));
+        // a non-integral counter: Mongo's arithmetic matches it (5.5 > threshold 5 = IN_STOCK) but Java must not truncate it to 5
+        // (= LOW_STOCK) — it is a corrupt row, left out of every list and every state filter
+        db.getCollection("inventory").insertOne(raw("TZP-INV-D", "FL-C", 3, 0).append("on_hand", 5.5d).append("low_stock_threshold", 5L).append("active", true));
         // ids no cursor could ever position on (an array holding a string; empty; longer than a key) are outside the list
         db.getCollection("inventory").insertOne(raw("x", "FL-C", 3, 0).append("sku_id", List.of("TZP-INV-A")).append("low_stock_threshold", 5L).append("active", true));
         db.getCollection("inventory").insertOne(raw("", "FL-C", 3, 0).append("low_stock_threshold", 5L).append("active", true));
@@ -169,6 +172,17 @@ class InventoryAdminListIT extends AbstractApiIT {
                 assertThat(i.get(f)).as(i.get("skuId") + " " + f).isEqualTo(one.get(f));
             }
         }
+    }
+
+    @Test
+    void a_non_integral_counter_is_a_corrupt_row_not_a_truncated_one() {
+        long matchedByMongo = db.getCollection("inventory").countDocuments(new Document("sku_id", "TZP-INV-D").append("$expr",
+                new Document("$gt", List.of(new Document("$subtract", List.of("$on_hand", "$reserved")), "$low_stock_threshold"))));
+        assertThat(matchedByMongo).as("Mongo's arithmetic does treat 5.5 as IN_STOCK, so the Java side must reject the row").isEqualTo(1);
+        assertThat(walk("&state=IN_STOCK", 200)).noneMatch(k -> k.startsWith("TZP-INV-D"));
+        assertThat(walk("&state=LOW_STOCK", 200)).noneMatch(k -> k.startsWith("TZP-INV-D"));
+        assertThat(walk("&location=FL-C", 200)).noneMatch(k -> k.startsWith("TZP-INV-D"));
+        assertThat(walk("", 200)).noneMatch(k -> k.startsWith("TZP-INV-D"));
     }
 
     @Test

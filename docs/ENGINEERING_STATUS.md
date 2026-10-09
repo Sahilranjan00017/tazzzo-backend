@@ -1304,8 +1304,8 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   with the SAME arithmetic as `InventoryRecord.stockState()`; the four states partition the valid rows exactly as the list labels them (and as the
   point read does for every row it can read). The query
   grammar is closed (only those four names, once each, never empty; anything else is 422 `INVALID_INVENTORY` with a sanitised message). A stored row
-  that breaks the record invariants (missing field, non-numeric counter, `reserved > on_hand`) is left out and counted in a WARN, the cursor still
-  moves past it, and the state filters guard their `$expr` with `$isNumber`, so such a row matches no state instead of failing the query; only rows whose two ids
+  that breaks the record invariants (missing field, non-numeric or non-integral counter such as `on_hand: 5.5`, `reserved > on_hand`) is left out and counted in a WARN, the cursor still
+  moves past it — so a page can be short or even empty yet still carry `nextCursor`; clients MUST follow `nextCursor` until it is null and never treat a short page as the end — and the state filters guard their `$expr` with `$isNumber`, so such a row matches no state instead of failing the query; only rows whose two ids
   can be a cursor position are scanned at all (each a real string — not missing, not an array holding one — of 1..128 code points); anything else
   could never be paged past, so it is outside the list. Every cursor the list issues decodes (bound 1,400 chars).
   Neither filter can seek on the `(sku_id, location)` index — a sparse location or state filter examines up to the rest of the collection — so the

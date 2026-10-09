@@ -21,6 +21,11 @@ import java.util.Set;
  * {@code LOW_STOCK} | {@code OUT_OF_STOCK} over active rows, or {@code INACTIVE}), so the CMS can show a stock list and a
  * low-stock feed without a location registry. Same authorisation as every admin read. The query grammar is closed: only
  * those four names, each at most once and never empty — a typo is refused, never ignored, so it cannot widen the list.
+ *
+ * <p><b>Paging contract:</b> a page can be SHORT or even EMPTY and still carry a non-null {@code nextCursor}, because rows that
+ * break the stock-record invariants (corrupt or legacy documents) are left out after the page is read while the cursor still
+ * moves past them. A client must therefore keep following {@code nextCursor} until it is {@code null}, and must never treat a
+ * short or empty page as the end of the list.
  */
 @RestController
 @RequestMapping("/api/v1/admin/inventory")

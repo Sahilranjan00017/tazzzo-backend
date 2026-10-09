@@ -416,7 +416,9 @@ public class InventoryService implements InventoryReadPort {
      * over the scanned range, so a sparse filter examines up to the rest of the collection — bounded by
      * {@link #LIST_MAX_TIME_MS} (then {@link InventoryListTimeoutException}). A stored row that breaks the record invariants
      * (a legacy or corrupt document) is left out of the page and counted in {@code skipped}; the position still moves past
-     * it, so one bad row never blocks the pages after it.
+     * it, so one bad row never blocks the pages after it. A counter that is not a whole number (e.g. {@code on_hand: 5.5},
+     * which the state query would still match) counts as such a row. Because rows are left out AFTER the page is read, a
+     * page can be short or even empty and still carry a {@code next*} position: callers follow it until it is null.
      */
     public ListPage list(String fulfillmentLocationId, String state, String afterSku, String afterLocation, int limit) {
         if (limit < 1 || limit > LIST_MAX_LIMIT) {
@@ -458,9 +460,9 @@ public class InventoryService implements InventoryReadPort {
             try {
                 out.add(new InventoryRecord(
                         d.getString("sku_id"), d.getString("fulfillment_location_id"),
-                        asLong(d.get("on_hand")), asLong(d.get("reserved")),
-                        asLong(d.get("low_stock_threshold")), asLong(d.get("max_purchasable")),
-                        asLong(d.get("version")), Boolean.TRUE.equals(d.get("active"))));
+                        asWholeLong(d.get("on_hand")), asWholeLong(d.get("reserved")),
+                        asWholeLong(d.get("low_stock_threshold")), asWholeLong(d.get("max_purchasable")),
+                        asWholeLong(d.get("version")), Boolean.TRUE.equals(d.get("active"))));
             } catch (RuntimeException e) {
                 skipped++;
             }
@@ -580,6 +582,23 @@ public class InventoryService implements InventoryReadPort {
 
     private static long asLong(Object v) {
         return ((Number) Objects.requireNonNull(v, "numeric field missing")).longValue();
+    }
+
+    /**
+     * For the admin list: like {@link #asLong} but a stored counter that is not a whole number (5.5, NaN, Infinity) is
+     * refused, not truncated — the state filter does its arithmetic on the exact stored value, so truncating here would
+     * label a row differently from the query that selected it. The caller treats the refusal as a corrupt row.
+     */
+    private static long asWholeLong(Object v) {
+        Number n = (Number) Objects.requireNonNull(v, "numeric field missing");
+        boolean whole = switch (n) {
+            case Double x -> Double.isFinite(x) && x == Math.rint(x);
+            case Float x -> Float.isFinite(x) && x == Math.rint(x);
+            case org.bson.types.Decimal128 x -> x.isFinite() && x.bigDecimalValue().stripTrailingZeros().scale() <= 0;
+            default -> true;
+        };
+        if (!whole) throw new IllegalArgumentException("counter is not a whole number");
+        return n.longValue();
     }
 
     private static String safeSku(SetInventoryCommand cmd) {
