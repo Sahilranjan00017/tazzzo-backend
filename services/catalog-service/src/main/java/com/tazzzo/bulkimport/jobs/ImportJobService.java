@@ -109,7 +109,7 @@ public class ImportJobService {
     }
 
     /** The append lock is renewed every this many rows, so an upload that outlives {@link #APPEND_LOCK_MS} keeps it. */
-    static final int RENEW_EVERY_ROWS = 200;
+    static final int RENEW_EVERY_ROWS = 50;
 
     private void renewOrFail(String jobId, String lock) {
         if (!repo.renewAppendLock(jobId, lock, APPEND_LOCK_MS)) throw jobLeftOpen();
@@ -161,7 +161,9 @@ public class ImportJobService {
         try {
             if (rowsNow == job.rowsTotal()) return true;
             if (repo.setRowsTotal(job.id(), lock, rowsNow)) return true;
-            repo.deleteRowsFrom(job.id(), job.rowsTotal());
+            // Delete only while this upload still holds the lock (the renewal doubles as the check). A lost lock means another
+            // uploader may have taken over and published rows at or past the old rows_total: those are not ours to remove.
+            if (repo.renewAppendLock(job.id(), lock, APPEND_LOCK_MS)) repo.deleteRowsFrom(job.id(), job.rowsTotal());
             return false;
         } finally {
             repo.unlockAppend(job.id(), lock);
@@ -216,7 +218,7 @@ public class ImportJobService {
         if (job.status() == ImportJob.Status.REJECTED) job = reopen(job, actor);
         String lock = lockAppend(job);
         try {
-            job = underLock(id, lock);
+            job = underLockClean(id, lock);   // unpublished leftovers of a failed rollback must not collide with this PUT
             repo.replaceRowPayload(job.id(), row, toPayload(request), dedupKey(request), identityKeys(request));
             repo.touchUnderLock(job.id(), lock);   // the content changed: a client holding the old version is now stale
         } catch (com.mongodb.MongoWriteException e) {

@@ -617,6 +617,57 @@ class ImportJobsIT extends AbstractApiIT {
     }
 
     @Test
+    void a_successful_parse_that_lost_its_lock_to_an_uploader_who_published_deletes_nothing_and_gets_409() {
+        String id = create("finish-lost-lock");
+        byte[] head = (HEADER + line("TZP-FL-001", 1) + line("TZP-FL-002", 2)).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        java.io.InputStream stream = new java.io.InputStream() {
+            int pos;
+            @Override
+            public int read() {
+                byte[] one = new byte[1];
+                return read(one, 0, 1) < 0 ? -1 : one[0] & 0xff;
+            }
+
+            @Override
+            public int read(byte[] b, int off, int len) {
+                if (pos < head.length) {
+                    int n = Math.min(len, head.length - pos);
+                    System.arraycopy(head, pos, b, off, n);
+                    pos += n;
+                    return n;
+                }
+                // at EOF: a second uploader took the expired lock, wrote rows 0..2 and published rows_total=3, then unlocked
+                db.getCollection("import_rows").insertOne(new Document("_id", id + ":planted").append("job_id", id).append("row", 2L));
+                db.getCollection("import_jobs").updateOne(new Document("_id", id), new Document("$set", new Document("rows_total", 3L)
+                        .append("append_lock_token", "new-holder")).append("$inc", new Document("version", 1L)));
+                return -1;
+            }
+        };
+        assertThatThrownBy(() -> service.appendCsv(id, stream)).isInstanceOf(com.tazzzo.bulkimport.jobs.ImportJobException.class);
+        assertThat(db.getCollection("import_rows").countDocuments(new Document("job_id", id)))
+                .as("all of the new holder's published rows survive").isEqualTo(3);
+        assertThat(db.getCollection("import_rows").countDocuments(new Document("_id", id + ":planted"))).isEqualTo(1);
+        assertThat(job(id).get("rowsTotal").asLong()).as("and so does its rows_total").isEqualTo(3);
+        act(id, "cancel", W);
+    }
+
+    @Test
+    void a_correction_is_not_rejected_by_unpublished_leftovers_of_a_failed_rollback() {
+        String id = create("correct-leftover");
+        csv(id, HEADER + line("TZP-CL-001", 1), W);
+        // a leftover row past rows_total that carries the identity the corrected payload will use
+        db.getCollection("import_rows").insertOne(new Document("_id", id + ":leftover").append("job_id", id).append("row", 1L)
+                .append("dedup_key", "TZP-CL-002").append("identity_keys", List.of("id:TZP-CL-002")));
+        Map<String, Object> fixed = BulkProductImportIT.row("TZP-CL-002", 2);
+        fixed.put("brandCode", "BR-JOB");
+        fixed.put("internalKey", "job|TZP-CL-002");
+        ResponseEntity<JsonNode> put = rest.exchange(url(JOBS + "/" + id + "/rows/0"), HttpMethod.PUT, new HttpEntity<>(fixed, headers(W)), JsonNode.class);
+        assertThat(put.getStatusCode().value()).as(String.valueOf(put.getBody())).isEqualTo(200);
+        assertThat(db.getCollection("import_rows").countDocuments(new Document("_id", id + ":leftover"))).isZero();
+        act(id, "cancel", W);
+    }
+
+    @Test
     void gtin_identity_rows_sharing_an_internal_key_are_not_duplicates() {
         String id = create("gtin-key");
         Map<String, Object> g1 = new java.util.HashMap<>(BulkProductImportIT.gtinRow("TZP-IK-001", 1, "8901234567906"));
