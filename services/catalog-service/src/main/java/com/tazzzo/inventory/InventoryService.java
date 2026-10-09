@@ -4,6 +4,7 @@ import com.mongodb.MongoWriteException;
 import com.mongodb.client.ClientSession;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.Filters;
+import com.mongodb.client.model.Sorts;
 import com.mongodb.client.model.Updates;
 import com.mongodb.client.result.UpdateResult;
 import com.tazzzo.catalog.events.EventPayload;
@@ -16,8 +17,10 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -400,6 +403,118 @@ public class InventoryService implements InventoryReadPort {
         return out;
     }
 
+    /** One page of the admin list; {@code next*} is the position of the last row READ (valid or not), null on the last page. */
+    public record ListPage(List<InventoryRecord> rows, String nextSku, String nextLocation, int skipped) { }
+
+    /**
+     * A page of inventory rows for the admin list, in {@code (sku_id, fulfillment_location_id)} order — the order of the
+     * unique index, read with an index scan and no in-memory sort; a keyset position {@code after} resumes with an index
+     * seek. Optional filters: one fulfilment location, and a derived stock state ({@code IN_STOCK}, {@code LOW_STOCK},
+     * {@code OUT_OF_STOCK} over ACTIVE rows, or {@code INACTIVE} = not active). The state is computed by the server from the
+     * persisted counters with the SAME arithmetic as {@link InventoryRecord#stockState()}, so the feed agrees with a point
+     * read. Neither filter can seek on the {@code (sku_id, fulfillment_location_id)} index: both are residual predicates
+     * over the scanned range, so a sparse filter examines up to the rest of the collection — bounded by
+     * {@link #LIST_MAX_TIME_MS} (then {@link InventoryListTimeoutException}). A stored row that breaks the record invariants
+     * (a legacy or corrupt document) is left out of the page and counted in {@code skipped}; the position still moves past
+     * it, so one bad row never blocks the pages after it. A counter that is not a whole number (e.g. {@code on_hand: 5.5},
+     * which the state query would still match) counts as such a row. Because rows are left out AFTER the page is read, a
+     * page can be short or even empty and still carry a {@code next*} position: callers follow it until it is null.
+     */
+    public ListPage list(String fulfillmentLocationId, String state, String afterSku, String afterLocation, int limit) {
+        if (limit < 1 || limit > LIST_MAX_LIMIT) {
+            throw new InvalidInventoryException("limit must be between 1 and " + LIST_MAX_LIMIT);
+        }
+        // only rows whose two ids can be a cursor position are scanned: each a real string (not missing, not an array that
+        // merely contains one), non-empty, at most a key's length. Anything else could never be paged past — a cursor built
+        // from it would be wrong, unreadable or refused — so it is outside the list altogether.
+        List<Bson> filters = new ArrayList<>(List.of(POSITIONABLE));
+        if (fulfillmentLocationId != null) {
+            new InventoryKey("TZP-0", fulfillmentLocationId);   // the same location rule as every point read
+            filters.add(Filters.eq("fulfillment_location_id", fulfillmentLocationId));
+        }
+        if ((afterSku == null) != (afterLocation == null)) {
+            throw new InvalidInventoryException("invalid cursor");
+        }
+        if (afterSku != null) {
+            // a position only (typed string comparisons), so it may be any stored value, even one a key would refuse
+            filters.add(Filters.or(Filters.gt("sku_id", afterSku),
+                    Filters.and(Filters.eq("sku_id", afterSku), Filters.gt("fulfillment_location_id", afterLocation))));
+        }
+        if (state != null) {
+            filters.add(stateFilter(state));
+        }
+        List<Document> docs = new ArrayList<>(limit + 1);
+        try {
+            // one row past the page tells whether a next page exists, without a count
+            db.getCollection(COLLECTION).find(Filters.and(filters))
+                    .sort(Sorts.ascending("sku_id", "fulfillment_location_id")).limit(limit + 1)
+                    .maxTime(LIST_MAX_TIME_MS, java.util.concurrent.TimeUnit.MILLISECONDS).into(docs);
+        } catch (com.mongodb.MongoExecutionTimeoutException e) {
+            throw new InventoryListTimeoutException();
+        }
+        boolean more = docs.size() > limit;
+        List<Document> page = more ? docs.subList(0, limit) : docs;
+        List<InventoryRecord> out = new ArrayList<>(page.size());
+        int skipped = 0;
+        for (Document d : page) {
+            try {
+                out.add(new InventoryRecord(
+                        d.getString("sku_id"), d.getString("fulfillment_location_id"),
+                        asWholeLong(d.get("on_hand")), asWholeLong(d.get("reserved")),
+                        asWholeLong(d.get("low_stock_threshold")), asWholeLong(d.get("max_purchasable")),
+                        asWholeLong(d.get("version")), Boolean.TRUE.equals(d.get("active"))));
+            } catch (RuntimeException e) {
+                skipped++;
+            }
+        }
+        if (skipped > 0) {
+            log.warn("inventory_list_rows_skipped count={} reason=record_invariant", skipped);
+        }
+        if (!more) return new ListPage(out, null, null, skipped);
+        Document last = page.get(page.size() - 1);
+        return new ListPage(out, last.getString("sku_id"), last.getString("fulfillment_location_id"), skipped);
+    }
+
+    static final long LIST_MAX_TIME_MS = 2_000;
+
+    private static final Bson POSITIONABLE = Filters.expr(new Document("$and", List.of(
+            positionable("$sku_id"), positionable("$fulfillment_location_id"))));
+
+    /** A string of 1..MAX_ID code points; {@code $and} short-circuits, so {@code $strLenCP} only ever sees a string. */
+    private static Document positionable(String field) {
+        return new Document("$and", List.of(
+                new Document("$eq", List.of(new Document("$type", field), "string")),
+                new Document("$gt", List.of(new Document("$strLenCP", field), 0)),
+                new Document("$lte", List.of(new Document("$strLenCP", field), InventoryKey.MAX_ID))));
+    }
+
+    public static final int LIST_MAX_LIMIT = 200;
+
+    /**
+     * The derived state as a query: the SAME arithmetic as {@link InventoryRecord#stockState()}, over the persisted counters.
+     * The active states first require the three counters to be numbers ({@code $and} short-circuits), so a corrupt stored
+     * value makes that row match nothing instead of failing the whole query.
+     */
+    static Bson stateFilter(String state) {
+        Document available = new Document("$subtract", List.of("$on_hand", "$reserved"));
+        return switch (state) {
+            case "INACTIVE" -> Filters.ne("active", true);
+            case "OUT_OF_STOCK" -> activeWhere(new Document("$eq", List.of(available, 0L)));
+            case "LOW_STOCK" -> activeWhere(new Document("$and", List.of(
+                    new Document("$gt", List.of(available, 0L)),
+                    new Document("$lte", List.of(available, "$low_stock_threshold")))));
+            case "IN_STOCK" -> activeWhere(new Document("$gt", List.of(available, "$low_stock_threshold")));
+            default -> throw new InvalidInventoryException("state must be one of IN_STOCK, LOW_STOCK, OUT_OF_STOCK, INACTIVE");
+        };
+    }
+
+    private static Bson activeWhere(Document condition) {
+        List<Object> all = new ArrayList<>();
+        for (String f : List.of("$on_hand", "$reserved", "$low_stock_threshold")) all.add(new Document("$isNumber", f));
+        all.add(condition);
+        return Filters.and(Filters.eq("active", true), Filters.expr(new Document("$and", all)));
+    }
+
     @Override
     public InventoryLookup findInventory(String skuId, String fulfillmentLocationId) {
         new InventoryKey(skuId, fulfillmentLocationId);
@@ -467,6 +582,23 @@ public class InventoryService implements InventoryReadPort {
 
     private static long asLong(Object v) {
         return ((Number) Objects.requireNonNull(v, "numeric field missing")).longValue();
+    }
+
+    /**
+     * For the admin list: like {@link #asLong} but a stored counter that is not a whole number (5.5, NaN, Infinity) is
+     * refused, not truncated — the state filter does its arithmetic on the exact stored value, so truncating here would
+     * label a row differently from the query that selected it. The caller treats the refusal as a corrupt row.
+     */
+    private static long asWholeLong(Object v) {
+        Number n = (Number) Objects.requireNonNull(v, "numeric field missing");
+        boolean whole = switch (n) {
+            case Double x -> Double.isFinite(x) && x == Math.rint(x);
+            case Float x -> Float.isFinite(x) && x == Math.rint(x);
+            case org.bson.types.Decimal128 x -> x.isFinite() && x.bigDecimalValue().stripTrailingZeros().scale() <= 0;
+            default -> true;
+        };
+        if (!whole) throw new IllegalArgumentException("counter is not a whole number");
+        return n.longValue();
     }
 
     private static String safeSku(SetInventoryCommand cmd) {
