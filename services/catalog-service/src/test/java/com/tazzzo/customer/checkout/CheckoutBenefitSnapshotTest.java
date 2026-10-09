@@ -205,7 +205,10 @@ class CheckoutBenefitSnapshotTest {
         assertThat(Arrays.stream(CheckoutQuoteDto.class.getRecordComponents()).map(c -> c.getName()).toList())
                 .containsExactly("quoteId", "cartVersion", "addressId", "items", "itemCount", "distinctItemCount",
                         "subtotalPaise", "currency", "createdAt", "expiresAt", "benefitPreview", "moneyPreview", "requestId");
-        assertThat(CheckoutQuoteDto.of(quote(applied()), "req").toString().toLowerCase()).doesNotContain("reason")
+        CheckoutQuote q = quote(applied());
+        // the random ids can contain a probed word by chance ("plan", ...): mask them before scanning
+        String text = CheckoutQuoteDto.of(q, "req").toString().replace(q.quoteId(), "QUOTE_ID").replace(q.addressId(), "ADDRESS_ID");
+        assertThat(text.toLowerCase()).doesNotContain("reason")
                 .doesNotContain("membership").doesNotContain("plan").doesNotContain("eligible")
                 .doesNotContain("payable").doesNotContain("no_rule");
     }

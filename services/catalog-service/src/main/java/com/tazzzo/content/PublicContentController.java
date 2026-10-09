@@ -10,6 +10,7 @@ import com.tazzzo.catalog.consumer.ConsumerObservability;
 import com.tazzzo.catalog.ratelimit.ClientIpResolver;
 import com.tazzzo.catalog.ratelimit.ClientIpUnresolvableException;
 import com.tazzzo.catalog.ratelimit.InstallationIdResolver;
+import com.tazzzo.catalog.ratelimit.TrustedCallerResolver;
 import com.tazzzo.media.MediaUrlResolver;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -40,8 +41,13 @@ public class PublicContentController {
     private static final Logger log = LoggerFactory.getLogger(PublicContentController.class);
     static final String CACHE = "public, max-age=60";
 
+    /**
+     * BANNER: {@code imageUrl} (every client), optional {@code desktopImageUrl} (a wide image for desktop web; absent = use
+     * {@code imageUrl}), optional {@code subtitle}, and {@code altText} (always present: the editor's text, else the title).
+     */
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    record Block(String blockId, String type, String title, String imageUrl, String link, List<String> ids) { }
+    record Block(String blockId, String type, String title, String subtitle, String altText, String imageUrl, String desktopImageUrl,
+                 String link, List<String> ids) { }
 
     record Home(List<Block> blocks, String requestId) { }
 
@@ -68,29 +74,35 @@ public class PublicContentController {
     private final MediaUrlResolver urls;
     private final ConsumerAdmissionGate gate;
     private final ClientIpResolver clientIps;
+    private final TrustedCallerResolver trustedCallers;
 
-    public PublicContentController(ContentService content, MediaUrlResolver urls, ConsumerAdmissionGate gate, ClientIpResolver clientIps) {
+    public PublicContentController(ContentService content, MediaUrlResolver urls, ConsumerAdmissionGate gate, ClientIpResolver clientIps,
+                                   TrustedCallerResolver trustedCallers) {
         this.content = content;
         this.urls = urls;
         this.gate = gate;
         this.clientIps = clientIps;
+        this.trustedCallers = trustedCallers;
     }
 
     @GetMapping("/v1/content/home")
     public ResponseEntity<Home> home(HttpServletRequest request) {
-        refuseQuery(request);
+        ContentBlock.Channel channel = onlyChannel(request);
         gate.charge(ConsumerObservability.Route.CONTENT_HOME, identity(request), 1);
         List<Block> out = new ArrayList<>();
         int skipped = 0;
-        for (ContentBlock b : content.live(ContentBlock.Placement.HOME)) {
+        for (ContentBlock b : content.live(ContentBlock.Placement.HOME, channel)) {
             if (b.type() == ContentBlock.Type.BANNER) {
                 if (!urls.isConfigured()) {
                     skipped++;   // a banner without a resolvable image is dropped, never shown broken
                     continue;
                 }
-                out.add(new Block(b.blockId(), b.type().name(), b.title(), urls.resolve(b.payload().imageAssetKey()), b.payload().link(), null));
+                ContentBlock.Payload p = b.payload();
+                out.add(new Block(b.blockId(), b.type().name(), b.title(), p.subtitle(), ContentAdminController.altOrTitle(b),
+                        urls.resolve(p.imageAssetKey()), p.desktopImageAssetKey() == null ? null : urls.resolve(p.desktopImageAssetKey()),
+                        p.link(), null));
             } else {
-                out.add(new Block(b.blockId(), b.type().name(), b.title(), null, null, b.payload().ids()));
+                out.add(new Block(b.blockId(), b.type().name(), b.title(), null, null, null, null, null, b.payload().ids()));
             }
         }
         if (skipped > 0) log.warn("content_home_banners_skipped count={} reason=media_base_unconfigured", skipped);
@@ -106,6 +118,22 @@ public class PublicContentController {
             out.add(new Faq(b.blockId(), b.payload().faqCategory(), b.payload().question(), b.payload().answer()));
         }
         return ResponseEntity.ok().header(HttpHeaders.CACHE_CONTROL, CACHE).body(new Faqs(out, requestId(request)));
+    }
+
+    /**
+     * Exactly one optional parameter, {@code channel} ({@code app} | {@code web}), given once; anything else is a 400. Absent
+     * means an unidentified platform, which sees only content published to BOTH (multichannel D1/D2).
+     */
+    private static ContentBlock.Channel onlyChannel(HttpServletRequest request) {
+        java.util.Map<String, String[]> params = request.getParameterMap();
+        if (params.isEmpty()) return null;
+        String[] values = params.get("channel");
+        if (params.size() != 1 || values == null || values.length != 1) throw new ConsumerFailures.InvalidRequest("only channel is accepted");
+        try {
+            return ContentBlock.Channel.parse(values[0]);
+        } catch (IllegalArgumentException e) {
+            throw new ConsumerFailures.InvalidRequest("channel must be app or web");
+        }
     }
 
     /** Exactly one optional parameter, {@code category}, given once, from the closed set; anything else is a 400. */
@@ -140,7 +168,9 @@ public class PublicContentController {
     private ConsumerIdentity identity(HttpServletRequest request) {
         try {
             return new ConsumerIdentity(clientIps.resolve(request.getRemoteAddr(), request.getHeader("X-Forwarded-For")),
-                    InstallationIdResolver.resolve(request.getHeader(InstallationIdResolver.HEADER)));
+                    InstallationIdResolver.resolve(request.getHeader(InstallationIdResolver.HEADER)),
+                    trustedCallers.resolve(request.getHeader(TrustedCallerResolver.CALLER_HEADER),
+                            request.getHeader(TrustedCallerResolver.SECRET_HEADER)));
         } catch (ClientIpUnresolvableException e) {
             throw new ConsumerFailures.Unavailable("client identity unresolvable");
         }
