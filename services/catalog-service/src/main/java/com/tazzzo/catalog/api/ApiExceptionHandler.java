@@ -176,6 +176,16 @@ public class ApiExceptionHandler {
         return envelope(HttpStatus.BAD_REQUEST, "MALFORMED_REQUEST", "request body is malformed or unreadable", req);
     }
 
+    /**
+     * A lazily read (chunked) bulk body passed authentication and then exceeded its bound while a controller streamed it
+     * (the text/csv import-job upload). It is a 413 in the platform envelope, never the 500 catch-all; whatever the controller
+     * had stored is rolled back by the caller's own failure path.
+     */
+    @ExceptionHandler(RequestBodyLimitFilter.BodyTooLargeException.class)
+    public ResponseEntity<?> bodyTooLarge(Exception ex, HttpServletRequest req) {
+        return envelope(HttpStatus.PAYLOAD_TOO_LARGE, RequestBodyLimitFilter.CODE, RequestBodyLimitFilter.MESSAGE, req);
+    }
+
     /** A request parameter is missing, or a mapping's required parameter condition is not met: a 400, never the 500 catch-all. */
     @ExceptionHandler({org.springframework.web.bind.MissingServletRequestParameterException.class,
             org.springframework.web.bind.UnsatisfiedServletRequestParameterException.class,

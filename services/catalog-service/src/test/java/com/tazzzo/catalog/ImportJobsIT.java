@@ -772,6 +772,45 @@ class ImportJobsIT extends AbstractApiIT {
         assertThat(get(JOBS + "/" + id + "/errors.csv", R, String.class).getStatusCode().value()).isEqualTo(200);
     }
 
+    ResponseEntity<String> chunkedCsv(String jobId, byte[] body, String token) throws Exception {
+        java.net.http.HttpClient client = java.net.http.HttpClient.newBuilder().version(java.net.http.HttpClient.Version.HTTP_1_1).build();
+        java.net.http.HttpRequest.Builder b = java.net.http.HttpRequest.newBuilder(java.net.URI.create(url(JOBS + "/" + jobId + "/rows")))
+                .header("Content-Type", "text/csv")
+                .POST(java.net.http.HttpRequest.BodyPublishers.ofInputStream(() -> new java.io.ByteArrayInputStream(body)));  // no Content-Length: chunked
+        if (token != null) b.header("Authorization", "Bearer " + token);
+        java.net.http.HttpResponse<String> r = client.send(b.build(), java.net.http.HttpResponse.BodyHandlers.ofString());
+        return ResponseEntity.status(r.statusCode()).body(r.body());
+    }
+
+    @Test
+    void a_chunked_csv_over_the_body_limit_is_413_in_the_platform_envelope_and_leaves_the_job_unchanged() throws Exception {
+        String id = create("chunked-413");
+        csv(id, HEADER + line("TZP-CK-001", 1), W);
+        long version = job(id).get("version").asLong();
+        // well over the 2 MiB bulk bound: many valid rows are stored before the bound trips, then all of them are rolled back
+        StringBuilder big = new StringBuilder(HEADER);
+        String wide = "w".repeat(3_000);   // wide valid-shape rows: the bound trips after a few hundred inserts, not tens of thousands
+        for (int i = 2; big.length() < 2_200_000; i++) big.append(line("TZP-CK-" + i, i).replace("Job rice", wide));
+        ResponseEntity<String> over = chunkedCsv(id, big.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8), W);
+        assertThat(over.getStatusCode().value()).as(over.getBody()).isEqualTo(413);
+        JsonNode err = new com.fasterxml.jackson.databind.ObjectMapper().readTree(over.getBody());
+        assertThat(err.at("/error/code").asText()).isEqualTo(com.tazzzo.catalog.api.RequestBodyLimitFilter.CODE);
+        assertThat(err.at("/error/request_id").asText()).isNotBlank();
+        assertThat(over.getBody()).doesNotContain("Exception").doesNotContain("TZP-CK");
+        JsonNode j = job(id);
+        assertThat(j.get("rowsTotal").asLong()).isEqualTo(1);
+        assertThat(j.get("version").asLong()).as("the job is untouched").isEqualTo(version);
+        assertThat(db.getCollection("import_rows").countDocuments(new Document("job_id", id))).as("no partial rows").isEqualTo(1);
+        assertThat(db.getCollection("import_jobs").find(new Document("_id", id)).first().containsKey("append_lock_token")).isFalse();
+        // authentication still comes first, and a chunked body under the bound still succeeds
+        assertThat(chunkedCsv(id, (HEADER + line("TZP-CK-900", 9)).getBytes(java.nio.charset.StandardCharsets.UTF_8), null).getStatusCode().value()).isEqualTo(401);
+        assertThat(chunkedCsv(id, (HEADER + line("TZP-CK-900", 9)).getBytes(java.nio.charset.StandardCharsets.UTF_8), R).getStatusCode().value()).isEqualTo(403);
+        ResponseEntity<String> ok = chunkedCsv(id, (HEADER + line("TZP-CK-900", 9)).getBytes(java.nio.charset.StandardCharsets.UTF_8), W);
+        assertThat(ok.getStatusCode().value()).as(ok.getBody()).isEqualTo(200);
+        assertThat(job(id).get("rowsTotal").asLong()).isEqualTo(2);
+        act(id, "cancel", W);
+    }
+
     @Test
     void a_malformed_query_on_the_job_routes_gets_the_platform_filters_fixed_400() throws java.io.IOException {
         for (String path : new String[]{JOBS + "?limit=%ZZ", JOBS + "/IMPJ-000000000000000000000000/rows?from=%ZZ"}) {
