@@ -24,8 +24,8 @@ import java.util.function.Consumer;
  * (brand) · {@code gtin} (barcode, ean, upc) · {@code market} (gtinmarket, country; default IN) · {@code internalKey}
  * (key) · {@code verticalId} (vertical) · {@code releaseId} (release, taxonomyrelease) · {@code classificationStatus}
  * (classification, status; default provisional) · any {@code attr.<name>} column becomes a string attribute. Identity is
- * {@code gtin} when a GTIN is present, else {@code internal}. Cell values are trimmed; id and brand are upper-cased, as
- * the CMS does. A quoted cell may contain commas, newlines and doubled quotes.
+ * {@code gtin} when a GTIN is present, else {@code internal}. Cell values are trimmed; the brand is upper-cased, as the
+ * CMS does, but the product id is NOT (the canonical id grammar is case-sensitive; no case normalisation). A quoted cell may contain commas, newlines and doubled quotes.
  */
 public final class ImportCsvParser {
 
@@ -83,7 +83,7 @@ public final class ImportCsvParser {
 
     /** Builds the single-create request the CMS wizard would have built for this row. */
     static CreateProductRequest toRequest(List<String> cells, Map<String, Integer> map) {
-        String id = cell(cells, map, "id").toUpperCase(Locale.ROOT);
+        String id = cell(cells, map, "id");   // verbatim: the product-id grammar is case-sensitive, no case normalisation
         String gtin = cell(cells, map, "gtin");
         String internalKey = cell(cells, map, "internalKey");
         String market = cell(cells, map, "market");

@@ -285,6 +285,20 @@ public class ImportJobRepository {
                 .getMatchedCount() == 1;
     }
 
+    /** Extend the upload's append lock; false when it no longer holds it (the job left OPEN, or another uploader took over). */
+    public boolean renewAppendLock(String id, String token, long lockMs) {
+        Instant now = clock.instant();
+        return jobs().updateOne(Filters.and(Filters.eq("_id", id), Filters.eq("status", ImportJob.Status.OPEN.name()),
+                        Filters.eq("append_lock_token", token)),
+                Updates.set("append_lock_until", Date.from(now.plusMillis(lockMs)))).getMatchedCount() == 1;
+    }
+
+    /** Bump the job's version (a correction changed its content) while holding the append lock. */
+    public void touchUnderLock(String id, String token) {
+        jobs().updateOne(Filters.and(Filters.eq("_id", id), Filters.eq("append_lock_token", token)),
+                Updates.combine(Updates.inc("version", 1L), Updates.set("updated_at", Date.from(clock.instant()))));
+    }
+
     public void unlockAppend(String id, String token) {
         jobs().updateOne(Filters.and(Filters.eq("_id", id), Filters.eq("append_lock_token", token)),
                 Updates.combine(Updates.unset("append_lock_token"), Updates.unset("append_lock_until")));
@@ -333,7 +347,8 @@ public class ImportJobRepository {
     public boolean setRowsTotal(String jobId, String lockToken, long rowsTotal) {
         return jobs().updateOne(Filters.and(Filters.eq("_id", jobId), Filters.eq("status", ImportJob.Status.OPEN.name()),
                         Filters.eq("append_lock_token", lockToken)),
-                Updates.combine(Updates.set("rows_total", rowsTotal), Updates.set("updated_at", Date.from(clock.instant()))))
+                Updates.combine(Updates.set("rows_total", rowsTotal), Updates.inc("version", 1L),
+                        Updates.set("updated_at", Date.from(clock.instant()))))
                 .getMatchedCount() == 1;
     }
 
@@ -359,6 +374,18 @@ public class ImportJobRepository {
         return rows().find(Filters.and(Filters.eq("job_id", jobId), Filters.gt("row", afterRow),
                         Filters.or(Filters.eq("validation.outcome", outcome), Filters.eq("apply.outcome", outcome))))
                 .sort(Sorts.ascending("row")).limit(limit).into(new ArrayList<>());
+    }
+
+    /**
+     * Rows with a negative verdict (INVALID, DUPLICATE or FAILED, in either phase) after {@code afterRow}, in row order,
+     * read in ONE pass over the job's rows with a server-side time bound.
+     */
+    public List<Document> negatives(String jobId, long afterRow, int limit, long maxTimeMs) {
+        List<String> bad = List.of("INVALID", "DUPLICATE", "FAILED");
+        return rows().find(Filters.and(Filters.eq("job_id", jobId), Filters.gt("row", afterRow),
+                        Filters.or(Filters.in("validation.outcome", bad), Filters.in("apply.outcome", bad))))
+                .sort(Sorts.ascending("row")).limit(limit).maxTime(maxTimeMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .into(new ArrayList<>());
     }
 
     public void replaceRowPayload(String jobId, long row, Document payload, String dedupKey, List<String> identityKeys) {

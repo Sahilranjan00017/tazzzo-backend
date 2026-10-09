@@ -88,42 +88,66 @@ public class ImportJobService {
     /** Append a CSV file (streamed; never held in memory as a whole). The job must be OPEN and no other upload in progress. */
     public Appended appendCsv(String id, InputStream body) throws IOException {
         String lock = lockAppend(requireOpen(id));
-        ImportJob job = underLock(id, lock);
+        ImportJob job = underLockClean(id, lock);
         long[] row = {job.rowsTotal()};
         long[] dup = {0};
-        boolean kept;
+        boolean parsed = false;
         try {
             ImportCsvParser.parse(body, r -> {
                 requireCapacity(row[0]);
+                if ((row[0] - job.rowsTotal()) % RENEW_EVERY_ROWS == 0) renewOrFail(job.id(), lock);
                 boolean d = appendRow(job.id(), row[0], r.line(), r.request());
                 row[0]++;   // counted only once the row is stored, so rows_total never exceeds the stored rows
                 if (d) dup[0]++;
             });
+            parsed = true;
         } finally {
-            kept = finishAppend(job, lock, row[0]);
+            if (!parsed) abandonAppend(job, lock);   // atomic: any failure leaves the job exactly as it was
         }
-        if (!kept) throw jobLeftOpen();
+        if (!finishAppend(job, lock, row[0])) throw jobLeftOpen();
         return new Appended(row[0] - job.rowsTotal(), row[0], dup[0]);
+    }
+
+    /** The append lock is renewed every this many rows, so an upload that outlives {@link #APPEND_LOCK_MS} keeps it. */
+    static final int RENEW_EVERY_ROWS = 200;
+
+    private void renewOrFail(String jobId, String lock) {
+        if (!repo.renewAppendLock(jobId, lock, APPEND_LOCK_MS)) throw jobLeftOpen();
+    }
+
+    /**
+     * A failed upload: remove the rows it stored (numbered from the job's {@code rows_total}, which it never advanced) and
+     * release the lock. The delete runs only while this upload still holds the lock (the renewal doubles as the check), so
+     * it can never remove rows of another uploader that took over after a lost lock.
+     */
+    private void abandonAppend(ImportJob job, String lock) {
+        try {
+            if (repo.renewAppendLock(job.id(), lock, APPEND_LOCK_MS)) repo.deleteRowsFrom(job.id(), job.rowsTotal());
+        } finally {
+            repo.unlockAppend(job.id(), lock);
+        }
     }
 
     /** Append rows given as the JSON shape of {@code POST /api/v1/admin/imports/products}. The job must be OPEN. */
     public Appended appendRows(String id, List<CreateProductRequest> rows) {
         if (rows == null || rows.isEmpty()) throw ImportJobException.invalid("rows must contain at least one entry");
         String lock = lockAppend(requireOpen(id));
-        ImportJob job = underLock(id, lock);
+        ImportJob job = underLockClean(id, lock);
         long row = job.rowsTotal();
         long dup = 0;
-        boolean kept;
+        boolean stored = false;
         try {
             for (int i = 0; i < rows.size(); i++) {
                 requireCapacity(row);
+                if (i % RENEW_EVERY_ROWS == 0) renewOrFail(job.id(), lock);
                 if (appendRow(job.id(), row, i + 1, rows.get(i))) dup++;
                 row++;
             }
+            stored = true;
         } finally {
-            kept = finishAppend(job, lock, row);
+            if (!stored) abandonAppend(job, lock);
         }
-        if (!kept) throw jobLeftOpen();
+        if (!finishAppend(job, lock, row)) throw jobLeftOpen();
         return new Appended(row - job.rowsTotal(), row, dup);
     }
 
@@ -145,7 +169,7 @@ public class ImportJobService {
     }
 
     private static ImportJobException jobLeftOpen() {
-        return ImportJobException.conflict("the job left OPEN during the upload; none of its rows were added");
+        return ImportJobException.conflict("the job left OPEN or the upload lost its append lock; none of its rows were added");
     }
 
     /**
@@ -159,6 +183,13 @@ public class ImportJobService {
             repo.unlockAppend(id, lock);
             throw ImportJobException.conflict("rows can be added only while the job is OPEN");
         }
+        return job;
+    }
+
+    /** Rows at or past {@code rows_total} are unpublished leftovers (a crashed upload); under the lock they are safe to remove. */
+    private ImportJob underLockClean(String id, String lock) {
+        ImportJob job = underLock(id, lock);
+        repo.deleteRowsFrom(id, job.rowsTotal());
         return job;
     }
 
@@ -187,13 +218,14 @@ public class ImportJobService {
         try {
             job = underLock(id, lock);
             repo.replaceRowPayload(job.id(), row, toPayload(request), dedupKey(request), identityKeys(request));
+            repo.touchUnderLock(job.id(), lock);   // the content changed: a client holding the old version is now stale
         } catch (com.mongodb.MongoWriteException e) {
             if (e.getError().getCode() != 11000) throw e;
             throw ImportJobException.invalid("the product id, a GTIN or the internal key of this row already belongs to another row of this job");
         } finally {
             repo.unlockAppend(id, lock);
         }
-        return job;
+        return require(id);
     }
 
     /**
@@ -259,33 +291,42 @@ public class ImportJobService {
         return repo.page(id, Math.max(0, from), Math.max(1, Math.min(limit, 500)));
     }
 
-    /** Every row with a negative verdict, in row order, as a CSV with the row's product id and the reason. */
+    /**
+     * Every row with a negative verdict (INVALID, DUPLICATE or FAILED), one line per row, in strictly ascending row order
+     * (a single pass), as a CSV with the row's product id and the reason. A row that failed at apply shows the apply verdict.
+     */
     public void writeErrorsCsv(String id, Appendable out) throws IOException {
         require(id);
         out.append("row,line,id,phase,outcome,code,message\r\n");
-        for (String outcome : List.of("INVALID", "DUPLICATE", "FAILED")) {
-            long after = -1;
-            while (true) {
-                List<Document> page = repo.byOutcome(id, outcome, after, 500);
-                if (page.isEmpty()) break;
-                for (Document r : page) {
-                    Document v = r.get("validation", Document.class);
-                    Document a = r.get("apply", Document.class);
-                    Document o = a != null && outcome.equals(a.getString("outcome")) ? a : v;
-                    String phase = o == a ? "apply" : "validation";
-                    Document payload = r.get("payload", Document.class);
-                    out.append(String.valueOf(r.getLong("row"))).append(',').append(String.valueOf(r.getInteger("line", 0))).append(',')
-                            .append(csv(payload == null ? "" : payload.getString("id"))).append(',').append(phase).append(',')
-                            .append(outcome).append(',').append(csv(o.getString("code"))).append(',').append(csv(o.getString("message")))
-                            .append("\r\n");
-                    after = r.getLong("row");
-                }
+        long after = -1;
+        while (true) {
+            List<Document> page = repo.negatives(id, after, 500, ERRORS_QUERY_MAX_MS);
+            if (page.isEmpty()) break;
+            for (Document r : page) {
+                Document v = r.get("validation", Document.class);
+                Document a = r.get("apply", Document.class);
+                boolean fromApply = a != null && NEGATIVE.contains(a.getString("outcome"));   // the apply verdict is the later one
+                Document o = fromApply ? a : v;
+                Document payload = r.get("payload", Document.class);
+                out.append(String.valueOf(r.getLong("row"))).append(',').append(String.valueOf(r.getInteger("line", 0))).append(',')
+                        .append(csv(payload == null ? "" : payload.getString("id"))).append(',').append(fromApply ? "apply" : "validation")
+                        .append(',').append(csv(o.getString("outcome"))).append(',').append(csv(o.getString("code"))).append(',')
+                        .append(csv(o.getString("message"))).append("\r\n");
+                after = r.getLong("row");
             }
         }
     }
 
+    private static final List<String> NEGATIVE = List.of("INVALID", "DUPLICATE", "FAILED");
+    static final long ERRORS_QUERY_MAX_MS = 30_000;
+
+    /**
+     * One CSV cell. A cell the spreadsheet would read as a formula (first character {@code = + - @}, tab or CR) is prefixed
+     * with a single quote (OWASP CSV-injection guidance), so opening errors.csv in Excel never executes an uploaded value.
+     */
     static String csv(String s) {
         if (s == null) return "";
+        if (!s.isEmpty() && "=+-@\t\r".indexOf(s.charAt(0)) >= 0) s = "'" + s;
         return s.contains(",") || s.contains("\"") || s.contains("\n") || s.contains("\r") ? "\"" + s.replace("\"", "\"\"") + "\"" : s;
     }
 
@@ -309,7 +350,7 @@ public class ImportJobService {
     }
 
     static String dedupKey(CreateProductRequest r) {
-        return r.id() == null || r.id().isBlank() ? null : r.id().trim().toUpperCase(Locale.ROOT);
+        return r.id() == null || r.id().isBlank() ? null : r.id().trim();   // case-sensitive: TZP-a and TZP-A are different ids
     }
 
     /**

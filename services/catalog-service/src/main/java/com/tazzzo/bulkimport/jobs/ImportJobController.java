@@ -2,6 +2,7 @@ package com.tazzzo.bulkimport.jobs;
 
 import com.tazzzo.catalog.api.AdminActors;
 import com.tazzzo.catalog.api.ApiDtos.CreateProductRequest;
+import io.swagger.v3.oas.annotations.Operation;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.bson.Document;
@@ -83,12 +84,14 @@ class ImportJobController {
         this.jobs = jobs;
     }
 
+    @Operation(operationId = "createImportJob")
     @PostMapping
     ResponseEntity<JobView> create(@RequestBody CreateJobRequest body, HttpServletRequest request) {
         ImportJob job = jobs.create(body == null ? null : body.kind(), body == null ? null : body.note(), AdminActors.require(request));
         return ResponseEntity.status(HttpStatus.CREATED).body(JobView.of(job));
     }
 
+    @Operation(operationId = "appendImportJobRowsCsv", hidden = true)   // OpenAPI has one POST per path: the JSON form below is the documented one; see docs/ops/BULK_IMPORT.md for text/csv
     @PostMapping(path = "/{id}/rows", consumes = "text/csv")
     ImportJobService.Appended appendCsv(@PathVariable String id, HttpServletRequest request) throws IOException {
         AdminActors.require(request);
@@ -99,37 +102,44 @@ class ImportJobController {
         }
     }
 
+    @Operation(operationId = "appendImportJobRows")
     @PostMapping(path = "/{id}/rows", consumes = MediaType.APPLICATION_JSON_VALUE)
     ImportJobService.Appended appendJson(@PathVariable String id, @RequestBody RowsRequest body, HttpServletRequest request) {
         AdminActors.require(request);
         return jobs.appendRows(id, body == null ? null : body.rows());
     }
 
+    @Operation(operationId = "correctImportJobRow")
     @PutMapping("/{id}/rows/{row}")
     JobView correct(@PathVariable String id, @PathVariable long row, @RequestBody CreateProductRequest body, HttpServletRequest request) {
         return JobView.of(jobs.correctRow(id, row, body, AdminActors.require(request)));
     }
 
+    @Operation(operationId = "validateImportJob")
     @PostMapping("/{id}/validate")
     JobView validate(@PathVariable String id, @RequestBody(required = false) VersionedRequest body, HttpServletRequest request) {
         return JobView.of(jobs.validate(id, version(body), AdminActors.require(request)));
     }
 
+    @Operation(operationId = "applyImportJob")
     @PostMapping("/{id}/apply")
     JobView apply(@PathVariable String id, @RequestBody(required = false) VersionedRequest body, HttpServletRequest request) {
         return JobView.of(jobs.apply(id, version(body), AdminActors.require(request)));
     }
 
+    @Operation(operationId = "resumeImportJob")
     @PostMapping("/{id}/resume")
     JobView resume(@PathVariable String id, @RequestBody(required = false) VersionedRequest body, HttpServletRequest request) {
         return JobView.of(jobs.resume(id, version(body), AdminActors.require(request)));
     }
 
+    @Operation(operationId = "cancelImportJob")
     @PostMapping("/{id}/cancel")
     JobView cancel(@PathVariable String id, @RequestBody(required = false) VersionedRequest body, HttpServletRequest request) {
         return JobView.of(jobs.cancel(id, version(body), AdminActors.require(request)));
     }
 
+    @Operation(operationId = "listImportJobs")
     @GetMapping
     Map<String, Object> list(@RequestParam(required = false) String status, @RequestParam(required = false) String after,
                              @RequestParam(defaultValue = "50") int limit) {
@@ -141,11 +151,13 @@ class ImportJobController {
         return m;
     }
 
+    @Operation(operationId = "getImportJob")
     @GetMapping("/{id}")
     JobView get(@PathVariable String id) {
         return JobView.of(jobs.require(id));
     }
 
+    @Operation(operationId = "listImportJobRows")
     @GetMapping("/{id}/rows")
     Map<String, Object> rows(@PathVariable String id, @RequestParam(defaultValue = "0") long from, @RequestParam(defaultValue = "100") int limit) {
         List<RowView> out = new ArrayList<>();
@@ -160,6 +172,7 @@ class ImportJobController {
         return m;
     }
 
+    @Operation(operationId = "downloadImportJobErrorsCsv")
     @GetMapping(path = "/{id}/errors.csv", produces = "text/csv")
     void errors(@PathVariable String id, HttpServletResponse response) throws IOException {
         jobs.require(id);

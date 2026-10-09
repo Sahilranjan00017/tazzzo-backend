@@ -31,7 +31,7 @@ class ImportCsvParserTest {
         assertThat(rows).hasSize(2);
         CreateProductRequest a = rows.get(0).request();
         assertThat(rows.get(0).line()).isEqualTo(1);
-        assertThat(a.id()).isEqualTo("TZP-C-001");
+        assertThat(a.id()).as("the product id is NOT case-normalised").isEqualTo("tzp-c-001");
         assertThat(a.title()).isEqualTo("Basmati rice 5 kg");
         assertThat(a.brandCode()).isEqualTo("AMUL");
         assertThat(a.identityType()).isEqualTo("gtin");
@@ -49,6 +49,34 @@ class ImportCsvParserTest {
         assertThat(b.gtins()).isNull();
         assertThat(b.classificationStatus()).isEqualTo("confirmed");
         assertThat(b.attributes()).containsEntry("pack_size", 2.5).doesNotContainKey("organic");
+    }
+
+    @Test
+    void product_ids_keep_their_case_and_ids_differing_only_in_case_are_distinct_rows() throws IOException {
+        List<ImportCsvParser.Row> rows = parse("id,title,brand,vertical,release\n"
+                + "TZP-med-3,x,br,TZV-000001,0.9.0\n"
+                + "TZP-a,y,BR,TZV-000001,0.9.0\n"
+                + "TZP-A,z,BR,TZV-000001,0.9.0\n");
+        assertThat(rows.get(0).request().id()).isEqualTo("TZP-med-3");
+        assertThat(rows.get(0).request().brandCode()).as("only the brand is upper-cased").isEqualTo("BR");
+        assertThat(rows.get(1).request().id()).isEqualTo("TZP-a");
+        assertThat(rows.get(2).request().id()).isEqualTo("TZP-A");
+        assertThat(ImportJobService.dedupKey(rows.get(1).request())).as("dedup is case-sensitive")
+                .isNotEqualTo(ImportJobService.dedupKey(rows.get(2).request()));
+    }
+
+    @Test
+    void errors_csv_cells_that_a_spreadsheet_would_read_as_formulas_are_neutralised() {
+        assertThat(ImportJobService.csv("=HYPERLINK(\"http://x\")")).isEqualTo("\"'=HYPERLINK(\"\"http://x\"\")\"");
+        assertThat(ImportJobService.csv("+1")).isEqualTo("'+1");
+        assertThat(ImportJobService.csv("-2+3")).isEqualTo("'-2+3");
+        assertThat(ImportJobService.csv("@SUM(A1)")).isEqualTo("'@SUM(A1)");
+        assertThat(ImportJobService.csv("\tcmd")).isEqualTo("'\tcmd");
+        assertThat(ImportJobService.csv("\rcmd")).isEqualTo("\"'\rcmd\"");
+        assertThat(ImportJobService.csv("TZP-1")).isEqualTo("TZP-1");
+        assertThat(ImportJobService.csv("a=b, c")).isEqualTo("\"a=b, c\"");
+        assertThat(ImportJobService.csv(null)).isEmpty();
+        assertThat(ImportJobService.csv("")).isEmpty();
     }
 
     @Test

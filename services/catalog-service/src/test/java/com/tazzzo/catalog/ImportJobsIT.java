@@ -541,6 +541,82 @@ class ImportJobsIT extends AbstractApiIT {
     }
 
     @Test
+    void a_failed_csv_upload_leaves_the_job_unchanged_and_the_corrected_file_can_be_uploaded_again() {
+        String id = create("atomic-csv");
+        csv(id, HEADER + line("TZP-AT-001", 1), W);
+        long version = job(id).get("version").asLong();
+        String good = line("TZP-AT-002", 2) + line("TZP-AT-003", 3) + line("TZP-AT-004", 4);
+        // failure at line 4: an unbalanced quote after three good rows
+        ResponseEntity<JsonNode> bad = csv(id, HEADER + good + "TZP-AT-005,\"never closed,BR-JOB,TZV-000001,0.9.0,k,5,kg\n", W);
+        assertThat(bad.getStatusCode().value()).as(String.valueOf(bad.getBody())).isEqualTo(422);
+        JsonNode j = job(id);
+        assertThat(j.get("rowsTotal").asLong()).as("rows_total restored").isEqualTo(1);
+        assertThat(j.get("version").asLong()).as("the job is untouched").isEqualTo(version);
+        assertThat(db.getCollection("import_rows").countDocuments(new Document("job_id", id))).as("this upload's rows are gone").isEqualTo(1);
+        assertThat(db.getCollection("import_jobs").find(new Document("_id", id)).first().containsKey("append_lock_token")).isFalse();
+        // other failures: an oversize cell and too many columns
+        assertThat(csv(id, HEADER + good + "TZP-AT-006," + "x".repeat(4_001) + ",BR-JOB,TZV-000001,0.9.0,k,5,kg\n", W).getStatusCode().value()).isEqualTo(422);
+        assertThat(csv(id, HEADER + good + "TZP-AT-007" + ",".repeat(70) + "\n", W).getStatusCode().value()).isEqualTo(422);
+        assertThat(job(id).get("rowsTotal").asLong()).isEqualTo(1);
+        assertThat(db.getCollection("import_rows").countDocuments(new Document("job_id", id))).isEqualTo(1);
+        // the corrected file succeeds: nothing is flagged DUPLICATE_ROW by a leftover of the failed attempts
+        ResponseEntity<JsonNode> ok = csv(id, HEADER + good, W);
+        assertThat(ok.getStatusCode().value()).as(String.valueOf(ok.getBody())).isEqualTo(200);
+        assertThat(ok.getBody().get("rowsAdded").asLong()).isEqualTo(3);
+        assertThat(ok.getBody().get("duplicates").asLong()).isZero();
+        assertThat(ok.getBody().get("rowsTotal").asLong()).isEqualTo(4);
+        // the row cap fails the same way
+        ImportJobService tight = new ImportJobService(repo, new com.tazzzo.common.audit.DomainAudit(db, Clock.systemUTC()), tx,
+                new com.fasterxml.jackson.databind.ObjectMapper(), 5, 50);
+        String capId = create("atomic-cap");
+        assertThatThrownBy(() -> tight.appendCsv(capId, new java.io.ByteArrayInputStream(
+                (HEADER + line("TZP-AT-101", 1) + line("TZP-AT-102", 2) + line("TZP-AT-103", 3) + line("TZP-AT-104", 4) + line("TZP-AT-105", 5)
+                        + line("TZP-AT-106", 6)).getBytes(java.nio.charset.StandardCharsets.UTF_8))))
+                .isInstanceOf(com.tazzzo.bulkimport.jobs.ImportJobException.class).hasMessageContaining("at most 5 rows");
+        assertThat(job(capId).get("rowsTotal").asLong()).isZero();
+        assertThat(db.getCollection("import_rows").countDocuments(new Document("job_id", capId))).isZero();
+        act(id, "cancel", W);
+        act(capId, "cancel", W);
+    }
+
+    @Test
+    void a_failed_upload_after_the_lock_was_taken_over_deletes_nothing_of_the_new_holder() {
+        String id = create("atomic-lost-lock");
+        // the first upload streams two rows, then the lock is taken over by someone else (expired + re-locked) before it fails
+        byte[] head = (HEADER + line("TZP-AL-001", 1) + line("TZP-AL-002", 2)).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        java.io.InputStream stream = new java.io.InputStream() {
+            int pos;
+            @Override
+            public int read() throws java.io.IOException {
+                byte[] one = new byte[1];
+                return read(one, 0, 1) < 0 ? -1 : one[0] & 0xff;
+            }
+
+            @Override
+            public int read(byte[] b, int off, int len) throws java.io.IOException {
+                if (pos < head.length) {
+                    int n = Math.min(len, head.length - pos);
+                    System.arraycopy(head, pos, b, off, n);
+                    pos += n;
+                    return n;
+                }
+                // steal the lock, plant a row of the new holder in the same range, then fail
+                db.getCollection("import_jobs").updateOne(new Document("_id", id),
+                        new Document("$set", new Document("append_lock_token", "new-holder")));
+                db.getCollection("import_rows").insertOne(new Document("_id", id + ":planted").append("job_id", id).append("row", 99L));
+                throw new java.io.IOException("connection reset");
+            }
+        };
+        assertThatThrownBy(() -> service.appendCsv(id, stream)).isInstanceOf(java.io.IOException.class);
+        assertThat(db.getCollection("import_rows").countDocuments(new Document("_id", id + ":planted")))
+                .as("the new holder's row survives the failed upload").isEqualTo(1);
+        assertThat(job(id).get("rowsTotal").asLong()).isZero();
+        assertThat(db.getCollection("import_jobs").find(new Document("_id", id)).first().getString("append_lock_token"))
+                .as("and so does its lock").isEqualTo("new-holder");
+        act(id, "cancel", W);
+    }
+
+    @Test
     void gtin_identity_rows_sharing_an_internal_key_are_not_duplicates() {
         String id = create("gtin-key");
         Map<String, Object> g1 = new java.util.HashMap<>(BulkProductImportIT.gtinRow("TZP-IK-001", 1, "8901234567906"));
@@ -553,19 +629,23 @@ class ImportJobsIT extends AbstractApiIT {
     }
 
     @Test
-    void identities_are_unique_across_appends_and_ids_are_case_insensitive() {
+    void identities_are_unique_across_appends_and_ids_are_case_sensitive() {
         String id = create("identities");
         csv(id, HEADER + "TZP-ID-001,Rice A,BR-JOB,TZV-000001,0.9.0,job|ID-A,1,kg\n", W);
         ResponseEntity<JsonNode> second = csv(id, HEADER
                 + "TZP-ID-002,Rice B,BR-JOB,TZV-000001,0.9.0,job|ID-A,2,kg\n"      // same internal key as row 0 (earlier append)
-                + "tzp-id-001,Rice C,BR-JOB,TZV-000001,0.9.0,job|ID-C,3,kg\n"      // same product id, lower-cased
+                + "TZP-ID-001,Rice C,BR-JOB,TZV-000001,0.9.0,job|ID-C,3,kg\n"      // same product id, same case
+                + "tzp-id-003,Rice E,BR-JOB,TZV-000001,0.9.0,job|ID-E,5,kg\n"      // lower-cased: a DIFFERENT id, no normalisation
                 + "TZP-ID-003,Rice D,BR-JOB,TZV-000001,0.9.0,,,\n", W);
         assertThat(second.getBody().get("duplicates").asLong()).isEqualTo(2);
-        assertThat(second.getBody().get("rowsTotal").asLong()).isEqualTo(4);
-        JsonNode rows = get(JOBS + "/" + id + "/rows?from=1&limit=3", R, JsonNode.class).getBody().get("rows");
+        assertThat(second.getBody().get("rowsTotal").asLong()).isEqualTo(5);
+        JsonNode rows = get(JOBS + "/" + id + "/rows?from=1&limit=4", R, JsonNode.class).getBody().get("rows");
         assertThat(rows.get(0).get("validation").get("code").asText()).isEqualTo("DUPLICATE_IDENTITY");
         assertThat(rows.get(1).get("validation").get("code").asText()).isEqualTo("DUPLICATE_ROW");
         assertThat(rows.get(2).get("validation").isNull()).as("the third row is not a duplicate").isTrue();
+        assertThat(rows.get(2).get("id").asText()).isEqualTo("tzp-id-003");
+        assertThat(rows.get(3).get("validation").isNull()).as("a lower-cased id is a different id").isTrue();
+        assertThat(rows.get(3).get("id").asText()).isEqualTo("TZP-ID-003");
         // a GTIN seen in an earlier append is a duplicate in a later JSON append too
         Map<String, Object> g1 = BulkProductImportIT.gtinRow("TZP-ID-004", 4, "8901234567890");
         Map<String, Object> g2 = BulkProductImportIT.gtinRow("TZP-ID-005", 5, "8901234567890");

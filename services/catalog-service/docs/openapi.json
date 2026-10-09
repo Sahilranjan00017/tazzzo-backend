@@ -389,7 +389,7 @@
     "/api/v1/admin/imports/jobs/{id}/rows/{row}" : {
       "put" : {
         "tags" : [ "import-job-controller" ],
-        "operationId" : "correct",
+        "operationId" : "correctImportJobRow",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -433,7 +433,7 @@
     "/api/v1/admin/delivery-slots/{serviceAreaId}/{windowId}" : {
       "get" : {
         "tags" : [ "delivery-slot-admin-controller" ],
-        "operationId" : "get_13",
+        "operationId" : "get_12",
         "parameters" : [ {
           "name" : "serviceAreaId",
           "in" : "path",
@@ -507,7 +507,7 @@
     "/api/v1/admin/content/blocks/{id}" : {
       "get" : {
         "tags" : [ "content-admin-controller" ],
-        "operationId" : "get_14",
+        "operationId" : "get_13",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -2281,7 +2281,7 @@
     "/api/v1/admin/imports/jobs" : {
       "get" : {
         "tags" : [ "import-job-controller" ],
-        "operationId" : "list_7",
+        "operationId" : "listImportJobs",
         "parameters" : [ {
           "name" : "status",
           "in" : "query",
@@ -2324,7 +2324,7 @@
       },
       "post" : {
         "tags" : [ "import-job-controller" ],
-        "operationId" : "create_4",
+        "operationId" : "createImportJob",
         "requestBody" : {
           "content" : {
             "application/json" : {
@@ -2352,7 +2352,7 @@
     "/api/v1/admin/imports/jobs/{id}/validate" : {
       "post" : {
         "tags" : [ "import-job-controller" ],
-        "operationId" : "validate",
+        "operationId" : "validateImportJob",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -2387,7 +2387,7 @@
     "/api/v1/admin/imports/jobs/{id}/rows" : {
       "get" : {
         "tags" : [ "import-job-controller" ],
-        "operationId" : "rows",
+        "operationId" : "listImportJobRows",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -2432,7 +2432,7 @@
       },
       "post" : {
         "tags" : [ "import-job-controller" ],
-        "operationId" : "appendCsv_1",
+        "operationId" : "appendImportJobRows",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -2468,7 +2468,7 @@
     "/api/v1/admin/imports/jobs/{id}/resume" : {
       "post" : {
         "tags" : [ "import-job-controller" ],
-        "operationId" : "resume",
+        "operationId" : "resumeImportJob",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -2503,7 +2503,7 @@
     "/api/v1/admin/imports/jobs/{id}/cancel" : {
       "post" : {
         "tags" : [ "import-job-controller" ],
-        "operationId" : "cancel_1",
+        "operationId" : "cancelImportJob",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -2538,7 +2538,7 @@
     "/api/v1/admin/imports/jobs/{id}/apply" : {
       "post" : {
         "tags" : [ "import-job-controller" ],
-        "operationId" : "apply",
+        "operationId" : "applyImportJob",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -2715,7 +2715,7 @@
     "/api/v1/admin/content/blocks" : {
       "get" : {
         "tags" : [ "content-admin-controller" ],
-        "operationId" : "list_9",
+        "operationId" : "list_8",
         "parameters" : [ {
           "name" : "placement",
           "in" : "query",
@@ -2754,7 +2754,7 @@
       },
       "post" : {
         "tags" : [ "content-admin-controller" ],
-        "operationId" : "create_5",
+        "operationId" : "create_4",
         "requestBody" : {
           "content" : {
             "application/json" : {
@@ -4120,7 +4120,7 @@
     "/api/v1/admin/imports/jobs/{id}" : {
       "get" : {
         "tags" : [ "import-job-controller" ],
-        "operationId" : "get_12",
+        "operationId" : "getImportJob",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -4146,7 +4146,7 @@
     "/api/v1/admin/imports/jobs/{id}/errors.csv" : {
       "get" : {
         "tags" : [ "import-job-controller" ],
-        "operationId" : "errors",
+        "operationId" : "downloadImportJobErrorsCsv",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -4165,7 +4165,7 @@
     "/api/v1/admin/delivery-slots/{serviceAreaId}" : {
       "get" : {
         "tags" : [ "delivery-slot-admin-controller" ],
-        "operationId" : "list_8",
+        "operationId" : "list_7",
         "parameters" : [ {
           "name" : "serviceAreaId",
           "in" : "path",
@@ -4253,7 +4253,7 @@
     "/api/v1/admin/audit-events" : {
       "get" : {
         "tags" : [ "admin-audit-events-controller" ],
-        "operationId" : "list_10",
+        "operationId" : "list_9",
         "responses" : {
           "200" : {
             "description" : "OK",
@@ -6359,6 +6359,17 @@
           }
         }
       },
+      "RowsRequest" : {
+        "type" : "object",
+        "properties" : {
+          "rows" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/CreateProductRequest"
+            }
+          }
+        }
+      },
       "Appended" : {
         "type" : "object",
         "properties" : {
@@ -6373,17 +6384,6 @@
           "duplicates" : {
             "type" : "integer",
             "format" : "int64"
-          }
-        }
-      },
-      "RowsRequest" : {
-        "type" : "object",
-        "properties" : {
-          "rows" : {
-            "type" : "array",
-            "items" : {
-              "$ref" : "#/components/schemas/CreateProductRequest"
-            }
           }
         }
       },
