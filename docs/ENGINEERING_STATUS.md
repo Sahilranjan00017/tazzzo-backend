@@ -3,7 +3,7 @@
 Single source of truth for what is actually built and verified in `tazzzo-backend`.
 Reflects **current reality only** — nothing is marked complete unless verified from existing code.
 
-Last updated: 2026-10-04
+Last updated: 2026-10-09
 
 ---
 
@@ -14,7 +14,7 @@ Last updated: 2026-10-04
   *inside* this service, with boundaries enforced by ArchUnit. Standalone-service extraction
   is a FUTURE decision and is **not required** for production operation.
   - Language/runtime: **Java 21** (Temurin 21)
-  - Framework: **Spring Boot 3.3.5**
+  - Framework: **Spring Boot 4.1.1** (Spring Framework 7; ADR-016; Jackson 2 retained, Jackson 3 is a separate follow-up)
   - Datastore: **MongoDB** (primary; event-sourced write path)
   - Cache/limiter: **Redis** (consumer rate limiter only)
   - Test rig: JUnit 5 + Testcontainers (MongoDB 7 replica set + Redis)
@@ -1309,6 +1309,50 @@ PR-11C squash `d136d53` + PR-12A squash `8d3b8fd` + PR-12B squash `64042f6`) —
   products and freshness latency degrades to backlog-drain time (≈ 21 h for a full 1M pass). Scale `card-rebuild-batch-size` with the catalogue, or
   prioritise hook rebuilds in `claim`, before the catalogue approaches that size. A tick at the 20,000 ceiling takes ≈ 24 s (one upsert per SKU), which
   stretches a 1M pass to ≈ 4.6 h; a `bulkWrite` in `reconcileDrift` would remove that.
+
+- **Inventory admin list and low-stock feed** (branch `feature/inventory-admin-list`, PR #101, from `main` `7d491dd`): **IN REVIEW**. The CMS stock
+  workspace (tazzzo-web #10) could only look up one `(sku, location)` because the backend had no stock list. `GET /api/v1/admin/inventory?location=&state=&limit=&cursor=`
+  (operationId `listStock`) lists rows in `(sku_id, fulfillment_location_id)` order — the unique index's order, no in-memory sort — with an opaque
+  base64url keyset cursor (the position of the last row READ, length-prefixed so any characters in either id are unambiguous), an optional location
+  filter and a server-derived `state` filter (`IN_STOCK` | `LOW_STOCK` | `OUT_OF_STOCK` over active rows, or `INACTIVE` = not active) computed by `$expr`
+  with the SAME arithmetic as `InventoryRecord.stockState()`; the four states partition the valid rows exactly as the list labels them (and as the
+  point read does for every row it can read). The query
+  grammar is closed (only those four names, once each, never empty; anything else is 422 `INVALID_INVENTORY` with a sanitised message). A stored row
+  that breaks the record invariants (missing field, non-numeric or non-integral counter such as `on_hand: 5.5`, `reserved > on_hand`) is left out and counted in a WARN, the cursor still
+  moves past it — so a page can be short or even empty yet still carry `nextCursor`; clients MUST follow `nextCursor` until it is null and never treat a short page as the end — and the state filters guard their `$expr` with `$isNumber`, so such a row matches no state instead of failing the query; only rows whose two ids
+  can be a cursor position are scanned at all (each a real string — not missing, not an array holding one — of 1..128 code points); anything else
+  could never be paged past, so it is outside the list. Every cursor the list issues decodes (bound 1,400 chars).
+  Neither filter can seek on the `(sku_id, location)` index — a sparse location or state filter examines up to the rest of the collection — so the
+  query is bounded by `maxTimeMS` 2 s (then 503 `LIST_TIMEOUT`); a `(fulfillment_location_id, sku_id)` index is the follow-up if location lists
+  must stay fast past a few hundred thousand stock rows. Independent review of the first head (NEEDS-CHANGES: `|` in a SKU looped the cursor; the
+  OpenAPI response pointed at another `PageResponse`; a non-numeric limit leaked Java type names; corrupt rows 500'd or blocked paging; plan claims
+  overstated) — all fixed; re-review of `2eec7f5` (NEEDS-CHANGES: a row with no `sku_id` made a "null" cursor that hid the rows after it; a
+  non-numeric counter 500'd state filters; long-id cursors exceeded the decode bound) — all fixed, three mutants killed; final review of `057b7a4` (NEEDS-CHANGES: `$type: string`
+  also matches an array holding a string → 500 when it ended a page; empty/over-long stored ids made refused cursors) — fixed by one positionability
+  guard, mutant killed. Evidence: `InventoryAdminListIT` (every row exactly once at page sizes 1–200 incl. a `|` SKU and corrupt rows, filters
+  and their partition, field-by-field equality with the point read, closed grammar, the generated contract's shapes). Not done: deltas/reasons
+  history, a location registry; the generated spec lists no query parameters for this or any other raw-parameter admin list (repo-wide gap).
+
+- **Product id grammar on the write path** (branch `fix/product-id-grammar-write-path`, from `main` `0d61e41`): **IN REVIEW**. One canonical grammar
+  `^TZP-[A-Za-z0-9-]{1,40}$` (full match, no case normalisation: `TZP-Med-3` is valid and preserved) lives in `catalog/domain/ProductIds`. Cart and content
+  blocks (rail ids and `product:` links) now reuse it; create (`ProductController.toDraft`, 400 `MALFORMED_REQUEST`), `MintService`, `BundleService` and
+  `VariantPackService` (id and component ids) and the normal bulk import (`ProductImportValidator.shape()`, explicit `INVALID_ROW`) enforce it, so ids such as
+  `TZP-`, `TZP-a_b`, `TZP-x y` or 100-char ids can no longer be created yet un-cartable. The Mongo `$jsonSchema` (`^TZP-`) is unchanged and stays a backstop.
+  Generated `docs/openapi.json` gains the pattern (additive, 20 lines) on the create body id, bundle/pack component ids and the admin product/price/inventory
+  id path params; `ApiContractParityIT` asserts the YAML and generated patterns equal the Java constant. Not included: `bulkimport/jobs` (PR #100; follow-up),
+  Mongo validator/migration tightening (separate later PR). Evidence: `ProductIdGrammarTest`, `ProductImportIdShapeTest`, `ProductIdGrammarIT`,
+  `ProductIdLifecycleIT`, `CartHttpIT`, `ApiContractParityIT`.
+
+- **Spring Boot 4.1 migration, step 1: platform upgrade with Jackson 2 retained** (branch `feature/spring-boot-4-migration`, from `main` `0d61e41`): **IN REVIEW**.
+  ADR-016 (supersedes the framework version in ADR-013). `spring-boot-starter-parent` 3.3.13 -> **4.1.1** (latest GA on Maven Central; 4.2 is milestones only);
+  Spring Framework 7.0.9, Spring Data MongoDB 5.1.1, Lettuce 7.5.2, Tomcat 11.0.24, Micrometer 1.17.1. springdoc 2.6.0 -> 3.1.1 (OpenAPI kept at 3.0.1),
+  Testcontainers 1.21.3 -> 2.0.5 (BOM-managed, artifacts renamed), `spring-boot-jackson2` added with `spring.http.converters.preferred-json-mapper=jackson2`,
+  Jackson 2 BOM pinned to 2.21.7 (2.21.5 regresses the numeric-string ReDoS guard). Removed the Tomcat/Netty/Jackson security overrides the BOM now supersedes.
+  Code: renamed Redis auto-configuration excludes, Lettuce 7 `RedisURI` credentials, `spring.data.mongodb.*` -> `spring.mongodb.*` (env vars unchanged),
+  audit-query malformed-percent mapping for Tomcat 11, Dockerfile `layertools` -> `tools extract --layers`, tests: `TestRestTemplate` module move and
+  `UNPROCESSABLE_CONTENT`. No catalogue business logic changed. Evidence: full suite 3,350 tests, 0 failures, 1 skipped (env-gated `CatalogCapacityIT`).
+  Generated OpenAPI: same paths/operations; deltas are renumbered `operationId` suffixes and the previously missing `@JsonUnwrapped` card fields on
+  `ProductDetailDto`/`NodeDetailDto`. Not done: Jackson 3 migration (separate follow-up PR), container image build against the pinned base (Docker Hub rate limit during verification).
 
 - **Catalogue capacity harness** (branch `feature/catalogue-capacity-harness`, from `main` `7d491dd`): **IN REVIEW**. `CatalogCapacityIT`, enabled only by
   `TAZZZO_CAPACITY_SKUS=<N>`, seeds N TEST DATA products through the real write shapes (validator-conformant documents, `PricingService`,

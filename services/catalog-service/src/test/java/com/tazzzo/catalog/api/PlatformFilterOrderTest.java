@@ -20,6 +20,12 @@ class PlatformFilterOrderTest {
     }
 
     @Test
+    void malformed_query_filter_runs_after_both_authentication_filters_and_the_customer_rate_limiter() {
+        assertThat(order(MalformedQueryFilter.class)).isGreaterThan(order(CustomerAuthFilter.class));
+        assertThat(order(MalformedQueryFilter.class)).isGreaterThan(Ordered.HIGHEST_PRECEDENCE + 20);
+    }
+
+    @Test
     void platform_filters_precede_both_authentication_filters_with_no_ties() {
         int requestId = order(RequestIdFilter.class);
         int bodyLimit = order(RequestBodyLimitFilter.class);

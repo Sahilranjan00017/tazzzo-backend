@@ -1,6 +1,6 @@
 # ADR-013: Backend runtime baseline = Java 21 / Spring Boot 3.3.5
 
-- **Status:** Accepted · **Date:** 2026-09-25 · Ratified in Phase 3.1
+- **Status:** Accepted; framework version SUPERSEDED by [ADR-016](ADR-016-spring-boot-4-runtime-baseline.md) (Spring Boot 4.1) · **Date:** 2026-09-25 · Ratified in Phase 3.1
 
 ## Context
 A single, consistent backend stack is required. The catalog service is Java 21 / Boot 3.3.5 on MongoDB 7 + Redis; the abandoned stories scaffold was Boot 4 / Postgres.

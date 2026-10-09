@@ -14,16 +14,18 @@ FROM ${JRE_IMAGE} AS layers
 WORKDIR /build
 COPY target/catalog-service-*.jar app.jar
 # Spring Boot layered jar: dependencies change rarely, the application layer on every commit.
-RUN java -Djarmode=layertools -jar app.jar extract
+# Boot 4 removed `-Djarmode=layertools`; `-Djarmode=tools extract --layers --launcher` produces the same four layer
+# directories (dependencies, spring-boot-loader, snapshot-dependencies, application) under /build/extracted.
+RUN java -Djarmode=tools -jar app.jar extract --layers --launcher --destination extracted
 
 FROM ${JRE_IMAGE}
 RUN groupadd --system --gid 10001 tazzzo \
     && useradd --system --uid 10001 --gid tazzzo --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin tazzzo
 WORKDIR /app
-COPY --from=layers /build/dependencies/ ./
-COPY --from=layers /build/spring-boot-loader/ ./
-COPY --from=layers /build/snapshot-dependencies/ ./
-COPY --from=layers /build/application/ ./
+COPY --from=layers /build/extracted/dependencies/ ./
+COPY --from=layers /build/extracted/spring-boot-loader/ ./
+COPY --from=layers /build/extracted/snapshot-dependencies/ ./
+COPY --from=layers /build/extracted/application/ ./
 USER 10001:10001
 # Heap sized from the container limit; die on OOM so the orchestrator restarts a clean process.
 ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError -Djava.io.tmpdir=/tmp"

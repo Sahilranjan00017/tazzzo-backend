@@ -1,5 +1,6 @@
 package com.tazzzo.inventory.admin;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import com.tazzzo.catalog.api.AdminActors;
 import com.tazzzo.catalog.tx.ProductQueryService;
 import com.tazzzo.inventory.InvalidInventoryException;
@@ -48,7 +49,7 @@ public class InventoryAdminController {
     }
 
     @GetMapping
-    public StockResponse get(@PathVariable("skuId") String skuId, @PathVariable("locationId") String locationId) {
+    public StockResponse get(@PathVariable("skuId") @Schema(pattern = com.tazzzo.catalog.domain.ProductIds.REGEX) String skuId, @PathVariable("locationId") String locationId) {
         products.requireProduct(skuId);
         InventoryLookup lookup = inventory.findInventory(skuId, locationId);
         InventoryRecord r = lookup.record();
@@ -60,7 +61,7 @@ public class InventoryAdminController {
     }
 
     @PutMapping
-    public ResponseEntity<StockResponse> put(@PathVariable("skuId") String skuId, @PathVariable("locationId") String locationId,
+    public ResponseEntity<StockResponse> put(@PathVariable("skuId") @Schema(pattern = com.tazzzo.catalog.domain.ProductIds.REGEX) String skuId, @PathVariable("locationId") String locationId,
                                              @RequestBody StockRequest body, HttpServletRequest request) {
         if (body == null || body.onHand() == null || body.lowStockThreshold() == null || body.maxPurchasable() == null) {
             throw new InvalidInventoryException("onHand, lowStockThreshold and maxPurchasable are required");
@@ -73,13 +74,13 @@ public class InventoryAdminController {
     }
 
     @PostMapping("/activate")
-    public StockResponse activate(@PathVariable("skuId") String skuId, @PathVariable("locationId") String locationId,
+    public StockResponse activate(@PathVariable("skuId") @Schema(pattern = com.tazzzo.catalog.domain.ProductIds.REGEX) String skuId, @PathVariable("locationId") String locationId,
                                   @RequestBody VersionRequest body, HttpServletRequest request) {
         return setActive(skuId, locationId, body, request, true);
     }
 
     @PostMapping("/deactivate")
-    public StockResponse deactivate(@PathVariable("skuId") String skuId, @PathVariable("locationId") String locationId,
+    public StockResponse deactivate(@PathVariable("skuId") @Schema(pattern = com.tazzzo.catalog.domain.ProductIds.REGEX) String skuId, @PathVariable("locationId") String locationId,
                                     @RequestBody VersionRequest body, HttpServletRequest request) {
         return setActive(skuId, locationId, body, request, false);
     }
