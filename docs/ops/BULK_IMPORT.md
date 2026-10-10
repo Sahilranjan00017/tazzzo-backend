@@ -66,7 +66,7 @@ Re-submitting a file, including after a partial run, therefore applies only the 
 - The only tabular product files are the two 50-title classification studies, which have no GTIN, brand, pack, price or stock.
 
 The dataset is an input the business must supply. Once it exists:
-1. **Prepare the products file.** One row per SKU in the single-create shape above, at most 500 rows per file, classified against the active release (`GET /api/v1/taxonomy/releases`).
+1. **Prepare the products file.** One row per SKU in the single-create shape above, at most 500 rows per file, classified against the active release (`GET /api/v1/taxonomy/releases/{id}` reads one release by id; there is no list-releases route, so the release id is supplied out of band).
 2. **Products.** Call `POST /api/v1/admin/imports/products` with `"dryRun": true`, fix every `rowErrors` entry, then repeat with `"dryRun": false`. Re-submit the same file until every row is `APPLIED` or `UNCHANGED`.
 3. **Prices.** Call `POST /api/v1/admin/imports/prices` (dry run, then apply) with `skuId, sellingPricePaise, mrpPaise`.
 4. **Stock.** Call `POST /api/v1/admin/imports/inventory` (dry run, then apply) with `skuId, locationId, onHand, lowStockThreshold, maxPurchasable` for every fulfilment location that serves the launch PINs.
