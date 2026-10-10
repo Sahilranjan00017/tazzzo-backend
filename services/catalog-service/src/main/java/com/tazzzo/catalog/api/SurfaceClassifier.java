@@ -8,7 +8,7 @@ package com.tazzzo.catalog.api;
  * <pre>
  *   PUBLIC_CONSUMER          /catalog/v1, /catalog/v1/**,
  *                            /v1/categories, /v1/categories/**,
- *                            /v1/products, /v1/products/**,
+ *                            /v1/products, /v1/products/**, /v1/products:batch (exact only),
  *                            /v1/serviceability (exact only), /v1/search (exact only),
  *                            /v1/content/home, /v1/content/faqs, /v1/app-config (exact only),
  *                            /v1/auth, /v1/auth/**              public BY DECISION, per-family (Q4-b)
@@ -68,6 +68,9 @@ public final class SurfaceClassifier {
     public static final String HEALTH_LIVE = "/health/live";
     public static final String HEALTH_READY = "/health/ready";
 
+    /** The bounded public batch read, EXACT only ({@code /v1/products:batch/x} stays UNKNOWN). */
+    public static final String PRODUCTS_BATCH = "/v1/products:batch";
+
     private SurfaceClassifier() {
     }
 
@@ -106,6 +109,7 @@ public final class SurfaceClassifier {
     private static boolean isPublicCommerceV1(String uri) {
         return uri.equals("/v1/categories") || uri.startsWith("/v1/categories/")
                 || uri.equals("/v1/products") || uri.startsWith("/v1/products/")
+                || uri.equals(PRODUCTS_BATCH)
                 || uri.equals("/v1/serviceability")
                 || uri.equals("/v1/search")
                 || uri.equals("/v1/content/home") || uri.equals("/v1/content/faqs") || uri.equals("/v1/app-config")

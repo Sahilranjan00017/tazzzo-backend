@@ -3177,6 +3177,60 @@
         }
       }
     },
+    "/v1/products:batch" : {
+      "get" : {
+        "tags" : [ "commerce-read-controller" ],
+        "operationId" : "getProductsBatch",
+        "parameters" : [ {
+          "name" : "ids",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "release",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "pin",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "lat",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "lng",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProductBatchResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/products/{id}" : {
       "get" : {
         "tags" : [ "commerce-read-controller" ],
@@ -6744,6 +6798,29 @@
           },
           "serviceable" : {
             "type" : "boolean"
+          }
+        }
+      },
+      "ProductBatchResponse" : {
+        "type" : "object",
+        "properties" : {
+          "resolvedReleaseId" : {
+            "type" : "string"
+          },
+          "items" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/ProductCardDto"
+            }
+          },
+          "missing" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "requestId" : {
+            "type" : "string"
           }
         }
       },

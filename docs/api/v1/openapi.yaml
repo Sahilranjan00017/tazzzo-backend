@@ -221,6 +221,59 @@ paths:
           $ref: '#/components/responses/Unavailable'
         '406':
           $ref: '#/components/responses/PublicNotAcceptable'
+  /v1/products:batch:
+    get:
+      tags:
+      - commerce-read
+      operationId: getProductsBatch
+      summary: 'Bounded batch of ProductCards: for up to 50 product ids, the card `GET /v1/products/{id}` would answer, in request order.
+
+        '
+      description: 'Built for hydrating a rail from a list of ids in one call instead of one GET per id. `items[i]` is exactly the card (every ProductCard field, same values) that `GET /v1/products/{id}` returns for that id under the same `release`, `pin` and clock, minus the detail-only fields (gallery, attributes). Order follows the request; a duplicated id appears once, at its first position. Every id that has no card is listed in `missing`, also in request order, WITHOUT a reason: an unknown id, a draft, unlisted, discontinued, unconfirmed or otherwise non-public product, a product outside the resolved release, and a product merged into another are indistinguishable, so the call cannot be used to probe for unpublished products. (Unlike the single-id read, a merged id is NOT followed to its survivor: ask for the survivor id.) A request with only missing ids is a normal 200 with empty `items`.
+
+
+        Bounds, all refused with the fixed flat `400 INVALID_REQUEST` (no echo of the input, nothing charged, nothing read): `ids` is required, appears exactly once, holds 1..50 comma-separated ids (the cap counts duplicates; deployment key `tazzzo.commerce.product-batch.max-ids`, default and hard maximum 50), every element must be a canonical product id (`^TZP-[A-Za-z0-9-]{1,40}$`, exact case, no whitespace or empty element, no trailing comma), and the raw query string is at most 2866 characters at the default cap. One invalid id refuses the whole request. The response is at most 50 cards.
+
+
+        Cost: one request is charged `1 + (number of distinct ids)` units, 2..51, against the same buckets as the single-id read (the caller''s own bucket for a verified trusted caller, otherwise client IP and installation); a refusal is `429` with `Retry-After`. The bucket capacity must be at least 51. Never cached: `Cache-Control: private, no-store`, no ETag. Public, no credential; `X-Tazzzo-Caller` is honoured exactly as on the single-id read.
+
+        '
+      parameters:
+      - name: ids
+        in: query
+        required: true
+        description: Comma-separated product ids, 1..50, each `^TZP-[A-Za-z0-9-]{1,40}$`. Duplicates collapse to the first occurrence. Send the parameter once.
+        schema:
+          type: string
+          minLength: 5
+          maxLength: 2249
+          pattern: ^TZP-[A-Za-z0-9-]{1,40}(,TZP-[A-Za-z0-9-]{1,40}){0,49}$
+        example: TZP-1,TZP-2,TZP-3
+      - $ref: '#/components/parameters/Release'
+      - $ref: '#/components/parameters/Pin'
+      - $ref: '#/components/parameters/Lat'
+      - $ref: '#/components/parameters/Lng'
+      - $ref: '#/components/parameters/InstallationId'
+      - $ref: '#/components/parameters/TrustedCaller'
+      - $ref: '#/components/parameters/TrustedCallerSecret'
+      responses:
+        '200':
+          description: OK (`items` may be empty when every id is missing).
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductBatchResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '406':
+          $ref: '#/components/responses/PublicNotAcceptable'
   /v1/serviceability:
     get:
       tags:
@@ -2473,6 +2526,31 @@ components:
           description: Omitted at end of list.
         hasMore:
           type: boolean
+        requestId:
+          type: string
+    ProductBatchResponse:
+      type: object
+      required:
+      - resolvedReleaseId
+      - items
+      - missing
+      - requestId
+      properties:
+        resolvedReleaseId:
+          type: string
+        items:
+          type: array
+          maxItems: 50
+          description: One ProductCard per found id, in request order (first occurrence of a duplicate).
+          items:
+            $ref: '#/components/schemas/ProductCard'
+        missing:
+          type: array
+          maxItems: 50
+          description: Every requested id with no card, in request order, once each, with no reason.
+          items:
+            type: string
+            pattern: ^TZP-[A-Za-z0-9-]{1,40}$
         requestId:
           type: string
     OtpRequestRequest:
