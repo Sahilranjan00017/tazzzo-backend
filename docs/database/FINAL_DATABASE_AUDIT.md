@@ -9,7 +9,7 @@ document disagreed, it was corrected (§11).
 | Base | `origin/main` `d3da14d91b990ffa9faa9b1b80a334b725d874d2` ("Observability: import/media/projection/queue metrics ...", #118) |
 | Branch | `chore/final-db-audit`: this audit plus one separate code commit, migration `V0019` (finding F-1) |
 | Server | MongoDB **7.0.43** (Testcontainers `mongo:7`, single-node replica set, no authentication), disposable containers only |
-| Runtime | OpenJDK 21.0.12 (Ubuntu build), `./mvnw`, Spring Boot 4.1.1 (the `pom.xml`; `CLAUDE.md` still says 3.3.5, see F-12) |
+| Runtime | OpenJDK 21.0.12 (Ubuntu build), `./mvnw`, Spring Boot 4.1.1 (the `pom.xml`; `CLAUDE.md` already says 4.1.x since #113) |
 | Method | throwaway JUnit harnesses (not committed; §13) that run the real `MigrationRunner` with `Migrations.defaults(...)` against fresh scratch databases, then introspect `listCollections`, `listIndexes`, `schema_migrations`; a second harness bulk-inserts a 100,000-product dataset (§6) straight into the migrated database (not through the API) and runs `explain("executionStats")` |
 | Not touched | no AWS, no Atlas, no production, no secrets; no existing worktree; no force push; no PR opened; no merge |
 
@@ -430,7 +430,7 @@ Severity: **High** = wrong or unavailable at the target scale; **Medium** = real
 | F-9 | Info | Rebuild-queue claim examines the leased set (101 keys for 1 returned) because the `$or` second branch walks `status = leased` | E60. Bounded by the number of leased rows (about the worker count) and independent of the 100,000 pending rows | No change. The two `V0018` lookups are single-key index walks (E61, E62) |
 | F-10 | Info | `V0017` and `V0004` are recorded `adopted` (no-ops) on a fresh database | §3.1 | Documented here and in the runbook |
 | F-11 | Low (fixed) | Documentation drift: collection counts 49/50/51/55, "exactly four TTL indexes", the runbook's "51 indexes", the retention header, missing `import_*` rows in the contracts, the inventory header | §11 | Fixed |
-| F-12 | Info | `CLAUDE.md` states Spring Boot 3.3.5; the `pom.xml` and `ENGINEERING_STATUS.md` say 4.1.1 | the parent in `pom.xml` | Not edited (project instructions file); the owner should update it |
+| F-12 | Info | (withdrawn) an earlier draft of this audit read a stale `CLAUDE.md` that said Spring Boot 3.3.5; `CLAUDE.md` on `main` already says 4.1.x (updated in #113), matching the `pom.xml` | the parent in `pom.xml`, `CLAUDE.md` | none needed |
 | F-13 | Info | Test pin: `DatastorePrivilegeIT` hard-codes the number of applied migrations (was 18) | failed on the first full run after `V0019` | Updated to 19 in the `V0019` commit |
 
 No **High** finding. No checksum mismatch. No missing index for a request path. No COLLSCAN on a customer or catalogue request path.

@@ -18,7 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * The hourly price rollup (migration V0019) on a real MongoDB with a ledger dominated by paise-shape price changes: the scan of
- * the not-yet-rolled LEGACY offer events is an ordered IXSCAN of the partial index that holds only legacy-shape events, so it reads
+ * the not-yet-rolled LEGACY offer events is an IXSCAN of the partial index that holds only legacy-shape events (with a small in-memory SORT bounded by the unrolled events), so it reads
  * exactly the unrolled legacy events and none of the paise rows (before V0019 it read the whole ledger through
  * {@code product_id_1_ts_1}). The index returns the same rows as a collection scan. Removing the spec from the catalog fails this test.
  */
