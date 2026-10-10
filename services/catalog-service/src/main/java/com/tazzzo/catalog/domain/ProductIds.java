@@ -9,8 +9,8 @@ import java.util.regex.Pattern;
  *
  * <p>The cart, content blocks, the storefront and the published OpenAPI {@code ProductId} all use this grammar; the
  * write paths (create, mint, bundle and pack components, the normal bulk import) enforce it through here, so an id
- * that can be created can always be carted, merchandised and fetched. The Mongo {@code $jsonSchema} ({@code ^TZP-})
- * stays as a coarser backstop.
+ * that can be created can always be carted, merchandised and fetched. The Mongo {@code $jsonSchema} enforces the same
+ * grammar ({@link #MONGO_REGEX}) as a backstop (migration V0017).
  */
 public final class ProductIds {
 
@@ -19,6 +19,13 @@ public final class ProductIds {
 
     /** The grammar as an anchored regex string; also the value published in the OpenAPI schemas. */
     public static final String REGEX = "^" + BODY + "$";
+
+    /**
+     * The same grammar for the Mongo {@code $jsonSchema} validator (PCRE). It ends in {@code \z}, not {@code $}: PCRE's
+     * {@code $} also matches before a FINAL newline, so {@code TZP-A\n} would pass a {@code $}-anchored validator while
+     * {@link #isValid} rejects it. Pinned against the Java grammar by ProductIdValidatorMigrationIT.
+     */
+    public static final String MONGO_REGEX = "^" + BODY + "\\z";
 
     public static final Pattern PATTERN = Pattern.compile(REGEX);
 
