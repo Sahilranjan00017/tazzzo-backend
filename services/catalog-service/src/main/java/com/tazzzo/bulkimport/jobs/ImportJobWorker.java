@@ -1,6 +1,7 @@
 package com.tazzzo.bulkimport.jobs;
 
 import com.tazzzo.bulkimport.BulkImportDtos;
+import com.tazzzo.bulkimport.ImportMetrics;
 import com.tazzzo.bulkimport.ProductImportValidator;
 import com.tazzzo.catalog.api.ApiDtos.CreateProductRequest;
 import com.tazzzo.catalog.domain.ProductDraft;
@@ -55,9 +56,16 @@ public class ImportJobWorker {
     private final int batchSize;
     private final long leaseMs;
     private final long tickBudgetMs;
+    private final ImportMetrics metrics;
 
     public ImportJobWorker(ImportJobRepository repo, ImportJobService service, ProductImportValidator validator, MintService mint,
                            Tx tx, Clock clock, int batchSize, long leaseMs, long tickBudgetMs) {
+        this(repo, service, validator, mint, tx, clock, batchSize, leaseMs, tickBudgetMs, ImportMetrics.unregistered());
+    }
+
+    public ImportJobWorker(ImportJobRepository repo, ImportJobService service, ProductImportValidator validator, MintService mint,
+                           Tx tx, Clock clock, int batchSize, long leaseMs, long tickBudgetMs, ImportMetrics metrics) {
+        this.metrics = Objects.requireNonNull(metrics);
         this.repo = Objects.requireNonNull(repo);
         this.service = Objects.requireNonNull(service);
         this.validator = Objects.requireNonNull(validator);
@@ -75,20 +83,28 @@ public class ImportJobWorker {
 
     /** One tick: at most one job, at most the time budget. Never throws. */
     public Tick tick() {
+        long started = System.nanoTime();
         String lease = ImportJobRepository.newLeaseToken();
         ImportJob job;
         try {
             job = repo.claim(lease, leaseMs);
         } catch (RuntimeException e) {
             log.warn("import_job_claim_failed error={}", e.getClass().getSimpleName());
+            metrics.tick(ImportMetrics.TickResult.CLAIM_FAILED, System.nanoTime() - started);
             return Tick.IDLE;
         }
-        if (job == null) return Tick.IDLE;
+        if (job == null) {
+            metrics.tick(ImportMetrics.TickResult.IDLE, System.nanoTime() - started);
+            return Tick.IDLE;
+        }
         try {
-            return job.status() == ImportJob.Status.VALIDATING ? validate(job, lease) : apply(job, lease);
+            Tick t = job.status() == ImportJob.Status.VALIDATING ? validate(job, lease) : apply(job, lease);
+            metrics.tick(t.paused() ? ImportMetrics.TickResult.PAUSED : ImportMetrics.TickResult.WORKED, System.nanoTime() - started);
+            return t;
         } catch (RuntimeException e) {
             // the lease expires on its own; the next claim resumes from the last persisted cursor
             log.warn("import_job_tick_failed job={} status={} error={}", job.id(), job.status(), e.getClass().getSimpleName());
+            metrics.tick(ImportMetrics.TickResult.ERROR, System.nanoTime() - started);
             return new Tick(job.id(), 0, job.status(), false);
         }
     }
@@ -109,6 +125,7 @@ public class ImportJobWorker {
             }
             if (!repo.renewLease(job.id(), lease, leaseMs)) {
                 log.info("import_job_lease_lost job={} phase=validate", job.id());
+                metrics.leaseLost(ImportMetrics.Phase.VALIDATE);
                 return new Tick(job.id(), done, job.status(), false);
             }
             Batch b = Batch.of(page, service);
@@ -132,6 +149,7 @@ public class ImportJobWorker {
             // the batch's verdicts, the cursor and the counters land together, or not at all (lease lost)
             if (!repo.recordValidation(job.id(), lease, verdicts, cursor, delta, leaseMs, tx)) {
                 log.info("import_job_lease_lost job={} phase=validate", job.id());
+                metrics.leaseLost(ImportMetrics.Phase.VALIDATE);
                 return new Tick(job.id(), done, job.status(), false);
             }
             if (clock.millis() >= deadline) break;
@@ -154,6 +172,7 @@ public class ImportJobWorker {
         ImportJob.Actor by = job.approvedBy();
         if (by == null) {
             repo.finishPhase(job.id(), lease, ImportJob.Status.PAUSED, "the job has no approver");
+            metrics.paused(ImportMetrics.PauseReason.NO_APPROVER);
             return new Tick(job.id(), 0, ImportJob.Status.PAUSED, true);
         }
         Actor actor = new Actor(ActorType.valueOf(by.type()), by.id(), by.credentialId(), by.requestId());
@@ -164,6 +183,7 @@ public class ImportJobWorker {
             List<Document> page = repo.page(job.id(), cursor, batchSize, job.rowsTotal());
             if (page.isEmpty()) {
                 repo.finishPhase(job.id(), lease, ImportJob.Status.PAUSED, "row ledger short: expected " + job.rowsTotal() + " rows, found " + cursor);
+                metrics.paused(ImportMetrics.PauseReason.LEDGER_SHORT);
                 log.warn("import_job_ledger_short job={} rows_total={} found={}", job.id(), job.rowsTotal(), cursor);
                 return new Tick(job.id(), done, ImportJob.Status.PAUSED, true);
             }
@@ -181,6 +201,7 @@ public class ImportJobWorker {
             }
             if (!repo.renewLease(job.id(), lease, leaseMs)) {
                 log.info("import_job_lease_lost job={} phase=apply", job.id());
+                metrics.leaseLost(ImportMetrics.Phase.APPLY);
                 return new Tick(job.id(), done, job.status(), false);
             }
             ProductImportValidator.RowChecks checks = requests.isEmpty() ? null : validator.validateRows(requests);
@@ -203,6 +224,7 @@ public class ImportJobWorker {
                     // the lease is renewed before every mint: a cancel or a lost lease stops the worker at the next row
                     if (!repo.renewLease(job.id(), lease, leaseMs)) {
                         log.info("import_job_lease_lost job={} phase=apply row={}", job.id(), rowNo);
+                        metrics.leaseLost(ImportMetrics.Phase.APPLY);
                         return new Tick(job.id(), done, job.status(), false);
                     }
                     try {
@@ -219,8 +241,14 @@ public class ImportJobWorker {
                             // the datastore failed: stop HERE with the cursor on this row, so a resume retries it first
                             String reason = e.getClass().getSimpleName();
                             log.warn("import_job_paused job={} row={} error={}", job.id(), rowNo, reason);
-                            if (!repo.recordPause(job.id(), lease, rowNo, reason, tx)) {
+                            boolean recorded = repo.recordPause(job.id(), lease, rowNo, reason, tx);
+                            if (recorded) {
+                                metrics.jobTransition(ImportJob.Status.PAUSED);
+                                metrics.paused(ImportMetrics.PauseReason.DATASTORE_FAILURE);
+                            }
+                            if (!recorded) {
                                 log.info("import_job_lease_lost job={} phase=apply row={} verdict_dropped=NOT_ATTEMPTED", job.id(), rowNo);
+                                metrics.leaseLost(ImportMetrics.Phase.APPLY);
                                 return new Tick(job.id(), done, job.status(), false);
                             }
                             return new Tick(job.id(), done + c, ImportJob.Status.PAUSED, true);
@@ -231,8 +259,11 @@ public class ImportJobWorker {
                 // the verdict, the cursor and the counters land together, or not at all (lease lost)
                 if (!repo.recordApply(job.id(), lease, rowNo, outcome, code, message, rowNo + 1, delta, leaseMs, tx)) {
                     log.info("import_job_lease_lost job={} phase=apply row={} verdict_dropped={}", job.id(), rowNo, outcome);
+                    metrics.leaseLost(ImportMetrics.Phase.APPLY);
                     return new Tick(job.id(), done, job.status(), false);
                 }
+                if ("APPLIED".equals(outcome)) metrics.rowApplied();
+                if ("FAILED".equals(outcome)) metrics.rowFailed();
                 lastRow = rowNo;
             }
             cursor = page.get(page.size() - 1).getLong("row") + 1;
@@ -240,6 +271,7 @@ public class ImportJobWorker {
             // rows after the last candidate (DUPLICATE/INVALID rows at the page's end) are passed by the cursor
             if (cursor > lastRow + 1 && !repo.progress(job.id(), lease, cursor, ImportJob.Counts.ZERO, leaseMs)) {
                 log.info("import_job_lease_lost job={} phase=apply", job.id());
+                metrics.leaseLost(ImportMetrics.Phase.APPLY);
                 return new Tick(job.id(), done, job.status(), false);
             }
             if (clock.millis() >= deadline) break;

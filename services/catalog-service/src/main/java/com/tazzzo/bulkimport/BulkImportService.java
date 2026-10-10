@@ -51,6 +51,13 @@ public class BulkImportService {
 
     private ProductImportValidator productValidator;
     private com.tazzzo.catalog.tx.MintService mint;
+    private ImportMetrics metrics = ImportMetrics.unregistered();
+
+    /** Run and row outcome counters (separate so the fixtures keep their narrow constructor). */
+    BulkImportService withMetrics(ImportMetrics metrics) {
+        this.metrics = java.util.Objects.requireNonNull(metrics);
+        return this;
+    }
 
     /** Product import collaborators (separate so the price/stock fixtures keep their narrow constructor). */
     BulkImportService withProducts(ProductImportValidator validator, com.tazzzo.catalog.tx.MintService mint) {
@@ -68,6 +75,15 @@ public class BulkImportService {
     }
 
     BulkImportDtos.ImportReport importPrices(BulkImportDtos.PriceImportRequest req, Actor actor) {
+        try {
+            return doImportPrices(req, actor);
+        } catch (ImportRejectedException e) {
+            metrics.bulkRun(ImportMetrics.BulkKind.PRICES, ImportMetrics.BulkOutcome.REJECTED);
+            throw e;
+        }
+    }
+
+    private BulkImportDtos.ImportReport doImportPrices(BulkImportDtos.PriceImportRequest req, Actor actor) {
         List<BulkImportDtos.PriceRow> rows = rowsOf(req == null ? null : req.rows());
         List<UpsertPriceCommand> commands = new ArrayList<>();
         List<BulkImportDtos.RowError> errors = new ArrayList<>();
@@ -108,6 +124,15 @@ public class BulkImportService {
     }
 
     BulkImportDtos.ImportReport importStock(BulkImportDtos.StockImportRequest req, Actor actor) {
+        try {
+            return doImportStock(req, actor);
+        } catch (ImportRejectedException e) {
+            metrics.bulkRun(ImportMetrics.BulkKind.INVENTORY, ImportMetrics.BulkOutcome.REJECTED);
+            throw e;
+        }
+    }
+
+    private BulkImportDtos.ImportReport doImportStock(BulkImportDtos.StockImportRequest req, Actor actor) {
         List<BulkImportDtos.StockRow> rows = rowsOf(req == null ? null : req.rows());
         List<SetInventoryCommand> commands = new ArrayList<>();
         List<BulkImportDtos.RowError> errors = new ArrayList<>();
@@ -148,6 +173,15 @@ public class BulkImportService {
      * same attributed path as {@code POST /api/v1/products}, each with its own product event.
      */
     BulkImportDtos.ImportReport importProducts(BulkImportDtos.ProductImportRequest req, Actor actor) {
+        try {
+            return doImportProducts(req, actor);
+        } catch (ImportRejectedException e) {
+            metrics.bulkRun(ImportMetrics.BulkKind.PRODUCTS, ImportMetrics.BulkOutcome.REJECTED);
+            throw e;
+        }
+    }
+
+    private BulkImportDtos.ImportReport doImportProducts(BulkImportDtos.ProductImportRequest req, Actor actor) {
         List<com.tazzzo.catalog.api.ApiDtos.CreateProductRequest> rows = rowsOf(req == null ? null : req.rows());
         ProductImportValidator.Checked checked = productValidator.validate(rows);
         boolean dryRun = Boolean.TRUE.equals(req.dryRun());
@@ -258,6 +292,13 @@ public class BulkImportService {
         }
         log.info("bulk_import kind={} import_id={} dry_run={} rows={} applied={} failed={} not_attempted={}", kind, importId,
                 dryRun, commands.size(), applied, failed, notAttempted);
+        ImportMetrics.BulkKind metricKind = ImportMetrics.BulkKind.of(kind);
+        metrics.bulkRun(metricKind, ImportMetrics.outcomeOf(dryRun, stopped, applied, failed));
+        metrics.bulkRows(metricKind, ImportMetrics.BulkRow.APPLIED, applied);
+        metrics.bulkRows(metricKind, ImportMetrics.BulkRow.FAILED, failed);
+        metrics.bulkRows(metricKind, ImportMetrics.BulkRow.UNCHANGED, same);
+        metrics.bulkRows(metricKind, ImportMetrics.BulkRow.NOT_ATTEMPTED, notAttempted);
+        if (dryRun) metrics.bulkRows(metricKind, ImportMetrics.BulkRow.VALIDATED, commands.size() - same);
         return new BulkImportDtos.ImportReport(importId, kind, dryRun, commands.size(), applied, failed, notAttempted, results,
                 same);
     }

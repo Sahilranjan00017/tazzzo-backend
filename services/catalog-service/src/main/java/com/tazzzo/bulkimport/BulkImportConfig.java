@@ -19,8 +19,9 @@ class BulkImportConfig {
                                         MongoDatabase db, Tx tx, com.mongodb.client.MongoClient client,
                                         com.tazzzo.catalog.schema.AttributeGovernanceService governance,
                                         com.tazzzo.catalog.schema.CanonicalKeyService canonicalKeys,
-                                        com.tazzzo.catalog.tx.MintService mint) {
+                                        com.tazzzo.catalog.tx.MintService mint, ImportMetrics metrics) {
         return new BulkImportService(pricing, inventory, products, new DomainAudit(db, Clock.systemUTC()), tx)
-                .withProducts(new ProductImportValidator(db, client, governance, canonicalKeys), mint);
+                .withProducts(new ProductImportValidator(db, client, governance, canonicalKeys), mint)
+                .withMetrics(metrics);
     }
 }

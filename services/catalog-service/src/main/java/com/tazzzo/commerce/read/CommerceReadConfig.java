@@ -74,8 +74,21 @@ public class CommerceReadConfig {
     }
 
     @Bean
-    public MediaService commerceMediaService(ObjectProvider<ProjectionRebuildQueue> queue) {
-        return new MediaService(tx, writePath, clock, queue.getIfAvailable());
+    public ProjectionMetrics projectionMetrics(io.micrometer.core.instrument.MeterRegistry registry) {
+        return new ProjectionMetrics(registry);
+    }
+
+    /** Rebuild-queue depth and age gauges (a scrape of any instance sees the shared queue, not just a worker's). */
+    @Bean
+    public ProjectionQueueGauges projectionQueueGauges(io.micrometer.core.instrument.MeterRegistry registry,
+            @Value("${tazzzo.observability.gauge-refresh-seconds:15}") long refreshSeconds) {
+        return new ProjectionQueueGauges(db, clock, registry, com.tazzzo.common.metrics.SnapshotCache.refreshInterval(
+                refreshSeconds, "tazzzo.observability.gauge-refresh-seconds"));
+    }
+
+    @Bean
+    public MediaService commerceMediaService(ObjectProvider<ProjectionRebuildQueue> queue, com.tazzzo.media.MediaMetrics mediaMetrics) {
+        return new MediaService(tx, writePath, clock, queue.getIfAvailable()).withMetrics(mediaMetrics);
     }
 
     @Bean

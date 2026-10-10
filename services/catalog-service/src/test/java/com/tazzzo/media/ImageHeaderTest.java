@@ -147,10 +147,10 @@ class ImageHeaderTest {
 
         MediaStorageConfig cfg = new MediaStorageConfig();
         for (String env : new String[]{"", "local", "test", "dev", " test "}) {
-            cfg.mediaIngestVerifier(new DisabledMediaStorage(), POLICY, 1, 1, env).requireVerifiableOrAllowed();
+            cfg.mediaIngestVerifier(new DisabledMediaStorage(), POLICY, 1, 1, env, MediaMetrics.unregistered()).requireVerifiableOrAllowed();
         }
         for (String env : new String[]{"prod", "production", "staging", "Test", "DEV"}) {
-            MediaIngestVerifier v = cfg.mediaIngestVerifier(new DisabledMediaStorage(), POLICY, 1, 1, env);
+            MediaIngestVerifier v = cfg.mediaIngestVerifier(new DisabledMediaStorage(), POLICY, 1, 1, env, MediaMetrics.unregistered());
             assertThatThrownBy(v::requireVerifiableOrAllowed).as(env).isInstanceOf(MediaIngestVerifier.MediaStorageNotConfiguredException.class);
         }
     }

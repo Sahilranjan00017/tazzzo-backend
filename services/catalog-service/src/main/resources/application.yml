@@ -101,6 +101,10 @@ tazzzo:
     base-backoff-seconds: ${TAZZZO_NOTIFICATIONS_BASE_BACKOFF_SECONDS:30}
     max-attempts: ${TAZZZO_NOTIFICATIONS_MAX_ATTEMPTS:5}                  # 1..20
     metrics-refresh-seconds: ${TAZZZO_NOTIFICATIONS_METRICS_REFRESH_SECONDS:15}   # outbox gauge snapshot cache, 1..3600
+  observability:
+    # Database-backed gauges (import backlog, projection rebuild queue) are served from a snapshot refreshed at most this
+    # often, however often they are scraped. 1..3600. The notification outbox gauges keep their own interval above.
+    gauge-refresh-seconds: ${TAZZZO_OBSERVABILITY_GAUGE_REFRESH_SECONDS:15}
   imports:
     max-rows-per-job: ${TAZZZO_IMPORTS_MAX_ROWS_PER_JOB:250000}
     max-active-jobs: ${TAZZZO_IMPORTS_MAX_ACTIVE_JOBS:10}
@@ -300,6 +304,11 @@ tazzzo.health:
   readiness:
     require-mongo: ${TAZZZO_HEALTH_REQUIRE_MONGO:true}
     require-rate-limiter: ${TAZZZO_HEALTH_REQUIRE_RATE_LIMITER:false}
+logging:
+  pattern:
+    # Boot's default console pattern plus the per-request ids RequestIdFilter puts in the MDC: "[request_id,correlation_id] "
+    # (empty outside a request, e.g. schedulers). Both values are server-minted or shape-validated, never client free text.
+    correlation: "[%X{request_id:-},%X{correlation_id:-}] "
 management:
   observations:
     enable:
