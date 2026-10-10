@@ -224,6 +224,18 @@ class OpenApiContractIT extends AbstractApiIT {
         assertThat(problems).isEmpty();
     }
 
+    /** Writes without a path variable document 404 only where the body can name a missing entity (read from the handlers). */
+    @Test
+    void body_referenced_404s_are_documented_exactly_where_they_can_occur() {
+        Set<String> expected = Set.of("POST /api/v1/admin/media/uploads", "POST /api/v1/taxonomy/nodes");
+        Set<String> actual = new TreeSet<>();
+        operations().forEach((k, op) -> {
+            if (SurfaceClassifier.classify(path(k)) == Surface.INTERNAL && !k.startsWith("GET ") && !path(k).contains("{")
+                    && statuses(op).contains("404")) actual.add(k);
+        });
+        assertThat(actual).isEqualTo(expected);
+    }
+
     @Test
     void envelope_components_describe_the_real_bodies() {
         JsonNode c = spec.at("/components/schemas");

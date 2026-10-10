@@ -4402,6 +4402,16 @@
               }
             }
           },
+          "404" : {
+            "description" : "NOT_FOUND (or a domain-specific not-found such as NODE_NOT_FOUND, IMPORT_JOB_NOT_FOUND).",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AdminErrorEnvelope"
+                }
+              }
+            }
+          },
           "409" : {
             "description" : "Conflict: STALE_VERSION (optimistic lock lost), STATE_CONFLICT, IDENTITY_COLLISION, DUPLICATE_*, IMPORT_JOB_STATE and other state conflicts.",
             "content" : {
@@ -7912,6 +7922,16 @@
           },
           "403" : {
             "description" : "FORBIDDEN: the credential is not allowlisted, or its role may not perform this operation.",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AdminErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404" : {
+            "description" : "NOT_FOUND (or a domain-specific not-found such as NODE_NOT_FOUND, IMPORT_JOB_NOT_FOUND).",
             "content" : {
               "application/json" : {
                 "schema" : {

@@ -83,6 +83,16 @@ public class OpenApiContractCustomizer implements OpenApiCustomizer {
         ADMIN_SUCCESS.put("POST /api/v1/admin/imports/jobs", new int[]{201});
     }
 
+    /**
+     * Write operations WITHOUT a path variable whose body names another entity that may not exist (404). Every other
+     * variable-less write was read and cannot answer 404: app-config PUT, taxonomy release open (basedOn is not looked up),
+     * product create (unknown vertical or component is a 422), evidence create, attribute create, the four import
+     * routes (an unknown sku is a rejected row, 422), content upload, block create and reorder (a changed block is a 409).
+     */
+    private static final Map<String, String> ADMIN_BODY_REFERENCED_404 = Map.of(
+            "POST /api/v1/admin/media/uploads", "unknown ownerId: ProductQueryService.requireProduct -> ProductNotFoundException -> 404 NOT_FOUND",
+            "POST /api/v1/taxonomy/nodes", "unknown parentId or attributeSchemaId: TaxonomyChangeService -> NODE_NOT_FOUND / UNKNOWN_SCHEMA -> 404");
+
     /** Admin routes whose handlers can answer 503 (storage, timeout or store outage with its own code). */
     private static final List<String> ADMIN_503_PREFIXES = List.of("/api/v1/admin/media", "/api/v1/admin/content/uploads",
             "/api/v1/admin/orders", "/api/v1/admin/support", "/api/v1/admin/dashboard", "/api/v1/admin/inventory");
@@ -323,7 +333,8 @@ public class OpenApiContractCustomizer implements OpenApiCustomizer {
         out.add(400);
         out.add(401);
         out.add(403);
-        if (path.contains("{") || (path.equals("/api/v1/products") && method.equals("GET"))) out.add(404);
+        if (path.contains("{") || (path.equals("/api/v1/products") && method.equals("GET"))
+                || ADMIN_BODY_REFERENCED_404.containsKey(V1StatusCatalogKey.of(method, path))) out.add(404);
         if (writes) out.add(409);
         if (body) out.add(413);
         if (writes && body) out.add(422);

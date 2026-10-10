@@ -36,6 +36,9 @@ class OpenApiStatusParityIT extends AbstractApiIT {
         loader.load(db);
         releases.recordBaseline(TestActors.TEST, "0.9.0");
         spec = get("/v3/api-docs", READ_TOKEN, JsonNode.class).getBody();
+        // open release: a release open is documented 201, and node creation needs one
+        expect(call(HttpMethod.POST, "/api/v1/taxonomy/releases", "/api/v1/taxonomy/releases",
+                Map.of("releaseId", "0.9.9", "basedOn", "0.9.0"), CMS_TOKEN), 201);
         // the product the other tests build on: a create is documented 201 (not 200)
         expect(call(HttpMethod.POST, "/api/v1/products", "/api/v1/products", product("TZP-OAS-1", "oas|1"), CMS_TOKEN), 201);
     }
@@ -98,8 +101,6 @@ class OpenApiStatusParityIT extends AbstractApiIT {
 
     @Test
     void taxonomy_and_evidence_statuses() {
-        expect(call(HttpMethod.POST, "/api/v1/taxonomy/releases", "/api/v1/taxonomy/releases",
-                Map.of("releaseId", "0.9.9", "basedOn", "0.9.0"), CMS_TOKEN), 201);
         Map<String, Object> node = new LinkedHashMap<>();
         node.put("nodeType", "super_category");
         node.put("name", "OAS Super");
@@ -132,6 +133,16 @@ class OpenApiStatusParityIT extends AbstractApiIT {
         expect(call(HttpMethod.GET, "/api/v1/products", "/api/v1/products?canonicalKey=none", null, READ_TOKEN), 404);
         expect(call(HttpMethod.GET, "/api/v1/products", "/api/v1/products?bogus=1", null, READ_TOKEN), 400);
         expect(call(HttpMethod.GET, "/api/v1/products", "/api/v1/products?limit=2", null, READ_TOKEN), 200);
+
+        // 404 on entities named by the BODY (no path variable): must be documented too
+        Map<String, Object> upload = new LinkedHashMap<>(Map.of("ownerType", "product", "ownerId", "TZP-NOPE-1",
+                "contentType", "image/png", "sizeBytes", 1000));
+        expect(call(HttpMethod.POST, "/api/v1/admin/media/uploads", "/api/v1/admin/media/uploads", upload, CMS_TOKEN), 404);
+        Map<String, Object> orphan = new LinkedHashMap<>();
+        orphan.put("nodeType", "category");
+        orphan.put("name", "Orphan");
+        orphan.put("parentId", "TZN-999999");
+        expect(call(HttpMethod.POST, "/api/v1/taxonomy/nodes", "/api/v1/taxonomy/nodes", orphan, CMS_TOKEN), 404);
 
         // 409: a replayed create collides on the identity registry
         expect(call(HttpMethod.POST, p, p, product("TZP-OAS-1", "oas|1"), CMS_TOKEN), 409);
