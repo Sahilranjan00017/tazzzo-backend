@@ -41,8 +41,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 class MediaAdminIT extends AbstractApiIT {
 
     static final Map<String, StoredObject> OBJECTS = new ConcurrentHashMap<>();
-    static final byte[] JPEG = {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, (byte) 0xE0, 0, 0x10, 'J', 'F', 'I', 'F'};
-    static final byte[] PNG = {(byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0x0D};
+    static final byte[] JPEG = com.tazzzo.media.TestImages.jpeg(640, 480);
+    static final byte[] PNG = com.tazzzo.media.TestImages.png(640, 480);
 
     @TestConfiguration
     static class FakeStorage {
@@ -214,5 +214,25 @@ class MediaAdminIT extends AbstractApiIT {
             assertThat(ActorDocuments.fromEvent(e)).as("attributed").isPresent();
             assertThat(e.toJson()).doesNotContain("cms-test-token");
         });
+    }
+
+    @Test @Order(6)
+    void declared_dimensions_and_bomb_headers_are_checked_against_the_stored_image() {
+        String key = upload("image/png", 10);
+        OBJECTS.put(key, new StoredObject(10, "image/png", PNG));   // a real 640x480 header
+        Map<String, Object> wrong = asset("w1", key, "PRIMARY", 0, "image/png");
+        wrong.put("width", 641);
+        wrong.put("height", 480);
+        assertCode(put(SET, set(null, wrong), W), 422, "INVALID_MEDIA");
+        String bomb = upload("image/png", 10);
+        OBJECTS.put(bomb, new StoredObject(10, "image/png", com.tazzzo.media.TestImages.png(60_000, 60_000)));
+        assertCode(put(SET, set(null, asset("b1", bomb, "PRIMARY", 0, "image/png")), W), 422, "INVALID_MEDIA");
+        String garbage = upload("image/png", 10);
+        OBJECTS.put(garbage, new StoredObject(10, "image/png", java.util.Arrays.copyOf(PNG, 12)));   // magic bytes only
+        assertCode(put(SET, set(null, asset("g1", garbage, "PRIMARY", 0, "image/png")), W), 422, "INVALID_MEDIA");
+        Map<String, Object> right = asset("r1", key, "PRIMARY", 0, "image/png");
+        right.put("width", 640);
+        right.put("height", 480);
+        assertThat(put(SET, set(3L, right), W).getStatusCode().value()).isEqualTo(200);   // the set was cleared at version 3
     }
 }
