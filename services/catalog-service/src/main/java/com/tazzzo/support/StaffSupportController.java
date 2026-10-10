@@ -46,6 +46,9 @@ public class StaffSupportController {
         return SupportDtos.StaffCase.of(service.staffGet(caseId));
     }
 
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @io.swagger.v3.oas.annotations.media.Content(
+            mediaType = "application/json", schema = @io.swagger.v3.oas.annotations.media.Schema(
+                    implementation = com.tazzzo.catalog.api.docs.DocumentedRequestBodies.SupportReply.class)))
     @PostMapping("/{caseId}/messages")
     public SupportDtos.StaffCase reply(HttpServletRequest request, @PathVariable String caseId, @RequestBody(required = false) JsonNode body) {
         if (body == null || !body.isObject() || body.size() != 1 || !body.path("message").isTextual()) {
@@ -54,11 +57,17 @@ public class StaffSupportController {
         return SupportDtos.StaffCase.of(service.staffReply(AdminActors.require(request), caseId, body.get("message").asText()));
     }
 
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @io.swagger.v3.oas.annotations.media.Content(
+            mediaType = "application/json", schema = @io.swagger.v3.oas.annotations.media.Schema(
+                    implementation = com.tazzzo.catalog.api.docs.DocumentedRequestBodies.StaffCaseAssign.class)))
     @PostMapping("/{caseId}/assign")
     public SupportDtos.StaffCase assign(HttpServletRequest request, @PathVariable String caseId, @RequestBody(required = false) JsonNode body) {
         return SupportDtos.StaffCase.of(service.assignToSelf(AdminActors.require(request), caseId, expectedVersion(body, 1)));
     }
 
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @io.swagger.v3.oas.annotations.media.Content(
+            mediaType = "application/json", schema = @io.swagger.v3.oas.annotations.media.Schema(
+                    implementation = com.tazzzo.catalog.api.docs.DocumentedRequestBodies.StaffCaseStatus.class)))
     @PostMapping("/{caseId}/status")
     public SupportDtos.StaffCase status(HttpServletRequest request, @PathVariable String caseId, @RequestBody(required = false) JsonNode body) {
         if (body == null || !body.path("to").isTextual()) throw new SupportFailure(SupportFailure.Reason.INVALID_REQUEST);

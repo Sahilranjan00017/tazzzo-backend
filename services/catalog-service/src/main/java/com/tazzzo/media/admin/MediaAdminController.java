@@ -49,7 +49,7 @@ public class MediaAdminController {
 
     static final String SOURCE = "admin-api";
 
-    record UploadRequest(String ownerType, String ownerId, String contentType, Long sizeBytes) { }
+    record UploadRequest(@io.swagger.v3.oas.annotations.media.Schema(allowableValues = {"product", "sku"}, description = "Owner kind; case-insensitive.") String ownerType, @io.swagger.v3.oas.annotations.media.Schema(pattern = com.tazzzo.catalog.domain.ProductIds.REGEX) String ownerId, String contentType, Long sizeBytes) { }
 
     record UploadResponse(String assetKey, String method, String url, Map<String, String> headers, String expiresAt,
                           long maxBytes) { }
@@ -124,7 +124,7 @@ public class MediaAdminController {
     }
 
     @GetMapping("/{ownerType}/{ownerId}")
-    public SetResponse get(@PathVariable("ownerType") String ownerType, @PathVariable("ownerId") String ownerId) {
+    public SetResponse get(@PathVariable("ownerType") @io.swagger.v3.oas.annotations.media.Schema(allowableValues = {"product", "sku"}, description = "Owner kind; case-insensitive.") String ownerType, @PathVariable("ownerId") @io.swagger.v3.oas.annotations.media.Schema(pattern = com.tazzzo.catalog.domain.ProductIds.REGEX) String ownerId) {
         MediaOwnerType type = owner(ownerType);
         products.requireProduct(ownerId);
         MediaLookup lookup = media.findMedia(type, ownerId);
@@ -136,7 +136,7 @@ public class MediaAdminController {
     }
 
     @PutMapping("/{ownerType}/{ownerId}")
-    public ResponseEntity<SetResponse> put(@PathVariable("ownerType") String ownerType, @PathVariable("ownerId") String ownerId,
+    public ResponseEntity<SetResponse> put(@PathVariable("ownerType") @io.swagger.v3.oas.annotations.media.Schema(allowableValues = {"product", "sku"}, description = "Owner kind; case-insensitive.") String ownerType, @PathVariable("ownerId") @io.swagger.v3.oas.annotations.media.Schema(pattern = com.tazzzo.catalog.domain.ProductIds.REGEX) String ownerId,
                                            @RequestBody SetRequest body, HttpServletRequest request) {
         MediaOwnerType type = owner(ownerType);
         if (body == null || body.assets() == null) {

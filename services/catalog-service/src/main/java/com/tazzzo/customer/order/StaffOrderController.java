@@ -59,6 +59,7 @@ public class StaffOrderController {
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
+    @io.swagger.v3.oas.annotations.media.Schema(name = "StaffOrderPage")
     record StaffPage(List<StaffOrder> items, String nextCursor) { }
 
     private final StaffOrderService service;
@@ -87,6 +88,9 @@ public class StaffOrderController {
     }
 
     /** Body {@code {"to": OUT_FOR_DELIVERY|DELIVERED|CANCELLED, "expectedVersion": n, "reason": <staff reason, CANCELLED only>}}. */
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @io.swagger.v3.oas.annotations.media.Content(
+            mediaType = "application/json", schema = @io.swagger.v3.oas.annotations.media.Schema(
+                    implementation = com.tazzzo.catalog.api.docs.DocumentedRequestBodies.StaffOrderTransition.class)))
     @PostMapping("/{orderId}/transition")
     public StaffOrder transition(HttpServletRequest request, @PathVariable String orderId, @RequestBody(required = false) JsonNode body) {
         if (body == null || !body.isObject() || !body.path("to").isTextual() || !body.path("expectedVersion").isIntegralNumber()) {

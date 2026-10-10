@@ -14,6 +14,7 @@ final class ServiceAreaAdminDtos {
     /** {@code expectedVersion} absent = create (version 1); present = compare-and-set update. */
     record UpsertRequest(String serviceAreaId, List<RouteDto> routes, Long expectedVersion) { }
 
+    @io.swagger.v3.oas.annotations.media.Schema(name = "ServiceAreaVersionRequest")
     record VersionRequest(Long expectedVersion) { }
 
     record AreaResponse(String pincode, String serviceAreaId, boolean active, long version, List<RouteDto> routes) { }

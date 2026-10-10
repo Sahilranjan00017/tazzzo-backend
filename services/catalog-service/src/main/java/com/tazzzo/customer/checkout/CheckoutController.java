@@ -42,6 +42,9 @@ public class CheckoutController {
         this.observability = observability;
     }
 
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @io.swagger.v3.oas.annotations.media.Content(
+            mediaType = "application/json", schema = @io.swagger.v3.oas.annotations.media.Schema(
+                    implementation = com.tazzzo.catalog.api.docs.DocumentedRequestBodies.CheckoutQuote.class)))
     @PostMapping("/quote")
     public ResponseEntity<CheckoutQuoteDto> createQuote(
             HttpServletRequest request,

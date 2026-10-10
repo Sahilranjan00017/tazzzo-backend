@@ -234,7 +234,7 @@ class InventoryAdminListIT extends AbstractApiIT {
         JsonNode spec = new com.fasterxml.jackson.databind.ObjectMapper().readTree(java.nio.file.Files.readString(java.nio.file.Path.of("docs/openapi.json")));
         JsonNode op = spec.at("/paths/~1api~1v1~1admin~1inventory/get");
         assertThat(op.get("operationId").asText()).isEqualTo("listStock");
-        assertThat(op.at("/responses/200/content/*~1*/schema/$ref").asText()).isEqualTo("#/components/schemas/StockListPage");
+        assertThat(op.at("/responses/200/content/application~1json/schema/$ref").asText()).isEqualTo("#/components/schemas/StockListPage");
         assertThat(spec.at("/components/schemas/StockListRow/properties/stockState").isMissingNode()).isFalse();
     }
 }

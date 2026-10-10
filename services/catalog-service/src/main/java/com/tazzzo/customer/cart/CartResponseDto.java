@@ -12,6 +12,7 @@ import java.util.List;
 public record CartResponseDto(long version, List<Item> items, int itemCount, int distinctItemCount,
                               long subtotalPaise, String expiresAt, String freshness, String requestId) {
 
+    @io.swagger.v3.oas.annotations.media.Schema(name = "CartItem")
     public record Item(String skuId, int quantity, String addedAt, String updatedAt, Product product,
                        Price price, Availability availability, Long lineTotalPaise, boolean buyable,
                        List<CartIssue> issues) {

@@ -35,6 +35,7 @@ public class InventoryAdminController {
 
     record StockRequest(Long onHand, Long lowStockThreshold, Long maxPurchasable, Long expectedVersion) { }
 
+    @io.swagger.v3.oas.annotations.media.Schema(name = "StockVersionRequest")
     record VersionRequest(Long expectedVersion) { }
 
     record StockResponse(String skuId, String fulfillmentLocationId, long onHand, long reserved, long available,

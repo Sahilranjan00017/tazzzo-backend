@@ -34,6 +34,9 @@ public class CustomerSupportController {
         this.service = service;
     }
 
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @io.swagger.v3.oas.annotations.media.Content(
+            mediaType = "application/json", schema = @io.swagger.v3.oas.annotations.media.Schema(
+                    implementation = com.tazzzo.catalog.api.docs.DocumentedRequestBodies.CustomerSupportOpen.class)))
     @PostMapping
     public ResponseEntity<SupportDtos.CustomerCase> open(HttpServletRequest request, @RequestBody(required = false) JsonNode body) {
         CustomerPrincipal p = CustomerPrincipalResolver.require(request);
@@ -65,6 +68,9 @@ public class CustomerSupportController {
         return respond(HttpStatus.OK, SupportDtos.CustomerCase.of(service.getOwn(p.customerId().value(), caseId), requestId(request)));
     }
 
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @io.swagger.v3.oas.annotations.media.Content(
+            mediaType = "application/json", schema = @io.swagger.v3.oas.annotations.media.Schema(
+                    implementation = com.tazzzo.catalog.api.docs.DocumentedRequestBodies.SupportReply.class)))
     @PostMapping("/{caseId}/messages")
     public ResponseEntity<SupportDtos.CustomerCase> reply(HttpServletRequest request, @PathVariable String caseId,
                                                          @RequestBody(required = false) JsonNode body) {

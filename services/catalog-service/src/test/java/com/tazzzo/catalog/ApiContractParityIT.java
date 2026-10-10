@@ -166,4 +166,62 @@ class ApiContractParityIT extends AbstractApiIT {
         assertThat(checked).as("error responses inspected").isGreaterThan(50);
         assertThat(bad).as("error responses without a JSON {code, message} body").isEmpty();
     }
+
+    /** Every documented operation can be addressed by a generated client: an id, unique across the file. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void every_documented_operation_has_a_unique_operation_id() throws IOException {
+        Map<String, Object> doc = new Yaml().load(Files.readString(CONTRACT));
+        java.util.List<String> ids = new java.util.ArrayList<>();
+        java.util.List<String> missing = new java.util.ArrayList<>();
+        ((Map<String, Object>) doc.get("paths")).forEach((p, item) -> ((Map<String, Object>) item).forEach((m, op) -> {
+            if (!HTTP.contains(m)) return;
+            Object id = ((Map<String, Object>) op).get("operationId");
+            if (id == null) missing.add(m.toUpperCase(Locale.ROOT) + " " + p);
+            else ids.add(String.valueOf(id));
+        }));
+        assertThat(missing).as("operations without operationId").isEmpty();
+        assertThat(ids).doesNotHaveDuplicates();
+    }
+
+    /** CustomerRateLimitFilter covers every /v1/customer/** route, so every one of them documents 429; every body has its 413. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void customer_operations_document_429_and_body_operations_document_413() throws IOException {
+        Map<String, Object> doc = new Yaml().load(Files.readString(CONTRACT));
+        Set<String> no429 = new TreeSet<>();
+        Set<String> no413 = new TreeSet<>();
+        ((Map<String, Object>) doc.get("paths")).forEach((p, item) -> ((Map<String, Object>) item).forEach((m, op) -> {
+            if (!HTTP.contains(m) || !p.startsWith("/v1/")) return;
+            Map<Object, Object> responses = (Map<Object, Object>) ((Map<String, Object>) op).get("responses");
+            Set<String> codes = new TreeSet<>();
+            responses.keySet().forEach(k -> codes.add(String.valueOf(k)));
+            String where = m.toUpperCase(Locale.ROOT) + " " + p;
+            if (p.startsWith("/v1/customer/") && !codes.contains("429")) no429.add(where);
+            if (((Map<String, Object>) op).containsKey("requestBody") && !codes.contains("413")) no413.add(where);
+        }));
+        assertThat(no429).as("customer operations without 429").isEmpty();
+        assertThat(no413).as("operations with a request body but no 413").isEmpty();
+    }
+
+    /** Every code the order error handler can write is in the documented enum, and the cancel route's 409 is its own response. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void order_error_codes_written_by_the_handler_are_all_in_the_documented_enum() throws IOException {
+        String handler = Files.readString(Path.of("src/main/java/com/tazzzo/customer/order/OrderExceptionHandler.java"));
+        Set<String> written = new TreeSet<>();
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("HttpStatus\\.[A-Z_]+,\\s*\"([A-Z][A-Z_]+)\"").matcher(handler);
+        while (m.find()) written.add(m.group(1));
+        assertThat(written).as("the handler's code literals were found").contains("ORDER_NOT_CANCELLABLE", "STALE_VERSION", "INTERNAL");
+        Map<String, Object> doc = new Yaml().load(Files.readString(CONTRACT));
+        Map<String, Object> schemas = (Map<String, Object>) ((Map<String, Object>) doc.get("components")).get("schemas");
+        java.util.List<String> enumValues = (java.util.List<String>) ((Map<String, Object>) ((Map<String, Object>)
+                ((Map<String, Object>) schemas.get("CustomerOrderErrorEnvelope")).get("properties")).get("code")).get("enum");
+        assertThat(enumValues).containsAll(written);
+
+        Map<String, Object> cancel = (Map<String, Object>) ((Map<String, Object>) ((Map<String, Object>) doc.get("paths"))
+                .get("/v1/customer/orders/{orderId}/cancel")).get("post");
+        Map<Object, Object> responses = (Map<Object, Object>) cancel.get("responses");
+        assertThat(((Map<String, Object>) responses.get("409")).get("$ref")).isEqualTo("#/components/responses/OrderCancelConflict");
+    }
 }

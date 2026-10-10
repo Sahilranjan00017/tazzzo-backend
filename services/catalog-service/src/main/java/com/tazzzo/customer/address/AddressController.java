@@ -81,6 +81,9 @@ public class AddressController {
         return respond(view, requestId(request), 200);
     }
 
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @io.swagger.v3.oas.annotations.media.Content(
+            mediaType = "application/json", schema = @io.swagger.v3.oas.annotations.media.Schema(
+                    implementation = com.tazzzo.catalog.api.docs.DocumentedRequestBodies.AddressPatch.class)))
     @PatchMapping("/{addressId}")
     public ResponseEntity<AddressResponseDto> patch(HttpServletRequest request, @PathVariable String addressId,
                                                      @RequestHeader(value = "If-Match", required = false)

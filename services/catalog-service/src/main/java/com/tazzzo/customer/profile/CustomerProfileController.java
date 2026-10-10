@@ -50,6 +50,9 @@ public class CustomerProfileController {
         return respond(view, requestId(request));
     }
 
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @io.swagger.v3.oas.annotations.media.Content(
+            mediaType = "application/json", schema = @io.swagger.v3.oas.annotations.media.Schema(
+                    implementation = com.tazzzo.catalog.api.docs.DocumentedRequestBodies.CustomerProfilePatch.class)))
     @PatchMapping
     public ResponseEntity<CustomerProfileResponseDto> patch(HttpServletRequest request,
                                                              @RequestHeader(value = "If-Match", required = false)

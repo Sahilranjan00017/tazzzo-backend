@@ -113,12 +113,14 @@ public final class ApiDtos {
     public record CreateNodeRequest(String nodeType, String name, String parentId, String attributeSchemaId) { }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
+    @io.swagger.v3.oas.annotations.media.Schema(name = "AdminNodeListResponse")
     public record NodeListResponse(List<NodeResponse> items, String nextCursor) { }
 
     public record ProductSummary(String id, String productType, String lifecycle, String brandCode, String title,
                                  String verticalId, String classificationStatus, int version) { }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
+    @io.swagger.v3.oas.annotations.media.Schema(name = "AdminProductListResponse")
     public record ProductListResponse(List<ProductSummary> items, String nextCursor) { }
 
     public record NodeResponse(String id, String nodeType, String name, String parentId,

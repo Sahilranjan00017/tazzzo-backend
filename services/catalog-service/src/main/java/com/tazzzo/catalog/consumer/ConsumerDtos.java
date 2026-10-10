@@ -33,6 +33,7 @@ public final class ConsumerDtos {
     // 2.18 started ordering record components by declaration, which would move resolved_release_id to the front:
     // semantically identical JSON, but a byte-level change to public responses. ConsumerWireOrderTest guards it.
     @JsonPropertyOrder({"items", "resolved_release_id"})
+    @io.swagger.v3.oas.annotations.media.Schema(name = "ConsumerNodeListResponse")
     public record NodeListResponse(@JsonProperty("resolved_release_id") String resolvedReleaseId,
                                List<ConsumerNode> items) { }
 
@@ -45,6 +46,7 @@ public final class ConsumerDtos {
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     @JsonPropertyOrder({"items", "resolved_release_id", "next_cursor"})
+    @io.swagger.v3.oas.annotations.media.Schema(name = "ConsumerProductListResponse")
     public record ProductListResponse(@JsonProperty("resolved_release_id") String resolvedReleaseId,
                                       List<ConsumerProductResponse> items,
                                       @JsonProperty("next_cursor") String nextCursor) { }

@@ -27,6 +27,7 @@ public class DeliverySlotAdminController {
     record WindowRequest(String label, Integer startMinute, Integer endMinute, Integer cutoffMinutes, Integer capacity,
                          Set<Integer> days, Long expectedVersion) { }
 
+    @io.swagger.v3.oas.annotations.media.Schema(name = "DeliveryWindowVersionRequest")
     record VersionRequest(Long expectedVersion) { }
 
     record WindowResponse(String serviceAreaId, String windowId, String label, int startMinute, int endMinute,

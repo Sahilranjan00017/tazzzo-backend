@@ -33,6 +33,12 @@ Frozen codes: `INVALID_REQUEST` (400), `INVALID_CURSOR` (400), `NOT_FOUND` (404)
 - `message` is generic and safe; **no stack traces or internal service names**.
 - The existing `/catalog/v1` consumer error `{code, message, request_id}` maps cleanly; `/v1` adds `retryable` and `retryAfterSeconds` (additive superset). `/catalog/v1` is not changed by this PR.
 
+**Two spellings of the request id, per route family (documented, not unified).** Domain errors of `/v1/**` (commerce read, cart, checkout, orders, addresses, profile, OTP, session, support, account deletion, content) carry camelCase `requestId`. Errors written by platform filters and framework fallbacks on `/v1/**` (413 `PAYLOAD_TOO_LARGE`, an undecodable query string, an unmapped failure) and every `/catalog/v1/**` error carry snake_case `request_id` (`PlatformErrorEnvelope` in `openapi.yaml`). The admin `/api/**` surface uses the nested `{ "error": { "code", "message", "request_id" } }`. All three carry the same id as the `X-Request-Id` header. Converging `/v1` on one spelling would be a contract change and needs approval.
+
+**Request body bounds.** 64 KiB (65,536 bytes) on every route by default (`tazzzo.http.max-request-body-bytes`); 2 MiB on the admin bulk-import routes under `/api/v1/admin/imports/**` (`tazzzo.http.bulk-import-max-request-body-bytes`); the configurable hard maximum is 16 MiB. A larger body is refused with `413 PAYLOAD_TOO_LARGE` before authentication, with `Connection: close`.
+
+**Which file generated clients use.** `openapi.yaml` is the hand-written app contract (`/v1/**`, per-operation error codes, operation ids such as `getCategories`). `services/catalog-service/docs/openapi.json` is generated from the controllers (`OpenApiExportIT`, never hand-edited) and covers the admin/internal surface plus the same `/v1/**` operations under its own operation-id vocabulary (`commerceReadCategories`) with the same status sets (`OpenApiContractIT` pins them to this file).
+
 ## Pagination contract (ADR-009)
 - **Opaque, signed cursors** (existing catalog cursor codec). Clients **MUST NOT parse** the cursor.
 - `page_size` bounded **1..50, default 20**; out-of-range ⇒ `INVALID_REQUEST`.
