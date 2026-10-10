@@ -52,7 +52,7 @@ Evidence note: findings come from three parallel read-only audits; the highest-i
 
 | Collection | Owner | Class | `_id` | Business identity | Notes |
 |---|---|---|---|---|---|
-| `products` | `catalog.tx` via `WritePath` | A | caller-supplied string `^TZP-` | `identity.internal_key`, GTINs, `identity.canonical_key` | `version` Int32 CAS; validator; required: `_id, product_type, identity, brand_code, title, lifecycle, classification, attributes, attributes_meta, version, created_at`. Legacy: `identity.canonical_key` may be absent (pre CAT-ID), handled by backfill. |
+| `products` | `catalog.tx` via `WritePath` | A | caller-supplied string `^TZP-[A-Za-z0-9-]{1,40}\z` (V0017) | `identity.internal_key`, GTINs, `identity.canonical_key` | `version` Int32 CAS; validator; required: `_id, product_type, identity, brand_code, title, lifecycle, classification, attributes, attributes_meta, version, created_at`. Legacy: `identity.canonical_key` may be absent (pre CAT-ID), handled by backfill. |
 | `gtin_registry` | `MintService`, `GtinBindService` | A | GTIN string | — | `{bindings:[{product_id, market, from, to}]}`; never read in main except updates |
 | `identity_keys` | `MintService`, `MergeService` | A | internal key | — | `{product_id, status active|redirected, redirected_to?}`; no reader |
 | `canonical_keys` | `MintService`, `VariantPackService`, `CanonicalKeyBackfillService` | A | derived key | — | `{product_id, version, status, created_at}`; reader `ProductQueryService.findByCanonicalKey` |
@@ -167,7 +167,7 @@ No POJO/Codec-registry mapping exists; `WritePath.java:131` uses `MongoClientSet
 | `products` | `$jsonSchema` (`SB:390-455`) | STRICT / ERROR | **only at first creation** (`SB:152-158`) |
 | other 48 | none | — | — |
 
-`products` schema (VERIFIED `SB:390-455`): `additionalProperties:false`; required fields listed in §3.1; `_id` pattern `^TZP-`; `product_type` enum `single|variant_pack|bundle`; `lifecycle` enum `draft|active|merging|discontinued|archived|merged`; `identity.type` enum `gtin|internal`; `gtins` maxItems 12; `classification.status` enum `confirmed|provisional|review|scope_blocked`, `confidence` double|null 0..1, `evidence_refs` maxItems 20 pattern `^EV-`; `bundle_contents` maxItems 100 (qty int ≥1); `pack_of.qty` ≥2; `browse_verticals` maxItems 120; `version` int ≥1; `ext` `additionalProperties:false` (empty by default); `oneOf` by `product_type`. `supersedes` is mentioned in `ProductLifecycleService` comments but is **not** in the schema and would be rejected.
+`products` schema (VERIFIED `SB:390-455`): `additionalProperties:false`; required fields listed in §3.1; `_id` pattern `^TZP-[A-Za-z0-9-]{1,40}\z` (V0017); `product_type` enum `single|variant_pack|bundle`; `lifecycle` enum `draft|active|merging|discontinued|archived|merged`; `identity.type` enum `gtin|internal`; `gtins` maxItems 12; `classification.status` enum `confirmed|provisional|review|scope_blocked`, `confidence` double|null 0..1, `evidence_refs` maxItems 20 pattern `^EV-`; `bundle_contents` maxItems 100 (qty int ≥1); `pack_of.qty` ≥2; `browse_verticals` maxItems 120; `version` int ≥1; `ext` `additionalProperties:false` (empty by default); `oneOf` by `product_type`. `supersedes` is mentioned in `ProductLifecycleService` comments but is **not** in the schema and would be rejected.
 
 `ValidatorGenerator.regenerate` (`J/catalog/schema/ValidatorGenerator.java:44-49`, `collMod`) has **no caller in main**; only `T/.../ValidatorRegenIT`. A pre-existing `products` collection never receives or refreshes a validator.
 
