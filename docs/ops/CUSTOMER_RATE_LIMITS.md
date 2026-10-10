@@ -23,6 +23,6 @@
 **Values are a deployment decision (UNVERIFIED).** No production numbers are chosen in code. A starting point to load-test is reads 120 / 2 per second and writes 30 / 0.5 per second.
 
 ## Not covered here
-- **Public surfaces:** `/v1/catalog`, `/v1/search`, content and app-config keep the IP/installation admission (`ConsumerRateLimiter`).
+- **Public surfaces:** `/v1/categories`, `/v1/products`, `/v1/search`, content and app-config keep the IP/installation admission (`ConsumerRateLimiter`).
 - **OTP:** keeps its phone/challenge buckets (`OtpRateLimiter`).
 - **Admin/staff API:** it is behind service tokens and Google identity and is not customer-budgeted.
