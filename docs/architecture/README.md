@@ -23,6 +23,7 @@ point for the frozen decisions, contracts, and implementation sequence.
 | [014](adr/ADR-014-observability-request-id.md) | Observability / request-id |
 | [015](adr/ADR-015-idempotent-writes.md) | Idempotency for writes |
 | [016](adr/ADR-016-spring-boot-4-runtime-baseline.md) | Java 21 / Spring Boot 4.1 baseline (Jackson 2 retained) |
+| [017](adr/ADR-017-stable-openapi-operation-ids.md) | Stable, explicit OpenAPI operationIds |
 
 ## API contract (`/v1`, frozen — not implemented)
 - Machine-readable: [`../api/v1/openapi.yaml`](../api/v1/openapi.yaml)
