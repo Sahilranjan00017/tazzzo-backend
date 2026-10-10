@@ -129,6 +129,19 @@ public final class IndexCatalog {
                     new Document("type", "product_card_rebuild"), null),
             named("work_queue", "projection_rebuild_leased_by_lease", k("status", 1, "lease_until", 1), false,
                     new Document("type", "product_card_rebuild"), null));
+    /**
+     * Legacy offer-event rollup (V0019): the hourly {@code RollupService.rollup} reads the not-yet-rolled LEGACY offer events of
+     * the append-only {@code price_events} ledger ({@code rolled != true}, string {@code product_id} and {@code seller}, int32
+     * {@code price}). The ledger also holds one paise-shape row per price change, which has no {@code rolled} flag and so sits
+     * inside the existing {@code (rolled, ts)} range, making every run read the whole ledger. This partial index holds ONLY the
+     * legacy-shape events, keyed {@code (rolled, ts, _id)} so the {@code rolled != true} bounds skip the already-rolled ones: a run
+     * reads exactly the unrolled legacy events. The partial filter repeats the query's three type predicates verbatim (the planner
+     * only uses a partial index whose filter the query implies). No write cost for paise rows. Migration-only (V0019).
+     */
+    public static final IndexSpec PRICE_EVENTS_LEGACY_UNROLLED_SPEC = named("price_events", "price_events_legacy_unrolled",
+            k("rolled", 1, "ts", 1, "_id", 1), false,
+            new Document("product_id", new Document("$type", "string")).append("seller", new Document("$type", "string"))
+                    .append("price", new Document("$type", "int")), null);
     /** CMS (PR-Q): the live/admin read of one placement in display order. Migration-only (V0013). */
     public static final IndexSpec CONTENT_BLOCKS_SPEC = named("content_blocks", "content_by_placement_status_sort",
             k("placement", 1, "status", 1, "sort", 1, "_id", 1), false, null, null);
@@ -180,6 +193,7 @@ public final class IndexCatalog {
         m.addAll(NOTIFICATION_SPECS);
         m.addAll(IMPORT_JOB_SPECS);
         m.addAll(WORK_QUEUE_REBUILD_SPECS);
+        m.add(PRICE_EVENTS_LEGACY_UNROLLED_SPEC);
         m.add(CONTENT_BLOCKS_SPEC);
         m.addAll(SUPPORT_CASE_SPECS);
         m.add(PRODUCT_CARD_SEARCH_SPEC);

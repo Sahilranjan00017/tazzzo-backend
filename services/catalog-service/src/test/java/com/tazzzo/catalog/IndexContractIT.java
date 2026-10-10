@@ -161,6 +161,10 @@ class IndexContractIT extends AbstractMongoIT {
             // rebuild-queue gauges (V0018)
             named("work_queue", "projection_rebuild_pending_by_requested", k("status", 1, "requested_at", 1), false, new Document("type", "product_card_rebuild"), null),
             named("work_queue", "projection_rebuild_leased_by_lease", k("status", 1, "lease_until", 1), false, new Document("type", "product_card_rebuild"), null),
+            // hourly price rollup over legacy offer events only (V0019)
+            named("price_events", "price_events_legacy_unrolled", k("rolled", 1, "ts", 1, "_id", 1), false,
+                    new Document("product_id", new Document("$type", "string")).append("seller", new Document("$type", "string"))
+                            .append("price", new Document("$type", "int")), null),
             // async import jobs (V0016)
             named("import_jobs", "import_jobs_claim", k("status", 1, "lease_until", 1, "updated_at", 1), false, null, null),
             named("import_jobs", "import_jobs_by_status_recent", k("status", 1, "_id", -1), false, null, null),
