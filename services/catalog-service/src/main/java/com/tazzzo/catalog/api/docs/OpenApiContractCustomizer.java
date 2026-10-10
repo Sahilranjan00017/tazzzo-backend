@@ -150,15 +150,18 @@ public class OpenApiContractCustomizer implements OpenApiCustomizer {
                 * **Legacy mobile namespace** (`/catalog/v1/**`): public, flat `PlatformErrorEnvelope` (`request_id`).
 
                 **Request bodies are bounded** and refused with `413 PAYLOAD_TOO_LARGE` before authentication: %s on every \
-                route, %s on the bulk-import routes under `/api/v1/admin/imports/**` (500 rows per file); the configurable hard \
-                maximum is 16 MiB. A chunked import body is counted as it is read.
+                route, %s on the bulk-import routes under `/api/v1/admin/imports/**` (500 rows per file), %s on the content-block \
+                writes (`POST /api/v1/admin/content/blocks`, `PUT /api/v1/admin/content/blocks/{id}`; a legal document body is up to \
+                60,000 characters); the configurable hard maximum is 16 MiB. A chunked import or content-block body is counted as it \
+                is read.
 
                 **Reading this document.** Each operation lists the success statuses its handler really returns (201 or 200 for \
                 upserts, 202, 204) and the error statuses its surface can produce; framework-level 405/406/415 answers are not \
                 repeated on every admin operation. Properties of a JSON response whose Java type is a primitive are `required`; no \
                 other property is marked required or nullable because the code base carries no nullability annotations, so \
                 absence of `required` means "not guaranteed", not "optional by contract".
-                """.formatted(kib(http.getMaxRequestBodyBytes()), kib(http.getBulkImportMaxRequestBodyBytes())));
+                """.formatted(kib(http.getMaxRequestBodyBytes()), kib(http.getBulkImportMaxRequestBodyBytes()),
+                kib(http.getContentBlockMaxRequestBodyBytes())));
         api.setInfo(info);
     }
 
@@ -389,7 +392,8 @@ public class OpenApiContractCustomizer implements OpenApiCustomizer {
             case 404 -> "NOT_FOUND (or a domain-specific not-found such as NODE_NOT_FOUND, IMPORT_JOB_NOT_FOUND).";
             case 409 -> "Conflict: STALE_VERSION (optimistic lock lost), STATE_CONFLICT, IDENTITY_COLLISION, DUPLICATE_*, IMPORT_JOB_STATE and other state conflicts.";
             case 413 -> "PAYLOAD_TOO_LARGE: the body exceeds " + (path.startsWith(HttpPlatformProperties.BULK_IMPORT_PREFIX)
-                    ? kib(http.getBulkImportMaxRequestBodyBytes()) : kib(http.getMaxRequestBodyBytes()))
+                    ? kib(http.getBulkImportMaxRequestBodyBytes()) : isContentBlockWrite(path)
+                    ? kib(http.getContentBlockMaxRequestBodyBytes()) : kib(http.getMaxRequestBodyBytes()))
                     + ". Refused before authentication, `Connection: close`.";
             case 422 -> "Valid JSON that the domain refuses: ATTRIBUTE_VIOLATION, EVIDENCE_GATE, BUNDLE_COMPONENT, IMMUTABLE_FIELD, VARIANT_PACK_INVALID, INVALID_PRICE, INVALID_INVENTORY, INVALID_MEDIA, INVALID_CONTENT, INVALID_IMPORT and similar.";
             case 500 -> "INTERNAL: unexpected failure; the body carries only the request id.";
@@ -453,10 +457,18 @@ public class OpenApiContractCustomizer implements OpenApiCustomizer {
 
     // ------------------------------------------------------------------ bounds
 
+    /** The documented path templates of the two content-block writes (create, replace). */
+    private static boolean isContentBlockWrite(String path) {
+        return path.equals("/api/v1/admin/content/blocks") || path.equals("/api/v1/admin/content/blocks/{id}");
+    }
+
     private void bodyBound(String path, String method, Operation op) {
         if (op.getRequestBody() == null || SurfaceClassifier.classify(path) != Surface.INTERNAL) return;
         boolean bulk = path.startsWith(HttpPlatformProperties.BULK_IMPORT_PREFIX);
+        boolean blocks = !bulk && isContentBlockWrite(path) && !method.equals("GET");
         String note = "Request body bound: " + (bulk ? kib(http.getBulkImportMaxRequestBodyBytes()) + " (bulk import, up to 500 rows per file)"
+                : blocks ? kib(http.getContentBlockMaxRequestBodyBytes()) + " on this route (a LEGAL block's `payload.body` is at most 60000 characters; "
+                + "a character takes up to 3 bytes in UTF-8, and JSON escapes `\\n` and `\\\"` cost 2)"
                 : kib(http.getMaxRequestBodyBytes())) + "; a larger body is refused with 413 PAYLOAD_TOO_LARGE before authentication.";
         op.setDescription(op.getDescription() == null || op.getDescription().isBlank() ? note : op.getDescription() + "\n\n" + note);
         if (path.equals("/api/v1/admin/imports/jobs/{id}/rows") && method.equals("POST")) {

@@ -28,6 +28,7 @@ timeout and the target-group deregistration delay to ≥ 30 s.
 
 ## 2. Request-body size limit
 - `tazzzo.http.bulk-import-max-request-body-bytes` (`TAZZZO_HTTP_BULK_IMPORT_MAX_BODY_BYTES`, default 2 MiB; bounds: the API limit .. 16 MiB) applies ONLY to the exact prefix `/api/v1/admin/imports/` on the internal surface: the admin bulk imports (#73 and the product import) take files of up to 500 rows (a 500-SKU product file is ~200 KB), and the asynchronous import jobs (`/api/v1/admin/imports/jobs/{id}/rows`, streamed CSV) take one file chunk of up to this size per request; every other route keeps the API default.
+- `tazzzo.http.content-block-max-request-body-bytes` (`TAZZZO_HTTP_CONTENT_BLOCK_MAX_BODY_BYTES`, default 262144 = 256 KiB; bounds: the API limit .. 16 MiB) applies ONLY to `POST /api/v1/admin/content/blocks` and `PUT /api/v1/admin/content/blocks/CB_...` (exact paths, internal surface): a LEGAL block's `payload.body` is up to 60,000 characters, which is ~176 KiB in UTF-8 for Devanagari (3 bytes per character) before JSON escapes (`\n` and `\"` cost 2 bytes). `/status`, `/reorder`, uploads and every other route keep the API limit. As with bulk import, a declared length over the bound is refused before authentication, and a chunked body is counted after authentication while it is read.
 
 Every request body on every surface is bounded by `tazzzo.http.max-request-body-bytes` (`TAZZZO_HTTP_MAX_BODY_BYTES`,
 default 65536; allowed 1 KiB–16 MiB, startup failure outside). `RequestBodyLimitFilter` runs right after the request-id

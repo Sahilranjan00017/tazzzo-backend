@@ -233,8 +233,8 @@ public record ContentBlock(String blockId, Placement placement, Type type, Strin
                 }
                 legalSlug(p.legalSlug());
                 plainText(p.body(), MAX_LEGAL_BODY, true, "body");
-                if (p.body().codePoints().anyMatch(c -> (c >= 0x80 && c <= 0x9F) || (c >= 0x202A && c <= 0x202E) || (c >= 0x2066 && c <= 0x2069))) {
-                    throw new IllegalArgumentException("body must not contain direction-control characters");
+                if (p.body().codePoints().anyMatch(ContentBlock::invisibleOrUnsafeInLegalText)) {
+                    throw new IllegalArgumentException("body must not contain invisible, direction-control or unpaired-surrogate characters");
                 }
                 effectiveDate(p.effectiveDate());
             }
@@ -254,6 +254,17 @@ public record ContentBlock(String blockId, Placement placement, Type type, Strin
         } catch (IllegalArgumentException e) {
             throw new IllegalArgumentException("faqCategory must be one of DELIVERY, PRODUCT, CLUB, PAYMENT, REFUND, ACCOUNT");
         }
+    }
+
+    /**
+     * Characters that can hide or reorder what a reader sees in a legal text: C1 controls, bidi marks/overrides/isolates
+     * (U+061C, U+200E/F, U+202A-E, U+2066-9), zero-width space, word joiner, BOM and unpaired surrogates. The zero-width
+     * joiner and non-joiner (U+200D, U+200C) stay allowed: Indic scripts need them.
+     */
+    static boolean invisibleOrUnsafeInLegalText(int c) {
+        return (c >= 0x80 && c <= 0x9F) || c == 0x061C || c == 0x200B || c == 0x200E || c == 0x200F
+                || (c >= 0x202A && c <= 0x202E) || c == 0x2060 || (c >= 0x2066 && c <= 0x2069) || c == 0xFEFF
+                || (c >= 0xD800 && c <= 0xDFFF);
     }
 
     public static LegalSlug legalSlug(String raw) {

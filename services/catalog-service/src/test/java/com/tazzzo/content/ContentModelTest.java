@@ -251,6 +251,13 @@ class ContentModelTest {
         bad("C1 control", t, "T", 1, null, null, lg("TERMS", "a\u0085b", null));
         bad("bidi override", t, "T", 1, null, null, lg("TERMS", "abc\u202Edef", null));
         bad("bidi isolate", t, "T", 1, null, null, lg("TERMS", "abc\u2066def", null));
+        for (int c : new int[]{0x200B, 0x200E, 0x200F, 0x061C, 0x2060, 0xFEFF, 0x202A, 0x202C, 0x2067, 0x2069}) {
+            bad("invisible U+" + Integer.toHexString(c), t, "T", 1, null, null, lg("TERMS", "a" + new String(Character.toChars(c)) + "b", null));
+        }
+        bad("lone high surrogate", t, "T", 1, null, null, lg("TERMS", "a\uD800b", null));
+        bad("lone low surrogate", t, "T", 1, null, null, lg("TERMS", "a\uDC00b", null));
+        bad("reversed surrogate pair", t, "T", 1, null, null, lg("TERMS", "a\uDC00\uD800b", null));
+        ok(t, lg("TERMS", "a\uD83D\uDE00b \u200C\u200D", null));   // a real emoji pair, ZWNJ and ZWJ stay allowed
         for (String d : new String[]{"2026-13-01", "2026-02-30", "2026-1-1", "26-10-01", "2026/10/01", "2026-10-01T00:00:00Z", "", " 2026-10-01",
                 "+12026-10-01", "2026-10-01\n"}) {
             bad("effectiveDate " + d, t, "T", 1, null, null, lg("TERMS", "body", d));

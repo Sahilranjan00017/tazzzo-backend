@@ -36,6 +36,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         classes = {CatalogApplication.class, AbstractConsumerIT.ProbeCounting.class})
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
+@org.springframework.context.annotation.Import(ContentLegalIT.HookedService.class)
 class ContentLegalIT extends AbstractConsumerIT {
 
     static final String W = "cms-test-token";
@@ -296,6 +297,15 @@ class ContentLegalIT extends AbstractConsumerIT {
         assertThat(send(HttpMethod.PUT, BLOCKS + "/" + terms.get("blockId").asText(), W, update(terms, "Terms (edited)", null, null))
                 .getStatusCode().value()).isEqualTo(200);
         assertThat(legal("terms").getBody().get("title").asText()).isEqualTo("Terms (edited)");
+
+        // the audit trail says which document and window changed, never the text
+        Document updated = db.getCollection("domain_events").find(new Document("aggregate_id", terms.get("blockId").asText())
+                .append("type", "CONTENT_BLOCK_UPDATED")).first();
+        assertThat(updated.get("detail", Document.class).getString("legalSlug")).isEqualTo("TERMS");
+        assertThat(updated.toJson()).doesNotContain("Clause one");
+        Document published = db.getCollection("domain_events").find(new Document("aggregate_id", terms.get("blockId").asText())
+                .append("type", "CONTENT_BLOCK_PUBLISHED")).first();
+        assertThat(published.get("detail", Document.class).getString("legalSlug")).isEqualTo("TERMS");
     }
 
     @Test
@@ -333,24 +343,112 @@ class ContentLegalIT extends AbstractConsumerIT {
         assertThat(legal("terms").getBody().get("title").asText()).isEqualTo("New terms");
     }
 
+    /**
+     * Test seam: while armed, a publish that has passed the overlap check waits (bounded) for the other one to pass it too
+     * before it commits. Without the per-slug lock both get there and both commit; with it the second is stuck on the lock,
+     * the wait times out, and the second then retries and sees the first.
+     */
+    static volatile java.util.concurrent.CountDownLatch bothChecked;
+
+    @org.springframework.boot.test.context.TestConfiguration
+    static class HookedService {
+        @org.springframework.context.annotation.Bean
+        @org.springframework.context.annotation.Primary
+        com.tazzzo.content.ContentService hookedContentService(com.mongodb.client.MongoDatabase db, com.tazzzo.catalog.tx.Tx tx,
+                java.time.Clock clock, com.tazzzo.media.MediaIngestVerifier media) {
+            return new com.tazzzo.content.ContentService(db, tx, clock, media) {
+                @Override
+                protected void legalCheckPassed(String legalSlug) {
+                    java.util.concurrent.CountDownLatch l = bothChecked;
+                    if (l == null) return;
+                    l.countDown();
+                    try {
+                        l.await(2, java.util.concurrent.TimeUnit.SECONDS);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
+            };
+        }
+    }
+
     @Test
-    void concurrent_publishes_of_the_same_slug_let_exactly_one_win() throws Exception {
+    void concurrent_publishes_of_the_same_slug_let_exactly_one_win_deterministically() throws Exception {
         JsonNode a = draft("TERMS", "Terms A");
         JsonNode b = draft("TERMS", "Terms B");
         ExecutorService pool = Executors.newFixedThreadPool(2);
+        bothChecked = new CountDownLatch(2);
         try {
-            CountDownLatch go = new CountDownLatch(1);
             List<Callable<Integer>> jobs = List.of(
-                    () -> { go.await(); return setStatus(a, "PUBLISHED").getStatusCode().value(); },
-                    () -> { go.await(); return setStatus(b, "PUBLISHED").getStatusCode().value(); });
+                    () -> setStatus(a, "PUBLISHED").getStatusCode().value(),
+                    () -> setStatus(b, "PUBLISHED").getStatusCode().value());
             List<Future<Integer>> futures = jobs.stream().map(pool::submit).toList();
-            go.countDown();
             List<Integer> codes = List.of(futures.get(0).get(), futures.get(1).get());
             assertThat(codes).containsExactlyInAnyOrder(200, 409);
         } finally {
+            bothChecked = null;
             pool.shutdownNow();
         }
         assertThat(db.getCollection("content_blocks").countDocuments(new Document("type", "LEGAL").append("status", "PUBLISHED"))).isEqualTo(1);
+    }
+
+    // ------------------------------------------------------------------ size: legal bodies need more than 64 KiB
+
+    private static String repeat(String unit, int chars) {
+        StringBuilder sb = new StringBuilder(chars);
+        while (sb.length() < chars) sb.append(unit);
+        sb.setLength(chars);
+        return sb.toString();
+    }
+
+    @Test
+    void a_60000_character_devanagari_body_is_about_176_kib_and_still_publishes_and_is_served() {
+        String body = repeat("\u0905", 60_000);
+        assertThat(body.getBytes(StandardCharsets.UTF_8)).hasSizeGreaterThan(64 * 1024).hasSize(180_000);
+        JsonNode created = draft("TERMS", "Terms", body, null, null, null);
+        publish(created);
+        ResponseEntity<JsonNode> res = legal("terms");
+        assertThat(res.getStatusCode().value()).isEqualTo(200);
+        assertThat(res.getBody().get("body").asText()).hasSize(60_000).isEqualTo(body);
+    }
+
+    @Test
+    void a_60000_character_ascii_body_with_thousands_of_newlines_and_quotes_publishes_and_is_served() {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; sb.length() < 60_000; i++) sb.append(i % 2 == 0 ? "A \"quoted\" clause.\n\n" : "Plain \\ text \"x\"\n");
+        sb.setLength(60_000);
+        String body = sb.toString().strip();
+        body = body + repeat("z", 60_000 - body.length());
+        assertThat(body).hasSize(60_000);
+        assertThat(body.chars().filter(c -> c == '\n').count()).isGreaterThan(2_000);
+        JsonNode created = draft("PRIVACY", "Privacy", body, null, null, null);
+        publish(created);
+        assertThat(legal("privacy").getBody().get("body").asText()).isEqualTo(body);
+    }
+
+    @Test
+    void a_body_over_the_256_kib_block_bound_gets_the_platform_413_envelope_and_the_other_admin_routes_stop_at_64_kib() {
+        // 300 KiB declared: refused before the body is read; the platform envelope of the internal surface
+        String huge = "{\"x\":\"" + repeat("a", 300 * 1024) + "\"}";
+        java.net.http.HttpClient client = java.net.http.HttpClient.newBuilder().version(java.net.http.HttpClient.Version.HTTP_1_1).build();
+        java.net.http.HttpResponse<String> res;
+        try {
+            res = client.send(java.net.http.HttpRequest.newBuilder(java.net.URI.create(url(BLOCKS)))
+                    .header("Content-Type", "application/json").header("Authorization", "Bearer " + W)
+                    .POST(java.net.http.HttpRequest.BodyPublishers.ofString(huge)).build(), java.net.http.HttpResponse.BodyHandlers.ofString());
+        } catch (Exception e) {
+            throw new AssertionError("the 413 must be readable by the client", e);
+        }
+        assertThat(res.statusCode()).isEqualTo(413);
+        assertThat(res.body()).contains("\"PAYLOAD_TOO_LARGE\"").contains("request_id");
+        String sixtyKib = "{\"x\":\"" + repeat("a", 70 * 1024) + "\"}";
+        assertThat(send(HttpMethod.POST, BLOCKS + "/reorder", W, sixtyKib).getStatusCode().value()).isEqualTo(413);
+    }
+
+    private HttpHeaders jsonHeaders() {
+        HttpHeaders h = bearer(W);
+        h.setContentType(MediaType.APPLICATION_JSON);
+        return h;
     }
 
     // ------------------------------------------------------------------ admin validation and permissions

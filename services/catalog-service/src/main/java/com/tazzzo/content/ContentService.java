@@ -125,7 +125,16 @@ public class ContentService {
             throw new ContentFailure(ContentFailure.Reason.INVALID, e.getMessage());
         }
         Instant now = clock.instant().truncatedTo(ChronoUnit.MILLIS);
-        Map<String, Object> detail = au == current.audience() ? Map.of() : Map.of("audience", au.name(), "from", current.audience().name());
+        Map<String, Object> detail = new LinkedHashMap<>();
+        if (au != current.audience()) {
+            detail.put("audience", au.name());
+            detail.put("from", current.audience().name());
+        }
+        if (current.type() == ContentBlock.Type.LEGAL) {   // which document and when it is live; never the text
+            detail.put("legalSlug", payload.legalSlug());
+            if (startsAt != null) detail.put("startsAt", startsAt.toString());
+            if (endsAt != null) detail.put("endsAt", endsAt.toString());
+        }
         List<Bson> changes = new ArrayList<>(List.of(
                 Updates.set("title", title), Updates.set("sort", sort), Updates.set("payload", payloadDoc(payload)),
                 startsAt == null ? Updates.unset("startsAt") : Updates.set("startsAt", Date.from(startsAt)),
@@ -148,8 +157,10 @@ public class ContentService {
             throw new ContentFailure(ContentFailure.Reason.STATE_CONFLICT, "the block is already " + current.status());
         }
         java.util.function.Consumer<ClientSession> guard = current.type() == ContentBlock.Type.LEGAL && target == ContentBlock.Status.PUBLISHED
-                ? session -> requireSingleLive(session, id, current.payload().legalSlug(), current.startsAt(), current.endsAt()) : null;
-        cas(actor, id, expectedVersion, List.of("DRAFT", "PUBLISHED"), "CONTENT_BLOCK_" + target.name(), Map.of("from", current.status().name()),
+                ? session -> requireSingleLiveFor(session, id, current.payload().legalSlug()) : null;
+        Map<String, Object> statusDetail = new LinkedHashMap<>(Map.of("from", current.status().name()));
+        if (current.type() == ContentBlock.Type.LEGAL) statusDetail.put("legalSlug", current.payload().legalSlug());
+        cas(actor, id, expectedVersion, List.of("DRAFT", "PUBLISHED"), "CONTENT_BLOCK_" + target.name(), statusDetail,
                 Updates.combine(Updates.set("status", target.name()), Updates.set("updatedAt", Date.from(clock.instant().truncatedTo(ChronoUnit.MILLIS)))), guard);
         return get(id);
     }
@@ -180,14 +191,25 @@ public class ContentService {
      * authoritative here on the backend (D2), never on a client.
      */
     public List<ContentBlock> live(ContentBlock.Placement placement, ContentBlock.Channel channel) {
+        return liveWhere(placement, channel, null, null);
+    }
+
+    /**
+     * {@link #live} narrowed by an extra Mongo filter and an optional projection (so a read that does not need the large
+     * LEGAL bodies, or only needs one document type, does not load them). The domain rules are applied again on every row.
+     */
+    private List<ContentBlock> liveWhere(ContentBlock.Placement placement, ContentBlock.Channel channel, Bson extra, Bson projection) {
         Instant now = clock.instant();
         Date n = Date.from(now);
+        List<Bson> filters = new ArrayList<>(List.of(Filters.eq("placement", placement.name()), Filters.eq("status", "PUBLISHED"),
+                Filters.or(Filters.exists("startsAt", false), Filters.lte("startsAt", n)),
+                Filters.or(Filters.exists("endsAt", false), Filters.gt("endsAt", n)),
+                channelFilter(channel)));
+        if (extra != null) filters.add(extra);
+        var find = blocks().find(Filters.and(filters)).sort(Sorts.ascending("sort", "_id")).limit(MAX_BLOCKS_PER_PLACEMENT);
+        if (projection != null) find = find.projection(projection);
         List<ContentBlock> out = new ArrayList<>();
-        for (Document d : blocks().find(Filters.and(Filters.eq("placement", placement.name()), Filters.eq("status", "PUBLISHED"),
-                        Filters.or(Filters.exists("startsAt", false), Filters.lte("startsAt", n)),
-                        Filters.or(Filters.exists("endsAt", false), Filters.gt("endsAt", n)),
-                        channelFilter(channel)))
-                .sort(Sorts.ascending("sort", "_id")).limit(MAX_BLOCKS_PER_PLACEMENT)) {
+        for (Document d : find) {
             ContentBlock b;
             try {
                 b = toBlock(d);
@@ -231,7 +253,8 @@ public class ContentService {
      */
     public List<ContentBlock> liveFaqs(ContentBlock.FaqCategory category) {
         List<ContentBlock> out = new ArrayList<>();
-        for (ContentBlock b : live(ContentBlock.Placement.HELP)) {
+        // FAQ entries only, without the (large) LEGAL bodies
+        for (ContentBlock b : liveWhere(ContentBlock.Placement.HELP, null, Filters.eq("type", "FAQ"), null)) {
             if (b.type() != ContentBlock.Type.FAQ) continue;
             if (category != null && !category.name().equals(b.payload().faqCategory())) continue;
             out.add(b);
@@ -246,7 +269,8 @@ public class ContentService {
      * ever hold two, the most recently updated wins (then the greater id), so the answer is deterministic.
      */
     public java.util.Optional<ContentBlock> liveLegal(ContentBlock.LegalSlug slug) {
-        return live(ContentBlock.Placement.HELP).stream()
+        return liveWhere(ContentBlock.Placement.HELP, null,
+                        Filters.and(Filters.eq("type", "LEGAL"), Filters.eq("payload.legalSlug", slug.name())), null).stream()
                 .filter(b -> b.type() == ContentBlock.Type.LEGAL && slug.name().equals(b.payload().legalSlug()))
                 .max(java.util.Comparator.comparing(ContentBlock::updatedAt).thenComparing(ContentBlock::blockId));
     }
@@ -419,8 +443,39 @@ public class ContentService {
      * no start date does not collide with a superseded one that already ended.
      */
     private void requireSingleLive(ClientSession session, String self, String legalSlug, Instant startsAt, Instant endsAt) {
+        lockSlug(session, legalSlug);
+        checkNoOverlap(session, self, legalSlug, startsAt, endsAt);
+        legalCheckPassed(legalSlug);
+    }
+
+    /**
+     * Publishing an existing block: take the slug's lock, THEN re-read the block inside the transaction, so the window and
+     * slug checked are the committed ones even if another editor changed them after the caller loaded the block (the
+     * version CAS that follows would refuse the stale write; this keeps the guard itself from deciding on stale data).
+     */
+    private void requireSingleLiveFor(ClientSession session, String id, String slugAtLoad) {
+        lockSlug(session, slugAtLoad);
+        Document d = blocks().find(session, Filters.eq("_id", id)).first();
+        if (d == null) throw new ContentFailure(ContentFailure.Reason.NOT_FOUND, "no such block");
+        Document p = d.get("payload", Document.class);
+        String slug = p == null ? null : p.getString("legalSlug");
+        if (!slugAtLoad.equals(slug)) throw new ContentFailure(ContentFailure.Reason.STALE_VERSION, "the block changed; reload it");
+        Date s = d.getDate("startsAt");
+        Date e = d.getDate("endsAt");
+        checkNoOverlap(session, id, slug, s == null ? null : s.toInstant(), e == null ? null : e.toInstant());
+        legalCheckPassed(slug);
+    }
+
+    /** Test seam: called after the overlap check passed and before the write commits. Does nothing. */
+    protected void legalCheckPassed(String legalSlug) {
+    }
+
+    private void lockSlug(ClientSession session, String legalSlug) {
         db.getCollection(CONFIG).updateOne(session, Filters.eq("_id", LEGAL_LOCK_PREFIX + legalSlug), Updates.inc("n", 1L),
                 new com.mongodb.client.model.UpdateOptions().upsert(true));
+    }
+
+    private void checkNoOverlap(ClientSession session, String self, String legalSlug, Instant startsAt, Instant endsAt) {
         Instant now = clock.instant();
         Instant from = startsAt == null || startsAt.isBefore(now) ? now : startsAt;
         for (Document d : blocks().find(session, Filters.and(Filters.eq("placement", "HELP"), Filters.eq("type", "LEGAL"),

@@ -69,4 +69,29 @@ class HttpPlatformPropertiesTest {
         p.setBulkImportMaxRequestBodyBytes(HttpPlatformProperties.MAX_BODY_BYTES + 1);
         org.assertj.core.api.Assertions.assertThatThrownBy(p::validate).isInstanceOf(IllegalStateException.class);
     }
+
+    @org.junit.jupiter.api.Test
+    void the_content_block_bound_defaults_to_256_kib_and_stays_between_the_api_bound_and_16_mib() {
+        HttpPlatformProperties p = new HttpPlatformProperties();
+        p.validate();
+        org.assertj.core.api.Assertions.assertThat(p.getContentBlockMaxRequestBodyBytes()).isEqualTo(262_144);
+        org.assertj.core.api.Assertions.assertThat(p.getMaxRequestBodyBytes()).as("every other route stays at 64 KiB").isEqualTo(65_536);
+        p.setContentBlockMaxRequestBodyBytes(p.getMaxRequestBodyBytes() - 1);
+        org.assertj.core.api.Assertions.assertThatThrownBy(p::validate).isInstanceOf(IllegalStateException.class);
+        p.setContentBlockMaxRequestBodyBytes(HttpPlatformProperties.MAX_BODY_BYTES + 1);
+        org.assertj.core.api.Assertions.assertThatThrownBy(p::validate).isInstanceOf(IllegalStateException.class);
+    }
+
+    @org.junit.jupiter.api.Test
+    void only_the_exact_content_block_write_paths_match() {
+        var m = HttpPlatformProperties.CONTENT_BLOCK_WRITE_PATH;
+        for (String ok : new String[]{"/api/v1/admin/content/blocks", "/api/v1/admin/content/blocks/CB_abcdefghijklmnop"}) {
+            org.assertj.core.api.Assertions.assertThat(m.matcher(ok).matches()).as(ok).isTrue();
+        }
+        for (String no : new String[]{"/api/v1/admin/content/blocks/reorder", "/api/v1/admin/content/blocks/CB_abcdefghijklmnop/status",
+                "/api/v1/admin/content/blocks/", "/api/v1/admin/content/uploads", "/api/v1/admin/content/blocks/CB_short",
+                "/api/v1/admin/app-config", "/api/v1/admin/content/blocksx"}) {
+            org.assertj.core.api.Assertions.assertThat(m.matcher(no).matches()).as(no).isFalse();
+        }
+    }
 }

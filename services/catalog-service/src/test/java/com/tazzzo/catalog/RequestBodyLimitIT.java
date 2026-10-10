@@ -85,6 +85,46 @@ class RequestBodyLimitIT extends AbstractApiIT {
     @org.springframework.test.context.DynamicPropertySource
     static void bulkBound(org.springframework.test.context.DynamicPropertyRegistry r) {
         r.add("tazzzo.http.bulk-import-max-request-body-bytes", () -> String.valueOf(BULK));
+        r.add("tazzzo.http.content-block-max-request-body-bytes", () -> String.valueOf(BLOCKS));
+    }
+
+    /** The content-block write bound, small enough that "over" is refused before the client has streamed much. */
+    static final int BLOCKS = 128 * 1024;
+
+    @Test
+    void the_content_block_writes_take_legal_sized_bodies_and_no_other_admin_route_does() {
+        String big = jsonOfSize(100 * 1024);                                     // above the API default, under the block bound
+        String blocks = "/api/v1/admin/content/blocks";
+        String id = blocks + "/CB_abcdefghijklmnopqrst";
+        assertThat(post(blocks, big, CMS_TOKEN, JsonNode.class).getStatusCode().value())
+                .as("create: not refused for size (it is invalid content)").isNotEqualTo(413);
+        assertThat(rest.exchange(url(id), org.springframework.http.HttpMethod.PUT, entity(big, CMS_TOKEN), JsonNode.class)
+                .getStatusCode().value()).as("replace: not refused for size").isNotEqualTo(413);
+        assertThat(post(blocks, jsonOfSize(BLOCKS + 1024), CMS_TOKEN, JsonNode.class).getStatusCode().value())
+                .as("the block bound still applies").isEqualTo(413);
+        for (String other : new String[]{blocks + "/reorder", id + "/status", blocks + "/", "/api/v1/admin/content/uploads",
+                "/api/v1/products", "/api/v1/admin/contentX/blocks"}) {
+            assertThat(post(other, big, CMS_TOKEN, JsonNode.class).getStatusCode().value())
+                    .as("every other route keeps the 64 KiB default: " + other).isEqualTo(413);
+        }
+        assertThat(rest.exchange(url("/api/v1/admin/app-config"), org.springframework.http.HttpMethod.PUT, entity(big, CMS_TOKEN),
+                JsonNode.class).getStatusCode().value()).as("app config keeps 64 KiB").isEqualTo(413);
+    }
+
+    @Test
+    void a_chunked_content_block_body_is_never_read_before_authentication_and_is_bounded_while_it_is_read() throws Exception {
+        String blocks = "/api/v1/admin/content/blocks";
+        assertThat(chunkedPost(blocks, null, 100 * 1024)).as("401 before any byte is read").isEqualTo(401);
+        assertThat(chunkedPost(blocks, CMS_TOKEN, 100 * 1024)).as("authenticated, under the block bound").isNotEqualTo(413);
+        assertThat(chunkedPost(blocks, CMS_TOKEN, BLOCKS + 1024)).as("cut off past the block bound").isEqualTo(413);
+        assertThat(chunkedPost(blocks + "/reorder", CMS_TOKEN, 100 * 1024)).as("other block routes stay at 64 KiB").isEqualTo(413);
+    }
+
+    private org.springframework.http.HttpEntity<String> entity(String body, String token) {
+        org.springframework.http.HttpHeaders h = new org.springframework.http.HttpHeaders();
+        h.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+        if (token != null) h.setBearerAuth(token);
+        return new org.springframework.http.HttpEntity<>(body, h);
     }
 
     @Test
