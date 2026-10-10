@@ -42,7 +42,10 @@ class SessionTransactionRetryIT extends AbstractMongoIT {
 
     static final String ACCESS_KEY = Base64.getEncoder().encodeToString(new byte[32]);
     static final String REFRESH_KEY;
-    static final AtomicReference<Instant> CLOCK_NOW = new AtomicReference<>(Instant.parse("2026-06-01T00:00:00Z"));
+    // Deliberately in the FUTURE: documents written with this clock land in TTL-indexed collections
+    // (expireAfter 0 on expiresAt). A base in the real past makes the Mongo TTL monitor delete them
+    // mid-test (flaky EXPIRED->INVALID). Must stay later than any real wall-clock time CI can reach.
+    static final AtomicReference<Instant> CLOCK_NOW = new AtomicReference<>(Instant.parse("2099-06-01T00:00:00Z"));
 
     static {
         byte[] k = new byte[32];
@@ -85,7 +88,7 @@ class SessionTransactionRetryIT extends AbstractMongoIT {
 
     @BeforeEach
     void setUp() {
-        CLOCK_NOW.set(Instant.parse("2026-06-01T00:00:00Z"));
+        CLOCK_NOW.set(Instant.parse("2099-06-01T00:00:00Z"));
         retryTx = new RetryInjectingTx(client);
         retryService = new CustomerSessionService(grants, customers, sessions, refreshCodec, accessCodec, properties,
                 clock, retryTx, observability);
