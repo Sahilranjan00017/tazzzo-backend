@@ -97,8 +97,8 @@
         <dependency>
             <groupId>com.nimbusds</groupId>
             <artifactId>nimbus-jose-jwt</artifactId>
-            <!-- 9.37.4: bounded JSON nesting (CVE-2025-53864); same 9.37 line, no API change -->
-            <version>9.37.4</version>
+            <!-- 10.10: includes bounded JSON nesting (CVE-2025-53864, fixed in 9.37.4/10.0.2); JWKSourceBuilder/DefaultJWTProcessor API unchanged for our usage -->
+            <version>10.10</version>
         </dependency>
         <!--
           CAT-SEC-1 Q5-MECH-1: the consumer limiter is DISTRIBUTED. Two catalogue tasks serve
