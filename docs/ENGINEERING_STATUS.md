@@ -25,6 +25,8 @@ Last updated: 2026-10-10
   unset/local/test/dev, S-4 workflow `permissions: contents: read`. S-1 daily send budget/alerting and S-2 (shared challengeId
   lockable by 5 wrong codes) are accepted-with-reason/deferred; see `docs/security/DEPENDENCY_SECURITY_REVIEW_2026-10.md` section 9.
 
+- **Local E2E findings B1/B3** (branch `fix/e2e-found-otp-ttl-csv-id`): (B1) the async-import CSV parser no longer `trim()`s the product id, so `"TZP-1\n"` / `" TZP-1"` reach the id grammar and are `INVALID` / `INVALID_ROW` as on the JSON path and in `BULK_IMPORT.md` (CRLF row ends outside quotes still work; other cells are still trimmed; ids never case-changed). (B3) `OtpService` reports `expiresInSeconds` / `resendAfterSeconds` rounded up and clamped to >= 0, so the configured 300 / cooldown N (including 0) is reported exactly despite Mongo's ms truncation (was 299 / N-1 / -1). No change to verification, expiry instants, rate limits or response shape. B2 (error-envelope shape) deliberately untouched.
+
 - **Bounded batch product read** (branch `feature/consumer-product-batch`, from `main` `b3ee656`): `GET /v1/products:batch?ids=` (operation `getProductsBatch`, public,
   `SurfaceClassifier` exact entry) returns the `/v1/products/{id}` card for up to 50 ids in request order, so a content rail is one call, not 20. Same
   eligibility, release reachability, freshness rule, current-price overlay and PIN enrichment as the single-id read (`ProductDetailRuntimeComposer.chooseBase`

@@ -125,6 +125,23 @@ class ImportCsvParserTest {
     }
 
     @Test
+    void product_id_whitespace_is_not_normalised_so_the_id_grammar_rejects_it_like_the_json_path() throws IOException {
+        List<ImportCsvParser.Row> rows = parse("id,title,brand,vertical,release\r\n"
+                + "\"TZP-1\n\",x,BR,V,R\r\n"          // trailing LF inside a quoted cell
+                + "\"TZP-\n2\",x,BR,V,R\r\n"           // embedded LF
+                + "\" TZP-3\",x,BR,V,R\r\n"             // surrounding space
+                + "TZP-4,x,BR,V,R\r\n"                    // CRLF outside quotes still works
+                + "TZP-Mixed-5,x,BR,V,R\r\n");
+        assertThat(rows.get(0).request().id()).isEqualTo("TZP-1\n");
+        assertThat(rows.get(1).request().id()).isEqualTo("TZP-\n2");
+        assertThat(rows.get(2).request().id()).isEqualTo(" TZP-3");
+        assertThat(rows).extracting(r -> com.tazzzo.catalog.domain.ProductIds.isValid(r.request().id()))
+                .containsExactly(false, false, false, true, true);
+        assertThat(rows.get(3).request().id()).isEqualTo("TZP-4");
+        assertThat(rows.get(4).request().id()).as("no case change").isEqualTo("TZP-Mixed-5");
+    }
+
+    @Test
     void typed_cells_match_what_the_json_row_would_carry() {
         assertThat(ImportCsvParser.typed("5")).isEqualTo(5);
         assertThat(ImportCsvParser.typed("3000000000")).isEqualTo(3_000_000_000L);

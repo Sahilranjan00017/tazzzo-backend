@@ -152,8 +152,8 @@ public class OtpService {
                 }
                 // Pure, immutable value derived only from this attempt's own writes.
                 return new OtpRequestResult(challengeId,
-                        Duration.between(sentAt, activated.getDate("expiresAt").toInstant()).getSeconds(),
-                        Duration.between(sentAt, activated.getDate("resendAvailableAt").toInstant()).getSeconds());
+                        secondsUntil(sentAt, activated.getDate("expiresAt").toInstant()),
+                        secondsUntil(sentAt, activated.getDate("resendAvailableAt").toInstant()));
             });
         } catch (OtpTransactionAbortedException e) {
             // Durability §2/§3: the confirmed-delivered code must never be silently unusable. This
@@ -168,6 +168,15 @@ public class OtpService {
             throw new OtpFailure(OtpFailure.Reason.UNAVAILABLE);
         }
         return activatedResult;
+    }
+
+    /**
+     * Whole seconds from {@code from} to the stored instant, rounded UP and clamped to >= 0. Mongo truncates dates to
+     * milliseconds, so the stored instant can sit up to 1 ms BEFORE {@code from + configured}; flooring that gave 299 for a
+     * 300 s TTL, 1 for a 2 s cooldown and -1 for a 0 s cooldown. Ceiling reports the configured value exactly at issue time.
+     */
+    static long secondsUntil(Instant from, Instant to) {
+        return Math.max(0L, Math.floorDiv(Duration.between(from, to).toMillis() + 999L, 1000L));
     }
 
     /**
