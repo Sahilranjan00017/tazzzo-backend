@@ -111,6 +111,7 @@ applied migration is detected, never silently ignored.
 | `V0007__audit_read_partial_indexes` | SCHEMA | on | nine partial indexes `audit_read_recent`/`_actor`/`_request` on `product_events`, `node_events`, `domain_events` (predicate `actor` is an object) for the admin audit-read API (PR #49) | conflicting definition on the same keys; none are unique, so no duplicate preflight |
 | `V0017__products_validator_product_id_patterns` | SCHEMA | on | patches the live `products` `$jsonSchema` validator: product-id `pattern` on `_id`, `bundle_contents[].component_product_id`, `pack_of.component_product_id` and (nullable) `merged_into` goes from `^TZP-` to the `ProductIds` grammar `^TZP-[A-Za-z0-9-]{1,40}\z` (`\z`, not `$`: PCRE `$` accepts a trailing newline); keeps every other validator key and the live level/action; post-verifies the live patterns | **any existing document violates the grammar** (count + up to 5 sample `_id`s are reported; nothing is changed, nothing is rewritten: remediate the data, re-run), or the live validator lacks one of the four product-id slots (a missing `products` collection or validator is a no-op: V0001 creates new collections with the tightened schema) |
 | `V0018__work_queue_rebuild_indexes` | SCHEMA | on | `work_queue` partial (`type = product_card_rebuild`) `(status, requested_at)` and `(status, lease_until)` for the rebuild-queue gauges' oldest-due lookups; `work_queue` already exists in the baseline, so nothing is created but the two indexes | conflicting definition on the same keys; not unique, so no duplicate preflight |
+| `V0019__price_events_legacy_unrolled_index` | SCHEMA | on | `price_events` partial `(rolled, ts, _id)` over legacy offer events only (`product_id`/`seller` string, `price` int32) for the hourly `RollupService` select, so a run reads the unrolled legacy events instead of the whole append-only ledger (Phase 10 audit F-1); `price_events` already exists in the baseline, so nothing is created but the index; on a large existing ledger the online index build scans the collection once | conflicting definition on the same keys; not unique, so no duplicate preflight |
 | `V0016__import_job_indexes` | SCHEMA | on | `import_jobs` claim scan `(status, lease_until, updated_at)` and list `(status, _id desc)`; `import_rows` unique `(job_id, row)`, partial unique `(job_id, dedup_key)` where `dedup_key` exists and partial unique multikey `(job_id, identity_keys)` where `identity_keys` exists; creates both collections on a migrated database (NOT in the frozen baseline) | conflicting definition; duplicate key pairs cannot pre-exist (the collection is new) |
 | `V0015__address_idempotency_indexes` | SCHEMA | on | `customer_address_idempotency` TTL on `expire_at` (0 s: rows carry creation + the retry window) and `(customer_id)` erasure lookup; creates the collection on a migrated database (NOT in the frozen `V0001` baseline). Numbered V0015 because V0008–V0014 are taken by unmerged branches | conflicting definition on the same keys; none unique, so no duplicate preflight |
 | `V0014__notification_outbox_indexes` | SCHEMA | on | `notification_outbox` due scan `(status, next_attempt_at, _id)`, erasure lookup `(customer_id)` and TTL `expire_at` (0 s: rows carry created + 7 days); creates the collection on a migrated database (it is NOT in the frozen `V0001` baseline). Numbered V0014 because V0008–V0013 are taken by unmerged branches; renumber only if merge order demands it | conflicting definition on the same keys; none unique, so no duplicate preflight |
@@ -123,8 +124,11 @@ applied migration is detected, never silently ignored.
 | `V0101__drop_unused_session_by_customer_index` | SCHEMA | **off** | drops `customer_sessions.session_by_customer` | live index is not the exact reviewed definition |
 | `V0102__drop_unused_canonical_keys_product_id_index` | SCHEMA | **off** | drops `canonical_keys (product_id)` | same |
 
-`IndexContractIT` pins the resulting index set: 51 indexes (48 baseline + 3 migration-managed), the four TTL
-indexes, and that the executable `IndexCatalog` equals an independent oracle and what `bootstrap` creates.
+`IndexContractIT` pins the resulting index set: 83 indexes (48 baseline + 35 migration-managed, V0002-V0019), the seven TTL
+indexes (six temporary collections), and that the executable `IndexCatalog` equals an independent oracle and what `bootstrap` creates.
+Recalculated from a real fully migrated database in the Phase 10 audit (`FINAL_DATABASE_AUDIT.md`): 21 registered migrations (19 enabled by
+default, which a full run records in `schema_migrations`, plus the two disabled drop candidates), 57 application collections (49 from `V0001`, 8 created
+by `V0008`, `V0011`, `V0013`, `V0014`, `V0015`, `V0016`) plus the runner's own `schema_migrations` and `schema_migration_lock`.
 
 ## 6. Single runner: the lock
 
@@ -243,7 +247,7 @@ If duplicates exist the migration records `BLOCKED` with a sample of the keys, t
 
 ### 12.1 Existing database created by the legacy bootstrap (adoption)
 
-1. `DRY_RUN` and review: `V0001` should report `WOULD_ADOPT`; `V0002`/`V0005`/`V0006`/`V0007`/`V0008`/`V0009`/`V0010`/`V0011`/`V0012`/`V0013`/`V0014`/`V0015`/`V0016`/`V0017`/`V0018` report what they would create or block.
+1. `DRY_RUN` and review: `V0001` should report `WOULD_ADOPT`; `V0002`/`V0005`/`V0006`/`V0007`/`V0008`/`V0009`/`V0010`/`V0011`/`V0012`/`V0013`/`V0014`/`V0015`/`V0016`/`V0017`/`V0018`/`V0019` report what they would create or block.
 2. Run the §9.1 and §9.2 preflight queries.
 3. `APPLY` (with approvals/enables if intended). Adopted migrations are recorded without changing data.
 4. Start the application in `VERIFY` mode.
