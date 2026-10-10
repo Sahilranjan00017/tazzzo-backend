@@ -9,6 +9,8 @@ import com.mongodb.client.model.ReturnDocument;
 import com.mongodb.client.model.Sorts;
 import com.mongodb.client.model.UpdateOptions;
 import com.mongodb.client.model.Updates;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.bson.Document;
 import org.bson.conversions.Bson;
 
@@ -34,10 +36,16 @@ public class NotificationOutbox implements NotificationEnqueuer {
 
     private final MongoDatabase db;
     private final Clock clock;
+    private final MeterRegistry registry;
 
     public NotificationOutbox(MongoDatabase db, Clock clock) {
+        this(db, clock, null);
+    }
+
+    public NotificationOutbox(MongoDatabase db, Clock clock, MeterRegistry registry) {
         this.db = db;
         this.clock = clock;
+        this.registry = registry;
     }
 
     private MongoCollection<Document> rows() {
@@ -64,8 +72,26 @@ public class NotificationOutbox implements NotificationEnqueuer {
                 .append("next_attempt_at", now)
                 .append("created_at", now)
                 .append("expire_at", now.plus(RETENTION));
-        rows().updateOne(session, Filters.eq("_id", r.dedupeKey()), new Document("$setOnInsert", insert),
+        var result = rows().updateOne(session, Filters.eq("_id", r.dedupeKey()), new Document("$setOnInsert", insert),
                 new UpdateOptions().upsert(true));
+        if (result.getUpsertedId() != null) {
+            countEnqueued(r.type());
+        }
+    }
+
+    /**
+     * {@code notification_enqueued{type}}: a NEW row was written (a deduped repeat is not counted). It is recorded at write
+     * time inside the caller's transaction, so a transaction that later rolls back can leave it one too high.
+     */
+    private void countEnqueued(NotificationType type) {
+        if (registry == null) {
+            return;
+        }
+        try {
+            Counter.builder("notification_enqueued").tag("type", type.name()).register(registry).increment();
+        } catch (RuntimeException e) {
+            // instrumentation never changes a business outcome
+        }
     }
 
     /** A claimed row plus the token that every completion must present. */
