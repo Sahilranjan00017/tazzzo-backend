@@ -122,6 +122,29 @@ class SurfaceClassifierTest {
                 .as(uri + " is the reserved PR-11B/11C public auth namespace").isEqualTo(PUBLIC_CONSUMER);
     }
 
+    // ---------- legal content: public by explicit entry, one plain segment only ----------
+
+    @ParameterizedTest
+    @ValueSource(strings = {"/v1/content/legal/terms", "/v1/content/legal/privacy", "/v1/content/legal/Terms", "/v1/content/legal/other-doc_1"})
+    void legal_content_single_segment_is_public_so_the_controller_can_answer_the_flat_404(String uri) {
+        assertThat(SurfaceClassifier.classify(uri)).isEqualTo(PUBLIC_CONSUMER);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"/v1/content/legal", "/v1/content/legal/", "/v1/content/legal/terms/", "/v1/content/legal/terms/x",
+            "/v1/content/legal/te%2Frms", "/v1/content/legal/..", "/v1/content/legal/../../api/v1/products", "/v1/content/legal/ter ms",
+            "/v1/content/legal/terms.json", "/v1/content/legal/terms;x", "/v1/content/legals/terms", "/v1/content/legalx/terms",
+            "/v1/content", "/v1/content/"})
+    void legal_content_near_misses_stay_unknown_default_deny(String uri) {
+        assertThat(SurfaceClassifier.classify(uri)).as(uri).isEqualTo(UNKNOWN);
+    }
+
+    @Test
+    void legal_content_segment_is_bounded() {
+        assertThat(SurfaceClassifier.classify("/v1/content/legal/" + "a".repeat(64))).isEqualTo(PUBLIC_CONSUMER);
+        assertThat(SurfaceClassifier.classify("/v1/content/legal/" + "a".repeat(65))).isEqualTo(UNKNOWN);
+    }
+
     // ---------- PR-11A: /v1/customer/** is CUSTOMER_AUTHENTICATED ----------
 
     @ParameterizedTest

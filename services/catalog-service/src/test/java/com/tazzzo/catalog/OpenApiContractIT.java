@@ -58,6 +58,11 @@ class OpenApiContractIT extends AbstractApiIT {
         return key.substring(key.indexOf(' ') + 1);
     }
 
+    /** A documented path template as a request URI would read: each {@code {variable}} replaced by one plain segment. */
+    static String concrete(String template) {
+        return template.replaceAll("\\{[^}]*}", "x");
+    }
+
     static Set<String> statuses(JsonNode op) {
         Set<String> out = new TreeSet<>();
         op.get("responses").fieldNames().forEachRemaining(out::add);
@@ -192,7 +197,7 @@ class OpenApiContractIT extends AbstractApiIT {
         for (Map.Entry<String, JsonNode> e : operations().entrySet()) {
             String path = path(e.getKey());
             JsonNode op = e.getValue();
-            Surface surface = SurfaceClassifier.classify(path);
+            Surface surface = SurfaceClassifier.classify(concrete(path));
             Set<String> st = statuses(op);
             boolean body = op.has("requestBody");
             switch (surface) {
@@ -275,8 +280,9 @@ class OpenApiContractIT extends AbstractApiIT {
 
     @Test
     void the_operation_table_is_exactly_the_published_operations() {
-        // 135 operations were generated before this change and the same 135 remain
-        assertThat(operations()).hasSize(135);
+        // 135 operations were generated before the legal-document read (GET /v1/content/legal/{slug}) made it 136
+        assertThat(operations()).hasSize(136);
+        assertThat(operations()).containsKey("GET /v1/content/legal/{slug}");
         assertThat(operations().values()).allSatisfy(op -> assertThat(op.get("operationId").asText()).matches("^[a-z][A-Za-z0-9]*$"));
     }
 
@@ -292,7 +298,7 @@ class OpenApiContractIT extends AbstractApiIT {
         List<String> wrong = new ArrayList<>();
         for (Map.Entry<String, JsonNode> e : operations().entrySet()) {
             String path = path(e.getKey());
-            Surface surface = SurfaceClassifier.classify(path);
+            Surface surface = SurfaceClassifier.classify(concrete(path));
             String expected = switch (surface) {
                 case INTERNAL -> "[{\"adminBearer\":[]}]";
                 case CUSTOMER_AUTHENTICATED -> "[{\"customerBearer\":[]}]";

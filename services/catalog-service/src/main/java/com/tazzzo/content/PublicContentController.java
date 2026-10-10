@@ -23,6 +23,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -31,7 +32,7 @@ import java.util.List;
 
 /**
  * Public reads: {@code GET /v1/content/home} (the live HOME blocks), {@code GET /v1/content/faqs} (the live help-centre FAQ,
- * optionally one {@code category}) and {@code GET /v1/app-config} (store open, maintenance, force-update versions, support
+ * optionally one {@code category}), {@code GET /v1/content/legal/{slug}} (the one live terms or privacy document) and {@code GET /v1/app-config} (store open, maintenance, force-update versions, support
  * contacts, legal links). Admission is charged like every public read; the answers are short-lived cacheable
  * ({@code public, max-age=60}) because they are the same for every caller. Any other query parameter is refused.
  */
@@ -69,6 +70,9 @@ public class PublicContentController {
     record Faq(String faqId, String category, String question, String answer) { }
 
     record Faqs(List<Faq> faqs, String requestId) { }
+
+    /** {@code effectiveDate} is null when the document states none. */
+    record LegalDocument(String slug, String title, String body, String effectiveDate, String requestId) { }
 
     private final ContentService content;
     private final MediaUrlResolver urls;
@@ -118,6 +122,21 @@ public class PublicContentController {
             out.add(new Faq(b.blockId(), b.payload().faqCategory(), b.payload().question(), b.payload().answer()));
         }
         return ResponseEntity.ok().header(HttpHeaders.CACHE_CONTROL, CACHE).body(new Faqs(out, requestId(request)));
+    }
+
+    /**
+     * The one live legal document for {@code slug} ({@code terms} | {@code privacy}, lowercase). No query parameter is
+     * accepted. Anything but the two slugs, or no live document, is the flat 404.
+     */
+    @GetMapping("/v1/content/legal/{slug}")
+    public ResponseEntity<LegalDocument> legal(@PathVariable("slug") String slug, HttpServletRequest request) {
+        refuseQuery(request);
+        gate.charge(ConsumerObservability.Route.CONTENT_LEGAL, identity(request), 1);
+        ContentBlock.LegalSlug which = ContentBlock.LegalSlug.fromPath(slug);
+        if (which == null) throw new ConsumerFailures.NotFound("no such document");
+        ContentBlock b = content.liveLegal(which).orElseThrow(() -> new ConsumerFailures.NotFound("no such document"));
+        return ResponseEntity.ok().header(HttpHeaders.CACHE_CONTROL, CACHE)
+                .body(new LegalDocument(which.path(), b.title(), b.payload().body(), b.payload().effectiveDate(), requestId(request)));
     }
 
     /**
@@ -190,6 +209,11 @@ public class PublicContentController {
         @ExceptionHandler(ConsumerFailures.InvalidRequest.class)
         ResponseEntity<PublicError> invalid(HttpServletRequest req) {
             return body(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", "invalid request", false, req, null);
+        }
+
+        @ExceptionHandler(ConsumerFailures.NotFound.class)
+        ResponseEntity<PublicError> notFound(HttpServletRequest req) {
+            return body(HttpStatus.NOT_FOUND, "NOT_FOUND", "not found", false, req, null);
         }
 
         @ExceptionHandler(ConsumerFailures.RateLimited.class)

@@ -2,7 +2,7 @@
   "openapi" : "3.0.1",
   "info" : {
     "title" : "Tazzzo Catalog Service API",
-    "description" : "Generated from the controllers (never hand-edited). Three surfaces share this service:\n\n* **Admin / internal** (`/api/**`, this document's `adminBearer`): Google OIDC human sessions (allowlisted, hosted domain) or service tokens (`read`, `cms`). Roles: `reader`, `cms-writer`, `audit-reader`, `order-ops`, `support-agent`; the `/api/v1/admin/orders` and `/api/v1/admin/support` namespaces are human-staff only. Errors use the NESTED envelope `{ \"error\": { \"code\", \"message\", \"request_id\" } }` (`AdminErrorEnvelope`).\n* **App / customer** (`/v1/**`): public reads and OTP/session auth need no bearer; `/v1/customer/**` needs the customer access token (`customerBearer`). The app contract with per-operation error codes is `docs/api/v1/openapi.yaml`; the statuses listed here are the same set. Domain errors of the commerce read, cart, checkout, order, address, profile, OTP, session, support, account-deletion and content families use a FLAT body with camelCase `requestId` (`V1ErrorEnvelope` and its variants). Errors written by platform filters and framework fallbacks (413, an undecodable query string, an unmapped failure) use a FLAT body with snake_case `request_id` (`PlatformErrorEnvelope`). Both spellings carry the same id as the `X-Request-Id` response header; they are documented per route family, not unified.\n* **Legacy mobile namespace** (`/catalog/v1/**`): public, flat `PlatformErrorEnvelope` (`request_id`).\n\n**Request bodies are bounded** and refused with `413 PAYLOAD_TOO_LARGE` before authentication: 64 KiB (65536 bytes) on every route, 2 MiB (2097152 bytes) on the bulk-import routes under `/api/v1/admin/imports/**` (500 rows per file); the configurable hard maximum is 16 MiB. A chunked import body is counted as it is read.\n\n**Reading this document.** Each operation lists the success statuses its handler really returns (201 or 200 for upserts, 202, 204) and the error statuses its surface can produce; framework-level 405/406/415 answers are not repeated on every admin operation. Properties of a JSON response whose Java type is a primitive are `required`; no other property is marked required or nullable because the code base carries no nullability annotations, so absence of `required` means \"not guaranteed\", not \"optional by contract\".\n",
+    "description" : "Generated from the controllers (never hand-edited). Three surfaces share this service:\n\n* **Admin / internal** (`/api/**`, this document's `adminBearer`): Google OIDC human sessions (allowlisted, hosted domain) or service tokens (`read`, `cms`). Roles: `reader`, `cms-writer`, `audit-reader`, `order-ops`, `support-agent`; the `/api/v1/admin/orders` and `/api/v1/admin/support` namespaces are human-staff only. Errors use the NESTED envelope `{ \"error\": { \"code\", \"message\", \"request_id\" } }` (`AdminErrorEnvelope`).\n* **App / customer** (`/v1/**`): public reads and OTP/session auth need no bearer; `/v1/customer/**` needs the customer access token (`customerBearer`). The app contract with per-operation error codes is `docs/api/v1/openapi.yaml`; the statuses listed here are the same set. Domain errors of the commerce read, cart, checkout, order, address, profile, OTP, session, support, account-deletion and content families use a FLAT body with camelCase `requestId` (`V1ErrorEnvelope` and its variants). Errors written by platform filters and framework fallbacks (413, an undecodable query string, an unmapped failure) use a FLAT body with snake_case `request_id` (`PlatformErrorEnvelope`). Both spellings carry the same id as the `X-Request-Id` response header; they are documented per route family, not unified.\n* **Legacy mobile namespace** (`/catalog/v1/**`): public, flat `PlatformErrorEnvelope` (`request_id`).\n\n**Request bodies are bounded** and refused with `413 PAYLOAD_TOO_LARGE` before authentication: 64 KiB (65536 bytes) on every route, 2 MiB (2097152 bytes) on the bulk-import routes under `/api/v1/admin/imports/**` (500 rows per file), 256 KiB (262144 bytes) on the content-block writes (`POST /api/v1/admin/content/blocks`, `PUT /api/v1/admin/content/blocks/{id}`; a legal document body is up to 60,000 characters); the configurable hard maximum is 16 MiB. A chunked import or content-block body is counted as it is read.\n\n**Reading this document.** Each operation lists the success statuses its handler really returns (201 or 200 for upserts, 202, 204) and the error statuses its surface can produce; framework-level 405/406/415 answers are not repeated on every admin operation. Properties of a JSON response whose Java type is a primitive are `required`; no other property is marked required or nullable because the code base carries no nullability annotations, so absence of `required` means \"not guaranteed\", not \"optional by contract\".\n",
     "version" : "v0"
   },
   "paths" : {
@@ -1809,7 +1809,7 @@
       },
       "put" : {
         "tags" : [ "content-admin-controller" ],
-        "description" : "Request body bound: 64 KiB (65536 bytes); a larger body is refused with 413 PAYLOAD_TOO_LARGE before authentication.",
+        "description" : "Request body bound: 256 KiB (262144 bytes) on this route (a LEGAL block's `payload.body` is at most 60000 characters; a character takes up to 3 bytes in UTF-8, and JSON escapes `\\n` and `\\\"` cost 2); a larger body is refused with 413 PAYLOAD_TOO_LARGE before authentication.",
         "operationId" : "contentAdminUpdate",
         "parameters" : [ {
           "name" : "id",
@@ -1891,7 +1891,7 @@
             }
           },
           "413" : {
-            "description" : "PAYLOAD_TOO_LARGE: the body exceeds 64 KiB (65536 bytes). Refused before authentication, `Connection: close`.",
+            "description" : "PAYLOAD_TOO_LARGE: the body exceeds 256 KiB (262144 bytes). Refused before authentication, `Connection: close`.",
             "headers" : {
               "Connection" : {
                 "description" : "The connection is closed after a refused body.",
@@ -10053,7 +10053,7 @@
       },
       "post" : {
         "tags" : [ "content-admin-controller" ],
-        "description" : "Request body bound: 64 KiB (65536 bytes); a larger body is refused with 413 PAYLOAD_TOO_LARGE before authentication.",
+        "description" : "Request body bound: 256 KiB (262144 bytes) on this route (a LEGAL block's `payload.body` is at most 60000 characters; a character takes up to 3 bytes in UTF-8, and JSON escapes `\\n` and `\\\"` cost 2); a larger body is refused with 413 PAYLOAD_TOO_LARGE before authentication.",
         "operationId" : "contentAdminCreate",
         "requestBody" : {
           "content" : {
@@ -10117,7 +10117,7 @@
             }
           },
           "413" : {
-            "description" : "PAYLOAD_TOO_LARGE: the body exceeds 64 KiB (65536 bytes). Refused before authentication, `Connection: close`.",
+            "description" : "PAYLOAD_TOO_LARGE: the body exceeds 256 KiB (262144 bytes). Refused before authentication, `Connection: close`.",
             "headers" : {
               "Connection" : {
                 "description" : "The connection is closed after a refused body.",
@@ -12275,6 +12275,110 @@
         },
         "security" : [ {
           "customerBearer" : [ ]
+        } ]
+      }
+    },
+    "/v1/content/legal/{slug}" : {
+      "get" : {
+        "tags" : [ "public-content-controller" ],
+        "operationId" : "publicContentLegal",
+        "parameters" : [ {
+          "name" : "slug",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/LegalDocument"
+                }
+              }
+            }
+          },
+          "400" : {
+            "description" : "INVALID_REQUEST (or a family code such as INVALID_CURSOR). A domain rejection uses the family envelope with `requestId`; an undecodable query string is refused earlier by a platform filter with `request_id` (PlatformErrorEnvelope).",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "oneOf" : [ {
+                    "$ref" : "#/components/schemas/V1PublicReadErrorEnvelope"
+                  }, {
+                    "$ref" : "#/components/schemas/PlatformErrorEnvelope"
+                  } ]
+                }
+              }
+            }
+          },
+          "404" : {
+            "description" : "NOT_FOUND (a malformed id is indistinguishable from an unknown one).",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/V1PublicReadErrorEnvelope"
+                }
+              }
+            }
+          },
+          "406" : {
+            "description" : "NOT_ACCEPTABLE: the Accept header excludes application/json.",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/V1PublicReadErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429" : {
+            "description" : "RATE_LIMITED: retry after the number of seconds in Retry-After.",
+            "headers" : {
+              "Retry-After" : {
+                "description" : "Seconds to wait before retrying.",
+                "schema" : {
+                  "minimum" : 1,
+                  "type" : "integer",
+                  "format" : "int32"
+                }
+              }
+            },
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/V1PublicReadErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500" : {
+            "description" : "INTERNAL: unexpected failure.",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/V1PublicReadErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503" : {
+            "description" : "SERVICE_UNAVAILABLE: a dependency is unavailable; retry later.",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/V1PublicReadErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security" : [ { }, {
+          "trustedCallerName" : [ ],
+          "trustedCallerSecret" : [ ]
         } ]
       }
     },
@@ -15627,6 +15731,15 @@
           },
           "desktopImageAssetKey" : {
             "type" : "string"
+          },
+          "legalSlug" : {
+            "type" : "string"
+          },
+          "body" : {
+            "type" : "string"
+          },
+          "effectiveDate" : {
+            "type" : "string"
           }
         }
       },
@@ -18017,6 +18130,26 @@
             "items" : {
               "$ref" : "#/components/schemas/AddressResponseDto"
             }
+          },
+          "requestId" : {
+            "type" : "string"
+          }
+        }
+      },
+      "LegalDocument" : {
+        "type" : "object",
+        "properties" : {
+          "slug" : {
+            "type" : "string"
+          },
+          "title" : {
+            "type" : "string"
+          },
+          "body" : {
+            "type" : "string"
+          },
+          "effectiveDate" : {
+            "type" : "string"
           },
           "requestId" : {
             "type" : "string"

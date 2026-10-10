@@ -43,12 +43,14 @@ public class RequestBodyLimitFilter extends OncePerRequestFilter {
 
     private final long limitBytes;
     private final long bulkImportLimitBytes;
+    private final long contentBlockLimitBytes;
     private final ObjectMapper mapper;
 
     public RequestBodyLimitFilter(HttpPlatformProperties properties, ObjectMapper mapper) {
         properties.validate();
         this.limitBytes = properties.getMaxRequestBodyBytes();
         this.bulkImportLimitBytes = properties.getBulkImportMaxRequestBodyBytes();
+        this.contentBlockLimitBytes = properties.getContentBlockMaxRequestBodyBytes();
         this.mapper = mapper;
     }
 
@@ -63,7 +65,10 @@ public class RequestBodyLimitFilter extends OncePerRequestFilter {
         String uri = req.getRequestURI();
         boolean bulk = uri != null && uri.startsWith(HttpPlatformProperties.BULK_IMPORT_PREFIX) && !uri.contains("..")
                 && SurfaceClassifier.classify(uri) == SurfaceClassifier.Surface.INTERNAL;
-        long limitBytes = bulk ? bulkImportLimitBytes : this.limitBytes;
+        // the admin content-block writes carry legal documents (up to 60,000 characters), internal surface only
+        boolean contentBlock = !bulk && uri != null && HttpPlatformProperties.CONTENT_BLOCK_WRITE_PATH.matcher(uri).matches()
+                && SurfaceClassifier.classify(uri) == SurfaceClassifier.Surface.INTERNAL;
+        long limitBytes = bulk ? bulkImportLimitBytes : contentBlock ? contentBlockLimitBytes : this.limitBytes;
         long declared = req.getContentLengthLong();
         if (declared > limitBytes) {
             reject(req, res);
@@ -73,8 +78,8 @@ public class RequestBodyLimitFilter extends OncePerRequestFilter {
             chain.doFilter(req, res);
             return;
         }
-        if (bulk) {
-            // A chunked import is NOT buffered here (this filter runs before authentication): its stream is counted as the
+        if (bulk || contentBlock) {
+            // A chunked import or content-block write is NOT buffered here (this filter runs before authentication): its stream is counted as the
             // controller reads it -- after authentication -- and fails past the bulk bound (mapped to 413 by
             // ApiExceptionHandler). An unauthenticated request is refused before a single byte is read.
             chain.doFilter(new LimitedStreamRequest(req, limitBytes), res);

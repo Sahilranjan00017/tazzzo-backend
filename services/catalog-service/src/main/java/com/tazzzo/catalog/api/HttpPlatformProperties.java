@@ -25,6 +25,15 @@ public class HttpPlatformProperties {
     /** The admin bulk-import routes ({@link #BULK_IMPORT_PREFIX}) accept up to 500 rows per file, far above the API default. */
     private long bulkImportMaxRequestBodyBytes = 2L * 1024 * 1024;
     public static final String BULK_IMPORT_PREFIX = "/api/v1/admin/imports/";
+    /**
+     * The admin content-block write routes ({@code POST /api/v1/admin/content/blocks}, {@code PUT .../blocks/{id}}) carry
+     * legal documents of up to 60,000 characters: 3 bytes per character in UTF-8 (Devanagari) is ~176 KiB before JSON
+     * escapes, above the API default. Authenticated-only (a chunked body is counted after authentication).
+     */
+    private long contentBlockMaxRequestBodyBytes = 256L * 1024;
+    /** {@code /api/v1/admin/content/blocks} (create) or {@code /api/v1/admin/content/blocks/CB_...} (replace), exactly. */
+    public static final java.util.regex.Pattern CONTENT_BLOCK_WRITE_PATH =
+            java.util.regex.Pattern.compile("/api/v1/admin/content/blocks(/CB_[A-Za-z0-9_-]{16,40})?");
     private Cors cors = new Cors();
 
     public long getMaxRequestBodyBytes() {
@@ -41,6 +50,14 @@ public class HttpPlatformProperties {
 
     public void setBulkImportMaxRequestBodyBytes(long bulkImportMaxRequestBodyBytes) {
         this.bulkImportMaxRequestBodyBytes = bulkImportMaxRequestBodyBytes;
+    }
+
+    public long getContentBlockMaxRequestBodyBytes() {
+        return contentBlockMaxRequestBodyBytes;
+    }
+
+    public void setContentBlockMaxRequestBodyBytes(long contentBlockMaxRequestBodyBytes) {
+        this.contentBlockMaxRequestBodyBytes = contentBlockMaxRequestBodyBytes;
     }
 
     public Cors getCors() {
@@ -60,6 +77,10 @@ public class HttpPlatformProperties {
         if (bulkImportMaxRequestBodyBytes < maxRequestBodyBytes || bulkImportMaxRequestBodyBytes > MAX_BODY_BYTES) {
             throw new IllegalStateException("tazzzo.http.bulk-import-max-request-body-bytes must be between "
                     + "tazzzo.http.max-request-body-bytes and " + MAX_BODY_BYTES + ", was " + bulkImportMaxRequestBodyBytes);
+        }
+        if (contentBlockMaxRequestBodyBytes < maxRequestBodyBytes || contentBlockMaxRequestBodyBytes > MAX_BODY_BYTES) {
+            throw new IllegalStateException("tazzzo.http.content-block-max-request-body-bytes must be between "
+                    + "tazzzo.http.max-request-body-bytes and " + MAX_BODY_BYTES + ", was " + contentBlockMaxRequestBodyBytes);
         }
         cors.validate();
     }
