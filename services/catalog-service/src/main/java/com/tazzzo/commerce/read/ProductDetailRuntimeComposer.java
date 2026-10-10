@@ -170,7 +170,15 @@ public class ProductDetailRuntimeComposer {
      * </ul>
      */
     private ProductCardBaseProjection selectBase(CatalogProductDetailFacts facts) {
-        Optional<ProductCardBaseProjection> found = baseRead.findBySku(facts.skuId());
+        return chooseBase(baseRead.findBySku(facts.skuId()), facts);
+    }
+
+    /**
+     * The freshness gate itself, split from the read so the bounded batch read ({@link CommerceProductBatchService})
+     * applies EXACTLY this rule to a base row it fetched in bulk: one rule, never a second copy.
+     */
+    static ProductCardBaseProjection chooseBase(Optional<ProductCardBaseProjection> found,
+                                                CatalogProductDetailFacts facts) {
         if (found.isEmpty()) {
             log.warn("commerce_detail_base_missing sku={}", facts.skuId());
             return degradedBase(facts);

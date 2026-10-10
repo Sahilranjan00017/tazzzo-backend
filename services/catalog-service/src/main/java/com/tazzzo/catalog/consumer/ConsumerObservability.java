@@ -64,6 +64,8 @@ public class ConsumerObservability {
         COMMERCE_SEARCH("commerce_search"),
         // GET /v1/categories/{id}: one node by id, charged and probed like CHILDREN with no candidates.
         COMMERCE_NODE("commerce_node"),
+        // GET /v1/products:batch: a bounded batch of PDP-consistent cards, charged 1 + distinct ids.
+        COMMERCE_PRODUCTS_BATCH("commerce_products_batch"),
         CONTENT_HOME("content_home"), CONTENT_FAQS("content_faqs"), APP_CONFIG("app_config");
 
         private final String tag;
