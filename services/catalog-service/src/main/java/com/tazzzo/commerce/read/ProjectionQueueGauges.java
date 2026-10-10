@@ -22,10 +22,10 @@ import java.util.concurrent.TimeUnit;
 /**
  * Depth of the product-card rebuild queue (the {@code product_card_rebuild} items of the shared {@code work_queue}; other
  * item types are never counted), from a snapshot refreshed at most every {@code ttl}. Each count is capped
- * ({@value #COUNT_CAP} rows) and time-bounded ({@value #MAX_TIME_MS} ms). The filters use the {@code (status, type)} index;
- * the two "oldest" lookups are a top-1 sort over the matching rows (no index on {@code requested_at} or {@code lease_until}
- * was added), bounded by the same max time, so on a very large backlog they can time out, in which case the previous
- * snapshot is kept. Complements, never repeats, {@code tazzzo.commerce.freshness.queue.lag}, which is only observed when an
+ * ({@value #COUNT_CAP} rows) and time-bounded ({@value #MAX_TIME_MS} ms). The counts use the {@code (status, type)} index; the
+ * two "oldest" lookups are top-1 ordered walks of the partial indexes created by migration V0018, and are cached and fail
+ * independently of the counts and of each other (a failing lookup keeps its own last value; the age reads NaN until both
+ * lookups have succeeded once). Complements, never repeats, {@code tazzzo.commerce.freshness.queue.lag}, which is only observed when an
  * item is claimed and therefore says nothing about a queue nobody is draining.
  * <ul>
  *   <li>{@code projection_rebuild_queue_depth{state}}: {@code due} = PENDING plus LEASED whose lease lapsed (a crashed
@@ -33,18 +33,26 @@ import java.util.concurrent.TimeUnit;
  *   <li>{@code projection_rebuild_queue_oldest_due_age_seconds}: now minus the earliest {@code requested_at} of a PENDING
  *       item or {@code lease_until} of a lapsed LEASED item, floored at 0; 0 when nothing is due.</li>
  * </ul>
- * A database error keeps the last good snapshot (NaN before the first).
+ * A database error keeps the last good value of whatever failed (NaN before its first success).
  */
 public class ProjectionQueueGauges {
 
     static final int COUNT_CAP = 100_000;
     static final long MAX_TIME_MS = 2_000;
 
-    private record Snapshot(double due, double leased, double oldestDueAgeSeconds) { }
+    private record Counts(double due, double leased) { }
+
+    /** The earliest timestamp of one lookup; {@code known=false} until that lookup first succeeded. */
+    private record Oldest(boolean known, Instant at) { }
 
     private final MongoCollection<Document> queue;
     private final int cap;
-    private final SnapshotCache<Snapshot> cache;
+    private final Clock clock;
+    // Three independent snapshots: a lookup that times out (the top-1 lookups are the expensive ones on a huge backlog) keeps ITS
+    // last value and never discards the cheap counts or the other lookup.
+    private final SnapshotCache<Counts> counts;
+    private final SnapshotCache<Oldest> oldestPending;
+    private final SnapshotCache<Oldest> oldestLapsed;
 
     public ProjectionQueueGauges(MongoDatabase db, Clock clock, MeterRegistry registry, Duration ttl) {
         this(db, clock, registry, ttl, COUNT_CAP);
@@ -53,37 +61,57 @@ public class ProjectionQueueGauges {
     ProjectionQueueGauges(MongoDatabase db, Clock clock, MeterRegistry registry, Duration ttl, int cap) {
         this.queue = db.getCollection(ProjectionRebuildQueue.COLLECTION);
         this.cap = cap;
-        this.cache = new SnapshotCache<>(new Snapshot(Double.NaN, Double.NaN, Double.NaN), clock, ttl, this::load);
-        Gauge.builder("projection_rebuild_queue_depth", () -> cache.get().due()).tag("state", "due")
+        this.clock = clock;
+        Oldest unknown = new Oldest(false, null);
+        this.counts = new SnapshotCache<>(new Counts(Double.NaN, Double.NaN), clock, ttl, this::loadCounts);
+        this.oldestPending = new SnapshotCache<>(unknown, clock, ttl, now -> loadOldest(pending(), "requested_at"));
+        this.oldestLapsed = new SnapshotCache<>(unknown, clock, ttl, now -> loadOldest(lapsed(now), "lease_until"));
+        Gauge.builder("projection_rebuild_queue_depth", () -> counts.get().due()).tag("state", "due")
                 .description("rebuild items waiting to be claimed (pending plus lapsed lease), capped at " + cap).register(registry);
-        Gauge.builder("projection_rebuild_queue_depth", () -> cache.get().leased()).tag("state", "leased")
+        Gauge.builder("projection_rebuild_queue_depth", () -> counts.get().leased()).tag("state", "leased")
                 .description("rebuild items under a live lease, capped at " + cap).register(registry);
-        Gauge.builder("projection_rebuild_queue_oldest_due_age_seconds", () -> cache.get().oldestDueAgeSeconds())
+        Gauge.builder("projection_rebuild_queue_oldest_due_age_seconds", this::oldestAge)
                 .baseUnit("seconds").description("age of the earliest due rebuild item; 0 when none").register(registry);
     }
 
-    private Snapshot load(Instant now) {
+    private static Bson mine() {
+        return Filters.eq("type", ProjectionRebuildQueue.TYPE);
+    }
+
+    private static Bson pending() {
+        return Filters.and(mine(), Filters.eq("status", "pending"));
+    }
+
+    private static Bson lapsed(Instant now) {
+        return Filters.and(mine(), Filters.eq("status", "leased"), Filters.lte("lease_until", Date.from(now)));
+    }
+
+    private Counts loadCounts(Instant now) {
         CountOptions count = new CountOptions().limit(cap).maxTime(MAX_TIME_MS, TimeUnit.MILLISECONDS);
-        Date nowDate = Date.from(now);
-        Bson mine = Filters.eq("type", ProjectionRebuildQueue.TYPE);
-        Bson pending = Filters.and(mine, Filters.eq("status", "pending"));
-        Bson lapsed = Filters.and(mine, Filters.eq("status", "leased"), Filters.lte("lease_until", nowDate));
-        Bson live = Filters.and(mine, Filters.eq("status", "leased"), Filters.gt("lease_until", nowDate));
-        long due = queue.countDocuments(pending, count) + queue.countDocuments(lapsed, count);
+        Bson live = Filters.and(mine(), Filters.eq("status", "leased"), Filters.gt("lease_until", Date.from(now)));
+        long due = queue.countDocuments(pending(), count) + queue.countDocuments(lapsed(now), count);
         long leased = queue.countDocuments(live, count);
-        Document oldestPending = queue.find(pending).sort(Sorts.ascending("requested_at"))
-                .projection(Projections.include("requested_at")).limit(1).maxTime(MAX_TIME_MS, TimeUnit.MILLISECONDS).first();
-        Document oldestLapsed = queue.find(lapsed).sort(Sorts.ascending("lease_until"))
-                .projection(Projections.include("lease_until")).limit(1).maxTime(MAX_TIME_MS, TimeUnit.MILLISECONDS).first();
-        Instant earliest = null;
-        if (oldestPending != null && oldestPending.getDate("requested_at") != null) {
-            earliest = oldestPending.getDate("requested_at").toInstant();
+        return new Counts(due, leased);
+    }
+
+    /** Top-1 by the supporting partial index (V0018): an ordered index walk, never a sort of the backlog. */
+    private Oldest loadOldest(Bson filter, String field) {
+        Document d = queue.find(filter).sort(Sorts.ascending(field)).projection(Projections.include(field)).limit(1)
+                .maxTime(MAX_TIME_MS, TimeUnit.MILLISECONDS).first();
+        Date at = d == null ? null : d.getDate(field);
+        return new Oldest(true, at == null ? null : at.toInstant());
+    }
+
+    private double oldestAge() {
+        Oldest p = oldestPending.get();
+        Oldest l = oldestLapsed.get();
+        if (!p.known() || !l.known()) {
+            return Double.NaN;
         }
-        if (oldestLapsed != null && oldestLapsed.getDate("lease_until") != null) {
-            Instant lease = oldestLapsed.getDate("lease_until").toInstant();
-            earliest = earliest == null || lease.isBefore(earliest) ? lease : earliest;
+        Instant earliest = p.at();
+        if (l.at() != null && (earliest == null || l.at().isBefore(earliest))) {
+            earliest = l.at();
         }
-        double age = earliest == null ? 0 : Math.max(0, Duration.between(earliest, now).toMillis() / 1000.0);
-        return new Snapshot(due, leased, age);
+        return earliest == null ? 0 : Math.max(0, Duration.between(earliest, clock.instant()).toMillis() / 1000.0);
     }
 }

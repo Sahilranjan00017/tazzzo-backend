@@ -41,9 +41,14 @@ class PlatformFilterOrderTest {
     }
 
     @Test
-    void the_admin_http_metrics_filter_is_outermost_so_it_also_counts_what_the_later_filters_refuse() {
+    void the_admin_http_metrics_filter_is_outermost_so_it_also_counts_what_the_later_filters_refuse() throws java.io.IOException {
         int metrics = order(AdminHttpMetricsFilter.class);
+        // a deliberate tie with RequestIdFilter / SecurityHeadersFilter (no integer fits between them and the body limit): harmless,
+        // the metrics filter neither reads nor writes the MDC or the request id
         assertThat(metrics).isEqualTo(Ordered.HIGHEST_PRECEDENCE);
+        assertThat(metrics).isEqualTo(order(RequestIdFilter.class));
+        assertThat(java.nio.file.Files.readString(java.nio.file.Path.of("src/main/java/com/tazzzo/catalog/api/AdminHttpMetricsFilter.java")))
+                .doesNotContain("MDC").doesNotContain("REQUEST_ID");
         assertThat(metrics).isLessThan(order(RequestBodyLimitFilter.class));
         assertThat(metrics).isLessThan(order(ApiAuthFilter.class));
         assertThat(metrics).isLessThan(order(CustomerAuthFilter.class));

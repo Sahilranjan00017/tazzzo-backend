@@ -75,9 +75,13 @@ pass and enqueued, queue lag). Those are not repeated. These are the missing par
 | `projection_rebuild_conflicts` | counter | `reason` = delete_race, watermark_cas, create_race, stale_cas | One retry inside a rebuild because a concurrent writer won. Rebuilds re-read every source and converge; this shows contention. |
 | `projection_rebuild_failures` | counter | `kind` = non_converged, error | A rebuild threw: gave up after the retry limit, or a source read or write failed. |
 
-The two queue gauges walk the `(status, type)` index for counts; the oldest-item lookups are a top-1 sort over the matching
-rows with no dedicated index, bounded by the 2 s limit, so on a very large backlog they can time out and the previous
-snapshot is kept (see section 1). The reconciler is covered by `tazzzo.commerce.freshness.reconcile.*`; nothing was added.
+The counts walk the existing `(status, type)` index, capped at 100000 per state. The two "oldest" lookups are top-1 ordered
+walks of partial indexes created by migration `V0018` (`work_queue (status, requested_at)` and `(status, lease_until)`, partial on
+`type = product_card_rebuild`), so they cost a few index keys however large the backlog (`WorkQueueRebuildIndexIT` checks the
+plan with `explain`). The counts and each lookup are separate cached snapshots: if one times out only that value goes stale
+(the age reads `NaN` until both lookups have succeeded once). The index only exists on a database where `V0018` has been
+applied; without it the lookups still work but sort the backlog and may time out. The reconciler is covered by
+`tazzzo.commerce.freshness.reconcile.*`; nothing was added.
 
 Alert intent: page when `projection_rebuild_queue_oldest_due_age_seconds` keeps growing past the freshness SLO (consumer
 lists are served from the projection) while the freshness `attempted` counter is flat (no worker). Warn on sustained
@@ -172,6 +176,6 @@ See `HTTP_PLATFORM_BASELINE.md` section 1.
 ## 7. Not verified
 
 - No exporter or dashboard exists, so none of the alert intents above has been exercised against a real collector.
-- The two cached "oldest" lookups on `work_queue` have not been measured against a very large backlog.
+- The two "oldest" lookups on `work_queue` are proven index-only by an `explain` test on a 8,500-row queue, not timed against a production-sized (million-row) backlog.
 - Gauge refresh behaviour under multiple instances sharing one database is by construction (per-instance cache), not measured.
 - Metric values after a process restart (counters reset) are standard Micrometer behaviour, not tested here.

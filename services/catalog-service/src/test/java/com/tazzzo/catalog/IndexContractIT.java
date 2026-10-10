@@ -158,6 +158,9 @@ class IndexContractIT extends AbstractMongoIT {
             named("notification_outbox", "notification_due", k("status", 1, "next_attempt_at", 1, "_id", 1), false, null, null),
             named("notification_outbox", "notification_by_customer", k("customer_id", 1), false, null, null),
             named("notification_outbox", "notification_expiry_ttl", k("expire_at", 1), false, null, 0L),
+            // rebuild-queue gauges (V0018)
+            named("work_queue", "projection_rebuild_pending_by_requested", k("status", 1, "requested_at", 1), false, new Document("type", "product_card_rebuild"), null),
+            named("work_queue", "projection_rebuild_leased_by_lease", k("status", 1, "lease_until", 1), false, new Document("type", "product_card_rebuild"), null),
             // async import jobs (V0016)
             named("import_jobs", "import_jobs_claim", k("status", 1, "lease_until", 1, "updated_at", 1), false, null, null),
             named("import_jobs", "import_jobs_by_status_recent", k("status", 1, "_id", -1), false, null, null),

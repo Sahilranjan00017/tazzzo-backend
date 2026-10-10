@@ -117,6 +117,18 @@ public final class IndexCatalog {
                     new Document("dedup_key", new Document("$exists", true)), null),
             named("import_rows", "import_rows_one_per_identity", k("job_id", 1, "identity_keys", 1), true,
                     new Document("identity_keys", new Document("$exists", true)), null));
+    /**
+     * Product-card rebuild queue (V0018): the observability gauges' "oldest due item" lookups on the shared
+     * {@code work_queue}. Partial on the rebuild type, so other work item types do not enlarge them; the query always names that
+     * type and the status, so each lookup is an ordered index walk that stops at the first entry (no sort, no scan of the backlog).
+     * {@code projection_rebuild_pending_by_requested}: pending items by {@code requested_at}; {@code projection_rebuild_leased_by_lease}:
+     * leased items by {@code lease_until}.
+     */
+    public static final List<IndexSpec> WORK_QUEUE_REBUILD_SPECS = List.of(
+            named("work_queue", "projection_rebuild_pending_by_requested", k("status", 1, "requested_at", 1), false,
+                    new Document("type", "product_card_rebuild"), null),
+            named("work_queue", "projection_rebuild_leased_by_lease", k("status", 1, "lease_until", 1), false,
+                    new Document("type", "product_card_rebuild"), null));
     /** CMS (PR-Q): the live/admin read of one placement in display order. Migration-only (V0013). */
     public static final IndexSpec CONTENT_BLOCKS_SPEC = named("content_blocks", "content_by_placement_status_sort",
             k("placement", 1, "status", 1, "sort", 1, "_id", 1), false, null, null);
@@ -167,6 +179,7 @@ public final class IndexCatalog {
         m.addAll(ADDRESS_IDEMPOTENCY_SPECS);
         m.addAll(NOTIFICATION_SPECS);
         m.addAll(IMPORT_JOB_SPECS);
+        m.addAll(WORK_QUEUE_REBUILD_SPECS);
         m.add(CONTENT_BLOCKS_SPEC);
         m.addAll(SUPPORT_CASE_SPECS);
         m.add(PRODUCT_CARD_SEARCH_SPEC);

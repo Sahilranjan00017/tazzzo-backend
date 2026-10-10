@@ -44,12 +44,16 @@ class ProjectionQueueGaugesTest {
     final AtomicInteger counts = new AtomicInteger();
     final CountOptions[] seen = new CountOptions[1];
     boolean fail;
+    boolean failLookup;
     Document next;   // returned by the next .first()
 
     void build() {
         when(db.getCollection("work_queue")).thenReturn(coll);
         when(coll.find(any(org.bson.conversions.Bson.class))).thenReturn(find);
-        when(find.first()).thenAnswer(i -> next);
+        when(find.first()).thenAnswer(i -> {
+            if (failLookup) throw new MongoException("operation exceeded time limit");
+            return next;
+        });
         when(coll.countDocuments(any(org.bson.conversions.Bson.class), any(CountOptions.class))).thenAnswer(i -> {
             counts.incrementAndGet();
             seen[0] = i.getArgument(1);
@@ -79,6 +83,7 @@ class ProjectionQueueGaugesTest {
     void an_empty_queue_is_age_zero_and_the_snapshot_is_cached_for_the_ttl() {
         build();
         assertThat(registry.get("projection_rebuild_queue_oldest_due_age_seconds").gauge().value()).isZero();
+        depth("due");
         int first = counts.get();
         for (int i = 0; i < 30; i++) depth("due");
         assertThat(counts.get()).isEqualTo(first);
@@ -90,10 +95,12 @@ class ProjectionQueueGaugesTest {
     @Test
     void a_failing_database_is_NaN_first_then_keeps_the_last_good_snapshot() {
         fail = true;
+        failLookup = true;
         build();
         assertThat(depth("due")).isNaN();
         assertThat(registry.get("projection_rebuild_queue_oldest_due_age_seconds").gauge().value()).isNaN();
         fail = false;
+        failLookup = false;
         clock.now = clock.now.plusSeconds(15);
         assertThat(depth("leased")).isEqualTo(4);
         fail = true;
@@ -110,5 +117,26 @@ class ProjectionQueueGaugesTest {
                 assertThat(t.getValue()).isIn("due", "leased");
             }
         }
+    }
+
+    @Test
+    void a_timed_out_oldest_lookup_leaves_the_counts_published_and_only_the_age_stale() {
+        failLookup = true;
+        build();
+        assertThat(depth("due")).as("counts are independent of the lookups").isEqualTo(8);
+        assertThat(depth("leased")).isEqualTo(4);
+        assertThat(registry.get("projection_rebuild_queue_oldest_due_age_seconds").gauge().value())
+                .as("never loaded: unknown, not 0").isNaN();
+
+        failLookup = false;
+        next = new Document("requested_at", Date.from(clock.now.minusSeconds(40))).append("lease_until", Date.from(clock.now.minusSeconds(10)));
+        clock.now = clock.now.plusSeconds(15);
+        assertThat(registry.get("projection_rebuild_queue_oldest_due_age_seconds").gauge().value()).isEqualTo(40.0 + 15);
+
+        failLookup = true;
+        clock.now = clock.now.plusSeconds(15);
+        assertThat(depth("due")).isEqualTo(8);
+        assertThat(registry.get("projection_rebuild_queue_oldest_due_age_seconds").gauge().value())
+                .as("kept the last good timestamps; the age keeps growing with the clock").isEqualTo(40.0 + 30);
     }
 }

@@ -77,11 +77,16 @@ public class AdminHttpMetrics {
         if (routes.contains(p)) {
             return p;
         }
-        if (routes.size() >= MAX_ROUTES) {
-            return OTHER;
+        synchronized (routes) {   // slow path, only for a route not seen before: the size check and the add are one step
+            if (routes.contains(p)) {
+                return p;
+            }
+            if (routes.size() >= MAX_ROUTES) {
+                return OTHER;
+            }
+            routes.add(p);
+            return p;
         }
-        routes.add(p);
-        return p;
     }
 
     static String statusClass(int status) {

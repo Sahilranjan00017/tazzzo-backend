@@ -121,6 +121,26 @@ class AdminHttpMetricsTest {
     }
 
     @Test
+    void the_route_cap_holds_under_concurrent_first_sightings() throws Exception {
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(16);
+        java.util.Set<String> labels = java.util.concurrent.ConcurrentHashMap.newKeySet();
+        java.util.concurrent.CountDownLatch go = new java.util.concurrent.CountDownLatch(1);
+        for (int t = 0; t < 16; t++) {
+            pool.submit(() -> {
+                go.await();
+                for (int i = 0; i < AdminHttpMetrics.MAX_ROUTES * 2; i++) labels.add(metrics.routeLabel("/api/v1/c" + i));
+                return null;
+            });
+        }
+        go.countDown();
+        pool.shutdown();
+        assertThat(pool.awaitTermination(30, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        assertThat(labels.stream().filter(l -> l.startsWith("/api/")).count()).as("never more than the cap, however the threads interleave")
+                .isEqualTo(AdminHttpMetrics.MAX_ROUTES);
+        assertThat(labels).contains("other");
+    }
+
+    @Test
     void odd_pattern_attributes_never_become_labels() {
         assertThat(metrics.routeLabel(null)).isEqualTo("unmatched");
         assertThat(metrics.routeLabel(42)).isEqualTo("unmatched");
