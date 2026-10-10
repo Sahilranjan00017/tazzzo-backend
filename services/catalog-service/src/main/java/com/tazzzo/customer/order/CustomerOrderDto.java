@@ -25,6 +25,7 @@ public record CustomerOrderDto(String orderId, String status, String paymentMeth
     /** The delivery window the customer chose: only what they need to see (never the area, the window id or any capacity). */
     public record DeliverySlot(String slotId, String label, String startsAt, String endsAt) { }
 
+    @io.swagger.v3.oas.annotations.media.Schema(name = "CustomerOrderItem")
     public record Item(String skuId, String title, String brandCode, int quantity, long unitPricePaise,
                        long lineTotalPaise) {
     }

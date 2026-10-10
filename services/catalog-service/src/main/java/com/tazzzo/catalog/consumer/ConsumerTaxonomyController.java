@@ -95,7 +95,7 @@ public class ConsumerTaxonomyController {
      */
     @GetMapping("/products/{productId}")
     public ConsumerDtos.ProductDetailResponse product(
-            @PathVariable("productId") String productId,
+            @PathVariable("productId") @io.swagger.v3.oas.annotations.media.Schema(pattern = com.tazzzo.catalog.domain.ProductIds.REGEX) String productId,
             @RequestParam(name = "release", required = false) String release,
             HttpServletRequest request) {
         return measured(ConsumerObservability.Route.PDP, () ->

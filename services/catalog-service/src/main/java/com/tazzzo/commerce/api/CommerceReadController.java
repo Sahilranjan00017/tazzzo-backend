@@ -200,7 +200,7 @@ public class CommerceReadController {
     }
 
     @GetMapping("/products/{id}")
-    public ProductDetailDto productDetail(@PathVariable("id") String productId,
+    public ProductDetailDto productDetail(@PathVariable("id") @io.swagger.v3.oas.annotations.media.Schema(pattern = com.tazzzo.catalog.domain.ProductIds.REGEX) String productId,
                                           @RequestParam(name = "release", required = false) String release,
                                           @RequestParam(name = "pin", required = false) String pin,
                                           @RequestParam(name = "lat", required = false) String lat,

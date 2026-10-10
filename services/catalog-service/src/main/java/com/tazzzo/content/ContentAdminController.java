@@ -40,7 +40,8 @@ import java.util.Map;
 public class ContentAdminController {
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    record PayloadDto(String imageAssetKey, String link, List<String> ids, String faqCategory, String question, String answer,
+    record PayloadDto(String imageAssetKey, String link,
+                      @io.swagger.v3.oas.annotations.media.ArraySchema(schema = @io.swagger.v3.oas.annotations.media.Schema(pattern = com.tazzzo.catalog.domain.ProductIds.REGEX)) List<String> ids, String faqCategory, String question, String answer,
                       String subtitle, String altText, String desktopImageAssetKey) { }
 
     /** {@code audience}: APP_ONLY | WEB_ONLY | BOTH; absent on create = BOTH, absent on update = unchanged. */

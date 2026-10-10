@@ -51,5 +51,6 @@ final class SupportDtos {
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
+    @io.swagger.v3.oas.annotations.media.Schema(name = "StaffSupportPage")
     record StaffPage(List<StaffSummary> items, String nextCursor) { }
 }

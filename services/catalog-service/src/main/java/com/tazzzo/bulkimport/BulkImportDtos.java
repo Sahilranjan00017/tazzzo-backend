@@ -7,9 +7,9 @@ public final class BulkImportDtos {
 
     private BulkImportDtos() { }
 
-    record PriceRow(String skuId, Long sellingPricePaise, Long mrpPaise, String currency, Long expectedVersion) { }
+    record PriceRow(@io.swagger.v3.oas.annotations.media.Schema(pattern = com.tazzzo.catalog.domain.ProductIds.REGEX) String skuId, Long sellingPricePaise, Long mrpPaise, String currency, Long expectedVersion) { }
 
-    record StockRow(String skuId, String locationId, Long onHand, Long lowStockThreshold, Long maxPurchasable,
+    record StockRow(@io.swagger.v3.oas.annotations.media.Schema(pattern = com.tazzzo.catalog.domain.ProductIds.REGEX) String skuId, String locationId, Long onHand, Long lowStockThreshold, Long maxPurchasable,
                     Long expectedVersion) { }
 
     record PriceImportRequest(Boolean dryRun, List<PriceRow> rows) { }

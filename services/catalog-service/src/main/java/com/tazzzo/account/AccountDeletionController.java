@@ -33,6 +33,9 @@ public class AccountDeletionController {
         this.observability = observability;
     }
 
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @io.swagger.v3.oas.annotations.media.Content(
+            mediaType = "application/json", schema = @io.swagger.v3.oas.annotations.media.Schema(
+                    implementation = com.tazzzo.catalog.api.docs.DocumentedRequestBodies.AccountDeletion.class)))
     @PostMapping(PATH)
     public ResponseEntity<AccountDeletionResponseDto> delete(HttpServletRequest request,
                                                              @RequestBody(required = false) JsonNode body) {

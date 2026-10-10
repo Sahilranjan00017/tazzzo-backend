@@ -62,8 +62,11 @@ public class CartController {
         return respond(dto);
     }
 
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @io.swagger.v3.oas.annotations.media.Content(
+            mediaType = "application/json", schema = @io.swagger.v3.oas.annotations.media.Schema(
+                    implementation = com.tazzzo.catalog.api.docs.DocumentedRequestBodies.CartSetItem.class)))
     @PutMapping("/items/{skuId}")
-    public ResponseEntity<CartResponseDto> setItem(HttpServletRequest request, @PathVariable String skuId,
+    public ResponseEntity<CartResponseDto> setItem(HttpServletRequest request, @PathVariable @io.swagger.v3.oas.annotations.media.Schema(pattern = com.tazzzo.catalog.domain.ProductIds.REGEX) String skuId,
                                                    @RequestHeader(value = "If-Match", required = false) String ifMatch,
                                                    @RequestParam(value = "addressId", required = false) String addressId,
                                                    @RequestBody(required = false) JsonNode body) {
@@ -78,7 +81,7 @@ public class CartController {
     }
 
     @DeleteMapping("/items/{skuId}")
-    public ResponseEntity<CartResponseDto> removeItem(HttpServletRequest request, @PathVariable String skuId,
+    public ResponseEntity<CartResponseDto> removeItem(HttpServletRequest request, @PathVariable @io.swagger.v3.oas.annotations.media.Schema(pattern = com.tazzzo.catalog.domain.ProductIds.REGEX) String skuId,
                                                       @RequestHeader(value = "If-Match", required = false) String ifMatch,
                                                       @RequestParam(value = "addressId", required = false) String addressId) {
         CustomerPrincipal p = CustomerPrincipalResolver.require(request);

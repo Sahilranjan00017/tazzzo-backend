@@ -25,6 +25,7 @@ public record CheckoutQuoteDto(String quoteId, long cartVersion, String addressI
                                @JsonInclude(JsonInclude.Include.NON_NULL) MoneyPreview moneyPreview,
                                String requestId) {
 
+    @io.swagger.v3.oas.annotations.media.Schema(name = "CheckoutQuoteItem")
     public record Item(String skuId, int quantity, long unitPricePaise, long lineTotalPaise) {
     }
 

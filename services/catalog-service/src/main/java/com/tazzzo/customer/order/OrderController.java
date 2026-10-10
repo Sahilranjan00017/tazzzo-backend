@@ -57,6 +57,9 @@ public class OrderController {
         this.slotRequired = slotRequired;
     }
 
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @io.swagger.v3.oas.annotations.media.Content(
+            mediaType = "application/json", schema = @io.swagger.v3.oas.annotations.media.Schema(
+                    implementation = com.tazzzo.catalog.api.docs.DocumentedRequestBodies.PlaceOrder.class)))
     @PostMapping
     public ResponseEntity<CustomerOrderDto> place(HttpServletRequest request,
                                                   @RequestBody(required = false) JsonNode body) {
@@ -94,6 +97,9 @@ public class OrderController {
     }
 
     /** Cancel one of the caller's OWN confirmed orders; body {@code {"reason": "CHANGED_MIND"|"ORDERED_BY_MISTAKE"|"OTHER"}}. */
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @io.swagger.v3.oas.annotations.media.Content(
+            mediaType = "application/json", schema = @io.swagger.v3.oas.annotations.media.Schema(
+                    implementation = com.tazzzo.catalog.api.docs.DocumentedRequestBodies.CancelOrder.class)))
     @PostMapping("/{orderId}/cancel")
     public ResponseEntity<CustomerOrderDto> cancel(HttpServletRequest request, @PathVariable String orderId,
                                                    @RequestBody(required = false) JsonNode body) {
