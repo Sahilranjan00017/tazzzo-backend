@@ -1,11 +1,10 @@
 package com.tazzzo.notification;
 
-import java.util.Locale;
 import java.util.Set;
 
 /**
  * Chooses the {@link NotificationSender} from {@code tazzzo.notifications.provider}. Unset/blank/{@code disabled} keeps
- * today's behaviour (no delivery; enabling dispatch is then a startup failure). {@code sandbox} is allowed only where
+ * today's behaviour (no delivery; enabling dispatch is then a startup failure). {@code sandbox} (exact lowercase; {@code SANDBOX} is rejected) is allowed only where
  * {@code tazzzo.migration.environment} is unset, local, test or dev (the same rule as the OTP LOGGING provider). Anything
  * else is a startup failure, never a silent fallback.
  */
@@ -16,7 +15,7 @@ final class NotificationProviderSelector {
     private NotificationProviderSelector() { }
 
     static NotificationSender select(String provider, String environment) {
-        String p = provider == null ? "" : provider.trim().toLowerCase(Locale.ROOT);
+        String p = provider == null ? "" : provider.trim();   // exact lowercase values only, like the OTP provider-mode
         String env = environment == null ? "" : environment.trim();
         return switch (p) {
             case "", "disabled" -> new DisabledNotificationSender();

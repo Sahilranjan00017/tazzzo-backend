@@ -144,6 +144,30 @@ class NotificationSandboxIT extends AbstractMongoIT {
     }
 
     @Test
+    void a_created_at_ahead_of_this_clock_records_zero_latency_not_a_positive_one() {
+        enqueue("ORD_1");
+        db.getCollection(NotificationOutbox.COLLECTION).updateOne(new Document("_id", "ORDER_CONFIRMED:ORD_1"),
+                new Document("$set", new Document("created_at", java.util.Date.from(clock.now.plusSeconds(3600)))));
+        dispatcher.dispatchDue(10);
+        var t = registry.get("notification_dispatch_latency").tag("type", "ORDER_CONFIRMED").timer();
+        assertThat(t.count()).isEqualTo(1);
+        assertThat(t.totalTime(TimeUnit.MILLISECONDS)).isZero();
+    }
+
+    @Test
+    void a_crashed_dispatchers_lapsed_lease_counts_as_pending_and_as_behind() {
+        NotificationMetrics metrics = new NotificationMetrics(db, clock, registry, Duration.ofSeconds(1));
+        assertThat(metrics).isNotNull();
+        enqueue("ORD_1");
+        outbox.claimNext(Duration.ofSeconds(60)).orElseThrow();       // claimed, then the dispatcher "crashes"
+        clock.advance(Duration.ofSeconds(10));
+        assertThat(gauge("notification_outbox_pending")).as("lease still held").isZero();
+        clock.advance(Duration.ofSeconds(60));                         // lease lapsed 10 s ago
+        assertThat(gauge("notification_outbox_pending")).isEqualTo(1);
+        assertThat(gauge("notification_outbox_oldest_pending_age_seconds")).isEqualTo(10);
+    }
+
+    @Test
     void retry_backs_off_then_fails_terminally_at_max_attempts() {
         sender.rule = n -> NotificationSender.Outcome.RETRY;
         enqueue("ORD_1");

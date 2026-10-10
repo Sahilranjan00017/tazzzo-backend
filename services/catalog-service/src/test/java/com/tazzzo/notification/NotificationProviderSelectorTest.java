@@ -9,7 +9,7 @@ class NotificationProviderSelectorTest {
 
     @Test
     void unset_blank_and_disabled_keep_the_non_delivering_default() {
-        for (String p : new String[]{null, "", "  ", "disabled", "DISABLED"}) {
+        for (String p : new String[]{null, "", "  ", "disabled"}) {
             NotificationSender s = NotificationProviderSelector.select(p, "production");
             assertThat(s).isInstanceOf(DisabledNotificationSender.class);
             assertThat(s.delivers()).isFalse();
@@ -27,6 +27,16 @@ class NotificationProviderSelectorTest {
             assertThatThrownBy(() -> NotificationProviderSelector.select("sandbox", env))
                     .isInstanceOf(IllegalStateException.class).hasMessageContaining("refused");
         }
+    }
+
+    @Test
+    void the_environment_is_trimmed_and_the_provider_value_is_exact_lowercase() {
+        assertThat(NotificationProviderSelector.select("sandbox", " dev ")).isInstanceOf(SandboxNotificationSender.class);
+        assertThat(NotificationProviderSelector.select(" sandbox ", "dev")).isInstanceOf(SandboxNotificationSender.class);
+        assertThatThrownBy(() -> NotificationProviderSelector.select("sandbox", " production "))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("refused");
+        assertThatThrownBy(() -> NotificationProviderSelector.select("SANDBOX", "dev")).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> NotificationProviderSelector.select("DISABLED", "dev")).isInstanceOf(IllegalStateException.class);
     }
 
     @Test

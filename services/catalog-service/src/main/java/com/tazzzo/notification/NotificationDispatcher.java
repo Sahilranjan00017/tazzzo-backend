@@ -101,9 +101,10 @@ public class NotificationDispatcher {
         }
         try {
             if ("sent".equals(outcome)) {
-                // enqueue -> provider accepted; created_at is millisecond-truncated, so clamp a negative skew to zero
+                // enqueue -> provider accepted; a created_at ahead of this clock (cross-instance skew) counts as zero
+                Duration latency = Duration.between(n.createdAt(), clock.instant());
                 Timer.builder("notification_dispatch_latency").tag("type", n.type().name()).register(registry)
-                        .record(Duration.between(n.createdAt(), clock.instant()).abs());
+                        .record(latency.compareTo(Duration.ZERO) < 0 ? Duration.ZERO : latency);
             }
             Counter.builder("notification_dispatch").tag("type", n.type().name()).tag("outcome", outcome)
                     .register(registry).increment();
