@@ -3,6 +3,7 @@ package com.tazzzo.inventory.admin;
 import com.tazzzo.inventory.InvalidInventoryException;
 import com.tazzzo.inventory.InventoryRecord;
 import com.tazzzo.inventory.InventoryService;
+import io.swagger.v3.oas.annotations.Operation;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -53,6 +54,7 @@ public class InventoryAdminListController {
     }
 
     @GetMapping
+    @Operation(operationId = "listStock")   // pinned: published id predates the stable-operationId scheme (ADR-017)
     public StockListPage listStock(HttpServletRequest request) {
         String location = null, state = null, cursor = null;
         int limit = DEFAULT_LIMIT;

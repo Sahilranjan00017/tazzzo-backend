@@ -8,7 +8,7 @@
     "/v1/customer/cart/items/{skuId}" : {
       "put" : {
         "tags" : [ "cart-controller" ],
-        "operationId" : "setItem",
+        "operationId" : "cartSetItem",
         "parameters" : [ {
           "name" : "skuId",
           "in" : "path",
@@ -55,7 +55,7 @@
       },
       "delete" : {
         "tags" : [ "cart-controller" ],
-        "operationId" : "removeItem",
+        "operationId" : "cartRemoveItem",
         "parameters" : [ {
           "name" : "skuId",
           "in" : "path",
@@ -95,7 +95,7 @@
     "/v1/customer/addresses/{addressId}/default" : {
       "put" : {
         "tags" : [ "address-controller" ],
-        "operationId" : "setDefault",
+        "operationId" : "addressSetDefault",
         "parameters" : [ {
           "name" : "addressId",
           "in" : "path",
@@ -121,7 +121,7 @@
     "/api/v1/admin/service-areas/{pincode}" : {
       "get" : {
         "tags" : [ "service-area-admin-controller" ],
-        "operationId" : "get",
+        "operationId" : "serviceAreaAdminGet",
         "parameters" : [ {
           "name" : "pincode",
           "in" : "path",
@@ -145,7 +145,7 @@
       },
       "put" : {
         "tags" : [ "service-area-admin-controller" ],
-        "operationId" : "upsert",
+        "operationId" : "serviceAreaAdminUpsert",
         "parameters" : [ {
           "name" : "pincode",
           "in" : "path",
@@ -181,7 +181,7 @@
     "/api/v1/admin/prices/{skuId}" : {
       "get" : {
         "tags" : [ "price-admin-controller" ],
-        "operationId" : "get_1",
+        "operationId" : "priceAdminGet",
         "parameters" : [ {
           "name" : "skuId",
           "in" : "path",
@@ -206,7 +206,7 @@
       },
       "put" : {
         "tags" : [ "price-admin-controller" ],
-        "operationId" : "put",
+        "operationId" : "priceAdminPut",
         "parameters" : [ {
           "name" : "skuId",
           "in" : "path",
@@ -243,7 +243,7 @@
     "/api/v1/admin/media/{ownerType}/{ownerId}" : {
       "get" : {
         "tags" : [ "media-admin-controller" ],
-        "operationId" : "get_2",
+        "operationId" : "mediaAdminGet",
         "parameters" : [ {
           "name" : "ownerType",
           "in" : "path",
@@ -274,7 +274,7 @@
       },
       "put" : {
         "tags" : [ "media-admin-controller" ],
-        "operationId" : "put_1",
+        "operationId" : "mediaAdminPut",
         "parameters" : [ {
           "name" : "ownerType",
           "in" : "path",
@@ -317,7 +317,7 @@
     "/api/v1/admin/inventory/{skuId}/{locationId}" : {
       "get" : {
         "tags" : [ "inventory-admin-controller" ],
-        "operationId" : "get_3",
+        "operationId" : "inventoryAdminGet",
         "parameters" : [ {
           "name" : "skuId",
           "in" : "path",
@@ -349,7 +349,7 @@
       },
       "put" : {
         "tags" : [ "inventory-admin-controller" ],
-        "operationId" : "put_2",
+        "operationId" : "inventoryAdminPut",
         "parameters" : [ {
           "name" : "skuId",
           "in" : "path",
@@ -437,7 +437,7 @@
     "/api/v1/admin/delivery-slots/{serviceAreaId}/{windowId}" : {
       "get" : {
         "tags" : [ "delivery-slot-admin-controller" ],
-        "operationId" : "get_4",
+        "operationId" : "deliverySlotAdminGet",
         "parameters" : [ {
           "name" : "serviceAreaId",
           "in" : "path",
@@ -468,7 +468,7 @@
       },
       "put" : {
         "tags" : [ "delivery-slot-admin-controller" ],
-        "operationId" : "upsert_1",
+        "operationId" : "deliverySlotAdminUpsert",
         "parameters" : [ {
           "name" : "serviceAreaId",
           "in" : "path",
@@ -511,7 +511,7 @@
     "/api/v1/admin/content/blocks/{id}" : {
       "get" : {
         "tags" : [ "content-admin-controller" ],
-        "operationId" : "get_5",
+        "operationId" : "contentAdminGet",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -535,7 +535,7 @@
       },
       "put" : {
         "tags" : [ "content-admin-controller" ],
-        "operationId" : "update",
+        "operationId" : "contentAdminUpdate",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -571,7 +571,7 @@
     "/api/v1/admin/app-config" : {
       "get" : {
         "tags" : [ "content-admin-controller" ],
-        "operationId" : "getConfig",
+        "operationId" : "contentAdminGetConfig",
         "responses" : {
           "200" : {
             "description" : "OK",
@@ -587,7 +587,7 @@
       },
       "put" : {
         "tags" : [ "content-admin-controller" ],
-        "operationId" : "putConfig",
+        "operationId" : "contentAdminPutConfig",
         "requestBody" : {
           "content" : {
             "application/json" : {
@@ -615,7 +615,7 @@
     "/v1/customer/support/cases" : {
       "get" : {
         "tags" : [ "customer-support-controller" ],
-        "operationId" : "list",
+        "operationId" : "customerSupportList",
         "parameters" : [ {
           "name" : "page_size",
           "in" : "query",
@@ -646,7 +646,7 @@
       },
       "post" : {
         "tags" : [ "customer-support-controller" ],
-        "operationId" : "open",
+        "operationId" : "customerSupportOpen",
         "requestBody" : {
           "content" : {
             "application/json" : {
@@ -673,7 +673,7 @@
     "/v1/customer/support/cases/{caseId}/messages" : {
       "post" : {
         "tags" : [ "customer-support-controller" ],
-        "operationId" : "reply",
+        "operationId" : "customerSupportReply",
         "parameters" : [ {
           "name" : "caseId",
           "in" : "path",
@@ -708,7 +708,7 @@
     "/v1/customer/support/cases/{caseId}/close" : {
       "post" : {
         "tags" : [ "customer-support-controller" ],
-        "operationId" : "close",
+        "operationId" : "customerSupportClose",
         "parameters" : [ {
           "name" : "caseId",
           "in" : "path",
@@ -734,7 +734,7 @@
     "/v1/customer/orders" : {
       "get" : {
         "tags" : [ "order-controller" ],
-        "operationId" : "list_1",
+        "operationId" : "orderList",
         "parameters" : [ {
           "name" : "page_size",
           "in" : "query",
@@ -765,7 +765,7 @@
       },
       "post" : {
         "tags" : [ "order-controller" ],
-        "operationId" : "place",
+        "operationId" : "orderPlace",
         "requestBody" : {
           "content" : {
             "application/json" : {
@@ -792,7 +792,7 @@
     "/v1/customer/orders/{orderId}/cancel" : {
       "post" : {
         "tags" : [ "order-controller" ],
-        "operationId" : "cancel",
+        "operationId" : "orderCancel",
         "parameters" : [ {
           "name" : "orderId",
           "in" : "path",
@@ -827,7 +827,7 @@
     "/v1/customer/checkout/quote" : {
       "post" : {
         "tags" : [ "checkout-controller" ],
-        "operationId" : "createQuote",
+        "operationId" : "checkoutCreateQuote",
         "parameters" : [ {
           "name" : "If-Match",
           "in" : "header",
@@ -869,7 +869,7 @@
     "/v1/customer/addresses" : {
       "get" : {
         "tags" : [ "address-controller" ],
-        "operationId" : "list_2",
+        "operationId" : "addressList",
         "responses" : {
           "200" : {
             "description" : "OK",
@@ -885,7 +885,7 @@
       },
       "post" : {
         "tags" : [ "address-controller" ],
-        "operationId" : "create",
+        "operationId" : "addressCreate",
         "parameters" : [ {
           "name" : "Idempotency-Key",
           "in" : "header",
@@ -921,7 +921,7 @@
     "/v1/customer/account/deletion" : {
       "post" : {
         "tags" : [ "account-deletion-controller" ],
-        "operationId" : "delete",
+        "operationId" : "accountDeletionDelete",
         "requestBody" : {
           "content" : {
             "application/json" : {
@@ -948,7 +948,7 @@
     "/v1/auth/session" : {
       "post" : {
         "tags" : [ "session-controller" ],
-        "operationId" : "establish",
+        "operationId" : "sessionEstablish",
         "requestBody" : {
           "content" : {
             "application/json" : {
@@ -976,7 +976,7 @@
     "/v1/auth/refresh" : {
       "post" : {
         "tags" : [ "session-controller" ],
-        "operationId" : "refresh",
+        "operationId" : "sessionRefresh",
         "requestBody" : {
           "content" : {
             "application/json" : {
@@ -1004,7 +1004,7 @@
     "/v1/auth/otp/verify" : {
       "post" : {
         "tags" : [ "otp-controller" ],
-        "operationId" : "verify",
+        "operationId" : "otpVerify",
         "requestBody" : {
           "content" : {
             "application/json" : {
@@ -1032,7 +1032,7 @@
     "/v1/auth/otp/request" : {
       "post" : {
         "tags" : [ "otp-controller" ],
-        "operationId" : "request",
+        "operationId" : "otpRequest",
         "requestBody" : {
           "content" : {
             "application/json" : {
@@ -1060,7 +1060,7 @@
     "/v1/auth/logout" : {
       "post" : {
         "tags" : [ "session-controller" ],
-        "operationId" : "logout",
+        "operationId" : "sessionLogout",
         "responses" : {
           "200" : {
             "description" : "OK"
@@ -1071,7 +1071,7 @@
     "/api/v1/taxonomy/releases" : {
       "post" : {
         "tags" : [ "taxonomy-controller" ],
-        "operationId" : "openRelease",
+        "operationId" : "taxonomyOpenRelease",
         "requestBody" : {
           "content" : {
             "application/json" : {
@@ -1099,7 +1099,7 @@
     "/api/v1/taxonomy/releases/{id}/publish" : {
       "post" : {
         "tags" : [ "taxonomy-controller" ],
-        "operationId" : "publishRelease",
+        "operationId" : "taxonomyPublishRelease",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -1125,7 +1125,7 @@
     "/api/v1/taxonomy/nodes" : {
       "get" : {
         "tags" : [ "taxonomy-controller" ],
-        "operationId" : "listNodes",
+        "operationId" : "taxonomyListNodes",
         "responses" : {
           "200" : {
             "description" : "OK",
@@ -1141,7 +1141,7 @@
       },
       "post" : {
         "tags" : [ "taxonomy-controller" ],
-        "operationId" : "createNode",
+        "operationId" : "taxonomyCreateNode",
         "requestBody" : {
           "content" : {
             "application/json" : {
@@ -1169,7 +1169,7 @@
     "/api/v1/taxonomy/nodes/{id}/split" : {
       "post" : {
         "tags" : [ "taxonomy-controller" ],
-        "operationId" : "split",
+        "operationId" : "taxonomySplit",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -1208,7 +1208,7 @@
     "/api/v1/taxonomy/nodes/{id}/revive" : {
       "post" : {
         "tags" : [ "taxonomy-controller" ],
-        "operationId" : "revive",
+        "operationId" : "taxonomyRevive",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -1244,7 +1244,7 @@
     "/api/v1/taxonomy/nodes/{id}/rename" : {
       "post" : {
         "tags" : [ "taxonomy-controller" ],
-        "operationId" : "rename",
+        "operationId" : "taxonomyRename",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -1280,7 +1280,7 @@
     "/api/v1/taxonomy/nodes/{id}/move" : {
       "post" : {
         "tags" : [ "taxonomy-controller" ],
-        "operationId" : "move",
+        "operationId" : "taxonomyMove",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -1316,7 +1316,7 @@
     "/api/v1/taxonomy/nodes/{id}/merge" : {
       "post" : {
         "tags" : [ "taxonomy-controller" ],
-        "operationId" : "merge",
+        "operationId" : "taxonomyMerge",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -1352,7 +1352,7 @@
     "/api/v1/taxonomy/nodes/{id}/deprecate" : {
       "post" : {
         "tags" : [ "taxonomy-controller" ],
-        "operationId" : "deprecate",
+        "operationId" : "taxonomyDeprecate",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -1388,7 +1388,7 @@
     "/api/v1/products" : {
       "get" : {
         "tags" : [ "product-controller" ],
-        "operationId" : "list_3",
+        "operationId" : "productGetByCanonicalKey",
         "parameters" : [ {
           "name" : "canonicalKey",
           "in" : "query",
@@ -1416,7 +1416,7 @@
       },
       "post" : {
         "tags" : [ "product-controller" ],
-        "operationId" : "create_1",
+        "operationId" : "productCreate",
         "requestBody" : {
           "content" : {
             "application/json" : {
@@ -1444,7 +1444,7 @@
     "/api/v1/products/{id}/revive" : {
       "post" : {
         "tags" : [ "product-controller" ],
-        "operationId" : "revive_1",
+        "operationId" : "productRevive",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -1488,7 +1488,7 @@
     "/api/v1/products/{id}/retire" : {
       "post" : {
         "tags" : [ "product-controller" ],
-        "operationId" : "retire",
+        "operationId" : "productRetire",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -1532,7 +1532,7 @@
     "/api/v1/products/{id}/publish" : {
       "post" : {
         "tags" : [ "product-controller" ],
-        "operationId" : "publish",
+        "operationId" : "productPublish",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -1569,7 +1569,7 @@
     "/api/v1/products/{id}/merge/{survivorId}" : {
       "post" : {
         "tags" : [ "product-controller" ],
-        "operationId" : "merge_1",
+        "operationId" : "productMerge",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -1604,7 +1604,7 @@
     "/api/v1/products/{id}/gtins" : {
       "post" : {
         "tags" : [ "product-controller" ],
-        "operationId" : "bindGtin",
+        "operationId" : "productBindGtin",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -1641,7 +1641,7 @@
     "/api/v1/products/{id}/classify" : {
       "post" : {
         "tags" : [ "product-controller" ],
-        "operationId" : "classify",
+        "operationId" : "productClassify",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -1678,7 +1678,7 @@
     "/api/v1/products/{id}/archive" : {
       "post" : {
         "tags" : [ "product-controller" ],
-        "operationId" : "archive",
+        "operationId" : "productArchive",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -1713,7 +1713,7 @@
     "/api/v1/products/{id}/activate" : {
       "post" : {
         "tags" : [ "product-controller" ],
-        "operationId" : "activate",
+        "operationId" : "productActivate",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -1748,7 +1748,7 @@
     "/api/v1/evidence" : {
       "post" : {
         "tags" : [ "evidence-controller" ],
-        "operationId" : "create_2",
+        "operationId" : "evidenceCreate",
         "requestBody" : {
           "content" : {
             "application/json" : {
@@ -1776,7 +1776,7 @@
     "/api/v1/evidence/{id}/retract" : {
       "post" : {
         "tags" : [ "evidence-controller" ],
-        "operationId" : "retract",
+        "operationId" : "evidenceRetract",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -1812,7 +1812,7 @@
     "/api/v1/attributes" : {
       "post" : {
         "tags" : [ "attribute-controller" ],
-        "operationId" : "create_3",
+        "operationId" : "attributeCreate",
         "requestBody" : {
           "content" : {
             "application/json" : {
@@ -1840,7 +1840,7 @@
     "/api/v1/attributes/{key}/values" : {
       "post" : {
         "tags" : [ "attribute-controller" ],
-        "operationId" : "addValue",
+        "operationId" : "attributeAddValue",
         "parameters" : [ {
           "name" : "key",
           "in" : "path",
@@ -1876,7 +1876,7 @@
     "/api/v1/attribute-schemas/{id}/fields" : {
       "post" : {
         "tags" : [ "attribute-controller" ],
-        "operationId" : "addField",
+        "operationId" : "attributeAddField",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -1912,7 +1912,7 @@
     "/api/v1/admin/support/cases/{caseId}/status" : {
       "post" : {
         "tags" : [ "staff-support-controller" ],
-        "operationId" : "status",
+        "operationId" : "staffSupportStatus",
         "parameters" : [ {
           "name" : "caseId",
           "in" : "path",
@@ -1947,7 +1947,7 @@
     "/api/v1/admin/support/cases/{caseId}/messages" : {
       "post" : {
         "tags" : [ "staff-support-controller" ],
-        "operationId" : "reply_1",
+        "operationId" : "staffSupportReply",
         "parameters" : [ {
           "name" : "caseId",
           "in" : "path",
@@ -1982,7 +1982,7 @@
     "/api/v1/admin/support/cases/{caseId}/assign" : {
       "post" : {
         "tags" : [ "staff-support-controller" ],
-        "operationId" : "assign",
+        "operationId" : "staffSupportAssign",
         "parameters" : [ {
           "name" : "caseId",
           "in" : "path",
@@ -2017,7 +2017,7 @@
     "/api/v1/admin/service-areas/{pincode}/deactivate" : {
       "post" : {
         "tags" : [ "service-area-admin-controller" ],
-        "operationId" : "deactivate",
+        "operationId" : "serviceAreaAdminDeactivate",
         "parameters" : [ {
           "name" : "pincode",
           "in" : "path",
@@ -2053,7 +2053,7 @@
     "/api/v1/admin/service-areas/{pincode}/activate" : {
       "post" : {
         "tags" : [ "service-area-admin-controller" ],
-        "operationId" : "activate_1",
+        "operationId" : "serviceAreaAdminActivate",
         "parameters" : [ {
           "name" : "pincode",
           "in" : "path",
@@ -2089,7 +2089,7 @@
     "/api/v1/admin/orders/{orderId}/transition" : {
       "post" : {
         "tags" : [ "staff-order-controller" ],
-        "operationId" : "transition",
+        "operationId" : "staffOrderTransition",
         "parameters" : [ {
           "name" : "orderId",
           "in" : "path",
@@ -2124,7 +2124,7 @@
     "/api/v1/admin/media/uploads" : {
       "post" : {
         "tags" : [ "media-admin-controller" ],
-        "operationId" : "upload",
+        "operationId" : "mediaAdminUpload",
         "requestBody" : {
           "content" : {
             "application/json" : {
@@ -2152,7 +2152,7 @@
     "/api/v1/admin/inventory/{skuId}/{locationId}/deactivate" : {
       "post" : {
         "tags" : [ "inventory-admin-controller" ],
-        "operationId" : "deactivate_1",
+        "operationId" : "inventoryAdminDeactivate",
         "parameters" : [ {
           "name" : "skuId",
           "in" : "path",
@@ -2196,7 +2196,7 @@
     "/api/v1/admin/inventory/{skuId}/{locationId}/activate" : {
       "post" : {
         "tags" : [ "inventory-admin-controller" ],
-        "operationId" : "activate_2",
+        "operationId" : "inventoryAdminActivate",
         "parameters" : [ {
           "name" : "skuId",
           "in" : "path",
@@ -2240,7 +2240,7 @@
     "/api/v1/admin/imports/products" : {
       "post" : {
         "tags" : [ "bulk-import-controller" ],
-        "operationId" : "products",
+        "operationId" : "bulkImportProducts",
         "requestBody" : {
           "content" : {
             "application/json" : {
@@ -2268,7 +2268,7 @@
     "/api/v1/admin/imports/prices" : {
       "post" : {
         "tags" : [ "bulk-import-controller" ],
-        "operationId" : "prices",
+        "operationId" : "bulkImportPrices",
         "requestBody" : {
           "content" : {
             "application/json" : {
@@ -2588,7 +2588,7 @@
     "/api/v1/admin/imports/inventory" : {
       "post" : {
         "tags" : [ "bulk-import-controller" ],
-        "operationId" : "inventory",
+        "operationId" : "bulkImportInventory",
         "requestBody" : {
           "content" : {
             "application/json" : {
@@ -2616,7 +2616,7 @@
     "/api/v1/admin/delivery-slots/{serviceAreaId}/{windowId}/deactivate" : {
       "post" : {
         "tags" : [ "delivery-slot-admin-controller" ],
-        "operationId" : "deactivate_2",
+        "operationId" : "deliverySlotAdminDeactivate",
         "parameters" : [ {
           "name" : "serviceAreaId",
           "in" : "path",
@@ -2659,7 +2659,7 @@
     "/api/v1/admin/delivery-slots/{serviceAreaId}/{windowId}/activate" : {
       "post" : {
         "tags" : [ "delivery-slot-admin-controller" ],
-        "operationId" : "activate_3",
+        "operationId" : "deliverySlotAdminActivate",
         "parameters" : [ {
           "name" : "serviceAreaId",
           "in" : "path",
@@ -2702,7 +2702,7 @@
     "/api/v1/admin/content/uploads" : {
       "post" : {
         "tags" : [ "content-admin-controller" ],
-        "operationId" : "upload_1",
+        "operationId" : "contentAdminUpload",
         "requestBody" : {
           "content" : {
             "application/json" : {
@@ -2730,7 +2730,7 @@
     "/api/v1/admin/content/blocks" : {
       "get" : {
         "tags" : [ "content-admin-controller" ],
-        "operationId" : "list_4",
+        "operationId" : "contentAdminList",
         "parameters" : [ {
           "name" : "placement",
           "in" : "query",
@@ -2769,7 +2769,7 @@
       },
       "post" : {
         "tags" : [ "content-admin-controller" ],
-        "operationId" : "create_4",
+        "operationId" : "contentAdminCreate",
         "requestBody" : {
           "content" : {
             "application/json" : {
@@ -2797,7 +2797,7 @@
     "/api/v1/admin/content/blocks/{id}/status" : {
       "post" : {
         "tags" : [ "content-admin-controller" ],
-        "operationId" : "status_1",
+        "operationId" : "contentAdminStatus",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -2833,7 +2833,7 @@
     "/api/v1/admin/content/blocks/reorder" : {
       "post" : {
         "tags" : [ "content-admin-controller" ],
-        "operationId" : "reorder",
+        "operationId" : "contentAdminReorder",
         "requestBody" : {
           "content" : {
             "application/json" : {
@@ -2861,7 +2861,7 @@
     "/v1/customer/profile" : {
       "get" : {
         "tags" : [ "customer-profile-controller" ],
-        "operationId" : "get_6",
+        "operationId" : "customerProfileGet",
         "responses" : {
           "200" : {
             "description" : "OK",
@@ -2877,7 +2877,7 @@
       },
       "patch" : {
         "tags" : [ "customer-profile-controller" ],
-        "operationId" : "patch",
+        "operationId" : "customerProfilePatch",
         "parameters" : [ {
           "name" : "If-Match",
           "in" : "header",
@@ -2912,7 +2912,7 @@
     "/v1/customer/addresses/{addressId}" : {
       "get" : {
         "tags" : [ "address-controller" ],
-        "operationId" : "get_7",
+        "operationId" : "addressGet",
         "parameters" : [ {
           "name" : "addressId",
           "in" : "path",
@@ -2936,7 +2936,7 @@
       },
       "delete" : {
         "tags" : [ "address-controller" ],
-        "operationId" : "delete_1",
+        "operationId" : "addressDelete",
         "parameters" : [ {
           "name" : "addressId",
           "in" : "path",
@@ -2960,7 +2960,7 @@
       },
       "patch" : {
         "tags" : [ "address-controller" ],
-        "operationId" : "patch_1",
+        "operationId" : "addressPatch",
         "parameters" : [ {
           "name" : "addressId",
           "in" : "path",
@@ -3002,7 +3002,7 @@
     "/api/v1/products/{id}" : {
       "get" : {
         "tags" : [ "product-controller" ],
-        "operationId" : "get_8",
+        "operationId" : "productGet",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -3027,7 +3027,7 @@
       },
       "patch" : {
         "tags" : [ "product-controller" ],
-        "operationId" : "patch_2",
+        "operationId" : "productPatch",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -3072,7 +3072,7 @@
     "/v1/serviceability" : {
       "get" : {
         "tags" : [ "commerce-read-controller" ],
-        "operationId" : "serviceability",
+        "operationId" : "commerceReadServiceability",
         "parameters" : [ {
           "name" : "pin",
           "in" : "query",
@@ -3112,7 +3112,7 @@
     "/v1/search" : {
       "get" : {
         "tags" : [ "commerce-read-controller" ],
-        "operationId" : "search",
+        "operationId" : "commerceReadSearch",
         "parameters" : [ {
           "name" : "q",
           "in" : "query",
@@ -3180,7 +3180,7 @@
     "/v1/products/{id}" : {
       "get" : {
         "tags" : [ "commerce-read-controller" ],
-        "operationId" : "productDetail",
+        "operationId" : "commerceReadProductDetail",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -3234,7 +3234,7 @@
     "/v1/customer/support/cases/{caseId}" : {
       "get" : {
         "tags" : [ "customer-support-controller" ],
-        "operationId" : "get_9",
+        "operationId" : "customerSupportGet",
         "parameters" : [ {
           "name" : "caseId",
           "in" : "path",
@@ -3260,7 +3260,7 @@
     "/v1/customer/orders/{orderId}" : {
       "get" : {
         "tags" : [ "order-controller" ],
-        "operationId" : "read",
+        "operationId" : "orderRead",
         "parameters" : [ {
           "name" : "orderId",
           "in" : "path",
@@ -3286,7 +3286,7 @@
     "/v1/customer/delivery/slots" : {
       "get" : {
         "tags" : [ "delivery-slot-controller" ],
-        "operationId" : "list_5",
+        "operationId" : "deliverySlotList",
         "parameters" : [ {
           "name" : "pin",
           "in" : "query",
@@ -3319,7 +3319,7 @@
     "/v1/customer/checkout/quotes/{quoteId}" : {
       "get" : {
         "tags" : [ "checkout-controller" ],
-        "operationId" : "readQuote",
+        "operationId" : "checkoutReadQuote",
         "parameters" : [ {
           "name" : "quoteId",
           "in" : "path",
@@ -3345,7 +3345,7 @@
     "/v1/customer/cart" : {
       "get" : {
         "tags" : [ "cart-controller" ],
-        "operationId" : "get_10",
+        "operationId" : "cartGet",
         "parameters" : [ {
           "name" : "addressId",
           "in" : "query",
@@ -3369,7 +3369,7 @@
       },
       "delete" : {
         "tags" : [ "cart-controller" ],
-        "operationId" : "clear",
+        "operationId" : "cartClear",
         "parameters" : [ {
           "name" : "If-Match",
           "in" : "header",
@@ -3402,7 +3402,7 @@
     "/v1/content/home" : {
       "get" : {
         "tags" : [ "public-content-controller" ],
-        "operationId" : "home",
+        "operationId" : "publicContentHome",
         "responses" : {
           "200" : {
             "description" : "OK",
@@ -3420,7 +3420,7 @@
     "/v1/content/faqs" : {
       "get" : {
         "tags" : [ "public-content-controller" ],
-        "operationId" : "faqs",
+        "operationId" : "publicContentFaqs",
         "responses" : {
           "200" : {
             "description" : "OK",
@@ -3438,7 +3438,7 @@
     "/v1/categories" : {
       "get" : {
         "tags" : [ "commerce-read-controller" ],
-        "operationId" : "categories",
+        "operationId" : "commerceReadCategories",
         "parameters" : [ {
           "name" : "release",
           "in" : "query",
@@ -3464,7 +3464,7 @@
     "/v1/categories/{id}" : {
       "get" : {
         "tags" : [ "commerce-read-controller" ],
-        "operationId" : "category",
+        "operationId" : "commerceReadCategory",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -3497,7 +3497,7 @@
     "/v1/categories/{id}/products" : {
       "get" : {
         "tags" : [ "commerce-read-controller" ],
-        "operationId" : "products_1",
+        "operationId" : "commerceReadProducts",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -3565,7 +3565,7 @@
     "/v1/categories/{id}/children" : {
       "get" : {
         "tags" : [ "commerce-read-controller" ],
-        "operationId" : "children",
+        "operationId" : "commerceReadChildren",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -3598,7 +3598,7 @@
     "/v1/app-config" : {
       "get" : {
         "tags" : [ "public-content-controller" ],
-        "operationId" : "appConfig",
+        "operationId" : "publicContentAppConfig",
         "responses" : {
           "200" : {
             "description" : "OK",
@@ -3616,7 +3616,7 @@
     "/health/ready" : {
       "get" : {
         "tags" : [ "health-controller" ],
-        "operationId" : "ready",
+        "operationId" : "healthReady",
         "responses" : {
           "200" : {
             "description" : "OK",
@@ -3637,7 +3637,7 @@
     "/health/live" : {
       "get" : {
         "tags" : [ "health-controller" ],
-        "operationId" : "live",
+        "operationId" : "healthLive",
         "responses" : {
           "200" : {
             "description" : "OK",
@@ -3658,7 +3658,7 @@
     "/catalog/v1/products/{productId}" : {
       "get" : {
         "tags" : [ "consumer-taxonomy-controller" ],
-        "operationId" : "product",
+        "operationId" : "consumerTaxonomyProduct",
         "parameters" : [ {
           "name" : "productId",
           "in" : "path",
@@ -3691,7 +3691,7 @@
     "/catalog/v1/categories" : {
       "get" : {
         "tags" : [ "consumer-taxonomy-controller" ],
-        "operationId" : "categories_1",
+        "operationId" : "consumerTaxonomyCategories",
         "parameters" : [ {
           "name" : "release",
           "in" : "query",
@@ -3717,7 +3717,7 @@
     "/catalog/v1/categories/{nodeId}/products" : {
       "get" : {
         "tags" : [ "consumer-taxonomy-controller" ],
-        "operationId" : "productsUnder",
+        "operationId" : "consumerTaxonomyProductsUnder",
         "parameters" : [ {
           "name" : "nodeId",
           "in" : "path",
@@ -3764,7 +3764,7 @@
     "/catalog/v1/categories/{nodeId}/children" : {
       "get" : {
         "tags" : [ "consumer-taxonomy-controller" ],
-        "operationId" : "children_1",
+        "operationId" : "consumerTaxonomyChildren",
         "parameters" : [ {
           "name" : "nodeId",
           "in" : "path",
@@ -3797,7 +3797,7 @@
     "/api/v1/taxonomy/releases/{id}" : {
       "get" : {
         "tags" : [ "taxonomy-controller" ],
-        "operationId" : "getRelease",
+        "operationId" : "taxonomyGetRelease",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -3823,7 +3823,7 @@
     "/api/v1/taxonomy/nodes/{id}" : {
       "get" : {
         "tags" : [ "taxonomy-controller" ],
-        "operationId" : "node",
+        "operationId" : "taxonomyNode",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -3849,7 +3849,7 @@
     "/api/v1/taxonomy/nodes/{id}/path" : {
       "get" : {
         "tags" : [ "taxonomy-controller" ],
-        "operationId" : "path",
+        "operationId" : "taxonomyPath",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -3875,7 +3875,7 @@
     "/api/v1/evidence/{id}" : {
       "get" : {
         "tags" : [ "evidence-controller" ],
-        "operationId" : "get_11",
+        "operationId" : "evidenceGet",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -3901,7 +3901,7 @@
     "/api/v1/attributes/{key}" : {
       "get" : {
         "tags" : [ "attribute-controller" ],
-        "operationId" : "getAttribute",
+        "operationId" : "attributeGetAttribute",
         "parameters" : [ {
           "name" : "key",
           "in" : "path",
@@ -3927,7 +3927,7 @@
     "/api/v1/attribute-schemas/{id}" : {
       "get" : {
         "tags" : [ "attribute-controller" ],
-        "operationId" : "getSchema",
+        "operationId" : "attributeGetSchema",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -3953,7 +3953,7 @@
     "/api/v1/admin/support/cases" : {
       "get" : {
         "tags" : [ "staff-support-controller" ],
-        "operationId" : "list_6",
+        "operationId" : "staffSupportList",
         "parameters" : [ {
           "name" : "status",
           "in" : "query",
@@ -3993,7 +3993,7 @@
     "/api/v1/admin/support/cases/{caseId}" : {
       "get" : {
         "tags" : [ "staff-support-controller" ],
-        "operationId" : "get_12",
+        "operationId" : "staffSupportGet",
         "parameters" : [ {
           "name" : "caseId",
           "in" : "path",
@@ -4019,7 +4019,7 @@
     "/api/v1/admin/service-areas" : {
       "get" : {
         "tags" : [ "service-area-admin-controller" ],
-        "operationId" : "list_7",
+        "operationId" : "serviceAreaAdminList",
         "parameters" : [ {
           "name" : "limit",
           "in" : "query",
@@ -4053,7 +4053,7 @@
     "/api/v1/admin/orders" : {
       "get" : {
         "tags" : [ "staff-order-controller" ],
-        "operationId" : "list_8",
+        "operationId" : "staffOrderList",
         "parameters" : [ {
           "name" : "status",
           "in" : "query",
@@ -4093,7 +4093,7 @@
     "/api/v1/admin/orders/{orderId}" : {
       "get" : {
         "tags" : [ "staff-order-controller" ],
-        "operationId" : "get_13",
+        "operationId" : "staffOrderGet",
         "parameters" : [ {
           "name" : "orderId",
           "in" : "path",
@@ -4119,7 +4119,7 @@
     "/api/v1/admin/me" : {
       "get" : {
         "tags" : [ "admin-me-controller" ],
-        "operationId" : "me",
+        "operationId" : "adminMeMe",
         "responses" : {
           "200" : {
             "description" : "OK",
@@ -4200,7 +4200,7 @@
     "/api/v1/admin/delivery-slots/{serviceAreaId}" : {
       "get" : {
         "tags" : [ "delivery-slot-admin-controller" ],
-        "operationId" : "list_9",
+        "operationId" : "deliverySlotAdminList",
         "parameters" : [ {
           "name" : "serviceAreaId",
           "in" : "path",
@@ -4226,7 +4226,7 @@
     "/api/v1/admin/dashboard/summary" : {
       "get" : {
         "tags" : [ "dashboard-controller" ],
-        "operationId" : "summary",
+        "operationId" : "dashboardSummary",
         "responses" : {
           "200" : {
             "description" : "OK",
@@ -4247,7 +4247,7 @@
     "/api/v1/admin/content/preview/home" : {
       "get" : {
         "tags" : [ "content-admin-controller" ],
-        "operationId" : "previewHome",
+        "operationId" : "contentAdminPreviewHome",
         "parameters" : [ {
           "name" : "channel",
           "in" : "query",
@@ -4288,7 +4288,7 @@
     "/api/v1/admin/audit-events" : {
       "get" : {
         "tags" : [ "admin-audit-events-controller" ],
-        "operationId" : "list_10",
+        "operationId" : "adminAuditEventsList",
         "responses" : {
           "200" : {
             "description" : "OK",
