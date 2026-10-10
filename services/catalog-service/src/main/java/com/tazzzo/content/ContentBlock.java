@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.regex.Pattern;
 
 /**
- * One typed block of customer-facing content: merchandising on HOME (banners, rails, grids) and help on HELP (FAQ entries).
+ * One typed block of customer-facing content: merchandising on HOME (banners, rails, grids) and help on HELP (FAQ entries, legal documents).
  * A block is authored as DRAFT, goes live only when PUBLISHED and inside its optional time window, and is never deleted
  * (ARCHIVED). The payload is validated per type with closed grammars: links can only point at a product, a category or a
  * search, never at an arbitrary URL; FAQ text is plain text (no markup).
@@ -84,7 +84,9 @@ public record ContentBlock(String blockId, Placement placement, Type type, Strin
     }
 
     public enum Type {
-        BANNER(Placement.HOME), PRODUCT_RAIL(Placement.HOME), CATEGORY_GRID(Placement.HOME), FAQ(Placement.HELP);
+        BANNER(Placement.HOME), PRODUCT_RAIL(Placement.HOME), CATEGORY_GRID(Placement.HOME), FAQ(Placement.HELP),
+        /** A legal document (terms, privacy) shown as plain paragraphs; at most one may be live per {@link LegalSlug}. */
+        LEGAL(Placement.HELP);
 
         private final Placement placement;
 
@@ -101,18 +103,51 @@ public record ContentBlock(String blockId, Placement placement, Type type, Strin
     /** The help-centre sections (blueprint T49); closed so the app can map each to a fixed heading. */
     public enum FaqCategory { DELIVERY, PRODUCT, CLUB, PAYMENT, REFUND, ACCOUNT }
 
+    /** The legal documents the platform publishes; closed so the public path segment can only be one of these. */
+    public enum LegalSlug {
+        TERMS, PRIVACY;
+
+        /** The public path segment: exactly {@code terms} or {@code privacy} (lowercase). */
+        public String path() {
+            return name().toLowerCase(java.util.Locale.ROOT);
+        }
+
+        /** @return the slug for a public path segment, or null for anything but exactly {@code terms} / {@code privacy} */
+        public static LegalSlug fromPath(String segment) {
+            if ("terms".equals(segment)) return TERMS;
+            if ("privacy".equals(segment)) return PRIVACY;
+            return null;
+        }
+    }
+
     public enum Status { DRAFT, PUBLISHED, ARCHIVED }
 
     /**
      * {@code imageAssetKey}/{@code link} for BANNER, optionally {@code subtitle}, {@code altText} and a wide
      * {@code desktopImageAssetKey} (absent = the website uses {@code imageAssetKey} everywhere); {@code ids} (products or
      * category nodes) for the rails/grids; {@code faqCategory}/{@code question}/{@code answer} for FAQ. Fields that do not
-     * belong to the type must be absent.
+     * belong to the type must be absent. {@code legalSlug}/{@code body}/{@code effectiveDate} (yyyy-MM-dd, optional) are
+     * for LEGAL: the body is plain text, paragraphs separated by blank lines.
      */
     public record Payload(String imageAssetKey, String link, List<String> ids, String faqCategory, String question, String answer,
-                          String subtitle, String altText, String desktopImageAssetKey) {
+                          String subtitle, String altText, String desktopImageAssetKey, String legalSlug, String body,
+                          String effectiveDate) {
         public Payload {
             ids = ids == null ? List.of() : List.copyOf(ids);
+        }
+
+        /** Without the LEGAL fields. */
+        public Payload(String imageAssetKey, String link, List<String> ids, String faqCategory, String question, String answer,
+                       String subtitle, String altText, String desktopImageAssetKey) {
+            this(imageAssetKey, link, ids, faqCategory, question, answer, subtitle, altText, desktopImageAssetKey, null, null, null);
+        }
+
+        public static Payload legal(String legalSlug, String body, String effectiveDate) {
+            return new Payload(null, null, null, null, null, null, null, null, null, legalSlug, body, effectiveDate);
+        }
+
+        boolean hasLegalFields() {
+            return legalSlug != null || body != null || effectiveDate != null;
         }
 
         public Payload(String imageAssetKey, String link, List<String> ids, String faqCategory, String question, String answer) {
@@ -149,6 +184,8 @@ public record ContentBlock(String blockId, Placement placement, Type type, Strin
     public static final int MAX_ANSWER = 2000;
     public static final int MAX_SUBTITLE = 120;
     public static final int MAX_ALT = 300;
+    public static final int MAX_LEGAL_BODY = 60_000;
+    private static final Pattern ISO_DATE = Pattern.compile("[0-9]{4}-[0-9]{2}-[0-9]{2}");
     static final Pattern PRODUCT_ID = com.tazzzo.catalog.domain.ProductIds.PATTERN;
     static final Pattern NODE_ID = Pattern.compile("TZ[SCGV]-[0-9]{6}");
     static final Pattern LINK = Pattern.compile("(product:" + com.tazzzo.catalog.domain.ProductIds.BODY + ")|(category:TZ[SCGV]-[0-9]{6})|(search:[\\p{L}\\p{M}\\p{N} ]{2,64})");
@@ -163,6 +200,7 @@ public record ContentBlock(String blockId, Placement placement, Type type, Strin
         if (sort < 0 || sort > 10_000) throw new IllegalArgumentException("sort must be within 0..10000");
         if (startsAt != null && endsAt != null && !startsAt.isBefore(endsAt)) throw new IllegalArgumentException("startsAt must be before endsAt");
         if (type != Type.FAQ && p.hasFaqFields()) throw new IllegalArgumentException("FAQ fields belong to FAQ blocks only");
+        if (type != Type.LEGAL && p.hasLegalFields()) throw new IllegalArgumentException("legalSlug, body and effectiveDate belong to LEGAL blocks only");
         if (type != Type.BANNER && p.hasBannerOnlyFields()) {
             throw new IllegalArgumentException("subtitle, altText and desktopImageAssetKey belong to BANNER blocks only");
         }
@@ -189,6 +227,17 @@ public record ContentBlock(String blockId, Placement placement, Type type, Strin
                 plainText(p.question(), MAX_QUESTION, false, "question");
                 plainText(p.answer(), MAX_ANSWER, true, "answer");
             }
+            case LEGAL -> {
+                if (p.imageAssetKey() != null || p.link() != null || !p.ids().isEmpty() || p.hasFaqFields()) {
+                    throw new IllegalArgumentException("a LEGAL block carries only legalSlug, body and effectiveDate");
+                }
+                legalSlug(p.legalSlug());
+                plainText(p.body(), MAX_LEGAL_BODY, true, "body");
+                if (p.body().codePoints().anyMatch(c -> (c >= 0x80 && c <= 0x9F) || (c >= 0x202A && c <= 0x202E) || (c >= 0x2066 && c <= 0x2069))) {
+                    throw new IllegalArgumentException("body must not contain direction-control characters");
+                }
+                effectiveDate(p.effectiveDate());
+            }
         }
     }
 
@@ -205,6 +254,35 @@ public record ContentBlock(String blockId, Placement placement, Type type, Strin
         } catch (IllegalArgumentException e) {
             throw new IllegalArgumentException("faqCategory must be one of DELIVERY, PRODUCT, CLUB, PAYMENT, REFUND, ACCOUNT");
         }
+    }
+
+    public static LegalSlug legalSlug(String raw) {
+        try {
+            return LegalSlug.valueOf(raw == null ? "" : raw);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("legalSlug must be one of TERMS, PRIVACY");
+        }
+    }
+
+    /** @return the date, or null when absent. @throws IllegalArgumentException anything but a real calendar date as yyyy-MM-dd */
+    public static java.time.LocalDate effectiveDate(String raw) {
+        if (raw == null) return null;
+        try {
+            if (!ISO_DATE.matcher(raw).matches()) throw new java.time.format.DateTimeParseException("shape", raw, 0);
+            return java.time.LocalDate.parse(raw);
+        } catch (java.time.format.DateTimeParseException e) {
+            throw new IllegalArgumentException("effectiveDate must be a calendar date as yyyy-MM-dd");
+        }
+    }
+
+    /**
+     * True when two PUBLISHED windows share any instant (half-open {@code [startsAt, endsAt)}, null = unbounded), so a
+     * successor may start exactly when its predecessor ends.
+     */
+    public static boolean windowsOverlap(Instant aStart, Instant aEnd, Instant bStart, Instant bEnd) {
+        boolean aStartsBeforeBEnds = aStart == null || bEnd == null || aStart.isBefore(bEnd);
+        boolean bStartsBeforeAEnds = bStart == null || aEnd == null || bStart.isBefore(aEnd);
+        return aStartsBeforeBEnds && bStartsBeforeAEnds;
     }
 
     /** Plain text: trimmed, bounded, no control characters (a newline only where allowed), no markup brackets. */

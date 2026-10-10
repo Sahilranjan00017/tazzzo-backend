@@ -42,7 +42,8 @@ public class ContentAdminController {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     record PayloadDto(String imageAssetKey, String link,
                       @io.swagger.v3.oas.annotations.media.ArraySchema(schema = @io.swagger.v3.oas.annotations.media.Schema(pattern = com.tazzzo.catalog.domain.ProductIds.REGEX)) List<String> ids, String faqCategory, String question, String answer,
-                      String subtitle, String altText, String desktopImageAssetKey) { }
+                      String subtitle, String altText, String desktopImageAssetKey,
+                      String legalSlug, String body, String effectiveDate) { }
 
     /** {@code audience}: APP_ONLY | WEB_ONLY | BOTH; absent on create = BOTH, absent on update = unchanged. */
     record BlockRequest(String placement, String type, String title, Integer sort, String startsAt, String endsAt, PayloadDto payload,
@@ -101,7 +102,7 @@ public class ContentAdminController {
                 b.effectiveAt(clock.instant()).name(),
                 b.startsAt() == null ? null : b.startsAt().toString(), b.endsAt() == null ? null : b.endsAt().toString(),
                 new PayloadDto(p.imageAssetKey(), p.link(), p.ids().isEmpty() ? null : p.ids(), p.faqCategory(), p.question(), p.answer(),
-                        p.subtitle(), p.altText(), p.desktopImageAssetKey()),
+                        p.subtitle(), p.altText(), p.desktopImageAssetKey(), p.legalSlug(), p.body(), p.effectiveDate()),
                 b.audience().name(), url(p.imageAssetKey()), url(p.desktopImageAssetKey()),
                 b.version(), b.createdAt().toString(), b.updatedAt().toString(), b.createdBy(), b.updatedBy());
     }
@@ -234,7 +235,7 @@ public class ContentAdminController {
 
     private static ContentBlock.Payload payload(PayloadDto p) {
         return new ContentBlock.Payload(p.imageAssetKey(), p.link(), p.ids(), p.faqCategory(), p.question(), p.answer(),
-                p.subtitle(), p.altText(), p.desktopImageAssetKey());
+                p.subtitle(), p.altText(), p.desktopImageAssetKey(), p.legalSlug(), p.body(), p.effectiveDate());
     }
 
     /** The admin envelope for this controller only. */

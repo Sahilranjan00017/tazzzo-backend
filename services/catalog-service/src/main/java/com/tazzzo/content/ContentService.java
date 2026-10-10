@@ -1,6 +1,7 @@
 package com.tazzzo.content;
 
 import com.mongodb.MongoWriteException;
+import com.mongodb.client.ClientSession;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.Filters;
@@ -44,6 +45,8 @@ public class ContentService {
     static final String CONFIG = "system_config";
     static final String CONFIG_ID = "app_config";
     static final int MAX_BLOCKS_PER_PLACEMENT = 200;
+    /** Per-slug lock documents (in {@link #CONFIG}) serialising LEGAL publishes; never read as config. */
+    static final String LEGAL_LOCK_PREFIX = "legal_live_lock:";
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final Logger log = LoggerFactory.getLogger(ContentService.class);
 
@@ -130,7 +133,9 @@ public class ContentService {
                 Updates.set("updatedAt", Date.from(now))));
         // an older client's PUT (no audience) leaves the stored field as it is: a legacy document is not rewritten
         if (audience != null) changes.add(Updates.set("audience", au.name()));
-        cas(actor, id, expectedVersion, List.of("DRAFT", "PUBLISHED"), "CONTENT_BLOCK_UPDATED", detail, Updates.combine(changes));
+        java.util.function.Consumer<ClientSession> guard = current.type() == ContentBlock.Type.LEGAL && current.status() == ContentBlock.Status.PUBLISHED
+                ? session -> requireSingleLive(session, id, payload.legalSlug(), startsAt, endsAt) : null;
+        cas(actor, id, expectedVersion, List.of("DRAFT", "PUBLISHED"), "CONTENT_BLOCK_UPDATED", detail, Updates.combine(changes), guard);
         return get(id);
     }
 
@@ -142,8 +147,10 @@ public class ContentService {
         if (current.status() == ContentBlock.Status.ARCHIVED || current.status() == target) {
             throw new ContentFailure(ContentFailure.Reason.STATE_CONFLICT, "the block is already " + current.status());
         }
+        java.util.function.Consumer<ClientSession> guard = current.type() == ContentBlock.Type.LEGAL && target == ContentBlock.Status.PUBLISHED
+                ? session -> requireSingleLive(session, id, current.payload().legalSlug(), current.startsAt(), current.endsAt()) : null;
         cas(actor, id, expectedVersion, List.of("DRAFT", "PUBLISHED"), "CONTENT_BLOCK_" + target.name(), Map.of("from", current.status().name()),
-                Updates.combine(Updates.set("status", target.name()), Updates.set("updatedAt", Date.from(clock.instant().truncatedTo(ChronoUnit.MILLIS)))));
+                Updates.combine(Updates.set("status", target.name()), Updates.set("updatedAt", Date.from(clock.instant().truncatedTo(ChronoUnit.MILLIS)))), guard);
         return get(id);
     }
 
@@ -232,6 +239,16 @@ public class ContentService {
         out.sort(java.util.Comparator.comparing((ContentBlock b) -> ContentBlock.FaqCategory.valueOf(b.payload().faqCategory()))
                 .thenComparingInt(ContentBlock::sort).thenComparing(ContentBlock::blockId));
         return out;
+    }
+
+    /**
+     * The single live document for a slug, or empty. The one-live rule keeps this unique; should legacy or out-of-band data
+     * ever hold two, the most recently updated wins (then the greater id), so the answer is deterministic.
+     */
+    public java.util.Optional<ContentBlock> liveLegal(ContentBlock.LegalSlug slug) {
+        return live(ContentBlock.Placement.HELP).stream()
+                .filter(b -> b.type() == ContentBlock.Type.LEGAL && slug.name().equals(b.payload().legalSlug()))
+                .max(java.util.Comparator.comparing(ContentBlock::updatedAt).thenComparing(ContentBlock::blockId));
     }
 
     /** One entry of a reorder: the block and the version the editor saw. */
@@ -378,13 +395,45 @@ public class ContentService {
     // ----------------------------------------------------------------- helpers
 
     private void cas(Actor actor, String id, long expectedVersion, List<String> from, String eventType, Map<String, Object> detail, Bson update) {
+        cas(actor, id, expectedVersion, from, eventType, detail, update, null);
+    }
+
+    /** {@code guard} (nullable) runs inside the transaction, before the write, and may refuse it. */
+    private void cas(Actor actor, String id, long expectedVersion, List<String> from, String eventType, Map<String, Object> detail, Bson update,
+                     java.util.function.Consumer<ClientSession> guard) {
         tx.run(session -> {
+            if (guard != null) guard.accept(session);
             audit.append(session, new DomainEvent("content_block", id, eventType, new LinkedHashMap<>(detail), actor));
             if (blocks().updateOne(session, Filters.and(Filters.eq("_id", id), Filters.eq("version", expectedVersion), Filters.in("status", from)),
                     Updates.combine(update, Updates.set("updatedBy", actor.id()), Updates.inc("version", 1L))).getModifiedCount() != 1) {
                 throw new ContentFailure(ContentFailure.Reason.STALE_VERSION, "the block changed; reload it");
             }
         });
+    }
+
+    /**
+     * The one-live rule: at most one PUBLISHED LEGAL block per slug may cover any instant. Inside the write transaction the
+     * slug's lock document is bumped first, so two concurrent publishes of the same slug conflict (one retries and then
+     * sees the other) instead of both passing the check (write skew). Windows are half-open, so a successor may start
+     * exactly when its predecessor ends. Only the future matters: windows are compared from "now" on, so a new document with
+     * no start date does not collide with a superseded one that already ended.
+     */
+    private void requireSingleLive(ClientSession session, String self, String legalSlug, Instant startsAt, Instant endsAt) {
+        db.getCollection(CONFIG).updateOne(session, Filters.eq("_id", LEGAL_LOCK_PREFIX + legalSlug), Updates.inc("n", 1L),
+                new com.mongodb.client.model.UpdateOptions().upsert(true));
+        Instant now = clock.instant();
+        Instant from = startsAt == null || startsAt.isBefore(now) ? now : startsAt;
+        for (Document d : blocks().find(session, Filters.and(Filters.eq("placement", "HELP"), Filters.eq("type", "LEGAL"),
+                Filters.eq("status", "PUBLISHED"), Filters.eq("payload.legalSlug", legalSlug), Filters.ne("_id", self)))) {
+            Date s = d.getDate("startsAt");
+            Date e = d.getDate("endsAt");
+            Instant otherFrom = s == null || s.toInstant().isBefore(now) ? now : s.toInstant();
+            if (ContentBlock.windowsOverlap(from, endsAt, otherFrom, e == null ? null : e.toInstant())) {
+                throw new ContentFailure(ContentFailure.Reason.STATE_CONFLICT, "another " + legalSlug
+                        + " document is published for an overlapping period (" + d.getString("_id")
+                        + "); unpublish it or end its window first");
+            }
+        }
     }
 
     private static void validate(ContentBlock.Type type, String title, int sort, Instant startsAt, Instant endsAt, ContentBlock.Payload payload) {
@@ -414,6 +463,9 @@ public class ContentService {
         if (p.subtitle() != null) d.append("subtitle", p.subtitle());
         if (p.altText() != null) d.append("altText", p.altText());
         if (p.desktopImageAssetKey() != null) d.append("desktopImageAssetKey", p.desktopImageAssetKey());
+        if (p.legalSlug() != null) d.append("legalSlug", p.legalSlug());
+        if (p.body() != null) d.append("body", p.body());
+        if (p.effectiveDate() != null) d.append("effectiveDate", p.effectiveDate());
         return d;
     }
 
@@ -425,7 +477,8 @@ public class ContentService {
                 d.getDate("endsAt") == null ? null : d.getDate("endsAt").toInstant(),
                 new ContentBlock.Payload(p.getString("imageAssetKey"), p.getString("link"), p.getList("ids", String.class),
                         p.getString("faqCategory"), p.getString("question"), p.getString("answer"),
-                        p.getString("subtitle"), p.getString("altText"), p.getString("desktopImageAssetKey")),
+                        p.getString("subtitle"), p.getString("altText"), p.getString("desktopImageAssetKey"),
+                        p.getString("legalSlug"), p.getString("body"), p.getString("effectiveDate")),
                 ContentBlock.audience(d.getString("audience")),
                 ((Number) d.get("version")).longValue(), d.getDate("createdAt").toInstant(), d.getDate("updatedAt").toInstant(),
                 d.getString("createdBy"), d.getString("updatedBy"));

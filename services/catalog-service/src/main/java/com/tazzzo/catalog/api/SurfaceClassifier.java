@@ -11,6 +11,7 @@ package com.tazzzo.catalog.api;
  *                            /v1/products, /v1/products/**, /v1/products:batch (exact only),
  *                            /v1/serviceability (exact only), /v1/search (exact only),
  *                            /v1/content/home, /v1/content/faqs, /v1/app-config (exact only),
+ *                            /v1/content/legal/{one plain segment},
  *                            /v1/auth, /v1/auth/**              public BY DECISION, per-family (Q4-b)
  *   CUSTOMER_AUTHENTICATED   /v1/customer, /v1/customer/**           customer bearer boundary (PR-11A)
  *   INTERNAL                 /api, /api/**, the OpenAPI surface      service-token boundary
@@ -113,7 +114,20 @@ public final class SurfaceClassifier {
                 || uri.equals("/v1/serviceability")
                 || uri.equals("/v1/search")
                 || uri.equals("/v1/content/home") || uri.equals("/v1/content/faqs") || uri.equals("/v1/app-config")
+                || isLegalContentPath(uri)
                 || uri.equals("/v1/auth") || uri.startsWith("/v1/auth/");
+    }
+
+    private static final java.util.regex.Pattern LEGAL_CONTENT = java.util.regex.Pattern.compile("/v1/content/legal/[A-Za-z0-9_-]{1,64}");
+
+    /**
+     * {@code /v1/content/legal/{slug}}: exactly ONE plain segment under the legal-content path. The controller accepts only
+     * {@code terms} and {@code privacy} and answers any other segment with the public flat 404; keeping the segment here
+     * (rather than two exact URIs) is what lets an unknown slug get that envelope instead of the unknown-surface one.
+     * The bare path, a trailing slash, nested or encoded segments stay UNKNOWN.
+     */
+    static boolean isLegalContentPath(String uri) {
+        return LEGAL_CONTENT.matcher(uri).matches();
     }
 
     /** /v3/api-docs, /v3/api-docs.yaml and every sub-path (groups, swagger-config) — Q4-e. */

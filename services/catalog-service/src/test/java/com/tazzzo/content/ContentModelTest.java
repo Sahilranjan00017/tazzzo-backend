@@ -210,4 +210,92 @@ class ContentModelTest {
         bad("alt on a grid", ContentBlock.Type.CATEGORY_GRID, "T", 1, null, null,
                 new ContentBlock.Payload(null, null, List.of("TZC-000001"), null, null, null, null, "Alt", null));
     }
+
+    // ------------------------------------------------------------------ LEGAL
+
+    static ContentBlock.Payload lg(String slug, String body, String date) {
+        return ContentBlock.Payload.legal(slug, body, date);
+    }
+
+    @Test
+    void legal_blocks_live_on_help_and_carry_slug_body_and_optional_date() {
+        assertThat(ContentBlock.Type.LEGAL.placement()).isEqualTo(ContentBlock.Placement.HELP);
+        ok(ContentBlock.Type.LEGAL, lg("TERMS", "First paragraph.\n\nSecond paragraph.", "2026-10-01"));
+        ok(ContentBlock.Type.LEGAL, lg("PRIVACY", "x", null));
+        ok(ContentBlock.Type.LEGAL, lg("PRIVACY", "x".repeat(ContentBlock.MAX_LEGAL_BODY), "2024-02-29"));
+        ok(ContentBlock.Type.LEGAL, lg("TERMS", "ताज़ा नियम\u200D और शर्तें", null));   // ZWJ in Indic text is legitimate
+        ContentBlock.requirePlacement(ContentBlock.Placement.HELP, ContentBlock.Type.LEGAL);
+        assertThatThrownBy(() -> ContentBlock.requirePlacement(ContentBlock.Placement.HOME, ContentBlock.Type.LEGAL))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> ContentBlock.requireAudience(ContentBlock.Placement.HELP, ContentBlock.Audience.APP_ONLY))
+                .as("HELP is always BOTH").isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void legal_payload_rules() {
+        ContentBlock.Type t = ContentBlock.Type.LEGAL;
+        bad("no slug", t, "T", 1, null, null, lg(null, "body", null));
+        bad("unknown slug", t, "T", 1, null, null, lg("REFUNDS", "body", null));
+        bad("lowercase slug", t, "T", 1, null, null, lg("terms", "body", null));
+        bad("no body", t, "T", 1, null, null, lg("TERMS", null, null));
+        bad("blank body", t, "T", 1, null, null, lg("TERMS", "   ", null));
+        bad("empty body", t, "T", 1, null, null, lg("TERMS", "", null));
+        bad("body too long", t, "T", 1, null, null, lg("TERMS", "x".repeat(ContentBlock.MAX_LEGAL_BODY + 1), null));
+        bad("untrimmed body", t, "T", 1, null, null, lg("TERMS", " body", null));
+        bad("trailing newline", t, "T", 1, null, null, lg("TERMS", "body\n", null));
+        bad("markup", t, "T", 1, null, null, lg("TERMS", "a <b>bold</b> clause", null));
+        bad("carriage return", t, "T", 1, null, null, lg("TERMS", "a\r\nb", null));
+        bad("tab", t, "T", 1, null, null, lg("TERMS", "a\tb", null));
+        bad("NUL", t, "T", 1, null, null, lg("TERMS", "a\u0000b", null));
+        bad("DEL", t, "T", 1, null, null, lg("TERMS", "a\u007Fb", null));
+        bad("C1 control", t, "T", 1, null, null, lg("TERMS", "a\u0085b", null));
+        bad("bidi override", t, "T", 1, null, null, lg("TERMS", "abc\u202Edef", null));
+        bad("bidi isolate", t, "T", 1, null, null, lg("TERMS", "abc\u2066def", null));
+        for (String d : new String[]{"2026-13-01", "2026-02-30", "2026-1-1", "26-10-01", "2026/10/01", "2026-10-01T00:00:00Z", "", " 2026-10-01",
+                "+12026-10-01", "2026-10-01\n"}) {
+            bad("effectiveDate " + d, t, "T", 1, null, null, lg("TERMS", "body", d));
+        }
+        bad("title too long", t, "x".repeat(ContentBlock.MAX_TITLE + 1), 1, null, null, lg("TERMS", "body", null));
+        bad("blank title", t, " ", 1, null, null, lg("TERMS", "body", null));
+        bad("with image", t, "T", 1, null, null, new ContentBlock.Payload("c/home/a.webp", null, null, null, null, null, null, null, null, "TERMS", "b", null));
+        bad("with ids", t, "T", 1, null, null, new ContentBlock.Payload(null, null, List.of("TZP-1"), null, null, null, null, null, null, "TERMS", "b", null));
+        bad("with faq fields", t, "T", 1, null, null, new ContentBlock.Payload(null, null, null, "CLUB", "Q?", "A.", null, null, null, "TERMS", "b", null));
+        bad("with banner fields", t, "T", 1, null, null, new ContentBlock.Payload(null, null, null, null, null, null, "sub", null, null, "TERMS", "b", null));
+    }
+
+    @Test
+    void legal_fields_belong_to_legal_blocks_only() {
+        bad("legal fields on an FAQ", ContentBlock.Type.FAQ, "T", 1, null, null,
+                new ContentBlock.Payload(null, null, null, "CLUB", "Q?", "A.", null, null, null, "TERMS", null, null));
+        bad("body on a rail", ContentBlock.Type.PRODUCT_RAIL, "T", 1, null, null,
+                new ContentBlock.Payload(null, null, List.of("TZP-1"), null, null, null, null, null, null, null, "body", null));
+        bad("date on a banner", ContentBlock.Type.BANNER, "T", 1, null, null,
+                new ContentBlock.Payload("c/home/a.webp", "search:rice", null, null, null, null, null, null, null, null, null, "2026-10-01"));
+        bad("an FAQ payload on LEGAL needs the slug", ContentBlock.Type.LEGAL, "T", 1, null, null,
+                new ContentBlock.Payload(null, null, null, null, null, "A.", null, null, null, "TERMS", "body", null));
+    }
+
+    @Test
+    void legal_slug_path_parsing_is_exact_and_lowercase() {
+        assertThat(ContentBlock.LegalSlug.fromPath("terms")).isEqualTo(ContentBlock.LegalSlug.TERMS);
+        assertThat(ContentBlock.LegalSlug.fromPath("privacy")).isEqualTo(ContentBlock.LegalSlug.PRIVACY);
+        assertThat(ContentBlock.LegalSlug.TERMS.path()).isEqualTo("terms");
+        for (String s : new String[]{"Terms", "TERMS", "privacy ", " privacy", "refunds", "", "terms.json", "terms/", "privacy%20", null}) {
+            assertThat(ContentBlock.LegalSlug.fromPath(s)).as(String.valueOf(s)).isNull();
+        }
+    }
+
+    @Test
+    void windows_overlap_is_half_open_with_open_ends_unbounded() {
+        Instant t1 = Instant.parse("2026-10-01T00:00:00Z"), t2 = Instant.parse("2026-11-01T00:00:00Z"), t3 = Instant.parse("2026-12-01T00:00:00Z");
+        assertThat(ContentBlock.windowsOverlap(null, null, null, null)).as("two open windows").isTrue();
+        assertThat(ContentBlock.windowsOverlap(t1, null, t2, null)).as("both open-ended").isTrue();
+        assertThat(ContentBlock.windowsOverlap(null, t2, t1, t3)).isTrue();
+        assertThat(ContentBlock.windowsOverlap(t1, t3, t2, null)).isTrue();
+        assertThat(ContentBlock.windowsOverlap(t1, t2, t2, t3)).as("successor starts exactly when predecessor ends").isFalse();
+        assertThat(ContentBlock.windowsOverlap(t2, t3, t1, t2)).as("symmetric").isFalse();
+        assertThat(ContentBlock.windowsOverlap(t1, t2, t3, null)).as("disjoint").isFalse();
+        assertThat(ContentBlock.windowsOverlap(null, t1, t2, null)).as("ended before the other starts").isFalse();
+        assertThat(ContentBlock.windowsOverlap(t1, t3, t2, t2.plusSeconds(1))).as("nested").isTrue();
+    }
 }

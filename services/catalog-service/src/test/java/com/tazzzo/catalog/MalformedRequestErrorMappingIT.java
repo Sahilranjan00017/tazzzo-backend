@@ -257,6 +257,7 @@ class MalformedRequestErrorMappingIT extends AbstractConsumerIT {
         acceptInvariant("GET", "/v1/content/home", null, "INVALID_REQUEST");
         acceptInvariant("GET", "/v1/app-config", null, "INVALID_REQUEST");
         acceptInvariant("GET", "/v1/content/faqs", null, "INVALID_REQUEST");
+        acceptInvariant("GET", "/v1/content/legal/terms", null, "INVALID_REQUEST");
         quiet(log);
     }
 

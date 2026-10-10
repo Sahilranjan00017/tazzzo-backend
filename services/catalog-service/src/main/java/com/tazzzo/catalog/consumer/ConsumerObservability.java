@@ -66,7 +66,9 @@ public class ConsumerObservability {
         COMMERCE_NODE("commerce_node"),
         // GET /v1/products:batch: a bounded batch of PDP-consistent cards, charged 1 + distinct ids.
         COMMERCE_PRODUCTS_BATCH("commerce_products_batch"),
-        CONTENT_HOME("content_home"), CONTENT_FAQS("content_faqs"), APP_CONFIG("app_config");
+        CONTENT_HOME("content_home"), CONTENT_FAQS("content_faqs"),
+        // GET /v1/content/legal/{slug}: one fixed label for both documents (the slug is never a tag).
+        CONTENT_LEGAL("content_legal"), APP_CONFIG("app_config");
 
         private final String tag;
 

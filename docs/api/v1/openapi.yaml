@@ -2147,6 +2147,71 @@ paths:
           $ref: '#/components/responses/Unavailable'
         '406':
           $ref: '#/components/responses/PublicNotAcceptable'
+  /v1/content/legal/{slug}:
+    get:
+      tags:
+      - content
+      operationId: getLegalDocument
+      summary: 'The one live legal document for `slug` (`terms` or `privacy`, lowercase): the PUBLISHED LEGAL block of that slug inside its time window. At most one document per slug is live; should legacy data ever hold two, the most recently updated one is served. `body` is plain text: paragraphs are separated by a blank line (`\n\n`), there is no markup, and clients must render it as text. No query parameter is accepted (any parameter is 400). Any other slug, or no live document for the slug, is 404.
+
+        '
+      parameters:
+      - name: slug
+        in: path
+        required: true
+        schema:
+          type: string
+          enum:
+          - terms
+          - privacy
+      - $ref: '#/components/parameters/TrustedCaller'
+      - $ref: '#/components/parameters/TrustedCallerSecret'
+      responses:
+        '200':
+          description: 'OK. `Cache-Control: public, max-age=60`.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - slug
+                - title
+                - body
+                - effectiveDate
+                - requestId
+                properties:
+                  slug:
+                    type: string
+                    enum:
+                    - terms
+                    - privacy
+                  title:
+                    type: string
+                    maxLength: 80
+                  body:
+                    type: string
+                    minLength: 1
+                    maxLength: 60000
+                    description: Plain text; paragraphs separated by a blank line. No markup.
+                  effectiveDate:
+                    type: string
+                    format: date
+                    nullable: true
+                    description: The date the document takes effect (yyyy-MM-dd), or null when none is stated.
+                  requestId:
+                    type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/PublicInternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '406':
+          $ref: '#/components/responses/PublicNotAcceptable'
 components:
   parameters:
     AddressIdParam:
@@ -4030,6 +4095,17 @@ components:
             $ref: '#/components/schemas/ErrorEnvelope'
     NotFound:
       description: Resource not found (indistinguishable from hidden/inactive by design)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    PublicInternalError:
+      description: 'A safe, generic server error (INTERNAL). No internal detail is exposed.
+
+        '
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControlNoStore'
       content:
         application/json:
           schema:

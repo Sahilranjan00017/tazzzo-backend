@@ -245,7 +245,7 @@ public class OpenApiContractCustomizer implements OpenApiCustomizer {
     // ------------------------------------------------------------------ per operation
 
     private void operation(String path, String method, Operation op) {
-        Surface surface = SurfaceClassifier.classify(path);
+        Surface surface = SurfaceClassifier.classify(path.replaceAll("\\{[^}]*}", "x"));
         normaliseMediaTypes(op, path);
         responses(path, method, surface, op);
         security(path, surface, op);

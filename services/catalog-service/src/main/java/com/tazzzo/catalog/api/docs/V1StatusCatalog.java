@@ -33,6 +33,7 @@ final class V1StatusCatalog {
             "GET /v1/categories/{}/products", "200,400,404,406,429,503",
             "GET /v1/content/faqs", "200,400,406,429,503",
             "GET /v1/content/home", "200,400,406,429,503",
+            "GET /v1/content/legal/{}", "200,400,404,406,429,500,503",
             "POST /v1/customer/account/deletion", "200,400,401,406,413,415,429,500,503",
             "GET /v1/customer/addresses", "200,401,406,429,503",
             "POST /v1/customer/addresses", "201,400,401,406,409,413,415,429,503",

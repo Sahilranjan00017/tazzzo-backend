@@ -140,6 +140,7 @@ class MalformedQueryAllSurfacesIT extends AbstractConsumerIT {
                 new String[]{"/v1/products", null}, new String[]{"/v1/categories", null},
                 new String[]{"/v1/search", null}, new String[]{"/v1/serviceability", null},
                 new String[]{"/v1/content/home", null}, new String[]{"/v1/content/faqs", null},
+                new String[]{"/v1/content/legal/terms", null},
                 new String[]{"/v1/app-config", null}, new String[]{"/catalog/v1/categories", null},
                 new String[]{"/v1/customer/orders", customer}, new String[]{"/v1/customer/support/cases", customer},
                 new String[]{"/v1/customer/delivery/slots", customer}, new String[]{"/v1/customer/cart", customer});
@@ -177,7 +178,7 @@ class MalformedQueryAllSurfacesIT extends AbstractConsumerIT {
     /** A well-formed query (percent-encoded values, exactly the limit) is not touched by the filter. */
     @Test
     void well_formed_queries_are_untouched() throws Exception {
-        for (String t : List.of("/v1/app-config", "/v1/search?q=%C3%A9", "/v1/search?q=a%20b", "/v1/content/faqs")) {
+        for (String t : List.of("/v1/app-config", "/v1/search?q=%C3%A9", "/v1/search?q=a%20b", "/v1/content/faqs", "/v1/content/legal/terms")) {
             assertThat(raw(t, null).status).as(t).isNotEqualTo(400).isNotEqualTo(500); // 200, or a deliberate 503 when nothing is published
         }
         assertThat(raw("/v1/customer/orders", customer).status).isEqualTo(200);
