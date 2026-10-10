@@ -15,10 +15,14 @@ import com.tazzzo.commerce.api.dto.ProductDetailDto;
 import com.tazzzo.commerce.api.dto.ServiceabilityResponseDto;
 import com.tazzzo.commerce.contract.LocationQuery;
 import com.tazzzo.commerce.contract.Pincode;
+import com.tazzzo.catalog.domain.ProductIds;
+import com.tazzzo.commerce.api.dto.ProductBatchResponse;
 import com.tazzzo.commerce.read.CommerceListService;
+import com.tazzzo.commerce.read.CommerceProductBatchService;
 import com.tazzzo.commerce.read.CommercePdpService;
 import com.tazzzo.commerce.read.CommerceSearchService;
 import com.tazzzo.commerce.read.CommerceServiceabilityService;
+import io.swagger.v3.oas.annotations.Operation;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpHeaders;
@@ -31,6 +35,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
 
@@ -60,6 +66,7 @@ public class CommerceReadController {
     private final ConsumerTaxonomyService taxonomy;
     private final CommerceListService list;
     private final CommercePdpService pdp;
+    private final CommerceProductBatchService batch;
     private final CommerceServiceabilityService serviceability;
     private final CommerceSearchService search;
     private final ClientIpResolver clientIps;
@@ -68,7 +75,8 @@ public class CommerceReadController {
     private final TrustedCallerResolver trustedCallers;
 
     public CommerceReadController(ConsumerTaxonomyService taxonomy, CommerceListService list,
-                                  CommercePdpService pdp, CommerceServiceabilityService serviceability,
+                                  CommercePdpService pdp, CommerceProductBatchService batch,
+                                  CommerceServiceabilityService serviceability,
                                   CommerceSearchService search,
                                   ClientIpResolver clientIps, ConsumerObservability observe,
                                   com.tazzzo.location.GeoPincodeResolver geo,
@@ -76,6 +84,7 @@ public class CommerceReadController {
         this.taxonomy = taxonomy;
         this.list = list;
         this.pdp = pdp;
+        this.batch = batch;
         this.serviceability = serviceability;
         this.search = search;
         this.clientIps = clientIps;
@@ -207,6 +216,56 @@ public class CommerceReadController {
             }
             return RuntimeToDtoMapper.detail(result.detail(), result.resolvedReleaseId(), requestId(request));
         });
+    }
+
+    /**
+     * The bounded batch read: the cards {@code /products/{id}} would answer for up to
+     * {@code tazzzo.commerce.product-batch.max-ids} ids, in a fixed number of reads. Shape is refused BEFORE the
+     * release is resolved or anything is charged, with the fixed flat 400 that never echoes the input: a missing,
+     * repeated or empty {@code ids}, a query string or ids value over the bound, more than the cap, an empty element
+     * (leading/trailing/double comma), or any element that is not a canonical {@link ProductIds} id (no case folding,
+     * no trimming, no newline). Same {@code private, no-store}, same location handling, same trusted-caller
+     * identity and the same admission as the single read - charged {@code 1 + distinct ids}, like a list charges
+     * {@code 1 + page_size}.
+     */
+    @GetMapping("/products:batch")
+    @Operation(operationId = "getProductsBatch")
+    public ProductBatchResponse productsBatch(@RequestParam(name = "ids", required = false) String ids,
+                                              @RequestParam(name = "release", required = false) String release,
+                                              @RequestParam(name = "pin", required = false) String pin,
+                                              @RequestParam(name = "lat", required = false) String lat,
+                                              @RequestParam(name = "lng", required = false) String lng,
+                                              HttpServletRequest request, HttpServletResponse response) {
+        response.setHeader(HttpHeaders.CACHE_CONTROL, CACHE_PRIVATE_NO_STORE);
+        return measured(ConsumerObservability.Route.COMMERCE_PRODUCTS_BATCH, () -> {
+            List<String> requested = batchIds(request);
+            LocationQuery location = CommerceLocationParser.parse(pin, lat, lng);
+            return RuntimeToDtoMapper.batch(
+                    batch.read(requested, release, location, identity(request)), requestId(request));
+        });
+    }
+
+    /** Parses and bounds the one {@code ids} parameter; every refusal is the same fixed InvalidRequest. */
+    private List<String> batchIds(HttpServletRequest request) {
+        String query = request.getQueryString();
+        String[] values = request.getParameterValues("ids");
+        if ((query != null && query.length() > batch.maxQueryLength())
+                || values == null || values.length != 1
+                || values[0].isEmpty() || values[0].length() > batch.maxIdsParamLength()) {
+            throw new ConsumerFailures.InvalidRequest("malformed ids");
+        }
+        String[] parts = values[0].split(",", -1);   // -1 keeps a trailing empty element so it is refused below
+        if (parts.length > batch.maxIds()) {
+            throw new ConsumerFailures.InvalidRequest("too many ids");
+        }
+        List<String> out = new ArrayList<>(parts.length);
+        for (String part : parts) {
+            if (!ProductIds.isValid(part)) {
+                throw new ConsumerFailures.InvalidRequest("malformed id");
+            }
+            out.add(part);
+        }
+        return out;
     }
 
     @GetMapping("/serviceability")

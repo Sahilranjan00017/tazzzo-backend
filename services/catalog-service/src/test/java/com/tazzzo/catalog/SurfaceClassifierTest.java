@@ -27,7 +27,7 @@ class SurfaceClassifierTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"/v1/categories", "/v1/categories/TZS-000001/products",
-            "/v1/categories/TZS-000001/children", "/v1/products/TZP-1", "/v1/serviceability"})
+            "/v1/categories/TZS-000001/children", "/v1/products/TZP-1", "/v1/products:batch", "/v1/serviceability"})
     void exact_commerce_v1_namespace_is_public(String uri) {
         assertThat(SurfaceClassifier.classify(uri))
                 .as(uri + " is the PR-11A explicit public commerce allowlist").isEqualTo(PUBLIC_CONSUMER);
@@ -41,7 +41,8 @@ class SurfaceClassifierTest {
     @ParameterizedTest
     @ValueSource(strings = {"/v1", "/v1/", "/v1/foo", "/v1/cart", "/v1/orders", "/v1/checkout",
             "/v1/profile", "/v1/debug", "/v1/admin-test", "/v1/search-private-test",
-            "/v1/whatever-future-feature"})
+            "/v1/whatever-future-feature", "/v1/products:batch/", "/v1/products:batch/x", "/v1/products:batchx",
+            "/v1/products:", "/v1/products:BATCH", "/v1/products:batch%2Fx", "/v1/products:batch;x"})
     void unclassified_v1_routes_are_never_public_by_default(String uri) {
         assertThat(SurfaceClassifier.classify(uri))
                 .as(uri + " must be UNKNOWN — a future /v1 route is never public until ratified here")

@@ -165,6 +165,20 @@ public class CommerceReadConfig {
         return new CommercePdpService(releases, gate, composer, scopes);
     }
 
+    /**
+     * The bounded batch product read. {@code tazzzo.commerce.product-batch.max-ids} (default and hard maximum
+     * {@value CommerceProductBatchService#HARD_MAX_IDS}, the enricher's page bound) is validated at startup: outside
+     * 1..hard-max the application refuses to start rather than run with an unbounded or useless cap.
+     */
+    @Bean
+    public CommerceProductBatchService commerceProductBatchService(
+            ConsumerReleaseResolver releases, ConsumerAdmissionGate gate, ConsumerTaxonomyScopeResolver scopes,
+            ProductCardBaseReader baseReader, PricingService pricing, ProductCardRuntimeEnricher enricher,
+            @Value("${tazzzo.commerce.product-batch.max-ids:" + CommerceProductBatchService.DEFAULT_MAX_IDS + "}")
+            int maxIds) {
+        return new CommerceProductBatchService(releases, gate, scopes, baseReader, pricing, enricher, db, maxIds);
+    }
+
     @Bean
     public CommerceServiceabilityService commerceServiceabilityService(
             ConsumerAdmissionGate gate, ServiceabilityService serviceability) {

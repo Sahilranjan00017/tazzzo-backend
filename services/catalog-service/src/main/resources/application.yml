@@ -120,6 +120,12 @@ tazzzo:
       audience: ${TAZZZO_ADMIN_OIDC_AUDIENCE:}                  # admin OAuth client id
       hosted-domain: ${TAZZZO_ADMIN_OIDC_HOSTED_DOMAIN:}        # company Workspace domain (exact `hd`)
       credential-label: ${TAZZZO_ADMIN_OIDC_CREDENTIAL_LABEL:}  # audit credential_id = oidc:google:<label>
+  commerce:
+    product-batch:
+      # GET /v1/products:batch: most ids one request may carry. 1..50; 50 is also the hard maximum (the card enricher's
+      # page bound), so a larger value is a STARTUP FAILURE rather than an unbounded read. A request is charged
+      # 1 + distinct ids, so every rate-limit bucket capacity must stay >= max-ids + 1.
+      max-ids: ${TAZZZO_COMMERCE_PRODUCT_BATCH_MAX_IDS:50}
   consumer:
     # LIST-CURSOR-1. Base64 of >= 32 random bytes; signs every product-list cursor. NO DEFAULT BY
     # DESIGN: the production value is generated at deployment setup (CEO decision), never checked

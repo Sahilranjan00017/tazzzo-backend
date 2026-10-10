@@ -83,6 +83,15 @@ final class RuntimeToDtoMapper {
                 requireStr(requestId, "requestId"));
     }
 
+    static com.tazzzo.commerce.api.dto.ProductBatchResponse batch(
+            com.tazzzo.commerce.read.CommerceProductBatchService.Result r, String requestId) {
+        return new com.tazzzo.commerce.api.dto.ProductBatchResponse(
+                requireStr(r.resolvedReleaseId(), "resolvedReleaseId"),
+                r.cards().stream().map(RuntimeToDtoMapper::card).toList(),
+                r.missing(),
+                requireStr(requestId, "requestId"));
+    }
+
     static NodeListResponse nodes(ConsumerDtos.NodeListResponse src, String requestId) {
         List<NodeDto> items = src.items().stream()
                 .map(n -> new NodeDto(n.id(), n.name())).toList();
