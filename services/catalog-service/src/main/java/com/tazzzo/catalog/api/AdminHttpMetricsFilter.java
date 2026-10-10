@@ -16,7 +16,7 @@ import java.io.IOException;
  * only observes: it reads the status after the chain returned and never touches the request, the response or the exception.
  *
  * <p>Order: the outermost slot, the same as {@link RequestIdFilter} and {@link SecurityHeadersFilter}. There is no slot between
- * {@code HIGHEST_PRECEDENCE} and the body-limit filter's +1, and the tie is harmless: this filter reads neither the MDC nor the
+ * {@code HIGHEST_PRECEDENCE} and the body-limit filter's +1, and the tie is harmless: this filter reads neither the logging context nor the
  * request id (it only times the chain and reads the status and the matched pattern afterwards), so it behaves the same whichever
  * of the three wraps the others; the platform test pins that it is never later than any other filter, so it also sees what the later filters answer themselves: the body-size refusal (413), a CORS refusal, the
  * service-token refusals (401/403) and the malformed-query refusal. Pinned by {@code PlatformFilterOrderTest}.
