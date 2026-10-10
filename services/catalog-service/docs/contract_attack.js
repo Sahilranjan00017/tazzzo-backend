@@ -20,7 +20,7 @@ function expect(id, desc, fn, wantError, reasonToken) {
 const productsValidator = { $jsonSchema: { bsonType:"object", additionalProperties:false,
   required:["_id","product_type","identity","brand_code","title","lifecycle","classification","attributes","attributes_meta","version","created_at"],
   properties:{
-    _id:{bsonType:"string", pattern:"^TZP-"},
+    _id:{bsonType:"string", pattern:"^TZP-[A-Za-z0-9-]{1,40}\\z"},
     product_type:{enum:["single","variant_pack","bundle"]},
     lifecycle:{enum:["draft","active","merging","discontinued","archived","merged"]},
     identity:{bsonType:"object", additionalProperties:false, required:["type"],
@@ -40,16 +40,16 @@ const productsValidator = { $jsonSchema: { bsonType:"object", additionalProperti
     attributes_meta:{bsonType:"object", required:["validated_release"], properties:{validated_release:{bsonType:"string"}}},
     attribute_provenance:{bsonType:"object"},
     bundle_contents:{bsonType:["array","null"], maxItems:100, items:{bsonType:"object", additionalProperties:false,
-      required:["component_product_id","qty"], properties:{component_product_id:{bsonType:"string",pattern:"^TZP-"},
+      required:["component_product_id","qty"], properties:{component_product_id:{bsonType:"string",pattern:"^TZP-[A-Za-z0-9-]{1,40}\\z"},
       qty:{bsonType:"int",minimum:1}, vertical_id_snapshot:{bsonType:"string"}, title_snapshot:{bsonType:"string"}, gtin_snapshot:{bsonType:["string","null"]}}}},
     pack_of:{bsonType:["object","null"], additionalProperties:false,
-      required:["component_product_id","qty"], properties:{component_product_id:{bsonType:"string",pattern:"^TZP-"},
+      required:["component_product_id","qty"], properties:{component_product_id:{bsonType:"string",pattern:"^TZP-[A-Za-z0-9-]{1,40}\\z"},
       qty:{bsonType:"int",minimum:2}}}, // F-5: multipack link; qty>=2 (a pack of 1 is a single)
     browse_verticals:{bsonType:["array","null"], maxItems:120, items:{bsonType:"string"}},
     variant_group_id:{bsonType:["string","null"]},
     formulation_version:{bsonType:["int","null"]},
     ext:{bsonType:"object", additionalProperties:false, properties:{}}, // registry empty at genesis
-    merged_into:{bsonType:["string","null"]},
+    merged_into:{bsonType:["string","null"],pattern:"^TZP-[A-Za-z0-9-]{1,40}\\z"},
     version:{bsonType:"int", minimum:1},
     created_at:{bsonType:"date"}, updated_at:{bsonType:["date","null"]}},
   oneOf:[
