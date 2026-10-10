@@ -15,21 +15,33 @@ import java.time.Duration;
 /**
  * The outbox is always wired (enqueue is part of the order transaction). The dispatcher runs only with BOTH
  * {@code tazzzo.scheduler.enabled} and {@code tazzzo.scheduler.notification-dispatch-enabled}, and refuses to start
- * against the disabled sender: there is no provider adapter yet (external decision), so enabling dispatch today is a
- * startup failure, never a silent drop.
+ * against the disabled sender: there is no vendor adapter yet (external decision), so enabling dispatch with
+ * {@code provider=disabled} is a startup failure, never a silent drop. {@code provider=sandbox} (dev/test environments
+ * only) lets the full lifecycle run with no vendor.
  */
 @Configuration
 class NotificationConfig {
 
     @Bean
-    NotificationOutbox notificationOutbox(MongoDatabase db) {
-        return new NotificationOutbox(db, Clock.systemUTC());
+    NotificationOutbox notificationOutbox(MongoDatabase db, MeterRegistry registry) {
+        return new NotificationOutbox(db, Clock.systemUTC(), registry);
     }
 
     @Bean
+    NotificationMetrics notificationMetrics(MongoDatabase db, MeterRegistry registry,
+                                            @Value("${tazzzo.notifications.metrics-refresh-seconds:15}") long refreshSeconds) {
+        if (refreshSeconds < 1 || refreshSeconds > 3600) {
+            throw new IllegalStateException("tazzzo.notifications.metrics-refresh-seconds must be 1..3600");
+        }
+        return new NotificationMetrics(db, Clock.systemUTC(), registry, Duration.ofSeconds(refreshSeconds));
+    }
+
+    /** {@code disabled} (default, delivers nothing) or the dev-only {@code sandbox}; see {@link NotificationProviderSelector}. */
+    @Bean
     @ConditionalOnMissingBean(NotificationSender.class)
-    NotificationSender disabledNotificationSender() {
-        return new DisabledNotificationSender();
+    NotificationSender notificationSender(@Value("${tazzzo.notifications.provider:disabled}") String provider,
+                                          @Value("${tazzzo.migration.environment:}") String environment) {
+        return NotificationProviderSelector.select(provider, environment);
     }
 
     @Configuration

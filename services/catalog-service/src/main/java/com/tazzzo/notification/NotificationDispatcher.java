@@ -2,6 +2,7 @@ package com.tazzzo.notification;
 
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -99,6 +100,11 @@ public class NotificationDispatcher {
             log.info("notification_dispatch type={} outcome={} attempt={}", n.type(), outcome, n.attempt());
         }
         try {
+            if ("sent".equals(outcome)) {
+                // enqueue -> provider accepted; created_at is millisecond-truncated, so clamp a negative skew to zero
+                Timer.builder("notification_dispatch_latency").tag("type", n.type().name()).register(registry)
+                        .record(Duration.between(n.createdAt(), clock.instant()).abs());
+            }
             Counter.builder("notification_dispatch").tag("type", n.type().name()).tag("outcome", outcome)
                     .register(registry).increment();
         } catch (RuntimeException e) {
