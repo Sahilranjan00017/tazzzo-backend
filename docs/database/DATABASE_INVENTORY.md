@@ -5,6 +5,15 @@
 > application defaults to a read-only `VERIFY` mode, `application.yml` no longer enables startup bootstrap or seeding,
 > and evolution is done by the versioned, locked migration job — see `DATABASE_MIGRATION_RUNBOOK.md`.
 
+> **Phase 10 recalculation (2026-10-10, `main` `d3da14d` + `V0019`).** This inventory is the DB-0 snapshot; where a number below was true at `f5b2cdd`
+> but is not true today it is corrected in place and marked. The numbers recalculated from the code and from a real fully migrated MongoDB 7
+> database are in `FINAL_DATABASE_AUDIT.md`: **57** application collections (49 created by `V0001`, 8 by later migrations: `delivery_slot_windows`,
+> `delivery_slot_usage` `V0008`; `support_cases` `V0011`; `content_blocks` `V0013`; `notification_outbox` `V0014`; `customer_address_idempotency`
+> `V0015`; `import_jobs`, `import_rows` `V0016`) plus the runner's `schema_migrations` and `schema_migration_lock`; **21** registered migrations (19
+> enabled by default, 2 disabled drop candidates); **83** non-`_id` indexes (29 unique, 7 TTL, 19 partial, 2 sparse); **1** validator (`products`).
+> The eight collections created after DB-0 are not described in §3 below; their owners, shapes and indexes are in `DATABASE_COLLECTION_CONTRACTS.md`,
+> `DATABASE_INDEX_MANIFEST.md` (§10-§10f) and `DATABASE_RETENTION_AND_PII.md`.
+
 ## 1. Audit metadata
 
 | Item | Value |
@@ -46,7 +55,7 @@ Evidence note: findings come from three parallel read-only audits; the highest-i
 
 ## 3. Collection inventory
 
-`SchemaBootstrap.COLLECTIONS` declares **49** collections (`SB:26-114`). Class: A authoritative / S snapshot / E event / O operational / D derived. Only `products` has a server-side validator (§7). Unless stated: no TTL, no validator, unknown top-level keys ignored on read.
+`SchemaBootstrap.COLLECTIONS` declared **49** collections at DB-0 (`SB:26-114`) and declares **57** today (Phase 10). Class: A authoritative / S snapshot / E event / O operational / D derived. Only `products` has a server-side validator (§7). Unless stated: no TTL, no validator, unknown top-level keys ignored on read.
 
 ### 3.1 Catalogue / products
 
@@ -165,7 +174,7 @@ No POJO/Codec-registry mapping exists; `WritePath.java:131` uses `MongoClientSet
 | Collection | Validator | Level/action | Applied when |
 |---|---|---|---|
 | `products` | `$jsonSchema` (`SB:390-455`) | STRICT / ERROR | **only at first creation** (`SB:152-158`) |
-| other 48 | none | — | — |
+| other 56 (48 at DB-0) | none | — | — |
 
 `products` schema (VERIFIED `SB:390-455`): `additionalProperties:false`; required fields listed in §3.1; `_id` pattern `^TZP-[A-Za-z0-9-]{1,40}\z` (V0017); `product_type` enum `single|variant_pack|bundle`; `lifecycle` enum `draft|active|merging|discontinued|archived|merged`; `identity.type` enum `gtin|internal`; `gtins` maxItems 12; `classification.status` enum `confirmed|provisional|review|scope_blocked`, `confidence` double|null 0..1, `evidence_refs` maxItems 20 pattern `^EV-`; `bundle_contents` maxItems 100 (qty int ≥1); `pack_of.qty` ≥2; `browse_verticals` maxItems 120; `version` int ≥1; `ext` `additionalProperties:false` (empty by default); `oneOf` by `product_type`. `supersedes` is mentioned in `ProductLifecycleService` comments but is **not** in the schema and would be rejected.
 
@@ -242,7 +251,7 @@ No index (beyond `_id`): `customer_profiles`, `customer_address_state`, `custome
 
 Deliberately **no TTL** on `customer_carts`, `checkout_quotes`, `inventory_reservations`, `orders`, `memberships` (comments `SB:88-114`; `MembershipRepositoryIT:76` asserts no `expireAfterSeconds`). There is **no** unique `idempotencyKey` on orders; the order idempotency key is `(customerId, quoteId)` (`OrderController.java:26-28`).
 
-TTL indexes in the whole repo: exactly four (`SB:255-256,260-262,265-266,285-287`), all auth/OTP. Obsolete-index handling: exactly one — the legacy `products` prefix index (`SB:350-388`), whitelist match on `{v,key,name}` only so any extra option leaves it alone.
+TTL indexes in the whole repo: exactly four at DB-0 (`SB:255-256,260-262,265-266,285-287`), all auth/OTP; **seven today** on six temporary collections (the three added since are migration-only: `V0008` delivery-slot counters, `V0014` notification outbox, `V0015` address idempotency). Obsolete-index handling: exactly one — the legacy `products` prefix index (`SB:350-388`), whitelist match on `{v,key,name}` only so any extra option leaves it alone.
 
 ---
 

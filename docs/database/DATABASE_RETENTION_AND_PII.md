@@ -1,6 +1,6 @@
 # DATABASE_RETENTION_AND_PII — tazzzo-backend (DB-4)
 
-The retention matrix and the personal-data map for the 55 application collections of `SchemaBootstrap.COLLECTIONS`
+The retention matrix and the personal-data map for the 57 application collections of `SchemaBootstrap.COLLECTIONS`
 (plus the two migration bookkeeping collections, §4). **It records what the code and the database do today and marks every
 unresolved policy `TBD — PRODUCTION POLICY`. No retention period, legal basis or deletion promise is invented here.** Owner, class and the
 "none" retention values are taken from `DATABASE_COLLECTION_CONTRACTS.md` §5 (single source); TTL indexes from
@@ -20,7 +20,7 @@ unresolved policy `TBD — PRODUCTION POLICY`. No retention period, legal basis 
 | staff identifier | the `actor` sub-document on audit events: `google:<subject>`, the credential label and the server-generated request id; no e-mail, name, IP or user agent is stored (`Actor` forbids them) |
 | `TBD — PRODUCTION POLICY` | a production policy that the owner, legal and infrastructure must decide; nothing here pre-empts it |
 
-## 2. Retention matrix (49 collections)
+## 2. Retention matrix (57 collections)
 
 | Collection | Owner | Class | Durable / temporary | TTL | Business retention | Personal / sensitive data | Privacy deletion handling | Legal hold | Backup behaviour |
 |---|---|---|---|---|---|---|---|---|---|

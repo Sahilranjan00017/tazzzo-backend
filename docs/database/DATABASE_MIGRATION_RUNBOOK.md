@@ -124,8 +124,11 @@ applied migration is detected, never silently ignored.
 | `V0101__drop_unused_session_by_customer_index` | SCHEMA | **off** | drops `customer_sessions.session_by_customer` | live index is not the exact reviewed definition |
 | `V0102__drop_unused_canonical_keys_product_id_index` | SCHEMA | **off** | drops `canonical_keys (product_id)` | same |
 
-`IndexContractIT` pins the resulting index set: 51 indexes (48 baseline + 3 migration-managed), the four TTL
-indexes, and that the executable `IndexCatalog` equals an independent oracle and what `bootstrap` creates.
+`IndexContractIT` pins the resulting index set: 83 indexes (48 baseline + 35 migration-managed, V0002-V0019), the seven TTL
+indexes (six temporary collections), and that the executable `IndexCatalog` equals an independent oracle and what `bootstrap` creates.
+Recalculated from a real fully migrated database in the Phase 10 audit (`FINAL_DATABASE_AUDIT.md`): 21 registered migrations (19 enabled by
+default, which a full run records in `schema_migrations`, plus the two disabled drop candidates), 57 application collections (49 from `V0001`, 8 created
+by `V0008`, `V0011`, `V0013`, `V0014`, `V0015`, `V0016`) plus the runner's own `schema_migrations` and `schema_migration_lock`.
 
 ## 6. Single runner: the lock
 

@@ -61,7 +61,7 @@ it and a test fails if they drift (`RoleFilesTest`; regenerate with `-Dtazzzo.re
 
 | Identity | Role file | Used by | Holds | Must NOT hold |
 |---|---|---|---|---|
-| **Runtime** | `tazzzo-runtime.role.json` | the normally started backend (mode `VERIFY`) | `find`/`insert`/`update`/`remove` on each of the 49 application collections; `find` on `schema_migrations`; database-level `listCollections` | any schema action (`createIndex`, `dropIndex`, `collMod`, `createCollection`, `dropCollection`, `dropDatabase`, rename), any write to `schema_migrations`, any access to `schema_migration_lock`, anything outside `tazzzo_staging`, any inherited built-in role |
+| **Runtime** | `tazzzo-runtime.role.json` | the normally started backend (mode `VERIFY`) | `find`/`insert`/`update`/`remove` on each of the 57 application collections; `find` on `schema_migrations`; database-level `listCollections` | any schema action (`createIndex`, `dropIndex`, `collMod`, `createCollection`, `dropCollection`, `dropDatabase`, rename), any write to `schema_migrations`, any access to `schema_migration_lock`, anything outside `tazzzo_staging`, any inherited built-in role |
 | **Migrator** | `tazzzo-migrator.role.json` | the migration job (`APPLY`, and `DRY_RUN`) | database-wide `find`, `listCollections`, `listIndexes`, `createCollection`, `createIndex`, `dropIndex`, `collMod`; `insert`/`update` on the two bookkeeping collections; `insert`/`update` on the four seed collections (`taxonomy_nodes`, `aliases`, `attribute_definitions`, `attribute_schemas`) | writes to any business collection, `remove`, `dropCollection`, `dropDatabase`, user/role administration |
 | **Migration reader** (optional) | `tazzzo-migration-reader.role.json` | a read-only `DRY_RUN` | database-wide `find`, `listCollections`, `listIndexes` | everything else |
 
@@ -91,7 +91,7 @@ Sources: <https://www.mongodb.com/docs/atlas/reference/free-shared-limitations/>
 |---|---|
 | Custom database roles are supported ("changes ... might take up to 30 seconds to deploy") | the least-privilege roles are expressible; allow 30 s after creating them |
 | `createUser`, `createRole`, `usersInfo` are unsupported **as database commands** | create users and roles through the Atlas UI/API, not mongosh; the role files are the specification |
-| Max 500 collections, 100 databases, 500 connections, 0.5 GB, **100 operations/second** | 51 collections is fine; a 100 ops/s throttle will slow the migration job and any load test |
+| Max 500 collections, 100 databases, 500 connections, 0.5 GB, **100 operations/second** | 59 collections (57 application + `schema_migrations` + `schema_migration_lock`) is fine; a 100 ops/s throttle will slow the migration job and any load test |
 | `allowDiskUse` is **ignored** (treated as false) | a blocking in-memory sort beyond the server limit fails on M0 — relevant to the audit `targetId` path (§9.2) |
 | Aggregation `maxTimeMS` is limited to 300 s; no `$where`/map-reduce; no Performance Advisor | n/a to this code; explain must be done by hand |
 | **No backups**, no private endpoints, no rolling index builds | no restore drill is possible on M0 (§10); allow-list access only (matches the infra plan) |
