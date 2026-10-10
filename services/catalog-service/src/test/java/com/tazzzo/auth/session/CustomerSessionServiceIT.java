@@ -51,7 +51,10 @@ class CustomerSessionServiceIT extends AbstractMongoIT {
     // Deliberately DIFFERENT from ACCESS_KEY — Finding 3's key-separation invariant rejects
     // startup if the access-token and refresh-token domains share the same secret material.
     static final String REFRESH_KEY = Base64.getEncoder().encodeToString(fill((byte) 1));
-    static final AtomicReference<Instant> CLOCK_NOW = new AtomicReference<>(Instant.parse("2026-06-01T00:00:00Z"));
+    // Deliberately in the FUTURE: documents written with this clock land in TTL-indexed collections
+    // (expireAfter 0 on expiresAt). A base in the real past makes the Mongo TTL monitor delete them
+    // mid-test (flaky EXPIRED->INVALID). Must stay later than any real wall-clock time CI can reach.
+    static final AtomicReference<Instant> CLOCK_NOW = new AtomicReference<>(Instant.parse("2099-06-01T00:00:00Z"));
 
     private static byte[] fill(byte value) {
         byte[] bytes = new byte[32];
@@ -112,7 +115,7 @@ class CustomerSessionServiceIT extends AbstractMongoIT {
 
     @BeforeEach
     void resetClock() {
-        CLOCK_NOW.set(Instant.parse("2026-06-01T00:00:00Z"));
+        CLOCK_NOW.set(Instant.parse("2099-06-01T00:00:00Z"));
     }
 
     private static String uniquePhone(String suffix) {
