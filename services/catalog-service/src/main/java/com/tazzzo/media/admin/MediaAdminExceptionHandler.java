@@ -45,7 +45,8 @@ class MediaAdminExceptionHandler {
         return envelope(HttpStatus.UNPROCESSABLE_ENTITY, "INVALID_MEDIA", e.getMessage(), req);
     }
 
-    @ExceptionHandler(MediaAdminController.MediaStorageUnavailableException.class)
+    @ExceptionHandler({MediaAdminController.MediaStorageUnavailableException.class,
+            com.tazzzo.media.MediaIngestVerifier.MediaStorageNotConfiguredException.class})
     ResponseEntity<ErrorBody> noStorage(HttpServletRequest req) {
         return envelope(HttpStatus.SERVICE_UNAVAILABLE, "MEDIA_STORAGE_NOT_CONFIGURED", "media storage is not configured", req);
     }

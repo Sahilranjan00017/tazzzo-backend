@@ -13,8 +13,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /** Which verify outcome each refusal records, without storage or a database; and that the tag is only ever an outcome word. */
 class MediaMetricsTest {
 
-    static final byte[] JPEG = {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, (byte) 0xE0, 0, 0x10, 'J', 'F', 'I', 'F'};
-    static final byte[] PNG = {(byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0x0D};
+    static final byte[] JPEG = TestImages.jpeg(640, 480);
+    static final byte[] PNG = TestImages.png(640, 480);
 
     final SimpleMeterRegistry registry = new SimpleMeterRegistry();
     final MediaUploadPolicy policy = new MediaUploadPolicy(100);
@@ -57,6 +57,27 @@ class MediaMetricsTest {
         assertThat(verifyCount("type_mismatch")).isEqualTo(2);
         assertThat(verifyCount("ok")).isEqualTo(1);
         assertThat(verifyCount("storage_error")).isZero();
+    }
+
+    @Test
+    void the_hardened_checks_each_record_their_own_closed_outcome() {
+        MediaStorage jpeg = storage(() -> Optional.of(new StoredObject(10, "image/jpeg", JPEG)));
+        assertThatThrownBy(() -> verifier(jpeg).verify("k/x.png", null)).as("key says png, bytes are jpeg").isInstanceOf(InvalidMediaException.class);
+        assertThatThrownBy(() -> verifier(storage(() -> Optional.of(new StoredObject(10, "image/jpeg", TestImages.jpeg(30000, 10)))))
+                .verify("k/x.jpg", null)).isInstanceOf(InvalidMediaException.class);
+        assertThatThrownBy(() -> new MediaIngestVerifier(jpeg, policy, 1000, 20000, true, new MediaMetrics(registry))
+                .verify("k/x.jpg", null)).isInstanceOf(InvalidMediaException.class);
+        assertThatThrownBy(() -> verifier(jpeg).verify("k/x.jpg", "image/jpeg", 100, 100)).isInstanceOf(InvalidMediaException.class);
+        assertThatThrownBy(() -> verifier(storage(() -> Optional.of(new StoredObject(10, "image/jpeg", new byte[]{(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, 0}))))
+                .verify("k/x.jpg", null)).as("magic bytes ok but no readable header").isInstanceOf(InvalidMediaException.class);
+        verifier(jpeg).verify("k/x.jpg", "image/jpeg", 640, 480);
+
+        assertThat(verifyCount("extension_mismatch")).isEqualTo(1);
+        assertThat(verifyCount("dimension_reject")).isEqualTo(1);
+        assertThat(verifyCount("pixel_reject")).isEqualTo(1);
+        assertThat(verifyCount("dimension_mismatch")).isEqualTo(1);
+        assertThat(verifyCount("sniff_reject")).isEqualTo(1);
+        assertThat(verifyCount("ok")).isEqualTo(1);
     }
 
     @Test

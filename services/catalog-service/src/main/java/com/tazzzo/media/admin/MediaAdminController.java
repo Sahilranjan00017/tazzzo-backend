@@ -157,7 +157,22 @@ public class MediaAdminController {
                         metrics.verify(MediaMetrics.Verify.KEY_NOT_ISSUED);
                         throw new InvalidMediaException("asset key was not uploaded for this owner");
                     }
-                    verifier.verify(a.assetKey(), a.contentType());
+                    verifier.verify(a.assetKey(), a.contentType(), a.width(), a.height());
+                }
+            }
+        } else if (!assets.isEmpty()) {
+            // no storage: a NEW reference is unverifiable, accepted only where local/test/dev allows it (keys already in the set stay)
+            MediaSet current = media.findMedia(type, ownerId).mediaSet();
+            Set<String> existing = new HashSet<>();
+            if (current != null) {
+                current.assets().forEach(a -> existing.add(a.assetKey()));
+            }
+            if (assets.stream().anyMatch(a -> !existing.contains(a.assetKey()))) {
+                try {
+                    verifier.requireVerifiableOrAllowed();
+                } catch (MediaIngestVerifier.MediaStorageNotConfiguredException e) {
+                    metrics.verify(MediaMetrics.Verify.NOT_CONFIGURED);
+                    throw e;
                 }
             }
         }

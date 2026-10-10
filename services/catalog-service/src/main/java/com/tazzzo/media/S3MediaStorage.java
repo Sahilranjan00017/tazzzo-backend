@@ -39,8 +39,8 @@ import java.util.Optional;
  */
 public final class S3MediaStorage implements MediaStorage {
 
-    /** Enough leading bytes for {@link MediaSniffer} (JPEG 3, PNG 8, WebP 12). */
-    static final int HEAD_BYTES = 64;
+    /** The bounded prefix read: magic bytes for {@link MediaSniffer} and the header scan of {@link ImageHeader} (never the body). */
+    static final int HEAD_BYTES = ImageHeader.MAX_SCAN_BYTES;
     static final Duration MIN_TTL = Duration.ofSeconds(30);
     static final Duration MAX_TTL = Duration.ofHours(1);
 
