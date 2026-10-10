@@ -30,6 +30,9 @@ import java.time.Duration;
 @EnableConfigurationProperties(MediaStorageProperties.class)
 class MediaStorageConfig {
 
+    /** The same environment rule as the OTP LOGGING provider and the notification sandbox sender. */
+    static final java.util.Set<String> DEV_ENVIRONMENTS = java.util.Set.of("", "local", "test", "dev");
+
     private static final Logger log = LoggerFactory.getLogger(MediaStorageConfig.class);
 
     /**
@@ -85,7 +88,15 @@ class MediaStorageConfig {
     }
 
     @Bean
-    MediaIngestVerifier mediaIngestVerifier(MediaStorage storage, MediaUploadPolicy policy) {
-        return new MediaIngestVerifier(storage, policy);
+    MediaIngestVerifier mediaIngestVerifier(MediaStorage storage, MediaUploadPolicy policy,
+                                            @Value("${tazzzo.media.max-pixels:" + MediaIngestVerifier.DEFAULT_MAX_PIXELS + "}") long maxPixels,
+                                            @Value("${tazzzo.media.max-dimension:" + MediaAsset.MAX_DIMENSION + "}") int maxDimension,
+                                            @Value("${tazzzo.migration.environment:}") String environment) {
+        boolean devLike = DEV_ENVIRONMENTS.contains(environment == null ? "" : environment.trim());
+        if (!storage.enabled()) {
+            log.warn("media_verification disabled: no storage configured; new media references are {} in environment '{}'",
+                    devLike ? "accepted UNVERIFIED" : "REFUSED", environment == null ? "" : environment.trim());
+        }
+        return new MediaIngestVerifier(storage, policy, maxPixels, maxDimension, devLike);
     }
 }

@@ -52,7 +52,7 @@ class ContentBannerStorageIT extends AbstractConsumerIT {
     static final String ACCESS = "banner-it-access";
     static final String SECRET = "banner-it-secret-fixture";
     static final String BUCKET = "tazzzo-media-banner-it";
-    static final byte[] PNG = {(byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0x0D, 'I', 'H', 'D', 'R'};
+    static final byte[] PNG = com.tazzzo.media.TestImages.png(640, 480);
 
     @SuppressWarnings("resource")
     static final GenericContainer<?> STORE = new GenericContainer<>(DockerImageName.parse(

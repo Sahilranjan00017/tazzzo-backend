@@ -17,9 +17,47 @@ magic bytes match the declared type) before the key can enter the set → the pu
 | `tazzzo.media.storage.s3.path-style` | `TAZZZO_MEDIA_S3_PATH_STYLE` | `false` | `true` for a local S3-compatible store |
 | `tazzzo.media.storage.s3.presign-ttl-seconds` | `TAZZZO_MEDIA_S3_PRESIGN_TTL_SECONDS` | `300` | 30..3600 |
 | `tazzzo.media.storage.s3.access-key` / `secret-key` | `TAZZZO_MEDIA_S3_ACCESS_KEY` / `TAZZZO_MEDIA_S3_SECRET_KEY` | unset | **local store only.** Unset in AWS: the ECS task role is used (default credential chain). Never commit values. |
-| `tazzzo.media.max-upload-bytes` | — | 5 MiB | upload ceiling (1 B .. 50 MiB) |
+| `tazzzo.media.max-upload-bytes` | `TAZZZO_MEDIA_MAX_UPLOAD_BYTES` | 5 MiB | upload ceiling (1 B .. 50 MiB); enforced at presign (signed `Content-Length`) and again at verify time against the store's real size |
+| `tazzzo.media.max-pixels` | `TAZZZO_MEDIA_MAX_PIXELS` | `50000000` (50 MP) | decompression-bomb bound: width x height read from the image header must not exceed it |
+| `tazzzo.media.max-dimension` | `TAZZZO_MEDIA_MAX_DIMENSION` | `20000` | longest allowed single side in pixels (also the ceiling for a declared width/height) |
+| `tazzzo.migration.environment` | `TAZZZO_MIGRATION_ENVIRONMENT` | unset | selects the storage-less behaviour below (unset/`local`/`test`/`dev` = lenient; anything else = fail closed) |
 
 Startup logs `media_storage provider=s3 bucket=… region=… endpoint=… credentials=static|default-chain`; never a credential value.
+
+## Verification pipeline (when a key is first referenced by a media set or CMS banner)
+`PUT /api/v1/admin/media/{ownerType}/{ownerId}` (cms-writer only; reader 403, unknown product 404) runs, per NEWLY
+referenced key (keys already in the set are not re-checked):
+1. key prefix = `p/<ownerType>/<ownerId>/` (issued for this owner);
+2. `HeadObject` + a ranged `GET bytes=0-65535` pinned by `If-Match` (at most 64 KiB is ever read; `inspect`);
+3. real stored size within `1..max-upload-bytes` (the store's size, never the declared one);
+4. magic bytes sniff to jpeg/png/webp (GIF, BMP, TIFF, SVG, HTML, polyglot prefixes are not images here: 422);
+5. declared `contentType` (if any) = sniffed type; stored `Content-Type` (if any) = sniffed type; key extension
+   (`.jpg`/`.jpeg`, `.png`, `.webp`, case-insensitive) = sniffed type;
+6. header-only dimensions (PNG IHDR; JPEG SOFn scan confined to the first 64 KiB; WebP VP8/VP8L/VP8X) must parse
+   (truncated or garbage headers that pass the magic bytes are 422), each side <= `max-dimension`, area <=
+   `max-pixels`, and equal the declared `width`/`height` when those are supplied.
+All refusals are 422 `INVALID_MEDIA` (no request shape changed). Nothing decodes pixels, so the check is O(64 KiB).
+Content after a valid header (a PNG `tEXt` with markup, a JPEG with trailing HTML) is inert to an image-only store; it
+is not scanned. Assumption to confirm at the CDN: images are served with their stored `image/*` type and
+`X-Content-Type-Options: nosniff` (the application sets nosniff on its own responses; the CDN response-headers policy
+must do the same for the bucket origin). Nothing in the pipeline compares an ETag to a checksum (a multipart ETag is not
+an MD5); the ETag is used only as an opaque `If-Match` pin.
+
+### No storage configured (`provider=disabled`)
+References cannot be verified. In `tazzzo.migration.environment` unset/`local`/`test`/`dev` a NEW reference is accepted
+unverified (startup logs `media_verification disabled ... accepted UNVERIFIED`). In any other environment it is refused
+fail-closed: 503 `MEDIA_STORAGE_NOT_CONFIGURED`, nothing written. Clearing a set and re-saving keys already in it still
+work. Uploads are 503 in every environment. (CMS banner image keys keep their existing no-storage behaviour.)
+
+## Orphan objects (operational procedure, no job in the service)
+An upload that is never referenced (abandoned, or refused at verification) stays in the bucket; its size is bounded by
+the signed `Content-Length` and its count by cms-writer trust. The service holds no list/delete permission and exposes no
+endpoint for this. Procedure, run by an operator with bucket access: (1) take the set of referenced keys from
+`media_refs` (all `assets.asset_key`) and `content_blocks` image keys; (2) list objects under `p/` and `c/` older than a
+grace period (>= 7 days, well above the 30 s..1 h presign TTL); (3) review the difference, then remove it; (4) never
+touch a key present in step 1. A bucket lifecycle rule that aborts incomplete multipart uploads after 1 day is safe to
+enable independently. Re-verification of already-referenced keys is not automatic: re-saving a set does not re-check
+existing keys, so an object replaced out-of-band must be handled by a new upload and a new key.
 
 ## What the adapter guarantees, and what it does not
 - The presigned URL is for **exactly one key** and **binds `Content-Type`, `Content-Length`** (the declared
@@ -39,12 +77,12 @@ Startup logs `media_storage provider=s3 bucket=… region=… endpoint=… crede
 - A newly referenced key must have been issued for **that owner** (`p/<ownerType>/<ownerId>/…`): a key uploaded for one
   product cannot be attached to another (422), even though storage holds a valid image under it.
 - The bytes are checked again at reference time by `MediaIngestVerifier` through `inspect` (HeadObject size + first 64
-  bytes sniffed): a non-image object of the declared size can never enter a media set. It occupies the bucket until an
+  bytes sniffed, then header dimensions parsed from up to 64 KiB): a non-image object of the declared size can never enter a media set. It occupies the bucket until an
   unreferenced-object reaper exists (not yet; see "Not in this PR").
 - A store that cannot be reached or refuses the request answers 503 `MEDIA_STORAGE_UNAVAILABLE` (one WARN line with the
   failure's class name, no stack trace, no key/host/credential), distinct from 503 `MEDIA_STORAGE_NOT_CONFIGURED`
   (provider disabled) and from 422 (object not uploaded).
-- The service reads at most 64 bytes of any object and never serves bytes.
+- The service reads at most 64 KiB of any object and never serves bytes.
 
 ## AWS resources required for `provider=s3` (not yet provisioned; tracked as blocker B3 in the completion trackers)
 1. Private bucket in ap-south-1, block public access, SSE-S3, versioning optional; **CORS**: allow `PUT` from the CMS

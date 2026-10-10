@@ -37,6 +37,17 @@ public final class MediaUploadPolicy {
         }
     }
 
+    /** True when the key's file extension is the one this policy issues for {@code contentType} ({@code .jpeg} also counts for JPEG). */
+    public boolean extensionMatches(String key, String contentType) {
+        String ext = EXTENSIONS.get(contentType);
+        int dot = key == null ? -1 : key.lastIndexOf('.');
+        if (ext == null || dot < 0 || key.indexOf('/', dot) >= 0) {
+            return false;
+        }
+        String actual = key.substring(dot + 1).toLowerCase(java.util.Locale.ROOT);
+        return actual.equals(ext) || ("jpg".equals(ext) && actual.equals("jpeg"));
+    }
+
     /**
      * A fresh, safe object key for CMS content imagery (banners): {@code <prefix><uuid>.<ext>}. The prefix is the caller's
      * fixed namespace (e.g. {@code c/home/}), never client input.
