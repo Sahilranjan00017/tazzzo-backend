@@ -85,7 +85,12 @@ class MediaStorageConfig {
     }
 
     @Bean
-    MediaIngestVerifier mediaIngestVerifier(MediaStorage storage, MediaUploadPolicy policy) {
-        return new MediaIngestVerifier(storage, policy);
+    MediaMetrics mediaMetrics(io.micrometer.core.instrument.MeterRegistry registry) {
+        return new MediaMetrics(registry);
+    }
+
+    @Bean
+    MediaIngestVerifier mediaIngestVerifier(MediaStorage storage, MediaUploadPolicy policy, MediaMetrics metrics) {
+        return new MediaIngestVerifier(storage, policy, metrics);
     }
 }

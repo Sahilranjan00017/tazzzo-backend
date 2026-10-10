@@ -39,4 +39,14 @@ class PlatformFilterOrderTest {
         assertThat(customer).isGreaterThan(serviceToken);
         assertThat(new java.util.HashSet<>(java.util.List.of(requestId, bodyLimit, cors, serviceToken, customer))).hasSize(5);
     }
+
+    @Test
+    void the_admin_http_metrics_filter_is_outermost_so_it_also_counts_what_the_later_filters_refuse() {
+        int metrics = order(AdminHttpMetricsFilter.class);
+        assertThat(metrics).isEqualTo(Ordered.HIGHEST_PRECEDENCE);
+        assertThat(metrics).isLessThan(order(RequestBodyLimitFilter.class));
+        assertThat(metrics).isLessThan(order(ApiAuthFilter.class));
+        assertThat(metrics).isLessThan(order(CustomerAuthFilter.class));
+        assertThat(metrics).isLessThan(order(MalformedQueryFilter.class));
+    }
 }

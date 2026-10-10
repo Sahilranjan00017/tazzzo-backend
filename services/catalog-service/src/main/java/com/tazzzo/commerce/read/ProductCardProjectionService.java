@@ -59,6 +59,13 @@ public class ProductCardProjectionService {
     private final MediaReadPort media;
     private final MongoDatabase db;
     private final Clock clock;
+    private ProjectionMetrics metrics = ProjectionMetrics.unregistered();
+
+    /** Counts optimistic-concurrency retries and rebuild failures (set once, at wiring; fixtures keep a private no-op sink). */
+    public ProductCardProjectionService withMetrics(ProjectionMetrics metrics) {
+        this.metrics = Objects.requireNonNull(metrics);
+        return this;
+    }
 
     public ProductCardProjectionService(CatalogCardReadPort catalog, PriceReadPort prices,
                                         MediaReadPort media, MongoDatabase db, Clock clock) {
@@ -117,6 +124,7 @@ public class ProductCardProjectionService {
                     }
                     log.info("projection_write_conflict sku={} reason=delete_race attempt={}",
                             skuId, attempt);
+                    metrics.conflict(ProjectionMetrics.Conflict.DELETE_RACE);
                     continue; // re-observe EVERYTHING
                 }
                 CatalogCardFacts facts = factsOpt.get();
@@ -143,6 +151,7 @@ public class ProductCardProjectionService {
                         return RebuildOutcome.NOOP;
                     }
                     log.info("projection_write_conflict sku={} reason=watermark_cas attempt={}", skuId, attempt);
+                    metrics.conflict(ProjectionMetrics.Conflict.WATERMARK_CAS);
                     continue; // watermark CAS lost to a concurrent update — re-observe everything
                 }
                 if (existing == null) {
@@ -154,6 +163,7 @@ public class ProductCardProjectionService {
                         if (isDuplicateKey(e)) {
                             log.info("projection_write_conflict sku={} reason=create_race attempt={}",
                                     skuId, attempt);
+                            metrics.conflict(ProjectionMetrics.Conflict.CREATE_RACE);
                             continue; // re-observe EVERYTHING and converge
                         }
                         throw e;
@@ -170,13 +180,16 @@ public class ProductCardProjectionService {
                     return RebuildOutcome.UPDATED;
                 }
                 log.info("projection_write_conflict sku={} reason=stale_cas attempt={}", skuId, attempt);
+                metrics.conflict(ProjectionMetrics.Conflict.STALE_CAS);
                 // loop: next attempt re-reads every source AND the row
             }
             throw new ProjectionConflictException("rebuild did not converge for " + skuId
                     + " after " + MAX_ATTEMPTS + " attempts");
         } catch (ProjectionConflictException e) {
+            metrics.failure(ProjectionMetrics.Failure.NON_CONVERGED);
             throw e;
         } catch (RuntimeException e) {
+            metrics.failure(ProjectionMetrics.Failure.ERROR);
             // Infrastructure/read failure (any source): nothing was written this attempt —
             // the previous good row is preserved (STEP 28).
             log.warn("projection_rebuild_failure sku={} reason={}", skuId, e.toString());

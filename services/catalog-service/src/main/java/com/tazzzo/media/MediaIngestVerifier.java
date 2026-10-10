@@ -12,10 +12,16 @@ public final class MediaIngestVerifier {
 
     private final MediaStorage storage;
     private final MediaUploadPolicy policy;
+    private final MediaMetrics metrics;
 
     public MediaIngestVerifier(MediaStorage storage, MediaUploadPolicy policy) {
+        this(storage, policy, MediaMetrics.unregistered());
+    }
+
+    public MediaIngestVerifier(MediaStorage storage, MediaUploadPolicy policy, MediaMetrics metrics) {
         this.storage = Objects.requireNonNull(storage);
         this.policy = Objects.requireNonNull(policy);
+        this.metrics = Objects.requireNonNull(metrics);
     }
 
     public boolean verifying() {
@@ -30,21 +36,46 @@ public final class MediaIngestVerifier {
         if (!storage.enabled()) {
             return;
         }
+        MediaMetrics.Verify outcome = MediaMetrics.Verify.OK;
+        try {
+            check(assetKey, declaredContentType);
+        } catch (Rejected e) {
+            outcome = e.outcome;
+            throw e;
+        } catch (RuntimeException e) {   // the store could not be asked (MediaStorageFailure) or failed unexpectedly
+            outcome = MediaMetrics.Verify.STORAGE_ERROR;
+            throw e;
+        } finally {
+            metrics.verify(outcome);
+        }
+    }
+
+    /** The same {@link InvalidMediaException} callers have always received, carrying which check refused (for the metric only). */
+    private static final class Rejected extends InvalidMediaException {
+        final transient MediaMetrics.Verify outcome;
+
+        Rejected(MediaMetrics.Verify outcome, String message) {
+            super(message);
+            this.outcome = outcome;
+        }
+    }
+
+    private void check(String assetKey, String declaredContentType) {
         StoredObject object = storage.inspect(assetKey)
-                .orElseThrow(() -> new InvalidMediaException("asset not found in storage: upload it first"));
+                .orElseThrow(() -> new Rejected(MediaMetrics.Verify.MISSING_OBJECT, "asset not found in storage: upload it first"));
         if (object.sizeBytes() < 1 || object.sizeBytes() > policy.maxBytes()) {
-            throw new InvalidMediaException("stored object size is outside 1.." + policy.maxBytes());
+            throw new Rejected(MediaMetrics.Verify.SIZE_MISMATCH, "stored object size is outside 1.." + policy.maxBytes());
         }
         String sniffed = MediaSniffer.detect(object.head())
-                .orElseThrow(() -> new InvalidMediaException("stored object is not an allowed image"));
+                .orElseThrow(() -> new Rejected(MediaMetrics.Verify.SNIFF_REJECT, "stored object is not an allowed image"));
         if (declaredContentType != null && !declaredContentType.equals(sniffed)) {
-            throw new InvalidMediaException("declared contentType does not match the stored bytes");
+            throw new Rejected(MediaMetrics.Verify.TYPE_MISMATCH, "declared contentType does not match the stored bytes");
         }
         // the store serves the type it holds: bytes of one image type stored as another would be delivered mislabelled
         String stored = object.contentType() == null ? null
                 : object.contentType().split(";", 2)[0].strip().toLowerCase(java.util.Locale.ROOT);
         if (stored != null && !stored.equals(sniffed)) {
-            throw new InvalidMediaException("stored contentType does not match the stored bytes");
+            throw new Rejected(MediaMetrics.Verify.TYPE_MISMATCH, "stored contentType does not match the stored bytes");
         }
     }
 }

@@ -64,6 +64,13 @@ public class MediaService implements MediaReadPort {
     private final Clock clock;
 
     private final com.tazzzo.catalog.repo.ProjectionRebuildQueue rebuildQueue;
+    private MediaMetrics metrics = MediaMetrics.unregistered();
+
+    /** Counts every media set write by outcome (set once, at wiring; fixtures keep a private no-op sink). */
+    public MediaService withMetrics(MediaMetrics metrics) {
+        this.metrics = Objects.requireNonNull(metrics);
+        return this;
+    }
 
     public MediaService(Tx tx, WritePath writePath, Clock clock) {
         this(tx, writePath, clock, null);
@@ -100,6 +107,26 @@ public class MediaService implements MediaReadPort {
      * form; the actor-less form is a fixture/seed seam no production class may call (pinned by ModuleBoundaryTest).
      */
     public long upsertMediaSet(UpsertMediaSetCommand cmd, com.tazzzo.common.audit.Actor actor) {
+        try {
+            long version = write(cmd, actor);
+            metrics.write(MediaMetrics.Write.SUCCESS);
+            return version;
+        } catch (InvalidMediaException e) {
+            metrics.write(MediaMetrics.Write.VALIDATION_FAILURE);
+            throw e;
+        } catch (MediaConflictException e) {
+            metrics.write(MediaMetrics.Write.CONFLICT);
+            throw e;
+        } catch (MediaNotFoundException e) {
+            metrics.write(MediaMetrics.Write.NOT_FOUND);
+            throw e;
+        } catch (RuntimeException e) {
+            metrics.write(MediaMetrics.Write.ERROR);
+            throw e;
+        }
+    }
+
+    private long write(UpsertMediaSetCommand cmd, com.tazzzo.common.audit.Actor actor) {
         MediaSet validated = validateCommand(cmd);
         long newVersion;
         try {

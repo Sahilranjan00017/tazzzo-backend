@@ -36,6 +36,13 @@ public class ImportJobRepository {
 
     private final MongoDatabase db;
     private final Clock clock;
+    private com.tazzzo.bulkimport.ImportMetrics metrics = com.tazzzo.bulkimport.ImportMetrics.unregistered();
+
+    /** Records every job status transition this repository performs (set once, at wiring; fixtures keep a private no-op sink). */
+    public ImportJobRepository withMetrics(com.tazzzo.bulkimport.ImportMetrics metrics) {
+        this.metrics = Objects.requireNonNull(metrics);
+        return this;
+    }
 
     public ImportJobRepository(MongoDatabase db, Clock clock) {
         this.db = Objects.requireNonNull(db);
@@ -60,6 +67,7 @@ public class ImportJobRepository {
                 .append("counts", countsDoc(ImportJob.Counts.ZERO)).append("next_row", 0L).append("attempt_count", 0)
                 .append("version", 1L).append("lease_until", new Date(0)).append("created_at", Date.from(now)).append("updated_at", Date.from(now));
         jobs().insertOne(d);
+        metrics.jobTransition(ImportJob.Status.OPEN);
         return toJob(d);
     }
 
@@ -118,6 +126,7 @@ public class ImportJobRepository {
         if (guard != null) f.add(guard);
         Document d = jobs().findOneAndUpdate(Filters.and(f), Updates.combine(sets),
                 new FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER));
+        if (d != null) metrics.jobTransition(to);
         return d == null ? null : toJob(d);
     }
 
@@ -135,6 +144,7 @@ public class ImportJobRepository {
         sets.add(lastError == null ? Updates.unset("last_error") : Updates.set("last_error", lastError));
         Document d = jobs().findOneAndUpdate(Filters.and(Filters.eq("_id", id), Filters.eq("lease_token", leaseToken)),
                 Updates.combine(sets), new FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER));
+        if (d != null) metrics.jobTransition(to);
         return d == null ? null : toJob(d);
     }
 

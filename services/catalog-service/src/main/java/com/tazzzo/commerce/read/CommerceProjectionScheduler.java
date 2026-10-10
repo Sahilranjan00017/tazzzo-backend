@@ -60,13 +60,22 @@ public class CommerceProjectionScheduler {
      * @param reconcileFullPassMs the target for one full pass over the catalogue; the per-pass limit is raised from the
      *                            floor as the catalogue grows so this target holds (see {@link ProjectionReconciler#pacedLimit})
      */
+    @org.springframework.beans.factory.annotation.Autowired
     public CommerceProjectionScheduler(
             MongoClient client, MongoDatabase db, FreshnessObservability observability,
+            org.springframework.beans.factory.ObjectProvider<ProjectionMetrics> metrics,
             @Value("${tazzzo.scheduler.card-rebuild-batch-size:200}") int drainBatchSize,
             @Value("${tazzzo.scheduler.card-reconcile-limit:500}") int reconcileLimit,
             @Value("${tazzzo.scheduler.card-reconcile-max-limit:20000}") int reconcileMaxLimit,
             @Value("${tazzzo.scheduler.card-reconcile-ms:300000}") long reconcileMs,
             @Value("${tazzzo.scheduler.card-reconcile-full-pass-ms:14400000}") long reconcileFullPassMs) {
+        this(client, db, observability, metrics.getIfAvailable(ProjectionMetrics::unregistered), drainBatchSize, reconcileLimit,
+                reconcileMaxLimit, reconcileMs, reconcileFullPassMs);
+    }
+
+    CommerceProjectionScheduler(MongoClient client, MongoDatabase db, FreshnessObservability observability, ProjectionMetrics metrics,
+                                int drainBatchSize, int reconcileLimit, int reconcileMaxLimit, long reconcileMs,
+                                long reconcileFullPassMs) {
         // validated once at startup: a misconfiguration refuses to start (never silently clamped) and names the property
         validatePacing(reconcileLimit, reconcileMaxLimit, reconcileMs, reconcileFullPassMs);
         ProjectionReconciler.pacedLimit(0, reconcileMs, reconcileFullPassMs, reconcileLimit, reconcileMaxLimit);
@@ -80,7 +89,7 @@ public class CommerceProjectionScheduler {
                 new CatalogCardReader(db),
                 new PricingService(tx, writePath, clock),
                 new MediaService(tx, writePath, clock),
-                db, clock);
+                db, clock).withMetrics(metrics);
         this.worker = new ProjectionRebuildWorker(db, projection, clock, observability);
         this.reconciler = new ProjectionReconciler(db, queue, observability);
         this.drainBatchSize = drainBatchSize;
@@ -88,6 +97,14 @@ public class CommerceProjectionScheduler {
         this.reconcileMaxLimit = reconcileMaxLimit;
         this.reconcileMs = reconcileMs;
         this.reconcileFullPassMs = reconcileFullPassMs;
+    }
+
+    /** Without projection metrics (a private no-op sink); the wired constructor above is the production one. */
+    public CommerceProjectionScheduler(MongoClient client, MongoDatabase db, FreshnessObservability observability,
+                                       int drainBatchSize, int reconcileLimit, int reconcileMaxLimit, long reconcileMs,
+                                       long reconcileFullPassMs) {
+        this(client, db, observability, ProjectionMetrics.unregistered(), drainBatchSize, reconcileLimit, reconcileMaxLimit,
+                reconcileMs, reconcileFullPassMs);
     }
 
     static void validatePacing(int limit, int maxLimit, long ms, long fullPassMs) {

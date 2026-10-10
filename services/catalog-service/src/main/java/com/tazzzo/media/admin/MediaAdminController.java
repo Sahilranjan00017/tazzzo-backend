@@ -7,10 +7,12 @@ import com.tazzzo.media.InvalidMediaException;
 import com.tazzzo.media.MediaAsset;
 import com.tazzzo.media.MediaIngestVerifier;
 import com.tazzzo.media.MediaLookup;
+import com.tazzzo.media.MediaMetrics;
 import com.tazzzo.media.MediaNotFoundException;
 import com.tazzzo.media.MediaOwnerType;
 import com.tazzzo.media.MediaService;
 import com.tazzzo.media.MediaSet;
+import com.tazzzo.media.MediaStorageFailure;
 import com.tazzzo.media.MediaStorage;
 import com.tazzzo.media.MediaUploadPolicy;
 import com.tazzzo.media.MediaUrlResolver;
@@ -67,19 +69,45 @@ public class MediaAdminController {
     private final MediaIngestVerifier verifier;
     private final ProductQueryService products;
     private final MediaUrlResolver urls;
+    private final MediaMetrics metrics;
 
     public MediaAdminController(MediaService media, MediaStorage storage, MediaUploadPolicy policy,
-                                MediaIngestVerifier verifier, ProductQueryService products, MediaUrlResolver urls) {
+                                MediaIngestVerifier verifier, ProductQueryService products, MediaUrlResolver urls,
+                                MediaMetrics metrics) {
         this.media = media;
         this.storage = storage;
         this.policy = policy;
         this.verifier = verifier;
         this.products = products;
         this.urls = urls;
+        this.metrics = metrics;
     }
 
     @PostMapping("/uploads")
     public ResponseEntity<UploadResponse> upload(@RequestBody UploadRequest body) {
+        try {
+            ResponseEntity<UploadResponse> created = presign(body);
+            metrics.presign(MediaMetrics.Presign.OK);
+            return created;
+        } catch (InvalidMediaException e) {
+            metrics.presign(MediaMetrics.Presign.REJECTED);
+            throw e;
+        } catch (com.tazzzo.catalog.tx.ProductNotFoundException e) {
+            metrics.presign(MediaMetrics.Presign.OWNER_NOT_FOUND);
+            throw e;
+        } catch (MediaStorageUnavailableException e) {
+            metrics.presign(MediaMetrics.Presign.NOT_CONFIGURED);
+            throw e;
+        } catch (MediaStorageFailure e) {
+            metrics.presign(MediaMetrics.Presign.STORAGE_ERROR);
+            throw e;
+        } catch (RuntimeException e) {
+            metrics.presign(MediaMetrics.Presign.ERROR);
+            throw e;
+        }
+    }
+
+    private ResponseEntity<UploadResponse> presign(UploadRequest body) {
         if (body == null || body.ownerId() == null || body.sizeBytes() == null) {
             throw new InvalidMediaException("ownerType, ownerId, contentType and sizeBytes are required");
         }
@@ -126,6 +154,7 @@ public class MediaAdminController {
             for (MediaAsset a : assets) {
                 if (!existing.contains(a.assetKey())) {
                     if (!a.assetKey().startsWith(prefix)) {
+                        metrics.verify(MediaMetrics.Verify.KEY_NOT_ISSUED);
                         throw new InvalidMediaException("asset key was not uploaded for this owner");
                     }
                     verifier.verify(a.assetKey(), a.contentType());
