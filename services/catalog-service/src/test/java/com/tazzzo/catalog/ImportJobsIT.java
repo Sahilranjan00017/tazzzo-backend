@@ -830,6 +830,22 @@ class ImportJobsIT extends AbstractApiIT {
     }
 
     @Test
+    void csv_ids_with_embedded_or_trailing_whitespace_are_invalid_rows_not_silently_trimmed() {
+        String id = create("csv id whitespace");
+        ResponseEntity<JsonNode> added = csv(id, HEADER + line("TZP-WS-1", 1).replaceFirst("^TZP-WS-1,", "\"TZP-WS-1\n\",")
+                + line("TZP-WS-2", 2).replaceFirst("^TZP-WS-2,", "\" TZP-WS-2\",")
+                + line("TZP-WS-3", 3).replace("\n", "\r\n"), W);
+        assertThat(added.getStatusCode().value()).as(String.valueOf(added.getBody())).isEqualTo(200);
+        act(id, "validate", W);
+        for (int n = 0; n < 5 && "VALIDATING".equals(job(id).get("status").asText()); n++) worker.tick();   // other tests may leave older jobs to claim first
+        assertThat(job(id).get("status").asText()).isEqualTo("REJECTED");
+        JsonNode page = get(JOBS + "/" + id + "/rows?from=0&limit=3", R, JsonNode.class).getBody().get("rows");
+        assertThat(page.get(0).get("validation").get("code").asText()).isEqualTo("INVALID_ROW");
+        assertThat(page.get(1).get("validation").get("code").asText()).isEqualTo("INVALID_ROW");
+        assertThat(page.get(2).get("validation").get("outcome").asText()).as("CRLF row end outside quotes still works").isEqualTo("VALID");
+    }
+
+    @Test
     void invalid_product_ids_are_per_row_invalid_block_apply_and_are_corrected_with_case_preserved() {
         String id = create("id grammar");
         String[] bad = {"TZP-a_b", "TZP-", "TZP-" + "x".repeat(41), "TZP-1\n", "tzp-1", "TZP-a b"};

@@ -25,7 +25,7 @@ import java.util.function.Consumer;
  * (key) · {@code verticalId} (vertical) · {@code releaseId} (release, taxonomyrelease) · {@code classificationStatus}
  * (classification, status; default provisional) · any {@code attr.<name>} column becomes a string attribute. Identity is
  * {@code gtin} when a GTIN is present, else {@code internal}. Cell values are trimmed; the brand is upper-cased, as the
- * CMS does, but the product id is NOT (the canonical id grammar is case-sensitive; no case normalisation). A quoted cell may contain commas, newlines and doubled quotes.
+ * CMS does, but the product id is NOT: it is passed verbatim (no trim, no case change), so an id with embedded or surrounding whitespace is rejected by the id grammar like on the JSON path. A quoted cell may contain commas, newlines and doubled quotes.
  */
 public final class ImportCsvParser {
 
@@ -83,7 +83,10 @@ public final class ImportCsvParser {
 
     /** Builds the single-create request the CMS wizard would have built for this row. */
     static CreateProductRequest toRequest(List<String> cells, Map<String, Integer> map) {
-        String id = cell(cells, map, "id");   // verbatim: the product-id grammar is case-sensitive, no case normalisation
+        Integer idIx = map.get("id");
+        // verbatim (NOT trimmed): the id grammar is a full match, so "TZP-1\n" / " TZP-1" must reach the validator and be INVALID_ROW,
+        // exactly as on the JSON path; and it is case-sensitive, no case normalisation. A CRLF row end is consumed by readRecord.
+        String id = idIx == null || idIx >= cells.size() ? "" : cells.get(idIx);
         String gtin = cell(cells, map, "gtin");
         String internalKey = cell(cells, map, "internalKey");
         String market = cell(cells, map, "market");
