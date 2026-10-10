@@ -55,7 +55,7 @@ public final class ClientIpResolver {
         }
         if (!isTrustedProxy(remoteAddr)) {
             // Untrusted peer: whatever it claims in XFF is its own invention.
-            return remoteAddr;
+            return bucketKey(remoteAddr);
         }
         if (forwardedFor == null || forwardedFor.isBlank()) {
             throw new ClientIpUnresolvableException(
@@ -74,7 +74,7 @@ public final class ClientIpResolver {
                         "malformed X-Forwarded-For from " + remoteAddr + ": not a literal address");
             }
             if (!isTrustedProxy(hop)) {
-                return normalise(hop);
+                return bucketKey(hop);
             }
         }
         // Every hop was one of our own proxies: the client address is simply not in the chain.
@@ -91,13 +91,22 @@ public final class ClientIpResolver {
         return false;
     }
 
-    /** Strips brackets and any IPv6 zone id so one client cannot occupy several buckets. */
-    private static String normalise(String address) {
-        String out = address;
-        if (out.startsWith("[") && out.endsWith("]")) {
-            out = out.substring(1, out.length() - 1);
+    /**
+     * The rate-limit identity of a client address (security review S-1). IPv4 (and IPv4-mapped IPv6, which
+     * {@link CidrBlock#literalAddress} already yields as 4 bytes) keys by the dotted address. IPv6 keys by its /64
+     * prefix, because one subscriber is routinely handed a whole /64 and would otherwise get unlimited fresh buckets
+     * by rotating the host bits. Brackets and zone ids are dropped, so one client cannot occupy several buckets.
+     */
+    static String bucketKey(String address) {
+        byte[] bytes = CidrBlock.literalAddress(address);
+        if (bytes == null) {
+            return address;   // unreachable: callers validate first; never throw from here
         }
-        int percent = out.indexOf('%');
-        return percent > 0 ? out.substring(0, percent) : out;
+        if (bytes.length == 4) {
+            return (bytes[0] & 0xFF) + "." + (bytes[1] & 0xFF) + "." + (bytes[2] & 0xFF) + "." + (bytes[3] & 0xFF);
+        }
+        return String.format("%x:%x:%x:%x::/64",
+                ((bytes[0] & 0xFF) << 8) | (bytes[1] & 0xFF), ((bytes[2] & 0xFF) << 8) | (bytes[3] & 0xFF),
+                ((bytes[4] & 0xFF) << 8) | (bytes[5] & 0xFF), ((bytes[6] & 0xFF) << 8) | (bytes[7] & 0xFF));
     }
 }

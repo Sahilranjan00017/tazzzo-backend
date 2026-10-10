@@ -157,6 +157,25 @@ class AdminAuthConfigStartupTest {
         runner.withPropertyValues(props(r)).run(ctx -> assertFailsMentioning(ctx, "jwks-uri must be an https URI"));
     }
 
+    @Test
+    void the_jwks_uri_override_is_refused_outside_unset_local_test_or_dev() {
+        for (String env : new String[]{"staging", "production", "prod", "qa"}) {
+            List<String> p = new ArrayList<>(oidc());
+            p.add("tazzzo.admin.oidc.jwks-uri=https://keys.example/certs");
+            p.add("tazzzo.migration.environment=" + env);
+            runner.withPropertyValues(props(p)).run(ctx -> assertFailsMentioning(ctx, "jwks-uri override is refused"));
+        }
+        for (String env : new String[]{"", "local", "test", "dev"}) {
+            List<String> p = new ArrayList<>(oidc());
+            p.add("tazzzo.admin.oidc.jwks-uri=https://keys.example/certs");
+            p.add("tazzzo.migration.environment=" + env);
+            runner.withPropertyValues(props(p)).run(ctx -> assertThat(ctx).hasNotFailed());
+        }
+        List<String> noOverride = new ArrayList<>(oidc());
+        noOverride.add("tazzzo.migration.environment=production");
+        runner.withPropertyValues(props(noOverride)).run(ctx -> assertThat(ctx).hasNotFailed());
+    }
+
     // ---------- users ----------
 
     @Test

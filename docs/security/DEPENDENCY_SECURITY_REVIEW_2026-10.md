@@ -203,3 +203,18 @@ Regression tests added by this PR, run on the old versions (main) and on this br
 2. To roll back one component only, delete its property override (`tomcat.version`, `jackson-bom.version` or `netty.version`) or restore the previous nimbus version. Each is independent.
 3. Re-enabling multipart is `spring.servlet.multipart.enabled: true`. Nothing depends on it today.
 4. A deployed image rolls back by redeploying the previous image tag. The datastore contract, migrations and the 55/15/75 schema are unchanged.
+
+## 9. Final security pass (branch `fix/security-final-pass`)
+
+Fixed: **S-1** rate-limit buckets key IPv6 clients by their /64 prefix (IPv4 and IPv4-mapped IPv6 unchanged, keyed as
+dotted IPv4), so rotating host bits no longer yields fresh buckets; **S-3** `tazzzo.admin.oidc.jwks-uri` is refused at
+startup unless `tazzzo.migration.environment` is unset/local/test/dev (the OTP LOGGING / notification sandbox rule);
+**S-4** the CI workflow declares `permissions: contents: read`.
+
+Accepted / deferred (not implemented here):
+- **S-1 (residual)**: no per-day OTP send budget or alerting on bucket exhaustion. Accepted for now: the per-IP (/64) and
+  per-phone request buckets bound the rate; a daily budget and alerting are deferred to the SMS-vendor integration.
+- **S-2**: a challengeId shared under the verify cooldown lets an attacker who knows a victim's live challengeId burn its 5
+  attempts with wrong codes and lock it. Accepted with reason: the challengeId is an unguessable opaque value returned only
+  to the requesting client, and the victim can request a fresh challenge; revisit with attempt-keying by client.
+

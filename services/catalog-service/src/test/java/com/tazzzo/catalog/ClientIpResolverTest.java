@@ -77,16 +77,38 @@ class ClientIpResolverTest {
     @Test
     void ipv6_is_handled_on_both_sides() {
         assertThat(resolver.resolve("2001:db8::1", "2606:4700::1111"))
-                .isEqualTo("2606:4700::1111");
+                .isEqualTo("2606:4700:0:0::/64");
         assertThat(resolver.resolve("[2001:db8::1]", "[2606:4700::1111]"))
                 .as("bracketed forms normalise")
-                .isEqualTo("2606:4700::1111");
+                .isEqualTo("2606:4700:0:0::/64");
         assertThat(resolver.resolve("2001:db8::1", "2606:4700::1111%eth0"))
                 .as("a zone id must not split one client across two buckets")
-                .isEqualTo("2606:4700::1111");
+                .isEqualTo("2606:4700:0:0::/64");
         assertThat(resolver.resolve("2001:dead::1", "1.2.3.4"))
                 .as("an IPv6 peer outside the trusted block is untrusted")
-                .isEqualTo("2001:dead::1");
+                .isEqualTo("2001:dead:0:0::/64");
+    }
+
+    // ---------- S-1: IPv6 clients are keyed by /64 ----------
+
+    @Test
+    void ipv6_hosts_in_one_slash_64_share_a_key_and_other_slash_64s_do_not() {
+        String a = resolver.resolve("2001:db8::1", "2606:4700:1:2:aaaa:bbbb:cccc:dddd");
+        String b = resolver.resolve("2001:db8::1", "2606:4700:1:2:1111:2222:3333:4444");
+        String c = resolver.resolve("2001:db8::1", "2606:4700:1:3:aaaa:bbbb:cccc:dddd");
+        assertThat(a).isEqualTo("2606:4700:1:2::/64").isEqualTo(b);
+        assertThat(c).isEqualTo("2606:4700:1:3::/64").isNotEqualTo(a);
+        assertThat(trustNobody.resolve("2606:4700:1:2:9:9:9:9", null))
+                .as("a direct untrusted IPv6 peer is keyed the same way")
+                .isEqualTo(a);
+    }
+
+    @Test
+    void ipv4_and_ipv4_mapped_ipv6_are_keyed_as_plain_ipv4() {
+        assertThat(resolver.resolve("203.0.113.9", null)).isEqualTo("203.0.113.9");
+        assertThat(resolver.resolve("10.0.1.7", "198.51.100.23")).isEqualTo("198.51.100.23");
+        assertThat(resolver.resolve("10.0.1.7", "::ffff:198.51.100.23")).isEqualTo("198.51.100.23");
+        assertThat(trustNobody.resolve("::ffff:203.0.113.9", null)).isEqualTo("203.0.113.9");
     }
 
     @Test

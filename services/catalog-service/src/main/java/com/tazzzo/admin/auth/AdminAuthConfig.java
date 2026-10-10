@@ -2,6 +2,7 @@ package com.tazzzo.admin.auth;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -21,8 +22,9 @@ public class AdminAuthConfig {
 
     /** The validated trust policy and allowlist; an invalid configuration fails startup here. */
     @Bean
-    public HumanAdminSettings humanAdminSettings(AdminAuthProperties properties) {
-        return HumanAdminSettings.from(properties);
+    public HumanAdminSettings humanAdminSettings(AdminAuthProperties properties,
+                                                 @Value("${tazzzo.migration.environment:}") String environment) {
+        return HumanAdminSettings.from(properties, environment);
     }
 
     @Bean

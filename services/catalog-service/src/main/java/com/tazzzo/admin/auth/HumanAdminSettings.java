@@ -1,5 +1,7 @@
 package com.tazzzo.admin.auth;
 
+import com.tazzzo.common.DevEnvironments;
+
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -41,7 +43,16 @@ public record HumanAdminSettings(Optional<GoogleOidcSettings> oidc, HumanAdminAl
         return oidc.isPresent();
     }
 
+    /** Validation with the environment unset (local/test callers); the wired bean uses the two-argument form. */
     public static HumanAdminSettings from(AdminAuthProperties properties) {
+        return from(properties, "");
+    }
+
+    /**
+     * @param environment {@code tazzzo.migration.environment}; the jwks-uri override is a test seam and is refused
+     *     unless it is unset, local, test or dev (security review S-3)
+     */
+    public static HumanAdminSettings from(AdminAuthProperties properties, String environment) {
         List<String> problems = new ArrayList<>();
         AdminAuthProperties.Oidc o = properties.getOidc();
         List<AdminAuthProperties.User> users = properties.getUsers() == null ? List.of() : properties.getUsers();
@@ -73,6 +84,11 @@ public record HumanAdminSettings(Optional<GoogleOidcSettings> oidc, HumanAdminAl
         }
         if (!CREDENTIAL_LABEL.matcher(o.getCredentialLabel()).matches()) {
             problems.add("tazzzo.admin.oidc.credential-label must match " + CREDENTIAL_LABEL.pattern());
+        }
+        if (present(o.getJwksUri()) && !DevEnvironments.isDevLike(environment)) {
+            fail(List.of("tazzzo.admin.oidc.jwks-uri override is refused in environment '"
+                    + (environment == null ? "" : environment.trim())
+                    + "' (allowed only when tazzzo.migration.environment is unset, local, test or dev)"));
         }
         URI jwksUri = present(o.getJwksUri()) ? jwksUri(problems, o.getJwksUri()) : GOOGLE_JWKS_URI;
 

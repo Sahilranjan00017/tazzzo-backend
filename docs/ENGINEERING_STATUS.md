@@ -21,6 +21,10 @@ Last updated: 2026-10-10
 
 ## In review (not yet merged)
 
+- **Security final pass (`fix/security-final-pass`)**: S-1 IPv6 /64 rate-limit bucketing, S-3 `jwks-uri` override refused outside
+  unset/local/test/dev, S-4 workflow `permissions: contents: read`. S-1 daily send budget/alerting and S-2 (shared challengeId
+  lockable by 5 wrong codes) are accepted-with-reason/deferred; see `docs/security/DEPENDENCY_SECURITY_REVIEW_2026-10.md` section 9.
+
 - **Bounded batch product read** (branch `feature/consumer-product-batch`, from `main` `b3ee656`): `GET /v1/products:batch?ids=` (operation `getProductsBatch`, public,
   `SurfaceClassifier` exact entry) returns the `/v1/products/{id}` card for up to 50 ids in request order, so a content rail is one call, not 20. Same
   eligibility, release reachability, freshness rule, current-price overlay and PIN enrichment as the single-id read (`ProductDetailRuntimeComposer.chooseBase`
