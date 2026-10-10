@@ -452,7 +452,7 @@ public class SchemaBootstrap {
           "required": ["_id","product_type","identity","brand_code","title","lifecycle",
                        "classification","attributes","attributes_meta","version","created_at"],
           "properties": {
-            "_id": {"bsonType":"string","pattern":"^TZP-"},
+            "_id": {"bsonType":"string","pattern":"@PID@"},
             "product_type": {"enum":["single","variant_pack","bundle"]},
             "lifecycle": {"enum":["draft","active","merging","discontinued","archived","merged"]},
             "identity": {"bsonType":"object","additionalProperties":false,"required":["type"],
@@ -480,18 +480,18 @@ public class SchemaBootstrap {
             "attribute_provenance": {"bsonType":"object"},
             "bundle_contents": {"bsonType":["array","null"],"maxItems":100,"items":{"bsonType":"object",
               "additionalProperties":false,"required":["component_product_id","qty"],
-              "properties":{"component_product_id":{"bsonType":"string","pattern":"^TZP-"},
+              "properties":{"component_product_id":{"bsonType":"string","pattern":"@PID@"},
                 "qty":{"bsonType":"int","minimum":1},"vertical_id_snapshot":{"bsonType":"string"},
                 "title_snapshot":{"bsonType":"string"},"gtin_snapshot":{"bsonType":["string","null"]}}}},
             "pack_of": {"bsonType":["object","null"],"additionalProperties":false,
               "required":["component_product_id","qty"],
-              "properties":{"component_product_id":{"bsonType":"string","pattern":"^TZP-"},
+              "properties":{"component_product_id":{"bsonType":"string","pattern":"@PID@"},
                 "qty":{"bsonType":"int","minimum":2}}},
             "browse_verticals": {"bsonType":["array","null"],"maxItems":120,"items":{"bsonType":"string"}},
             "variant_group_id": {"bsonType":["string","null"]},
             "formulation_version": {"bsonType":["int","null"]},
             "ext": {"bsonType":"object","additionalProperties":false,"properties":{}},
-            "merged_into": {"bsonType":["string","null"]},
+            "merged_into": {"bsonType":["string","null"],"pattern":"@PID@"},
             "version": {"bsonType":"int","minimum":1},
             "created_at": {"bsonType":"date"},
             "updated_at": {"bsonType":["date","null"]}},
@@ -510,7 +510,7 @@ public class SchemaBootstrap {
                 "bundle_contents": {"bsonType":"array","minItems":2},
                 "pack_of": {"bsonType":"null"} } } ] }
         """;
-        return Document.parse(json);
+        return Document.parse(json.replace("@PID@", com.tazzzo.catalog.domain.ProductIds.MONGO_REGEX.replace("\\", "\\\\")));
     }
 
     /**

@@ -122,7 +122,7 @@ class CartHttpIT extends AbstractApiIT {
         return sku(id, sellingPaise, onHand);
     }
 
-    /** The same visible, priced, stocked SKU under a caller-chosen id (the products validator requires only {@code ^TZP-}). */
+    /** The same visible, priced, stocked SKU under a caller-chosen id (inserted bypassing document validation: since V0017 the validator enforces the full grammar, and this test needs ids OUTSIDE it to exist so the cart's 404 can only come from its own grammar check). */
     private String sku(String id, long sellingPaise, int onHand) {
         db.getCollection("products").insertOne(new Document("_id", id).append("product_type", "single")
                 .append("identity", new Document("type", "internal").append("internal_key", id))
@@ -130,7 +130,8 @@ class CartHttpIT extends AbstractApiIT {
                 .append("classification", new Document("vertical_id", VERTICAL).append("release_id", "R1")
                         .append("status", "confirmed"))
                 .append("attributes", new Document()).append("attributes_meta", new Document("validated_release", "R1"))
-                .append("version", 1).append("created_at", new Date()));
+                .append("version", 1).append("created_at", new Date()),
+                new com.mongodb.client.model.InsertOneOptions().bypassDocumentValidation(true));
         pricing.upsertPrice(new UpsertPriceCommand(id, sellingPaise, sellingPaise + 2000, Currency.INR, null, null,
                 "seed", null));
         inventory.setInventory(new SetInventoryCommand(id, "FUL-CART-INTERNAL", onHand, 0, 10, "seed", null));
@@ -348,7 +349,7 @@ class CartHttpIT extends AbstractApiIT {
         for (String id : List.of("TZP-" + "A".repeat(41), "TZP-", "TZP-..", "TZP-a.b", "TZP-a_b", "TZP-a~b",
                 "tzp-1", "Tzp-1", "XTZP-1")) {
             if (id.startsWith("TZP-")) {
-                sku(id, 1000, 5);       // the products validator refuses any other prefix, so those cannot exist at all
+                sku(id, 1000, 5);       // validation is bypassed for the TZP- ids; the validator refuses any other prefix, so those cannot exist at all
             }
             assertThat(put(t, id, 1, tag(version)).getStatusCode().value()).as(id).isEqualTo(404);
             assertThat(call(HttpMethod.DELETE, "/v1/customer/cart/items/" + id, t, tag(version), null)
