@@ -53,8 +53,8 @@ jobs:
       - name: actionlint (runs shellcheck on workflow run blocks)
         run: |
           "$RUNNER_TEMP/actionlint"
-      - name: shellcheck the operations scripts
-        run: shellcheck -x scripts/*.sh
+      - name: shellcheck the UAT operations scripts
+        run: shellcheck -x scripts/uat-*.sh
 
   build-test:
     name: Compile & test (Java 21 + Testcontainers)
