@@ -4,7 +4,7 @@
 #
 #   scripts/uat-ssm-run.sh <deploy|rollback> <40-hex-git-sha>
 #
-# Env: AWS_REGION (required), UAT_EC2_ROLE_TAG (default backend), UAT_SSM_TIMEOUT_SECONDS (default 600).
+# Env: AWS_REGION (required), UAT_EC2_ROLE_TAG (default backend), UAT_SSM_TIMEOUT_SECONDS (default 900, matches the infra SSM document timeout).
 # Prints only the command id, per-instance status and sanitized output (secret-looking lines are redacted). It never
 # prints the parameter values. Writes command_id=... to $GITHUB_OUTPUT when set. Exit 0 only when every invocation is Success.
 set -euo pipefail
@@ -15,7 +15,7 @@ case "$ACTION" in deploy | rollback) ;; *) echo "action must be deploy or rollba
 [[ "$GIT_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "git sha must be 40 lowercase hex characters" >&2; exit 2; }
 : "${AWS_REGION:?AWS_REGION is required}"
 ROLE_TAG="${UAT_EC2_ROLE_TAG:-backend}"
-TIMEOUT="${UAT_SSM_TIMEOUT_SECONDS:-600}"
+TIMEOUT="${UAT_SSM_TIMEOUT_SECONDS:-900}"
 DOCUMENT="tazzzo-uat-deploy"
 
 sanitize() { # redact anything that looks like a credential or a connection string, keep the rest

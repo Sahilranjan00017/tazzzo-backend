@@ -6,7 +6,7 @@ name: deploy-uat
 #   - push to the `uat` branch ONLY. Never on every push to main: UAT is an environment with a running cost and a shared
 #     database, so a deploy is a deliberate act (fast-forward `uat` to the commit you want tested), not a side effect of merging.
 #   - workflow_dispatch with a git ref (default: the `uat` branch).
-# Authentication is AWS OIDC only (no AWS keys anywhere). The AWS jobs run in the GitHub environment `uat`; required reviewers
+# Authentication is AWS OIDC only (no AWS keys anywhere). The AWS job runs in the GitHub environment `uat`; required reviewers
 # on that environment are a repository setting the owner configures (docs/ops/UAT_DEPLOYMENT.md).
 # Configuration is GitHub repository VARIABLES (never secrets): AWS_REGION, AWS_UAT_DEPLOY_ROLE_ARN, UAT_API_BASE_URL,
 # UAT_EC2_ROLE_TAG, UAT_IMAGE_PLATFORM (default linux/arm64), UAT_RUNNER_LABEL (default ubuntu-24.04-arm).
@@ -135,7 +135,7 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: '1'
-      - name: Save the scanned image for the publish job
+      - name: Save the scanned image for the deploy job
         run: docker save "tazzzo-uat-backend:$GIT_SHA" | gzip -1 > image.tar.gz
       - uses: actions/upload-artifact@v7
         with:
@@ -144,26 +144,30 @@ jobs:
           retention-days: 1
           compression-level: 0
 
-  publish:
-    name: Push immutable image to ECR
+  deploy:
+    name: Push image, deploy, verify, report (one approval)
     needs: build
     runs-on: ubuntu-latest # AWS CLI only; the image is moved as a tarball
-    environment: uat
-    timeout-minutes: 30
+    environment: uat # the single approval gate: everything below needs AWS, so there is exactly one gated job
+    timeout-minutes: 75
     permissions:
       contents: read
-      id-token: write
+      id-token: write # only this job can mint an OIDC token; the build job cannot
     env:
       GIT_SHA: ${{ needs.build.outputs.sha }}
-    outputs:
-      digest: ${{ steps.push.outputs.digest }}
-      image: ${{ steps.push.outputs.image }}
+      UAT_API_BASE_URL: ${{ vars.UAT_API_BASE_URL }}
+      UAT_EC2_ROLE_TAG: ${{ vars.UAT_EC2_ROLE_TAG || 'backend' }}
     steps:
       - name: Require configuration
         env:
           ROLE_ARN: ${{ vars.AWS_UAT_DEPLOY_ROLE_ARN }}
         run: |
           [ -n "$ROLE_ARN" ] || { echo "::error::repository variable AWS_UAT_DEPLOY_ROLE_ARN is not set (see docs/ops/UAT_DEPLOYMENT.md)"; exit 1; }
+          [ -n "$UAT_API_BASE_URL" ] || { echo "::error::repository variable UAT_API_BASE_URL is not set"; exit 1; }
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.build.outputs.sha }}
+          persist-credentials: false
       - uses: actions/download-artifact@v8
         with:
           name: uat-image-${{ needs.build.outputs.sha }}
@@ -246,33 +250,6 @@ jobs:
           CRITICAL="$(echo "$COUNTS" | jq -r '.CRITICAL // 0')"
           [ "$CRITICAL" -eq 0 ] || { echo "::error::ECR scan reports $CRITICAL CRITICAL finding(s)"; exit 1; }
 
-  deploy:
-    name: Deploy, verify, report
-    needs: [build, publish]
-    runs-on: ubuntu-latest
-    environment: uat
-    timeout-minutes: 45
-    permissions:
-      contents: read
-      id-token: write
-    env:
-      GIT_SHA: ${{ needs.build.outputs.sha }}
-      UAT_API_BASE_URL: ${{ vars.UAT_API_BASE_URL }}
-      UAT_EC2_ROLE_TAG: ${{ vars.UAT_EC2_ROLE_TAG || 'backend' }}
-    steps:
-      - name: Require configuration
-        run: |
-          [ -n "${{ vars.AWS_UAT_DEPLOY_ROLE_ARN }}" ] || { echo "::error::repository variable AWS_UAT_DEPLOY_ROLE_ARN is not set"; exit 1; }
-          [ -n "$UAT_API_BASE_URL" ] || { echo "::error::repository variable UAT_API_BASE_URL is not set"; exit 1; }
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ needs.build.outputs.sha }}
-          persist-credentials: false
-      - name: Configure AWS credentials (OIDC, no keys)
-        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
-        with:
-          role-to-assume: ${{ vars.AWS_UAT_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
       - name: Read the currently deployed SHA (rollback target)
         id: previous
         run: |
@@ -282,7 +259,9 @@ jobs:
           }
           CURRENT="$(read_sha /tazzzo/uat/backend/deployed-sha)"
           RECORDED_PREVIOUS="$(read_sha /tazzzo/uat/backend/previous-sha)"
-          # The rollback target is what is running now. If nothing is recorded (first deploy), fall back to the recorded previous SHA.
+          # The rollback target is what is running now (the pre-deploy deployed-sha). The infra rollback rule accepts either the
+          # recorded previous-sha or the currently deployed-sha ("already running" is a no-op), so passing the pre-deploy
+          # deployed-sha is always valid. If nothing is recorded (first deploy), fall back to the recorded previous SHA.
           if [ "$CURRENT" != none ]; then TARGET="$CURRENT"; else TARGET="$RECORDED_PREVIOUS"; fi
           echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
           echo "target=$TARGET" >> "$GITHUB_OUTPUT"
@@ -321,8 +300,8 @@ jobs:
       - name: Report
         if: always()
         env:
-          DIGEST: ${{ needs.publish.outputs.digest }}
-          IMAGE: ${{ needs.publish.outputs.image }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+          IMAGE: ${{ steps.push.outputs.image }}
           CURRENT: ${{ steps.previous.outputs.current }}
           DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
           HEALTH_OUTCOME: ${{ steps.health.outcome }}
