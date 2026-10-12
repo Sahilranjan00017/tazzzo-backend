@@ -23,6 +23,7 @@ ARGS = None
 LOCK = threading.Lock()
 PRICE = 5000
 STATE = {}
+REQUESTS = [0]   # every request except /__stats
 
 
 def reset():
@@ -117,6 +118,9 @@ def if_match(headers, expected):
 
 def dispatch(method, path, query, headers, body):
     scen = ARGS.scenario
+    if path == "/__stats":
+        return 200, {"requests": REQUESTS[0]}, {}
+    REQUESTS[0] += 1
     if method == "GET" and path in ("/health/live", "/health/ready"):
         return 200, {"status": "UP"}, {}
     if method == "GET" and path == "/v1/serviceability":

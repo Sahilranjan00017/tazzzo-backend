@@ -6,7 +6,9 @@
 #   - the happy path ends PASS (exit 0) and prints no token, grant, OTP or full phone number;
 #   - every failure scenario of the mock makes the script exit 1 with the expected FAIL row.
 # Usage: scripts/uat-e2e-cod-selftest.sh      (exit 0 only when every case behaves as expected)
+# shellcheck disable=SC2317,SC2329  # helpers are called indirectly through assert/assert_not
 set -uo pipefail
+BS=$'\\'
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 E2E="$HERE/uat-e2e-cod.sh"
@@ -30,6 +32,18 @@ GOOD_OTP="482915"
 FAILED=0
 TOTAL=0
 OUT="$TMP/out"
+REAL_JQ="$(command -v jq)"
+REAL_CURL="$(command -v curl)"
+SHIM="$TMP/shim"
+ARGV_LOG="$TMP/argv.log"
+mkdir -p "$SHIM"
+# Shims on PATH record the argv of every jq / curl the script starts, then run the real tool.
+printf '#!/bin/sh\nprintf "%%s\\n" "jq $*" >>"%s"\nexec "%s" "$@"\n' "$ARGV_LOG" "$REAL_JQ" >"$SHIM/jq"
+printf '#!/bin/sh\nprintf "%%s\\n" "curl $*" >>"%s"\nexec "%s" "$@"\n' "$ARGV_LOG" "$REAL_CURL" >"$SHIM/curl"
+chmod +x "$SHIM/jq" "$SHIM/curl"
+export PATH="$SHIM:$PATH"
+
+requests_seen() { curl -s "http://127.0.0.1:$PORT/__stats" | jq -r .requests; }
 
 start_server() { # <scenario>
   stop_server
@@ -105,15 +119,64 @@ row() { # <case name> <check name> <RESULT>  : the table has this row with this 
 echo "== guard rails =="
 expect_run "no UAT_API_BASE_URL is refused" 2 "UAT_API_BASE_URL is required" -- UAT_TEST_PHONE="$TEST_PHONE"
 for url in https://api.tazzzo.com https://API.TAZZZO.COM. https://tazzzo.com https://www.tazzzo.com https://admin.tazzzo.com https://cms.tazzzo.com; do
-  expect_run "production host refused: $url" 2 "REFUSED: .* production host" UAT_API_BASE_URL="$url" UAT_TEST_PHONE="$TEST_PHONE" UAT_OTP="$GOOD_OTP"
+  expect_run "production host refused: $url" 2 "REFUSED" UAT_API_BASE_URL="$url" UAT_TEST_PHONE="$TEST_PHONE" UAT_OTP="$GOOD_OTP"
 done
 expect_run "unknown tazzzo.com host without a uat label is refused" 2 "does not look like a UAT" UAT_API_BASE_URL=https://api-prod.tazzzo.com UAT_TEST_PHONE="$TEST_PHONE"
-expect_run "plain http to a non-loopback host is refused" 2 "plain http is accepted only for a loopback" UAT_API_BASE_URL=http://api-uat.tazzzo.com UAT_TEST_PHONE="$TEST_PHONE"
-expect_run "credentials in the URL are refused" 2 "must not contain credentials" UAT_API_BASE_URL=https://user:pw@api-uat.tazzzo.com UAT_TEST_PHONE="$TEST_PHONE"
+expect_run "plain http to a non-loopback host is refused" 2 "plain http is accepted only for localhost" UAT_API_BASE_URL=http://api-uat.tazzzo.com UAT_TEST_PHONE="$TEST_PHONE"
+expect_run "credentials in the URL are refused" 2 "REFUSED: UAT_API_BASE_URL must be scheme" UAT_API_BASE_URL=https://user:pw@api-uat.tazzzo.com UAT_TEST_PHONE="$TEST_PHONE"
 expect_run "a path in the URL is refused" 2 "scheme://host" UAT_API_BASE_URL=https://api-uat.tazzzo.com/v1 UAT_TEST_PHONE="$TEST_PHONE"
 expect_run "missing phone is refused (real run)" 2 "UAT_TEST_PHONE is required" UAT_API_BASE_URL=https://api-uat.tazzzo.com
 expect_run "bad phone is refused" 2 "Indian mobile" UAT_API_BASE_URL=https://api-uat.tazzzo.com UAT_TEST_PHONE=12345
 expect_run "bad OTP format is refused" 2 "exactly 6 digits" UAT_API_BASE_URL=https://api-uat.tazzzo.com UAT_TEST_PHONE="$TEST_PHONE" UAT_OTP=12ab
+
+# Hostile spellings of the production host (and look-alikes). Each must exit 2 BEFORE any curl is started, even with a
+# phone and OTP present. The loopback look-alikes would reach the mock server if the parser were lenient: its counter must stay 0.
+echo "== hostile URL spellings =="
+start_server happy
+refused() { # <url>
+  : >"$ARGV_LOG"
+  expect_run "refused before any network call: $1" 2 "REFUSED|UAT_API_BASE_URL" UAT_API_BASE_URL="$1" UAT_TEST_PHONE="$TEST_PHONE" UAT_OTP="$GOOD_OTP" "${@:2}"
+  assert_not "no curl was started for: $1" grep -q '^curl ' "$ARGV_LOG"
+}
+for url in \
+  'https://api%2Etazzzo%2Ecom' 'https://api%2etazzzo%2ecom' 'https://api.tazzzo.com%2E' 'https://api.tazzzo.com%2e' \
+  'https://api%252Etazzzo%252Ecom' 'https://api.tazzzo.com%252E' 'https://api%2Etazzzo.com' 'https://%61pi.tazzzo.com' \
+  'https://api-uat%2Etazzzo%2Ecom' \
+  "https://api.tazzzo.com${BS}" "https://api.tazzzo.com${BS}@api-uat.tazzzo.com" "https://api-uat.tazzzo.com${BS}.evil.com" \
+  'https://api．tazzzo．com' 'https://ａｐｉ.tazzzo.com' 'https://api-uat.tazzzo.com。evil' \
+  'https://api.tazzzo.com.' 'https://API.TAZZZO.COM.' 'https://api-uat.tazzzo.com.' 'https://API-UAT.TAZZZO.COM.' \
+  'https://API.TAZZZO.COM' 'https://Api.Tazzzo.Com' \
+  'https://api-uat.tazzzo.com.evil.com' 'https://uat.tazzzo.com.evil.com' 'https://evil-api-uat.tazzzo.com.evil.com' 'https://tazzzo.com.evil.com' \
+  'https://evil.com' 'https://203.0.113.5' 'https://203.0.113.5:8443' 'https://[::1]' 'https://[2001:db8::1]:443' \
+  'https://api-uat..tazzzo.com' 'https://.api-uat.tazzzo.com' 'https://-api-uat.tazzzo.com' 'https://api-uat-.tazzzo.com' \
+  'https://api.tazzzo.com:443' 'https://api.tazzzo.com:' 'https://api-uat.tazzzo.com:' 'https://api-uat.tazzzo.com:abc' \
+  'https://api-uat.tazzzo.com:0' 'https://api-uat.tazzzo.com:99999' 'https://api-uat.tazzzo.com:44 3' 'https://api-uat.tazzzo.com:443:443' \
+  'https://api-uat.tazzzo.com ' 'https://api-uat.tazzzo.com//' 'https://api-uat.tazzzo.com?x=1' 'https://api-uat.tazzzo.com#x' \
+  'https://user@api-uat.tazzzo.com' 'https://api.tazzzo.com@api-uat.tazzzo.com' 'http://api-uat.tazzzo.com' 'http://203.0.113.5' \
+  'ftp://api-uat.tazzzo.com' 'api-uat.tazzzo.com' 'https://' 'https://:443'; do
+  refused "$url"
+done
+# The same for the production names even with the explicit foreign-host switch.
+refused 'https://api%2Etazzzo%2Ecom' UAT_ALLOW_FOREIGN_HOST=1
+refused 'https://api.tazzzo.com' UAT_ALLOW_FOREIGN_HOST=1
+refused 'https://API.TAZZZO.COM.' UAT_ALLOW_FOREIGN_HOST=1
+refused "https://api.tazzzo.com.evil.com${BS}" UAT_ALLOW_FOREIGN_HOST=1
+# Loopback look-alikes that a lenient parser would send to the mock server.
+for url in "http://127.0.0.1%2e:$PORT" "http://127.0.0.1.:$PORT" "http://127.0.0.1\\@evil.com:$PORT" "http://127.0.0.1:$PORT@evil.com" "http://127.0.0.1:$PORT/x" "http://0.0.0.0:$PORT" "http://127.0.0.2:$PORT" "http://localhost.evil.com:$PORT" "http://[::1]:$PORT"; do
+  refused "$url"
+done
+assert "the mock server saw 0 requests during all hostile URLs" test "$(requests_seen)" = 0
+# Foreign host: only with the explicit switch, with a warning; dry-run needs no network.
+env UAT_API_BASE_URL=https://uat-stack.example.org UAT_ALLOW_FOREIGN_HOST=1 bash "$E2E" --dry-run </dev/null >"$OUT" 2>&1; rc=$?
+assert "foreign host with UAT_ALLOW_FOREIGN_HOST=1 passes the dry run" test "$rc" = 0
+assert "... and prints a warning" grep -q 'WARNING: UAT_ALLOW_FOREIGN_HOST=1' "$OUT"
+env UAT_API_BASE_URL=https://uat-stack.example.org bash "$E2E" --dry-run </dev/null >"$OUT" 2>&1; rc=$?
+assert "foreign host without the switch is refused" test "$rc" = 2
+for url in https://API-UAT.TAZZZO.COM https://api-uat.tazzzo.com/ https://api-uat.tazzzo.com:8443 https://uat.tazzzo.com https://cms-uat.tazzzo.com https://admin-uat.tazzzo.com; do
+  env UAT_API_BASE_URL="$url" bash "$E2E" --dry-run </dev/null >"$OUT" 2>&1; rc=$?
+  assert "allowed UAT spelling accepted (dry run): $url" test "$rc" = 0
+done
+stop_server
 
 # --- dry run -----------------------------------------------------------------------------------------------------------
 echo "== dry run =="
@@ -135,10 +198,21 @@ if [ "$rc" = 1 ] && grep -q MISSING "$OUT" && grep -q "DRY RUN FAILED" "$OUT"; t
 # --- happy path --------------------------------------------------------------------------------------------------------
 echo "== happy path =="
 start_server happy
+: >"$ARGV_LOG"
 expect_run "happy path passes" 0 "RESULT: PASS" UAT_API_BASE_URL="http://127.0.0.1:$PORT" UAT_TEST_PHONE="$TEST_PHONE" UAT_OTP="$GOOD_OTP"
 assert "happy path summary has 0 FAIL and 0 SKIP" grep -Eq "SUMMARY: [0-9]+ PASS, 0 FAIL, 0 SKIP" "$OUT"
 for r in "COD order" "order replay" "stock moved once" "stock stable" "cart cleared" "token rotation" "old refresh refused" "revoked access refused" "revoked refresh refused"; do row "happy" "$r" PASS; done
 no_secrets_in_output "happy"
+secret_free_argv() { # no secret value in the argv of any jq / curl the script started
+  local leaked=0 s
+  while IFS= read -r s; do
+    if [ -n "$s" ] && grep -qF -- "$s" "$ARGV_LOG"; then leaked=1; fi
+  done <"$TMP/secrets"
+  if grep -qF -- "$GOOD_OTP" "$ARGV_LOG" || grep -qF -- "$TEST_PHONE" "$ARGV_LOG" || grep -qF -- "${TEST_PHONE#+91}" "$ARGV_LOG"; then leaked=1; fi
+  [ "$leaked" = 0 ]
+}
+assert "argv of jq/curl children holds no token, grant, OTP or phone (happy run)" secret_free_argv
+assert "the argv log is not empty (the shims were really used)" test -s "$ARGV_LOG"
 UAT_REPORT_FILE="$TMP/report.md"
 expect_run "happy path writes a markdown report" 0 "RESULT: PASS" UAT_API_BASE_URL="http://127.0.0.1:$PORT" UAT_TEST_PHONE="$TEST_PHONE" UAT_OTP="$GOOD_OTP" UAT_REPORT="$UAT_REPORT_FILE" UAT_ORDER_QTY=2
 assert "report file holds the table" grep -q '^| COD order | PASS' "$UAT_REPORT_FILE"

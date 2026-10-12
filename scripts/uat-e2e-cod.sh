@@ -128,44 +128,68 @@ BASE_URL="${BASE_URL%/}"
 lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 
 TARGET_HOST=""
+# Strict allowlist. The authority is restricted to [A-Za-z0-9.:-] BEFORE anything is decided, so there is no encoded
+# (%2E), backslash, unicode, bracket or whitespace spelling that curl could read differently from this parser. The host
+# must then be loopback (the offline self-test) or a *.tazzzo.com name with a uat/staging/stg/dev/test label. Anything else
+# is refused unless UAT_ALLOW_FOREIGN_HOST=1 (a loud warning; the production list is still enforced).
 validate_base_url() {
-  local url="$1" scheme rest hostport host p
+  local LC_ALL=C url="$1" scheme rest host port="" p label oldifs
   case "$url" in
     https://*) scheme=https; rest="${url#https://}" ;;
     http://*) scheme=http; rest="${url#http://}" ;;
     *) die "UAT_API_BASE_URL must start with https:// (or http:// for a loopback host)" ;;
   esac
-  case "$rest" in
-    */* | *\?* | *\#*) die "UAT_API_BASE_URL must be scheme://host[:port] only (no path, query or fragment)" ;;
-    *@*) die "UAT_API_BASE_URL must not contain credentials" ;;
-  esac
-  hostport="$rest"
-  case "$hostport" in
-    \[*\]*) host="${hostport%%]*}"; host="${host#[}" ;;
-    *) host="${hostport%%:*}" ;;
-  esac
+  if [[ $rest == *[!A-Za-z0-9.:-]* ]]; then
+    die "REFUSED: UAT_API_BASE_URL must be scheme://host[:port] with letters, digits, '.', '-' only (no path, query, fragment, credentials, percent-encoding, backslash, unicode or brackets)"
+  fi
+  host="${rest%%:*}"
+  if [[ $rest == *:* ]]; then
+    port="${rest#*:}"
+    if ! [[ $port =~ ^[0-9]{1,5}$ ]] || [ "$((10#$port))" -lt 1 ] || [ "$((10#$port))" -gt 65535 ]; then
+      die "REFUSED: invalid port in UAT_API_BASE_URL"
+    fi
+    port="$((10#$port))"
+  fi
   host="$(lower "$host")"
-  host="${host%.}" # "api.tazzzo.com." (absolute form) is the same host
   [ -n "$host" ] || die "UAT_API_BASE_URL has no host"
+  case "$host" in
+    . | .* | *. | *..*) die "REFUSED: malformed host (empty label or trailing dot)" ;;
+  esac
+  oldifs="$IFS"; IFS='.'
+  # shellcheck disable=SC2086
+  set -- $host
+  IFS="$oldifs"
+  for label in "$@"; do
+    case "$label" in
+      -* | *-) die "REFUSED: malformed host label" ;;
+    esac
+  done
   for p in "${PRODUCTION_HOSTS[@]}"; do
     if [ "$host" = "$p" ]; then
       die "REFUSED: $host is a production host (PRODUCTION_HOSTS). This script writes data and runs against UAT only."
     fi
   done
   case "$host" in
-    localhost | 127.0.0.1 | ::1) ;;
+    localhost | 127.0.0.1) ;;
     *)
-      [ "$scheme" = https ] || die "REFUSED: plain http is accepted only for a loopback host"
+      [ "$scheme" = https ] || die "REFUSED: plain http is accepted only for localhost / 127.0.0.1"
       case "$host" in
         *"$TAZZZO_DOMAIN_SUFFIX")
           if ! [[ $host =~ $NONPROD_LABEL_RE ]]; then
             die "REFUSED: $host is under ${TAZZZO_DOMAIN_SUFFIX#.} but does not look like a UAT/staging/dev host"
           fi
           ;;
+        *)
+          if [ "${UAT_ALLOW_FOREIGN_HOST:-0}" != 1 ]; then
+            die "REFUSED: $host is not a UAT host under ${TAZZZO_DOMAIN_SUFFIX#.} or loopback (set UAT_ALLOW_FOREIGN_HOST=1 only for a UAT stack you own on another domain)"
+          fi
+          echo "uat-e2e-cod: WARNING: UAT_ALLOW_FOREIGN_HOST=1: $host is outside ${TAZZZO_DOMAIN_SUFFIX#.}; you are responsible for it being UAT" >&2
+          ;;
       esac
       ;;
   esac
   TARGET_HOST="$host"
+  BASE_URL="$scheme://$host${port:+:$port}" # the normalised form is what curl receives
 }
 validate_base_url "$BASE_URL"
 
@@ -437,7 +461,7 @@ s_product() {
 }
 
 s_otp_request() {
-  api POST /v1/auth/otp/request 0 "$(jq -nc --arg p "$PHONE" '{phone:$p}')"
+  api POST /v1/auth/otp/request 0 "$(UAT_J1="$PHONE" jq -nc '{phone:$ENV.UAT_J1}')"
   want "otp request" 202 || return 1
   OTP_CHALLENGE="$(jv '.challengeId')"
   if ! [[ $OTP_CHALLENGE =~ ^OTP_[A-Za-z0-9_-]+$ ]]; then
@@ -463,7 +487,7 @@ s_otp_verify() {
     fail "otp verify" "the OTP must be exactly 6 digits"
     return 1
   fi
-  api POST /v1/auth/otp/verify 0 "$(jq -nc --arg c "$OTP_CHALLENGE" --arg o "$OTP" '{challengeId:$c,otp:$o}')"
+  api POST /v1/auth/otp/verify 0 "$(UAT_J1="$OTP_CHALLENGE" UAT_J2="$OTP" jq -nc '{challengeId:$ENV.UAT_J1,otp:$ENV.UAT_J2}')"
   OTP=""
   want "otp verify" 200 || return 1
   GRANT_ID="$(jv '.grantId')"
@@ -476,7 +500,7 @@ s_otp_verify() {
 }
 
 s_session() {
-  api POST /v1/auth/session 0 "$(jq -nc --arg g "$GRANT_ID" '{grantId:$g}')"
+  api POST /v1/auth/session 0 "$(UAT_J1="$GRANT_ID" jq -nc '{grantId:$ENV.UAT_J1}')"
   want "session" 200 || return 1
   ACCESS_TOKEN="$(jv '.accessToken')"
   REFRESH_TOKEN="$(jv '.refreshToken')"
@@ -508,7 +532,7 @@ s_profile() {
 
 s_address() {
   local body
-  body="$(jq -nc --arg pin "$PIN" --arg ph "$PHONE" '{label:"HOME",recipientName:"UAT E2E Tester",recipientPhone:$ph,addressLine1:"1 UAT Test Lane",city:"Bengaluru",state:"Karnataka",postalCode:$pin}')"
+  body="$(UAT_J1="$PHONE" UAT_J2="$PIN" jq -nc '{label:"HOME",recipientName:"UAT E2E Tester",recipientPhone:$ENV.UAT_J1,addressLine1:"1 UAT Test Lane",city:"Bengaluru",state:"Karnataka",postalCode:$ENV.UAT_J2}')"
   api POST /v1/customer/addresses 1 "$body" "Idempotency-Key: $(rand_key)"
   want "address create" 201 || return 1
   ADDRESS_ID="$(jv '.addressId')"
@@ -684,7 +708,7 @@ s_cart_cleared() {
 
 s_refresh() {
   local old_refresh="$REFRESH_TOKEN" new_access new_refresh
-  api POST /v1/auth/refresh 0 "$(jq -nc --arg r "$old_refresh" '{refreshToken:$r}')"
+  api POST /v1/auth/refresh 0 "$(UAT_J1="$old_refresh" jq -nc '{refreshToken:$ENV.UAT_J1}')"
   want "token rotation" 200 || return 1
   new_access="$(jv '.accessToken')"
   new_refresh="$(jv '.refreshToken')"
@@ -702,7 +726,7 @@ s_refresh() {
   api GET /v1/customer/profile 1
   want "rotated token works" 200 || return 1
   pass "rotated token works" "200 with the new access token"
-  api POST /v1/auth/refresh 0 "$(jq -nc --arg r "$old_refresh" '{refreshToken:$r}')"
+  api POST /v1/auth/refresh 0 "$(UAT_J1="$old_refresh" jq -nc '{refreshToken:$ENV.UAT_J1}')"
   if [ "$STATUS" = 401 ]; then
     pass "old refresh refused" "401 the rotated-away refresh token is refused"
   else
@@ -740,7 +764,7 @@ s_logout() {
     fail "revoked access refused" "HTTP $STATUS, expected 401: the access token still works after logout"
     return 1
   fi
-  api POST /v1/auth/refresh 0 "$(jq -nc --arg r "$REFRESH_TOKEN" '{refreshToken:$r}')"
+  api POST /v1/auth/refresh 0 "$(UAT_J1="$REFRESH_TOKEN" jq -nc '{refreshToken:$ENV.UAT_J1}')"
   if [ "$STATUS" = 401 ]; then
     pass "revoked refresh refused" "401 after logout"
   else
