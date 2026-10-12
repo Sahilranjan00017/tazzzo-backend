@@ -1,0 +1,354 @@
+name: deploy-uat
+
+# Build, test, scan, push and deploy ONE immutable image to the UAT environment on AWS. See docs/ops/UAT_DEPLOYMENT.md.
+#
+# Triggers (deliberately narrow):
+#   - push to the `uat` branch ONLY. Never on every push to main: UAT is an environment with a running cost and a shared
+#     database, so a deploy is a deliberate act (fast-forward `uat` to the commit you want tested), not a side effect of merging.
+#   - workflow_dispatch with a git ref (default: the `uat` branch).
+# Authentication is AWS OIDC only (no AWS keys anywhere). The AWS jobs run in the GitHub environment `uat`; required reviewers
+# on that environment are a repository setting the owner configures (docs/ops/UAT_DEPLOYMENT.md).
+# Configuration is GitHub repository VARIABLES (never secrets): AWS_REGION, AWS_UAT_DEPLOY_ROLE_ARN, UAT_API_BASE_URL,
+# UAT_EC2_ROLE_TAG, UAT_IMAGE_PLATFORM (default linux/arm64), UAT_RUNNER_LABEL (default ubuntu-24.04-arm).
+# Third-party actions are pinned by full commit SHA; GitHub-owned actions follow backend-ci.yml (major tags).
+
+on:
+  push:
+    branches: [uat]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git ref (branch, tag or full SHA) to build and deploy'
+        required: false
+        default: uat
+        type: string
+      auto_rollback:
+        description: 'If the deploy or its verification fails after the SSM deploy started, roll back automatically to the previously deployed SHA'
+        required: false
+        default: false
+        type: boolean
+      reuse_existing_image:
+        description: 'If the immutable tag for this SHA is already in ECR with a different digest (a rebuild is never bit-identical), deploy the existing image instead of failing'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+# One UAT deploy or rollback at a time (rollback-uat.yml shares this group). Never cancel a deploy half-way.
+concurrency:
+  group: uat-deploy
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'ap-south-1' }}
+  ECR_REPOSITORY: tazzzo-uat-backend
+  IMAGE_PLATFORM: ${{ vars.UAT_IMAGE_PLATFORM || 'linux/arm64' }}
+
+jobs:
+  build:
+    name: Test, build, scan (no AWS)
+    runs-on: ${{ vars.UAT_RUNNER_LABEL || 'ubuntu-24.04-arm' }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      security-events: write # SARIF upload; the step is best effort (needs code scanning to be available)
+    outputs:
+      sha: ${{ steps.sha.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      - name: Record the full commit SHA
+        id: sha
+        run: |
+          # Equals github.sha on a push to uat. With workflow_dispatch the checked-out ref may differ from the dispatching
+          # branch, and the image must be tagged with what was actually built.
+          GIT_SHA="$(git rev-parse HEAD)"
+          [[ "$GIT_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "not a full 40-hex SHA"; exit 1; }
+          echo "GIT_SHA=$GIT_SHA" >> "$GITHUB_ENV"
+          echo "sha=$GIT_SHA" >> "$GITHUB_OUTPUT"
+          echo "Building commit $GIT_SHA"
+      - name: Set up Java 21 (Temurin)
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Show toolchain
+        working-directory: services/catalog-service
+        run: ./mvnw -v
+      - name: Full test suite and package (Testcontainers; same suite as backend-ci)
+        working-directory: services/catalog-service
+        run: ./mvnw -B verify
+      - name: Emulation (only if the platform differs from the runner)
+        id: arch
+        run: |
+          runner_arch="$(uname -m)"
+          case "$IMAGE_PLATFORM" in
+            linux/arm64) want=aarch64 ;;
+            linux/amd64) want=x86_64 ;;
+            *) echo "unsupported UAT_IMAGE_PLATFORM: $IMAGE_PLATFORM"; exit 1 ;;
+          esac
+          if [ "$runner_arch" = "$want" ]; then echo "qemu=false" >> "$GITHUB_OUTPUT"; else echo "qemu=true" >> "$GITHUB_OUTPUT"; fi
+      - name: Set up QEMU
+        if: steps.arch.outputs.qemu == 'true'
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build image (existing Dockerfile, no config or secrets baked in)
+        working-directory: services/catalog-service
+        run: |
+          docker buildx build --platform "$IMAGE_PLATFORM" --provenance=false --load \
+            -t "tazzzo-uat-backend:$GIT_SHA" .
+      - name: Image runs unprivileged, carries no configuration, has the expected architecture
+        run: |
+          IMG="tazzzo-uat-backend:$GIT_SHA"
+          test "$(docker run --rm --platform "$IMAGE_PLATFORM" --entrypoint id "$IMG" -u)" = "10001"
+          if docker image inspect "$IMG" --format '{{json .Config.Env}}' | grep -Eiq 'MONGODB|TOKEN|KEY_B64|SECRET|PASSWORD|REDIS'; then
+            echo "::error::configuration or secrets are baked into the image environment"; exit 1
+          fi
+          test "linux/$(docker image inspect "$IMG" --format '{{.Architecture}}')" = "$IMAGE_PLATFORM"
+          echo "image assertions passed"
+      - name: Trivy scan (SARIF report)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: tazzzo-uat-backend:${{ steps.sha.outputs.sha }}
+          format: sarif
+          output: trivy-results.sarif
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '0'
+      - name: Upload SARIF (best effort)
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy-uat-image
+      - name: Trivy gate (fail on fixable HIGH or CRITICAL)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: tazzzo-uat-backend:${{ steps.sha.outputs.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+      - name: Save the scanned image for the publish job
+        run: docker save "tazzzo-uat-backend:$GIT_SHA" | gzip -1 > image.tar.gz
+      - uses: actions/upload-artifact@v7
+        with:
+          name: uat-image-${{ steps.sha.outputs.sha }}
+          path: image.tar.gz
+          retention-days: 1
+          compression-level: 0
+
+  publish:
+    name: Push immutable image to ECR
+    needs: build
+    runs-on: ubuntu-latest # AWS CLI only; the image is moved as a tarball
+    environment: uat
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      GIT_SHA: ${{ needs.build.outputs.sha }}
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+      image: ${{ steps.push.outputs.image }}
+    steps:
+      - name: Require configuration
+        env:
+          ROLE_ARN: ${{ vars.AWS_UAT_DEPLOY_ROLE_ARN }}
+        run: |
+          [ -n "$ROLE_ARN" ] || { echo "::error::repository variable AWS_UAT_DEPLOY_ROLE_ARN is not set (see docs/ops/UAT_DEPLOYMENT.md)"; exit 1; }
+      - uses: actions/download-artifact@v8
+        with:
+          name: uat-image-${{ needs.build.outputs.sha }}
+      - name: Load the scanned image
+        run: gunzip -c image.tar.gz | docker load
+      - name: Configure AWS credentials (OIDC, no keys)
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_UAT_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Log in to ECR
+        id: login
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
+      - name: Push the immutable tag (full SHA only, never latest)
+        id: push
+        env:
+          REGISTRY: ${{ steps.login.outputs.registry }}
+          REUSE_EXISTING: ${{ inputs.reuse_existing_image || 'false' }}
+        run: |
+          IMAGE="$REGISTRY/$ECR_REPOSITORY:$GIT_SHA"
+          set +e
+          EXISTING="$(aws ecr describe-images --region "$AWS_REGION" --repository-name "$ECR_REPOSITORY" \
+            --image-ids "imageTag=$GIT_SHA" --query 'imageDetails[0].imageDigest' --output text 2>"$RUNNER_TEMP/ecr.err")"
+          rc=$?
+          set -e
+          if [ "$rc" -eq 0 ] && [ -n "$EXISTING" ] && [ "$EXISTING" != None ]; then
+            echo "Tag $GIT_SHA already exists in ECR with digest $EXISTING (tags are immutable; nothing is overwritten)."
+            if [ "$REUSE_EXISTING" = true ]; then
+              echo "reuse_existing_image=true: deploying the existing image; the ECR scan gate below still applies."
+              DIGEST="$EXISTING"
+            else
+              echo "::error::Image tag $GIT_SHA already exists. A rebuild is never bit-identical, so its digest cannot be proven equal to this build. Re-run with reuse_existing_image=true to deploy the existing image, or build a new commit."
+              exit 1
+            fi
+          elif grep -q ImageNotFoundException "$RUNNER_TEMP/ecr.err"; then
+            docker tag "tazzzo-uat-backend:$GIT_SHA" "$IMAGE"
+            docker push "$IMAGE"
+            DIGEST="$(aws ecr describe-images --region "$AWS_REGION" --repository-name "$ECR_REPOSITORY" \
+              --image-ids "imageTag=$GIT_SHA" --query 'imageDetails[0].imageDigest' --output text)"
+          else
+            echo "::error::could not query ECR repository $ECR_REPOSITORY (permissions, or the repository does not exist)"
+            exit 1
+          fi
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::unexpected digest format"; exit 1; }
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+          echo "Pushed/confirmed $IMAGE@$DIGEST"
+      - name: Wait for the ECR scan and fail on CRITICAL findings
+        run: |
+          deadline=$((SECONDS + 600))
+          started=false
+          while :; do
+            set +e
+            STATUS="$(aws ecr describe-image-scan-findings --region "$AWS_REGION" --repository-name "$ECR_REPOSITORY" \
+              --image-id "imageTag=$GIT_SHA" --query 'imageScanStatus.status' --output text 2>"$RUNNER_TEMP/scan.err")"
+            rc=$?
+            set -e
+            if [ "$rc" -ne 0 ] && grep -q ScanNotFoundException "$RUNNER_TEMP/scan.err"; then
+              if [ "$started" = false ]; then
+                echo "No scan yet (scan-on-push should have started one); requesting one."
+                aws ecr start-image-scan --region "$AWS_REGION" --repository-name "$ECR_REPOSITORY" \
+                  --image-id "imageTag=$GIT_SHA" >/dev/null 2>&1 || true
+                started=true
+              fi
+              STATUS=PENDING
+            elif [ "$rc" -ne 0 ]; then
+              echo "::error::could not read ECR scan findings"; exit 1
+            fi
+            echo "ecr scan status: $STATUS"
+            case "$STATUS" in
+              COMPLETE) break ;;
+              FAILED | UNSUPPORTED_IMAGE | FINDINGS_UNAVAILABLE) echo "::error::ECR scan did not complete ($STATUS)"; exit 1 ;;
+            esac
+            [ "$SECONDS" -lt "$deadline" ] || { echo "::error::ECR scan did not complete within 10 minutes"; exit 1; }
+            sleep 15
+          done
+          COUNTS="$(aws ecr describe-image-scan-findings --region "$AWS_REGION" --repository-name "$ECR_REPOSITORY" \
+            --image-id "imageTag=$GIT_SHA" --query 'imageScanFindings.findingSeverityCounts' --output json)"
+          echo "finding severity counts: $COUNTS"
+          CRITICAL="$(echo "$COUNTS" | jq -r '.CRITICAL // 0')"
+          [ "$CRITICAL" -eq 0 ] || { echo "::error::ECR scan reports $CRITICAL CRITICAL finding(s)"; exit 1; }
+
+  deploy:
+    name: Deploy, verify, report
+    needs: [build, publish]
+    runs-on: ubuntu-latest
+    environment: uat
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      GIT_SHA: ${{ needs.build.outputs.sha }}
+      UAT_API_BASE_URL: ${{ vars.UAT_API_BASE_URL }}
+      UAT_EC2_ROLE_TAG: ${{ vars.UAT_EC2_ROLE_TAG || 'backend' }}
+    steps:
+      - name: Require configuration
+        run: |
+          [ -n "${{ vars.AWS_UAT_DEPLOY_ROLE_ARN }}" ] || { echo "::error::repository variable AWS_UAT_DEPLOY_ROLE_ARN is not set"; exit 1; }
+          [ -n "$UAT_API_BASE_URL" ] || { echo "::error::repository variable UAT_API_BASE_URL is not set"; exit 1; }
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.build.outputs.sha }}
+          persist-credentials: false
+      - name: Configure AWS credentials (OIDC, no keys)
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_UAT_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Read the currently deployed SHA (rollback target)
+        id: previous
+        run: |
+          read_sha() {
+            v="$(aws ssm get-parameter --region "$AWS_REGION" --name "$1" --query Parameter.Value --output text 2>/dev/null || true)"
+            if [[ "$v" =~ ^[0-9a-f]{40}$ ]]; then echo "$v"; else echo none; fi
+          }
+          CURRENT="$(read_sha /tazzzo/uat/backend/deployed-sha)"
+          RECORDED_PREVIOUS="$(read_sha /tazzzo/uat/backend/previous-sha)"
+          # The rollback target is what is running now. If nothing is recorded (first deploy), fall back to the recorded previous SHA.
+          if [ "$CURRENT" != none ]; then TARGET="$CURRENT"; else TARGET="$RECORDED_PREVIOUS"; fi
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "target=$TARGET" >> "$GITHUB_OUTPUT"
+          echo "Currently deployed: $CURRENT; recorded previous: $RECORDED_PREVIOUS; rollback target: $TARGET"
+      - name: Deploy through SSM Run Command (document tazzzo-uat-deploy, Action=deploy)
+        id: deploy
+        run: |
+          echo "DEPLOY_STARTED=true" >> "$GITHUB_ENV"
+          scripts/uat-ssm-run.sh deploy "$GIT_SHA"
+      - name: Health check (/health/ready then /health/live; fails fast on an unmigrated schema)
+        id: health
+        run: scripts/uat-wait-healthy.sh "$UAT_API_BASE_URL" 300 10
+      - name: Smoke test
+        id: smoke
+        run: |
+          SMOKE_REPORT="$RUNNER_TEMP/smoke.md" scripts/uat-smoke-test.sh "$UAT_API_BASE_URL"
+      - name: Rollback instructions / optional automatic rollback
+        id: rollback
+        if: failure() && env.DEPLOY_STARTED == 'true'
+        env:
+          AUTO_ROLLBACK: ${{ inputs.auto_rollback || 'false' }}
+          TARGET: ${{ steps.previous.outputs.target }}
+        run: |
+          echo "The deploy of $GIT_SHA failed after the SSM deploy started."
+          if [ "$TARGET" = none ]; then
+            echo "No previous SHA is recorded (first deploy): nothing to roll back to."
+            exit 0
+          fi
+          echo "Manual rollback: run the rollback-uat workflow with sha=$TARGET"
+          if [ "$AUTO_ROLLBACK" = true ]; then
+            echo "auto_rollback=true: rolling back to $TARGET"
+            scripts/uat-ssm-run.sh rollback "$TARGET"
+            scripts/uat-wait-healthy.sh "$UAT_API_BASE_URL" 300 10
+            echo "ROLLED_BACK=true" >> "$GITHUB_ENV"
+          fi
+      - name: Report
+        if: always()
+        env:
+          DIGEST: ${{ needs.publish.outputs.digest }}
+          IMAGE: ${{ needs.publish.outputs.image }}
+          CURRENT: ${{ steps.previous.outputs.current }}
+          DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
+          HEALTH_OUTCOME: ${{ steps.health.outcome }}
+          SMOKE_OUTCOME: ${{ steps.smoke.outcome }}
+        run: |
+          {
+            echo "## UAT deploy"
+            echo
+            echo "| Item | Value |"
+            echo "|---|---|"
+            echo "| Deployed SHA (requested) | \`$GIT_SHA\` |"
+            echo "| Image | \`$IMAGE\` |"
+            echo "| Image digest | \`$DIGEST\` |"
+            echo "| Previous SHA (running before this deploy) | \`${CURRENT:-none}\` |"
+            echo "| SSM deploy | $DEPLOY_OUTCOME |"
+            echo "| Health | $HEALTH_OUTCOME |"
+            echo "| Smoke | $SMOKE_OUTCOME |"
+            echo "| Rolled back automatically | ${ROLLED_BACK:-false} |"
+            if [ -s "$RUNNER_TEMP/smoke.md" ]; then
+              echo
+              echo "### Smoke results"
+              echo
+              cat "$RUNNER_TEMP/smoke.md"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$DEPLOY_OUTCOME" != success ] || [ "$HEALTH_OUTCOME" != success ] || [ "$SMOKE_OUTCOME" != success ]; then
+            echo "::error::UAT deploy did not complete successfully"
+            exit 1
+          fi

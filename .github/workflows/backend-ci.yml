@@ -39,6 +39,18 @@ jobs:
       - name: Scan for committed credentials
         run: ./scripts/secret-scan.sh
 
+  workflow-lint:
+    name: Lint workflows and scripts (actionlint + shellcheck)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install actionlint (pinned)
+        run: python3 -m pip install --user actionlint-py==1.7.12
+      - name: actionlint (runs shellcheck on workflow run blocks)
+        run: ~/.local/bin/actionlint
+      - name: shellcheck the operations scripts
+        run: shellcheck -x scripts/*.sh
+
   build-test:
     name: Compile & test (Java 21 + Testcontainers)
     runs-on: ubuntu-latest
