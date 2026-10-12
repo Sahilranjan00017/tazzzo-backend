@@ -55,6 +55,10 @@ jobs:
           "$RUNNER_TEMP/actionlint"
       - name: shellcheck the UAT operations scripts
         run: shellcheck -x scripts/uat-*.sh
+      - name: UAT E2E script self-test (offline, local mock server only)
+        run: scripts/uat-e2e-cod-selftest.sh
+      - name: UAT environment contract documents every application.yml variable
+        run: scripts/uat-env-contract-check.sh
 
   build-test:
     name: Compile & test (Java 21 + Testcontainers)

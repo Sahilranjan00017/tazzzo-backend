@@ -3,7 +3,7 @@
 Single source of truth for what is actually built and verified in `tazzzo-backend`.
 Reflects **current reality only** — nothing is marked complete unless verified from existing code.
 
-Last updated: 2026-10-10
+Last updated: 2026-10-12
 
 ---
 
@@ -20,6 +20,8 @@ Last updated: 2026-10-10
   - Test rig: JUnit 5 + Testcontainers (MongoDB 7 replica set + Redis)
 
 ## In review (not yet merged)
+
+- **UAT readiness, non-AWS (branch `uat-prep/e2e-and-config`, from `main` `ace278c`; docs and scripts only, no Java or configuration change)**: `scripts/uat-e2e-cod.sh` is a runnable customer COD end-to-end script for runbook section M (health, serviceability, browse, OTP login, profile, address, cart, quote, COD order and replay, history, stock before/after, cart cleared, refresh rotation, logout revocation) with a PASS/FAIL table, non-zero exit on failure, `--dry-run` that checks every route against `docs/api/v1/openapi.yaml`, a single production-host list it refuses, and no secret in its output. `scripts/uat-e2e-cod-selftest.sh` exercises it offline against `scripts/uat-e2e-mock-server.py` (76 checks: guard rails, dry run, happy path, 14 failure cases) and runs in the `workflow-lint` job, as does `scripts/uat-env-contract-check.sh`. `docs/ops/UAT_ENVIRONMENT_CONTRACT.md` is the one table of every UAT setting, with the cross-check against the infra branch `feature/uat-1-aws-uat-foundation` (`34b02a0`). **Findings recorded there, not fixed here:** OTP provider `LOGGING` is refused under `TAZZZO_MIGRATION_ENVIRONMENT=staging` (startup failure) and never logs the code, so UAT login needs provider `HTTP`; the admin allowlist `tazzzo.admin.users[n].*`, the OTP HTTP url and `tazzzo.customer-rate-limit.*` are not in the infra list. **Not run:** the script against a real UAT backend; no AWS call was made.
 
 - **UAT deploy pipeline (branch `feature/uat-deploy-workflow`)**: `deploy-uat.yml` (push to `uat` or dispatch: full test suite, arm64 image, Trivy, immutable `<sha>` tag to ECR over OIDC, ECR scan gate, SSM deploy, health, smoke, step summary, optional auto-rollback), `rollback-uat.yml`, `scripts/uat-smoke-test.sh`, `uat-ssm-run.sh`, `uat-wait-healthy.sh`, and an actionlint/shellcheck `workflow-lint` job in `backend-ci.yml`. Docs: `docs/ops/UAT_DEPLOYMENT.md`. Statically linted only; **no AWS step has been run** and nothing is deployed. Migration APPLY stays a separate human-authorised operation.
 
