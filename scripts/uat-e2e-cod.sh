@@ -34,7 +34,7 @@
 # non-secret kind (SKU, order id) and error CODES only. No response body is ever echoed. Tracing is forced off.
 # Exit codes: 0 all steps PASS (SKIP allowed), 1 at least one FAIL, 2 usage / configuration / production-host refusal.
 # Requires: bash 3.2+, curl 7.55+, jq. (No GNU-only tools: it also runs on macOS.)
-# shellcheck disable=SC2329  # the step functions are called indirectly by step()
+# shellcheck disable=SC2317,SC2329  # the step functions are called indirectly by step()
 set +x
 unset BASH_XTRACEFD
 set -uo pipefail

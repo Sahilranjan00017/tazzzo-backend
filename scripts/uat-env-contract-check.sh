@@ -6,7 +6,10 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 YML=services/catalog-service/src/main/resources/application.yml
 DOC=docs/ops/UAT_ENVIRONMENT_CONTRACT.md
-[ -f "$YML" ] && [ -f "$DOC" ] || { echo "env-contract-check: $YML or $DOC not found" >&2; exit 2; }
+if [ ! -f "$YML" ] || [ ! -f "$DOC" ]; then
+  echo "env-contract-check: $YML or $DOC not found" >&2
+  exit 2
+fi
 
 missing=0
 total=0
