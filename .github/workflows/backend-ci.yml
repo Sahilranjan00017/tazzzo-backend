@@ -45,9 +45,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Install actionlint (pinned)
-        run: python3 -m pip install --user actionlint-py==1.7.12
+        run: |
+          python3 -m venv "$RUNNER_TEMP/lint"
+          "$RUNNER_TEMP/lint/bin/pip" install --quiet actionlint-py==1.7.12
       - name: actionlint (runs shellcheck on workflow run blocks)
-        run: ~/.local/bin/actionlint
+        run: |
+          "$RUNNER_TEMP/lint/bin/actionlint"
       - name: shellcheck the operations scripts
         run: shellcheck -x scripts/*.sh
 
