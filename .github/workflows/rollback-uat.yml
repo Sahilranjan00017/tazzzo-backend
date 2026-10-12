@@ -1,0 +1,105 @@
+name: rollback-uat
+
+# Redeploy a PREVIOUSLY PUSHED image to UAT (SSM document tazzzo-uat-deploy, Action=rollback). Manual only.
+# It never builds or pushes. Migrations are append-only (docs/ops/DEPLOYMENT.md), so an image rollback does not touch the database.
+# Same environment, concurrency group and OIDC-only authentication as deploy-uat.yml. See docs/ops/UAT_DEPLOYMENT.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: 'Full 40-hex git SHA of an image already in ECR (the previous SHA in the last deploy summary)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: uat-deploy
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'ap-south-1' }}
+  ECR_REPOSITORY: tazzzo-uat-backend
+
+jobs:
+  rollback:
+    name: Roll back UAT
+    runs-on: ubuntu-latest
+    environment: uat
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      UAT_API_BASE_URL: ${{ vars.UAT_API_BASE_URL }}
+      UAT_EC2_ROLE_TAG: ${{ vars.UAT_EC2_ROLE_TAG || 'backend' }}
+      TARGET_SHA: ${{ inputs.sha }}
+    steps:
+      - name: Validate input and configuration
+        run: |
+          [[ "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::sha must be exactly 40 lowercase hex characters"; exit 1; }
+          [ -n "${{ vars.AWS_UAT_DEPLOY_ROLE_ARN }}" ] || { echo "::error::repository variable AWS_UAT_DEPLOY_ROLE_ARN is not set"; exit 1; }
+          [ -n "$UAT_API_BASE_URL" ] || { echo "::error::repository variable UAT_API_BASE_URL is not set"; exit 1; }
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Configure AWS credentials (OIDC, no keys)
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_UAT_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Confirm the image tag exists in ECR
+        id: image
+        run: |
+          DIGEST="$(aws ecr describe-images --region "$AWS_REGION" --repository-name "$ECR_REPOSITORY" \
+            --image-ids "imageTag=$TARGET_SHA" --query 'imageDetails[0].imageDigest' --output text)" \
+            || { echo "::error::image tag $TARGET_SHA was not found in $ECR_REPOSITORY"; exit 1; }
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+          echo "Found $ECR_REPOSITORY:$TARGET_SHA ($DIGEST)"
+      - name: Read the currently deployed SHA
+        id: current
+        run: |
+          v="$(aws ssm get-parameter --region "$AWS_REGION" --name /tazzzo/uat/backend/deployed-sha --query Parameter.Value --output text 2>/dev/null || true)"
+          if [[ "$v" =~ ^[0-9a-f]{40}$ ]]; then echo "sha=$v" >> "$GITHUB_OUTPUT"; else echo "sha=none" >> "$GITHUB_OUTPUT"; fi
+      - name: Roll back through SSM Run Command (Action=rollback)
+        id: rollback
+        run: scripts/uat-ssm-run.sh rollback "$TARGET_SHA"
+      - name: Health check
+        id: health
+        run: scripts/uat-wait-healthy.sh "$UAT_API_BASE_URL" 300 10
+      - name: Smoke test
+        id: smoke
+        run: SMOKE_REPORT="$RUNNER_TEMP/smoke.md" scripts/uat-smoke-test.sh "$UAT_API_BASE_URL"
+      - name: Report
+        if: always()
+        env:
+          DIGEST: ${{ steps.image.outputs.digest }}
+          BEFORE: ${{ steps.current.outputs.sha }}
+          ROLLBACK_OUTCOME: ${{ steps.rollback.outcome }}
+          HEALTH_OUTCOME: ${{ steps.health.outcome }}
+          SMOKE_OUTCOME: ${{ steps.smoke.outcome }}
+        run: |
+          {
+            echo "## UAT rollback"
+            echo
+            echo "| Item | Value |"
+            echo "|---|---|"
+            echo "| Rolled back to SHA | \`$TARGET_SHA\` |"
+            echo "| Image digest | \`${DIGEST:-unknown}\` |"
+            echo "| Running before | \`${BEFORE:-unknown}\` |"
+            echo "| SSM rollback | $ROLLBACK_OUTCOME |"
+            echo "| Health | $HEALTH_OUTCOME |"
+            echo "| Smoke | $SMOKE_OUTCOME |"
+            if [ -s "$RUNNER_TEMP/smoke.md" ]; then
+              echo
+              echo "### Smoke results"
+              echo
+              cat "$RUNNER_TEMP/smoke.md"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$ROLLBACK_OUTCOME" != success ] || [ "$HEALTH_OUTCOME" != success ] || [ "$SMOKE_OUTCOME" != success ]; then
+            echo "::error::UAT rollback did not complete successfully"
+            exit 1
+          fi

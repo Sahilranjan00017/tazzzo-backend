@@ -21,6 +21,8 @@ Last updated: 2026-10-10
 
 ## In review (not yet merged)
 
+- **UAT deploy pipeline (branch `feature/uat-deploy-workflow`)**: `deploy-uat.yml` (push to `uat` or dispatch: full test suite, arm64 image, Trivy, immutable `<sha>` tag to ECR over OIDC, ECR scan gate, SSM deploy, health, smoke, step summary, optional auto-rollback), `rollback-uat.yml`, `scripts/uat-smoke-test.sh`, `uat-ssm-run.sh`, `uat-wait-healthy.sh`, and an actionlint/shellcheck `workflow-lint` job in `backend-ci.yml`. Docs: `docs/ops/UAT_DEPLOYMENT.md`. Statically linted only; **no AWS step has been run** and nothing is deployed. Migration APPLY stays a separate human-authorised operation.
+
 - **Security final pass (`fix/security-final-pass`)**: S-1 IPv6 /64 rate-limit bucketing, S-3 `jwks-uri` override refused outside
   unset/local/test/dev, S-4 workflow `permissions: contents: read`. S-1 daily send budget/alerting and S-2 (shared challengeId
   lockable by 5 wrong codes) are accepted-with-reason/deferred; see `docs/security/DEPENDENCY_SECURITY_REVIEW_2026-10.md` section 9.
