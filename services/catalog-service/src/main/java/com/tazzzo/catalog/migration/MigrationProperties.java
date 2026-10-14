@@ -15,7 +15,7 @@ public class MigrationProperties {
     public enum VerifyFailure { FAIL, WARN }
 
     private MigrationMode mode = MigrationMode.VERIFY;
-    /** local | test | dev | staging | production. Required for any mutation. */
+    /** local | test | dev | uat | staging | production. Required for any mutation. */
     private String environment = "";
     /** Two-key confirmation for APPLY outside local/test/dev: the exact database name. */
     private String confirmDatabase = "";

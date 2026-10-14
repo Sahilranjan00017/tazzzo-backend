@@ -40,7 +40,7 @@ Inject these from the platform secret store. Never put them in an image, a file 
 - **OTP SMS gateway credentials:** `docs/ops/OTP_GATEWAY.md` (#65).
 
 ### Configuration
-- `MONGODB_DATABASE`, `TAZZZO_MIGRATION_ENVIRONMENT` (`staging` | `production`), `TAZZZO_BUILD_VERSION` (the git SHA).
+- `MONGODB_DATABASE`, `TAZZZO_MIGRATION_ENVIRONMENT` (`uat` | `staging` | `production`), `TAZZZO_BUILD_VERSION` (the git SHA).
 - **Admin Google sign-in:** `TAZZZO_ADMIN_OIDC_ISSUER`, `…_AUDIENCE`, `…_HOSTED_DOMAIN`, `…_CREDENTIAL_LABEL`.
 - **Public rate limits:** `TAZZZO_CONSUMER_RATE_LIMIT_MODE=REDIS`, `TAZZZO_TRUSTED_PROXY_CIDRS` (exactly the load balancer's ranges), and the IP/installation budgets. With `DISABLED`, every public read fails closed with 503, which is what the local proof showed.
 - **OTP:** `TAZZZO_OTP_PROVIDER_MODE` and its per-IP/phone/challenge budgets.

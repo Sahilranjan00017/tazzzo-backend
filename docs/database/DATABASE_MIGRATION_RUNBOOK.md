@@ -66,7 +66,7 @@ Prefix `tazzzo.migration` (env vars in the second column). None of these values 
 | Property | Env var | Default | Meaning |
 |---|---|---|---|
 | `mode` | `TAZZZO_MIGRATION_MODE` | `VERIFY` | `VERIFY`, `DRY_RUN`, `APPLY`, `APPLY_ON_STARTUP`, `LEGACY` |
-| `environment` | `TAZZZO_MIGRATION_ENVIRONMENT` | *(empty)* | `local`/`test`/`dev`/`staging`/`production`. **Required for any mutation.** |
+| `environment` | `TAZZZO_MIGRATION_ENVIRONMENT` | *(empty)* | `local`/`test`/`dev`/`uat`/`staging`/`production`. **Required for any mutation.** UAT uses `uat`, never `staging` |
 | `confirm-database` | `TAZZZO_MIGRATION_CONFIRM_DATABASE` | *(empty)* | two-key confirmation for `APPLY` outside local/test/dev |
 | `confirm-environment` | `TAZZZO_MIGRATION_CONFIRM_ENVIRONMENT` | *(empty)* | two-key confirmation (exact environment) |
 | `operator` | `TAZZZO_MIGRATION_OPERATOR` | OS user | recorded in the history (use the deployment job id) |
@@ -157,10 +157,10 @@ Errors and blockers pass through `MigrationSanitizer` before being stored or log
 
 | Rule | Effect |
 |---|---|
-| environment not set, or not one of `local/test/dev/staging/production` | refused (`TARGET_REFUSED`), nothing created |
+| environment not set, or not one of `local/test/dev/uat/staging/production` | refused (`TARGET_REFUSED`), nothing created |
 | database name unknown | refused |
-| `APPLY_ON_STARTUP` or `LEGACY` mutation in `staging`/`production` | refused — use the job |
-| `APPLY` in `staging`/`production` | two-key confirmation: `confirm-database` **and** `confirm-environment` must equal the actual target exactly |
+| `APPLY_ON_STARTUP` or `LEGACY` mutation in `uat`/`staging`/`production` (any host, loopback included) | refused — use the job |
+| `APPLY` in `uat`/`staging`/`production` | two-key confirmation: `confirm-database` **and** `confirm-environment` must equal the actual target exactly (case-sensitive, untrimmed; a `staging` confirmation never unlocks `uat`) |
 
 The target is derived from the live client: database name from the connection, hosts from the cluster settings (host:port only).
 
@@ -269,6 +269,37 @@ java -jar catalog-service.jar --spring.main.web-application-type=none \
   --tazzzo.migration.approved-data-migrations=V0004__seed_schemas_pack_fields_not_required   # only when approved
 ```
 
+### 12.3 UAT (`uat`, database `tazzzo_uat`)
+
+UAT is its own environment: `TAZZZO_MIGRATION_ENVIRONMENT=uat`, database `tazzzo_uat`, its own runtime and migrator users. Do
+**not** label it `staging`. `uat` is recognised by `TargetGuard` but is **not** self-serve: like staging/production it is always
+enforced by the datastore verifier (whatever the host), `APPLY_ON_STARTUP`/`LEGACY` are refused, and `APPLY` needs
+`TAZZZO_MIGRATION_CONFIRM_DATABASE=tazzzo_uat` **and** `TAZZZO_MIGRATION_CONFIRM_ENVIRONMENT=uat`, matched exactly.
+
+Before the first run, the Atlas custom roles must equal the role files of the commit being deployed with `tazzzo_staging`
+replaced by `tazzzo_uat` (`DATABASE_STAGING_RUNBOOK.md` §4.1): the runtime role has one privilege group per application
+collection plus two (database-level `listCollections`, `find` on `schema_migrations`), the migrator role exactly 7 groups and 19
+action-resource pairs. A runtime role built from an older role file is missing collections and the service refuses to start in
+`VERIFY` (`MISSING_PRIVILEGE`).
+
+```bash
+# read-only report against UAT; migrator identity; no mutation, nothing created. The URI is read without echoing it.
+printf 'UAT migrator URI (not shown): ' >&2; read -rs MONGODB_URI; echo >&2; export MONGODB_URI
+TAZZZO_MIGRATION_MODE=DRY_RUN TAZZZO_MIGRATION_ENVIRONMENT=uat TAZZZO_MIGRATION_EXIT_AFTER_RUN=true \
+TAZZZO_SCHEDULER_ENABLED=false TAZZZO_CONSUMER_RATE_LIMIT_MODE=DISABLED MONGODB_DATABASE=tazzzo_uat \
+java -jar catalog-service.jar --spring.main.web-application-type=none; echo "exit=$?"
+unset MONGODB_URI
+
+# controlled apply: ONLY after the DRY_RUN report is reviewed and the owner has authorised it in writing
+TAZZZO_MIGRATION_MODE=APPLY TAZZZO_MIGRATION_ENVIRONMENT=uat TAZZZO_MIGRATION_EXIT_AFTER_RUN=true \
+TAZZZO_MIGRATION_CONFIRM_DATABASE=tazzzo_uat TAZZZO_MIGRATION_CONFIRM_ENVIRONMENT=uat \
+TAZZZO_MIGRATION_OPERATOR=<operator> TAZZZO_BUILD_VERSION=<40-hex sha> TAZZZO_SCHEDULER_ENABLED=false \
+TAZZZO_CONSUMER_RATE_LIMIT_MODE=DISABLED MONGODB_DATABASE=tazzzo_uat \
+java -jar catalog-service.jar --spring.main.web-application-type=none
+```
+
+The service on the UAT host then runs with `TAZZZO_MIGRATION_ENVIRONMENT=uat` and the **runtime** user's URI (default `VERIFY`).
+
 **The job is the application, so it needs the same mandatory configuration as the service** — notably `TAZZZO_CONSUMER_RATE_LIMIT_MODE`, which has no default and makes startup fail if unset (`DISABLED` is the fail-closed value for a job that serves nothing) — plus any other mandatory property the service requires at startup. A committed test (`MigrationJobContextIT`) starts the real application in exactly this shape (non-web, `DRY_RUN`, `exit-after-run=true`, only the configuration listed above) and checks that it exits with code 0 and creates nothing. Credentials come from the secret store (`MONGODB_URI`), never from this repository or the command line history. The migration identity should hold only the privileges it needs (`createCollection`, `createIndex`, `dropIndex`, `collMod`, read/write on the bookkeeping collections and, for data migrations, update on the target); the runtime application identity needs none of them in `VERIFY` mode. **Separate runtime / migrator / read-only identities, their exact role definitions (`docs/database/roles/`), the explicit connection contract and the startup verification that enforces both are DB-4: see `DATABASE_STAGING_RUNBOOK.md` (the verifier runs before the migration runner, and refuses to start a staging/production process whose connection string or privileges do not match).**
 
 ## 13. Rollback and roll-forward
@@ -304,7 +335,7 @@ Actual drops happen only through the disabled drop migrations after explicit app
 
 ## 15. Production restrictions
 
-- The application never mutates the schema on startup in `staging`/`production` (the guard refuses it).
+- The application never mutates the schema on startup in `uat`/`staging`/`production` (the guard refuses it).
 - `APPLY` there requires the two-key confirmation and an identified environment; always `DRY_RUN` first and review.
 - Run the §9 preflight queries before the first rollout of any new index; evaluate index build time and load on production-sized data first.
 - Take a backup / confirm point-in-time recovery before any DATA migration or index drop (DB-6).

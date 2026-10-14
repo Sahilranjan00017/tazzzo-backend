@@ -57,7 +57,11 @@ This runbook uses exactly those names and does not invent others. The Atlas user
 
 `PrivilegeModel` (code) is the single source of truth. The role files in `docs/database/roles/` are generated from
 it and a test fails if they drift (`RoleFilesTest`; regenerate with `-Dtazzzo.regenerate-role-files=true`). They are MongoDB
-`createRole` documents for database `tazzzo_staging` (substitute another environment's database name).
+`createRole` documents for database `tazzzo_staging` (substitute another environment's database name: for UAT replace every
+`tazzzo_staging` with `tazzzo_uat`). Sizes to compare with an Atlas custom role: runtime = one group per application collection
+plus two, each collection group holding 4 actions (59 groups / 230 action-resource pairs at the time of writing); migrator = 7 groups /
+19 pairs; migration reader = 1 group / 3 pairs. `UatEnvironmentTest` pins the formula. A role built from an older file (for example
+51 groups / 198 pairs, the DB-4 roster) lacks later collections and is refused in `VERIFY` with `MISSING_PRIVILEGE`.
 
 | Identity | Role file | Used by | Holds | Must NOT hold |
 |---|---|---|---|---|
@@ -157,9 +161,9 @@ Configuration reference (no value here is a secret):
 |---|---|---|---|
 | `MONGODB_URI` | `spring.mongodb.uri` | localhost (**refused** for staging/production) | the connection string — secret |
 | `MONGODB_DATABASE` | `spring.mongodb.database` | `tazzzo` | `tazzzo_staging` for staging |
-| `TAZZZO_MIGRATION_ENVIRONMENT` | `tazzzo.migration.environment` | unset | `local`/`test`/`dev`/`staging`/`production`. **A label, not a boundary:** enforcement is also decided by the connection string (§6.2) |
+| `TAZZZO_MIGRATION_ENVIRONMENT` | `tazzzo.migration.environment` | unset | `local`/`test`/`dev`/`uat`/`staging`/`production` (`uat` for the UAT database `tazzzo_uat`; never reuse `staging` for it). **A label, not a boundary:** enforcement is also decided by the connection string (§6.2) |
 | `TAZZZO_MIGRATION_MODE` | `tazzzo.migration.mode` | `VERIFY` | `VERIFY` (service), `DRY_RUN` / `APPLY` (job) |
-| `TAZZZO_DATASTORE_PRIVILEGE_VERIFICATION` | `tazzzo.datastore.privilege-verification` | `AUTO` | `AUTO` enforces for staging/production; `ENFORCE` enforces everywhere. **There is no setting that turns enforcement off for staging or production.** |
+| `TAZZZO_DATASTORE_PRIVILEGE_VERIFICATION` | `tazzzo.datastore.privilege-verification` | `AUTO` | `AUTO` enforces for uat/staging/production (whatever the host); `ENFORCE` enforces everywhere. **There is no setting that turns enforcement off for uat, staging or production.** |
 | `TAZZZO_SCHEDULER_ENABLED` | `tazzzo.scheduler.enabled` | `true` | no longer forced to `false` by R1 (fixed in code); the startup gate in §6.1 holds workers back until the datastore is verified. Keep `false` for the very first staging runs if you want a conservative start |
 
 ## 6. Startup behaviour (fail-fast)
@@ -169,9 +173,9 @@ What its ordering does **not** do is hold back `@Scheduled` workers, which start
 
 | Condition | Result (finding code) |
 |---|---|
-| `staging`/`production`, **or any label with a non-local target (§6.2)**, URI missing or violating the contract | refuse, no connection attempted by the verifier (`URI_MISSING`, `URI_INVALID`, and the §5 codes) |
+| `uat`/`staging`/`production`, **or any label with a non-local target (§6.2)**, URI missing or violating the contract | refuse, no connection attempted by the verifier (`URI_MISSING`, `URI_INVALID`, and the §5 codes) |
 | environment unset **and** a non-loopback server | refuse (`ENVIRONMENT_NOT_IDENTIFIED`) — the environment cannot be trusted |
-| environment not one of the five known names | refuse (`ENVIRONMENT_UNKNOWN`) |
+| environment not one of the six known names | refuse (`ENVIRONMENT_UNKNOWN`) |
 | server unreachable within `serverSelectionTimeoutMS` | refuse (`DATASTORE_UNAVAILABLE`) |
 | connection string cannot be resolved (for example an SRV lookup fails) | refuse (`DATASTORE_CONFIGURATION_ERROR`) |
 | any other driver failure during the checks | refuse (`DATASTORE_CHECK_FAILED`, naming only the failed check and the exception class) |
@@ -231,7 +235,7 @@ A proxy changes the effective network destination, so a loopback host behind any
 (it still refuses `127.1`, `0177.0.0.1`, `0.0.0.0` and the rest), so no spelling can slip through either rule. There is no developer opt-in flag. (`tazzzo.datastore.privilege-verification=ENFORCE` still enforces everywhere.)
 
 **Residual limit.** A loopback address does not prove the data is local: an SSH or `kubectl` port-forward to a remote cluster, or replica-set discovery that advertises remote member names, looks local. The label and the literal address cannot detect that; use an explicit
-`staging`/`production` label, or `ENFORCE`, whenever the datastore is not a throw-away local one.
+`uat`/`staging`/`production` label, or `ENFORCE`, whenever the datastore is not a throw-away local one.
 
 ### 6.3 Driver logging
 

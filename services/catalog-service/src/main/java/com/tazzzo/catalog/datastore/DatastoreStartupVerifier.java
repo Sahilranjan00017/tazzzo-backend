@@ -30,7 +30,7 @@ import java.util.List;
  * verification has succeeded and startup has completed (a refused process runs none, a migration job runs none).
  * Beans created during context refresh may still open (lazy) connections; they never write.
  *
- * <p><b>Enforced</b> for {@code staging} and {@code production}; for any environment label whose connection string is
+ * <p><b>Enforced</b> for {@code uat}, {@code staging} and {@code production} (whatever the host, loopback included); for any environment label whose connection string is
  * NOT a loopback-only, non-SRV target (an environment name is metadata, not a security boundary: {@code dev}/{@code test}/
  * {@code local} pointing at a remote cluster are enforced like production); for an unidentified environment that points
  * at a non-loopback server; for an unknown environment name; and everywhere when
@@ -135,7 +135,7 @@ public class DatastoreStartupVerifier implements ApplicationRunner, Ordered {
         if (properties.getPrivilegeVerification() == DatastoreProperties.Verification.ENFORCE) {
             return Enforcement.ENFORCED;
         }
-        if (env.equals("staging") || env.equals("production")) {
+        if (env.equals("uat") || env.equals("staging") || env.equals("production")) {
             return Enforcement.ENFORCED;
         }
         if (env.isBlank()) {
