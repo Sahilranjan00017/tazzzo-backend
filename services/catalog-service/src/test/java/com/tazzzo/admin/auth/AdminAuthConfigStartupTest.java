@@ -159,7 +159,7 @@ class AdminAuthConfigStartupTest {
 
     @Test
     void the_jwks_uri_override_is_refused_outside_unset_local_test_or_dev() {
-        for (String env : new String[]{"staging", "production", "prod", "qa"}) {
+        for (String env : new String[]{"uat", "staging", "production", "prod", "qa"}) {
             List<String> p = new ArrayList<>(oidc());
             p.add("tazzzo.admin.oidc.jwks-uri=https://keys.example/certs");
             p.add("tazzzo.migration.environment=" + env);

@@ -171,7 +171,7 @@ class MigrationTargetHostsTest {
         List<List<String>> variants = List.of(List.of(), List.of(PLACEHOLDER), List.of("db.example.net:27017"), List.of(SRV));
         int compared = 0;
         for (MigrationMode mode : MigrationMode.values()) {
-            for (String env : List.of("", "prod", "unknown", "staging", "production")) {
+            for (String env : List.of("", "prod", "unknown", "uat", "staging", "production")) {
                 for (String[] confirm : new String[][]{{null, null}, {"tazzzo_staging", "staging"}, {"wrong", env}, {"tazzzo_staging", env}}) {
                     String baseline = null;
                     for (List<String> hosts : variants) {

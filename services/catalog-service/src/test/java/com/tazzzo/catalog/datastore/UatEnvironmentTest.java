@@ -22,16 +22,22 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /**
  * The {@code uat} environment (user acceptance, database {@code tazzzo_uat}): recognised, never self-serve, enforced like
  * staging/production by the datastore verifier, and the two-key APPLY confirmation must name {@code uat} itself. Plain unit
- * tests: no database, no network, no Spring. The connection strings are synthetic placeholders.
+ * tests: no database, no Spring. The connection strings are synthetic placeholders. Only
+ * {@code a_compliant_uat_atlas_srv_string_satisfies_the_connection_contract} parses a {@code mongodb+srv://} string, which makes
+ * the MongoDB driver look up a DNS TXT record (as {@code ConnectionContractTest.SRV} already does); every other case uses the
+ * equivalent standard {@code mongodb://} replica-set form, so it needs no DNS.
  */
 class UatEnvironmentTest {
 
     static final String DB = "tazzzo_uat";
-    /** An Atlas-shaped SRV target for the UAT database that states every contract option (placeholder credentials). */
-    static final String UAT_SRV = "mongodb+srv://uatuser:placeholderPW@cluster0.abcde12.mongodb.net/" + DB + "?"
+    /** An Atlas-shaped SRV target for the UAT database that states every contract option (the allowlisted fixture credential). */
+    static final String UAT_SRV = "mongodb+srv://appuser:s3cretPW@cluster0.abcde.mongodb.net/" + DB + "?"
             + ConnectionContractTest.OPTIONS;
+    /** The same target in the standard replica-set form (TLS, credentials, every contract option): parsing it needs no DNS. */
+    static final String UAT_RS = "mongodb://appuser:s3cretPW@h1.db.example.net:27017,h2.db.example.net:27017/" + DB
+            + "?replicaSet=rs0&tls=true&authSource=admin&" + ConnectionContractTest.OPTIONS;
     static final String UAT_LOOPBACK = "mongodb://localhost:27017/" + DB + "?replicaSet=rs0";
-    static final String UAT_REMOTE_BAD = "mongodb://uatuser:placeholderPW@db.uat.example.net:27017/" + DB + "?replicaSet=rs0";
+    static final String UAT_REMOTE_BAD = "mongodb://appuser:s3cretPW@db.uat.example.net:27017/" + DB + "?replicaSet=rs0";
 
     // ---- recognition -------------------------------------------------------------------------------------------------
 
@@ -55,12 +61,12 @@ class UatEnvironmentTest {
     }
 
     private static MigrationTarget uat(String uri) {
-        return MigrationTarget.forUri("uat", DB, List.of("cluster0.abcde12.mongodb.net"), uri, "op", "b");
+        return MigrationTarget.forUri("uat", DB, List.of("h1.db.example.net:27017", "h2.db.example.net:27017"), uri, "op", "b");
     }
 
     @Test
     void remote_uat_apply_needs_the_exact_database_and_the_exact_environment() {
-        MigrationTarget t = uat(UAT_SRV);
+        MigrationTarget t = uat(UAT_RS);
         assertThat(t.local()).isFalse();
         assertThat(decision(MigrationMode.APPLY, t, null, null)).startsWith("REFUSED").contains("two-key confirmation");
         assertThat(decision(MigrationMode.APPLY, t, DB, null)).startsWith("REFUSED");
@@ -71,7 +77,7 @@ class UatEnvironmentTest {
 
     @Test
     void staging_is_never_silently_accepted_in_place_of_uat() {
-        MigrationTarget t = uat(UAT_SRV);
+        MigrationTarget t = uat(UAT_RS);
         assertThat(decision(MigrationMode.APPLY, t, DB, "staging")).startsWith("REFUSED");
         assertThat(decision(MigrationMode.APPLY, t, "tazzzo_staging", "uat")).startsWith("REFUSED");
         assertThat(decision(MigrationMode.APPLY, t, "tazzzo_staging", "staging")).startsWith("REFUSED");
@@ -84,7 +90,7 @@ class UatEnvironmentTest {
 
     @Test
     void the_confirmation_is_exact_not_case_insensitive_or_trimmed() {
-        MigrationTarget t = uat(UAT_SRV);
+        MigrationTarget t = uat(UAT_RS);
         for (String env : new String[]{"UAT", "Uat", " uat", "uat ", "uat\n"}) {
             assertThat(decision(MigrationMode.APPLY, t, DB, env)).as("[" + env + "]").startsWith("REFUSED");
         }
@@ -97,8 +103,8 @@ class UatEnvironmentTest {
     @ValueSource(strings = {"APPLY_ON_STARTUP", "LEGACY"})
     void startup_and_legacy_mutation_are_refused_against_remote_uat_even_with_a_valid_confirmation(String mode) {
         MigrationMode m = MigrationMode.valueOf(mode);
-        assertThat(decision(m, uat(UAT_SRV), null, null)).startsWith("REFUSED").contains("startup mutation");
-        assertThat(decision(m, uat(UAT_SRV), DB, "uat")).startsWith("REFUSED").contains("startup mutation");
+        assertThat(decision(m, uat(UAT_RS), null, null)).startsWith("REFUSED").contains("startup mutation");
+        assertThat(decision(m, uat(UAT_RS), DB, "uat")).startsWith("REFUSED").contains("startup mutation");
     }
 
     @Test
@@ -114,13 +120,13 @@ class UatEnvironmentTest {
     @ParameterizedTest(name = "unknown environment [{0}] is still refused")
     @ValueSource(strings = {"UAT", "uat-prod", "user-acceptance", "qa", "preprod", " uat"})
     void near_miss_environment_names_remain_unknown(String env) {
-        MigrationTarget t = MigrationTarget.forUri(env, DB, List.of("x"), UAT_SRV, "op", "b");
+        MigrationTarget t = MigrationTarget.forUri(env, DB, List.of("x"), UAT_RS, "op", "b");
         assertThat(decision(MigrationMode.APPLY, t, DB, env)).startsWith("REFUSED").contains("unknown environment");
     }
 
     @Test
     void a_missing_database_is_refused_for_uat() {
-        MigrationTarget t = MigrationTarget.forUri("uat", "", List.of("x"), UAT_SRV, "op", "b");
+        MigrationTarget t = MigrationTarget.forUri("uat", "", List.of("x"), UAT_RS, "op", "b");
         assertThat(decision(MigrationMode.APPLY, t, "", "uat")).startsWith("REFUSED").contains("database is not identified");
     }
 
@@ -138,12 +144,14 @@ class UatEnvironmentTest {
     void a_compliant_uat_atlas_srv_string_satisfies_the_connection_contract() {
         assertThat(ConnectionContract.evaluate(UAT_SRV)).isEmpty();
         assertThat(ConnectionContract.isLocalTarget(UAT_SRV)).isFalse();
+        assertThat(ConnectionContract.evaluate(UAT_RS)).as("the standard form used by the other cases is compliant too").isEmpty();
+        assertThat(ConnectionContract.isLocalTarget(UAT_RS)).isFalse();
     }
 
     @ParameterizedTest(name = "uat + {0} is enforced, never advisory")
     @ValueSource(strings = {"VERIFY", "DRY_RUN", "APPLY"})
     void uat_is_always_enforced(String mode) {
-        for (String uri : new String[]{UAT_SRV, UAT_LOOPBACK, UAT_REMOTE_BAD, ""}) {
+        for (String uri : new String[]{UAT_RS, UAT_LOOPBACK, UAT_REMOTE_BAD, ""}) {
             DatastoreStartupVerifier.Result r = verifier(uri, MigrationMode.valueOf(mode)).verify();
             assertThat(r.enforcement()).as(mode + " [" + uri + "]").isEqualTo(Enforcement.ENFORCED);
             assertThat(r.violations()).as(mode + " [" + uri + "]").extracting(Violation::code).doesNotContain("ENVIRONMENT_UNKNOWN");
@@ -166,9 +174,9 @@ class UatEnvironmentTest {
 
     @Test
     void the_profile_per_mode_is_unchanged_for_uat() {
-        assertThat(verifier(UAT_SRV, MigrationMode.VERIFY).verify().profile()).isEqualTo(PrivilegeProfile.RUNTIME);
-        assertThat(verifier(UAT_SRV, MigrationMode.DRY_RUN).verify().profile()).isEqualTo(PrivilegeProfile.MIGRATION_READ);
-        assertThat(verifier(UAT_SRV, MigrationMode.APPLY).verify().profile()).isEqualTo(PrivilegeProfile.MIGRATION_APPLY);
+        assertThat(verifier(UAT_RS, MigrationMode.VERIFY).verify().profile()).isEqualTo(PrivilegeProfile.RUNTIME);
+        assertThat(verifier(UAT_RS, MigrationMode.DRY_RUN).verify().profile()).isEqualTo(PrivilegeProfile.MIGRATION_READ);
+        assertThat(verifier(UAT_RS, MigrationMode.APPLY).verify().profile()).isEqualTo(PrivilegeProfile.MIGRATION_APPLY);
     }
 
     // ---- privileges on the UAT database ------------------------------------------------------------------------------

@@ -48,7 +48,7 @@ This runbook uses exactly those names and does not invent others. The Atlas user
 | Runtime URI secret | `/tazzzo/staging/backend/mongodb-uri` | established |
 | Migration URI secret | `/tazzzo/staging/migration/mongodb-uri` | established |
 | Read-only dry-run identity (optional) | no secret path decided | OPTIONAL; the migrator may also dry-run |
-| Application collections | 49 (`SchemaBootstrap.COLLECTIONS`) + 2 migration bookkeeping (`schema_migrations`, `schema_migration_lock`) | code |
+| Application collections | 57 (`SchemaBootstrap.COLLECTIONS`) + 2 migration bookkeeping (`schema_migrations`, `schema_migration_lock`) | code |
 | Environment value for the app | `staging` (`TAZZZO_MIGRATION_ENVIRONMENT`) | code |
 
 ## 4. Identities and privileges (R5: separately permissioned)
@@ -60,7 +60,7 @@ it and a test fails if they drift (`RoleFilesTest`; regenerate with `-Dtazzzo.re
 `createRole` documents for database `tazzzo_staging` (substitute another environment's database name: for UAT replace every
 `tazzzo_staging` with `tazzzo_uat`). Sizes to compare with an Atlas custom role: runtime = one group per application collection
 plus two, each collection group holding 4 actions (59 groups / 230 action-resource pairs at the time of writing); migrator = 7 groups /
-19 pairs; migration reader = 1 group / 3 pairs. `UatEnvironmentTest` pins the formula. A role built from an older file (for example
+19 pairs; migration reader = 1 group / 3 pairs (groups = the `privileges` documents of mongosh `connectionStatus`/`rolesInfo`; the Atlas Administration API groups a role by action instead, so compare the pair counts there). `UatEnvironmentTest` pins the formula. A role built from an older file (for example
 51 groups / 198 pairs, the DB-4 roster) lacks later collections and is refused in `VERIFY` with `MISSING_PRIVILEGE`.
 
 | Identity | Role file | Used by | Holds | Must NOT hold |
@@ -114,7 +114,7 @@ export MONGODB_URI="$(aws ssm get-parameter --region ap-south-1 --name /tazzzo/s
 
 ## 5. Connection contract (R7)
 
-For `staging` and `production` the application **refuses to start** unless the connection string states every item below (`ConnectionContract`, pure, tested with 38 cases). Defaults are not accepted: each option must be present with the stated value. The same contract applies to the migration job.
+For `uat`, `staging` and `production` the application **refuses to start** unless the connection string states every item below (`ConnectionContract`, pure, tested with 38 cases). Defaults are not accepted: each option must be present with the stated value. The same contract applies to the migration job.
 
 | Option / property | Required | Why | Finding code |
 |---|---|---|---|
@@ -159,7 +159,7 @@ Configuration reference (no value here is a secret):
 
 | Variable | Property | Default | Meaning |
 |---|---|---|---|
-| `MONGODB_URI` | `spring.mongodb.uri` | localhost (**refused** for staging/production) | the connection string — secret |
+| `MONGODB_URI` | `spring.mongodb.uri` | localhost (**refused** for uat/staging/production) | the connection string — secret |
 | `MONGODB_DATABASE` | `spring.mongodb.database` | `tazzzo` | `tazzzo_staging` for staging |
 | `TAZZZO_MIGRATION_ENVIRONMENT` | `tazzzo.migration.environment` | unset | `local`/`test`/`dev`/`uat`/`staging`/`production` (`uat` for the UAT database `tazzzo_uat`; never reuse `staging` for it). **A label, not a boundary:** enforcement is also decided by the connection string (§6.2) |
 | `TAZZZO_MIGRATION_MODE` | `tazzzo.migration.mode` | `VERIFY` | `VERIFY` (service), `DRY_RUN` / `APPLY` (job) |
@@ -251,7 +251,7 @@ Preconditions (infrastructure track): an Atlas cluster, the runtime and migrator
 |---|---|---|---|
 | 1 | **Connectivity and capability test** (operator machine, migrator URI) | `mongosh "$MONGODB_URI" --quiet --eval 'printjson(db.getSiblingDB("admin").runCommand({hello:1}))'` then the same with `{connectionStatus:1, showPrivileges:true}`. Then, **as the Atlas project administrator in a throw-away database `tazzzo_conn_check` (never `tazzzo_staging`)**, run a two-document transaction with `readConcern`/`writeConcern` `majority`, then drop that database. | `hello`: `setName` present, `maxWireVersion ≥ 21`, `logicalSessionTimeoutMinutes` present. `connectionStatus` privileges equal the migrator role file. The transaction commits. **Any failure here (especially transactions or `connectionStatus` on M0) is a stop: report it, do not continue.** |
 | 2 | **Dry run** | `TAZZZO_MIGRATION_MODE=DRY_RUN TAZZZO_MIGRATION_ENVIRONMENT=staging TAZZZO_MIGRATION_EXIT_AFTER_RUN=true TAZZZO_SCHEDULER_ENABLED=false TAZZZO_CONSUMER_RATE_LIMIT_MODE=DISABLED MONGODB_DATABASE=tazzzo_staging java -jar catalog-service.jar --spring.main.web-application-type=none` (URI from §4.5) | exit `0`. The datastore verifier line `datastore verified: … profile=MIGRATION_READ … privileges=ok` precedes the report. |
-| 3 | **Review** | read the report | on an **empty** database expect exactly the output below. Anything else (a `BLOCKED` step, a `WOULD_ADOPT` other than V0004) means the database is not empty or not what we think: stop and investigate. |
+| 3 | **Review** | read the report | on an **empty** database expect exactly the output below. Anything else (a `BLOCKED` step, a `WOULD_ADOPT` other than V0004 and V0017; V0017 is satisfied on an empty database because `products` does not exist yet) means the database is not empty or not what we think: stop and investigate. |
 | 4 | **Apply** | as step 2 with `TAZZZO_MIGRATION_MODE=APPLY TAZZZO_MIGRATION_CONFIRM_DATABASE=tazzzo_staging TAZZZO_MIGRATION_CONFIRM_ENVIRONMENT=staging TAZZZO_MIGRATION_OPERATOR=<deploy job id> TAZZZO_BUILD_VERSION=<build>` | exit `0`; the outcome is `OK`. A fresh database needs no `approved-data-migrations`: V0004 is adopted because there is nothing to change. |
 | 5 | **Verify** | `mongosh` as the migrator: `db.schema_migrations.find({},{status:1,checksum:1})` | 19 documents, all `APPLIED` (V0004 and V0017 are recorded as adopted no-ops on a fresh database; V0101/V0102 are disabled and not recorded); `db.getCollectionNames().length` is 59 (57 application collections + 2 bookkeeping). The sample output below shows only V0001–V0007 as captured when those were the only migrations: a current run lists every enabled migration (V0001–V0019) in the same format |
 | 6 | **Second dry run** | repeat step 2 | |
