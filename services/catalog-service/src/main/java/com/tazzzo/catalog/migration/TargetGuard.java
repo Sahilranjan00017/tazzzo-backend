@@ -5,9 +5,9 @@ import java.util.Set;
 /**
  * Refuses to mutate an ambiguous or disallowed target. Rules:
  * <ul>
- *   <li>the environment must be named and one of local/test/dev/staging/production;</li>
+ *   <li>the environment must be named and one of local/test/dev/uat/staging/production;</li>
  *   <li>the database name must be known;</li>
- *   <li>{@code APPLY_ON_STARTUP} and {@code LEGACY} mutation are only for local/test/dev, never staging/production;</li>
+ *   <li>{@code APPLY_ON_STARTUP} and {@code LEGACY} mutation are only for local/test/dev, never uat/staging/production;</li>
  *   <li>{@code APPLY} outside local/test/dev needs a two-key confirmation: the confirmed database AND environment
  *       must equal the actual target (a typed confirmation, so a mis-pointed URI cannot be migrated by accident).</li>
  * </ul>
@@ -16,10 +16,15 @@ import java.util.Set;
  * or unknown target under a self-serve label is treated like staging/production: no startup/legacy mutation, and
  * APPLY needs the two-key confirmation. (The datastore verifier independently enforces the connection contract and
  * the privilege profile for such a target.)
+ *
+ * <p>{@code uat} is the user-acceptance environment (its own database, for example {@code tazzzo_uat}, and its own
+ * identities). It is a remote, shared environment and is deliberately NOT self-serve: it is treated exactly like
+ * staging/production here, whatever its datastore host, so APPLY always needs the two-key confirmation with the exact
+ * environment name {@code uat} (a {@code staging} confirmation does not unlock it) and startup/legacy mutation is refused.
  */
 public final class TargetGuard {
 
-    public static final Set<String> KNOWN_ENVIRONMENTS = Set.of("local", "test", "dev", "staging", "production");
+    public static final Set<String> KNOWN_ENVIRONMENTS = Set.of("local", "test", "dev", "uat", "staging", "production");
     public static final Set<String> SELF_SERVE_ENVIRONMENTS = Set.of("local", "test", "dev");
 
     private TargetGuard() { }

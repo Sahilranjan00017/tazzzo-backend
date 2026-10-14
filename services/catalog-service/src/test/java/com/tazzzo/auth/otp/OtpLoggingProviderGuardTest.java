@@ -24,7 +24,7 @@ class OtpLoggingProviderGuardTest {
         for (String env : new String[]{null, "", "local", "test", "dev", " dev "}) {
             assertThat(config.otpDeliveryProvider(mode("LOGGING"), NO_REGISTRY, env)).as(String.valueOf(env)).isInstanceOf(LoggingOtpDeliveryProvider.class);
         }
-        for (String env : new String[]{"staging", "production", "prod", "Production", "qa"}) {
+        for (String env : new String[]{"uat", "staging", "production", "prod", "Production", "qa"}) {
             assertThatThrownBy(() -> config.otpDeliveryProvider(mode("LOGGING"), NO_REGISTRY, env)).as(env)
                     .isInstanceOf(IllegalStateException.class).hasMessageContaining("refused");
         }

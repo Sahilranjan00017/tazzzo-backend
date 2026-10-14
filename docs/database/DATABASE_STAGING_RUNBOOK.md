@@ -48,7 +48,7 @@ This runbook uses exactly those names and does not invent others. The Atlas user
 | Runtime URI secret | `/tazzzo/staging/backend/mongodb-uri` | established |
 | Migration URI secret | `/tazzzo/staging/migration/mongodb-uri` | established |
 | Read-only dry-run identity (optional) | no secret path decided | OPTIONAL; the migrator may also dry-run |
-| Application collections | 49 (`SchemaBootstrap.COLLECTIONS`) + 2 migration bookkeeping (`schema_migrations`, `schema_migration_lock`) | code |
+| Application collections | 57 (`SchemaBootstrap.COLLECTIONS`) + 2 migration bookkeeping (`schema_migrations`, `schema_migration_lock`) | code |
 | Environment value for the app | `staging` (`TAZZZO_MIGRATION_ENVIRONMENT`) | code |
 
 ## 4. Identities and privileges (R5: separately permissioned)
@@ -57,7 +57,11 @@ This runbook uses exactly those names and does not invent others. The Atlas user
 
 `PrivilegeModel` (code) is the single source of truth. The role files in `docs/database/roles/` are generated from
 it and a test fails if they drift (`RoleFilesTest`; regenerate with `-Dtazzzo.regenerate-role-files=true`). They are MongoDB
-`createRole` documents for database `tazzzo_staging` (substitute another environment's database name).
+`createRole` documents for database `tazzzo_staging` (substitute another environment's database name: for UAT replace every
+`tazzzo_staging` with `tazzzo_uat`). Sizes to compare with an Atlas custom role: runtime = one group per application collection
+plus two, each collection group holding 4 actions (59 groups / 230 action-resource pairs at the time of writing); migrator = 7 groups /
+19 pairs; migration reader = 1 group / 3 pairs (groups = the `privileges` documents of mongosh `connectionStatus`/`rolesInfo`; the Atlas Administration API groups a role by action instead, so compare the pair counts there). `UatEnvironmentTest` pins the formula. A role built from an older file (for example
+51 groups / 198 pairs, the DB-4 roster) lacks later collections and is refused in `VERIFY` with `MISSING_PRIVILEGE`.
 
 | Identity | Role file | Used by | Holds | Must NOT hold |
 |---|---|---|---|---|
@@ -110,7 +114,7 @@ export MONGODB_URI="$(aws ssm get-parameter --region ap-south-1 --name /tazzzo/s
 
 ## 5. Connection contract (R7)
 
-For `staging` and `production` the application **refuses to start** unless the connection string states every item below (`ConnectionContract`, pure, tested with 38 cases). Defaults are not accepted: each option must be present with the stated value. The same contract applies to the migration job.
+For `uat`, `staging` and `production` the application **refuses to start** unless the connection string states every item below (`ConnectionContract`, pure, tested with 38 cases). Defaults are not accepted: each option must be present with the stated value. The same contract applies to the migration job.
 
 | Option / property | Required | Why | Finding code |
 |---|---|---|---|
@@ -155,11 +159,11 @@ Configuration reference (no value here is a secret):
 
 | Variable | Property | Default | Meaning |
 |---|---|---|---|
-| `MONGODB_URI` | `spring.mongodb.uri` | localhost (**refused** for staging/production) | the connection string — secret |
+| `MONGODB_URI` | `spring.mongodb.uri` | localhost (**refused** for uat/staging/production) | the connection string — secret |
 | `MONGODB_DATABASE` | `spring.mongodb.database` | `tazzzo` | `tazzzo_staging` for staging |
-| `TAZZZO_MIGRATION_ENVIRONMENT` | `tazzzo.migration.environment` | unset | `local`/`test`/`dev`/`staging`/`production`. **A label, not a boundary:** enforcement is also decided by the connection string (§6.2) |
+| `TAZZZO_MIGRATION_ENVIRONMENT` | `tazzzo.migration.environment` | unset | `local`/`test`/`dev`/`uat`/`staging`/`production` (`uat` for the UAT database `tazzzo_uat`; never reuse `staging` for it). **A label, not a boundary:** enforcement is also decided by the connection string (§6.2) |
 | `TAZZZO_MIGRATION_MODE` | `tazzzo.migration.mode` | `VERIFY` | `VERIFY` (service), `DRY_RUN` / `APPLY` (job) |
-| `TAZZZO_DATASTORE_PRIVILEGE_VERIFICATION` | `tazzzo.datastore.privilege-verification` | `AUTO` | `AUTO` enforces for staging/production; `ENFORCE` enforces everywhere. **There is no setting that turns enforcement off for staging or production.** |
+| `TAZZZO_DATASTORE_PRIVILEGE_VERIFICATION` | `tazzzo.datastore.privilege-verification` | `AUTO` | `AUTO` enforces for uat/staging/production (whatever the host); `ENFORCE` enforces everywhere. **There is no setting that turns enforcement off for uat, staging or production.** |
 | `TAZZZO_SCHEDULER_ENABLED` | `tazzzo.scheduler.enabled` | `true` | no longer forced to `false` by R1 (fixed in code); the startup gate in §6.1 holds workers back until the datastore is verified. Keep `false` for the very first staging runs if you want a conservative start |
 
 ## 6. Startup behaviour (fail-fast)
@@ -169,9 +173,9 @@ What its ordering does **not** do is hold back `@Scheduled` workers, which start
 
 | Condition | Result (finding code) |
 |---|---|
-| `staging`/`production`, **or any label with a non-local target (§6.2)**, URI missing or violating the contract | refuse, no connection attempted by the verifier (`URI_MISSING`, `URI_INVALID`, and the §5 codes) |
+| `uat`/`staging`/`production`, **or any label with a non-local target (§6.2)**, URI missing or violating the contract | refuse, no connection attempted by the verifier (`URI_MISSING`, `URI_INVALID`, and the §5 codes) |
 | environment unset **and** a non-loopback server | refuse (`ENVIRONMENT_NOT_IDENTIFIED`) — the environment cannot be trusted |
-| environment not one of the five known names | refuse (`ENVIRONMENT_UNKNOWN`) |
+| environment not one of the six known names | refuse (`ENVIRONMENT_UNKNOWN`) |
 | server unreachable within `serverSelectionTimeoutMS` | refuse (`DATASTORE_UNAVAILABLE`) |
 | connection string cannot be resolved (for example an SRV lookup fails) | refuse (`DATASTORE_CONFIGURATION_ERROR`) |
 | any other driver failure during the checks | refuse (`DATASTORE_CHECK_FAILED`, naming only the failed check and the exception class) |
@@ -231,7 +235,7 @@ A proxy changes the effective network destination, so a loopback host behind any
 (it still refuses `127.1`, `0177.0.0.1`, `0.0.0.0` and the rest), so no spelling can slip through either rule. There is no developer opt-in flag. (`tazzzo.datastore.privilege-verification=ENFORCE` still enforces everywhere.)
 
 **Residual limit.** A loopback address does not prove the data is local: an SSH or `kubectl` port-forward to a remote cluster, or replica-set discovery that advertises remote member names, looks local. The label and the literal address cannot detect that; use an explicit
-`staging`/`production` label, or `ENFORCE`, whenever the datastore is not a throw-away local one.
+`uat`/`staging`/`production` label, or `ENFORCE`, whenever the datastore is not a throw-away local one.
 
 ### 6.3 Driver logging
 
@@ -247,7 +251,7 @@ Preconditions (infrastructure track): an Atlas cluster, the runtime and migrator
 |---|---|---|---|
 | 1 | **Connectivity and capability test** (operator machine, migrator URI) | `mongosh "$MONGODB_URI" --quiet --eval 'printjson(db.getSiblingDB("admin").runCommand({hello:1}))'` then the same with `{connectionStatus:1, showPrivileges:true}`. Then, **as the Atlas project administrator in a throw-away database `tazzzo_conn_check` (never `tazzzo_staging`)**, run a two-document transaction with `readConcern`/`writeConcern` `majority`, then drop that database. | `hello`: `setName` present, `maxWireVersion ≥ 21`, `logicalSessionTimeoutMinutes` present. `connectionStatus` privileges equal the migrator role file. The transaction commits. **Any failure here (especially transactions or `connectionStatus` on M0) is a stop: report it, do not continue.** |
 | 2 | **Dry run** | `TAZZZO_MIGRATION_MODE=DRY_RUN TAZZZO_MIGRATION_ENVIRONMENT=staging TAZZZO_MIGRATION_EXIT_AFTER_RUN=true TAZZZO_SCHEDULER_ENABLED=false TAZZZO_CONSUMER_RATE_LIMIT_MODE=DISABLED MONGODB_DATABASE=tazzzo_staging java -jar catalog-service.jar --spring.main.web-application-type=none` (URI from §4.5) | exit `0`. The datastore verifier line `datastore verified: … profile=MIGRATION_READ … privileges=ok` precedes the report. |
-| 3 | **Review** | read the report | on an **empty** database expect exactly the output below. Anything else (a `BLOCKED` step, a `WOULD_ADOPT` other than V0004) means the database is not empty or not what we think: stop and investigate. |
+| 3 | **Review** | read the report | on an **empty** database expect exactly the output below. Anything else (a `BLOCKED` step, a `WOULD_ADOPT` other than V0004 and V0017; V0017 is satisfied on an empty database because `products` does not exist yet) means the database is not empty or not what we think: stop and investigate. |
 | 4 | **Apply** | as step 2 with `TAZZZO_MIGRATION_MODE=APPLY TAZZZO_MIGRATION_CONFIRM_DATABASE=tazzzo_staging TAZZZO_MIGRATION_CONFIRM_ENVIRONMENT=staging TAZZZO_MIGRATION_OPERATOR=<deploy job id> TAZZZO_BUILD_VERSION=<build>` | exit `0`; the outcome is `OK`. A fresh database needs no `approved-data-migrations`: V0004 is adopted because there is nothing to change. |
 | 5 | **Verify** | `mongosh` as the migrator: `db.schema_migrations.find({},{status:1,checksum:1})` | 19 documents, all `APPLIED` (V0004 and V0017 are recorded as adopted no-ops on a fresh database; V0101/V0102 are disabled and not recorded); `db.getCollectionNames().length` is 59 (57 application collections + 2 bookkeeping). The sample output below shows only V0001–V0007 as captured when those were the only migrations: a current run lists every enabled migration (V0001–V0019) in the same format |
 | 6 | **Second dry run** | repeat step 2 | |

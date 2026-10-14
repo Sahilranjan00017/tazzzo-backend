@@ -66,7 +66,7 @@ Prefix `tazzzo.migration` (env vars in the second column). None of these values 
 | Property | Env var | Default | Meaning |
 |---|---|---|---|
 | `mode` | `TAZZZO_MIGRATION_MODE` | `VERIFY` | `VERIFY`, `DRY_RUN`, `APPLY`, `APPLY_ON_STARTUP`, `LEGACY` |
-| `environment` | `TAZZZO_MIGRATION_ENVIRONMENT` | *(empty)* | `local`/`test`/`dev`/`staging`/`production`. **Required for any mutation.** |
+| `environment` | `TAZZZO_MIGRATION_ENVIRONMENT` | *(empty)* | `local`/`test`/`dev`/`uat`/`staging`/`production`. **Required for any mutation.** UAT uses `uat`, never `staging` |
 | `confirm-database` | `TAZZZO_MIGRATION_CONFIRM_DATABASE` | *(empty)* | two-key confirmation for `APPLY` outside local/test/dev |
 | `confirm-environment` | `TAZZZO_MIGRATION_CONFIRM_ENVIRONMENT` | *(empty)* | two-key confirmation (exact environment) |
 | `operator` | `TAZZZO_MIGRATION_OPERATOR` | OS user | recorded in the history (use the deployment job id) |
@@ -151,18 +151,18 @@ Errors and blockers pass through `MigrationSanitizer` before being stored or log
 
 ## 8. Dry run and environment safety
 
-**Dry run** (`mode=DRY_RUN`, or `MigrationRunner.dryRun`) is strictly read-only: no lock, no history collection, no collection of any kind is created. It reports, per migration: `ALREADY_APPLIED`, `WOULD_APPLY` (with the intended operations), `WOULD_ADOPT`, `BLOCKED` (with blockers), `PENDING_APPROVAL`, `CHECKSUM_MISMATCH`; plus the target (`environment`, `database`, `hosts`, `operator`, `build`) — never a connection string. Exit codes: `0` OK, `2` BLOCKED, `3` FAILED, `4` LOCK_HELD, `5` LOCK_LOST, `6` CHECKSUM_MISMATCH, `7` TARGET_REFUSED, `8` INVALID_SELECTION (an unknown id in `enabled-migrations`/`approved-data-migrations`: never silently ignored; nothing is run). A dry run evaluates **each migration independently against the current state** (it cannot simulate earlier migrations having run), whereas `apply` stops at the first problem; so a dry run can show `WOULD_APPLY` for a step that `apply` would report `NOT_RUN`. When several problems exist the dry-run outcome is `CHECKSUM_MISMATCH` over `BLOCKED`. A migration caught mid-flight by a lost lock is reported `INTERRUPTED` (left `APPLYING`).
+**Dry run** (`mode=DRY_RUN`, or `MigrationRunner.dryRun`) is strictly read-only: no lock, no history collection, no collection of any kind is created. It reports, per migration: `ALREADY_APPLIED`, `WOULD_APPLY` (with the intended operations), `WOULD_ADOPT`, `BLOCKED` (with blockers), `PENDING_APPROVAL`, `CHECKSUM_MISMATCH`; plus the target (`environment`, `database`, `hosts`, `operator`, `build`) — never a connection string. Exit codes: `0` OK, `2` BLOCKED, `3` FAILED, `4` LOCK_HELD, `5` LOCK_LOST, `6` CHECKSUM_MISMATCH, `7` TARGET_REFUSED, `8` INVALID_SELECTION (an unknown id in `enabled-migrations`/`approved-data-migrations`: never silently ignored; nothing is run). A job that ends with `1` produced no report: the context did not start, or the datastore verifier refused before the runner (the log line `datastore contract not satisfied (environment=…, profile=…)` lists finding codes only: contract, environment label, privileges or connectivity). A dry run never takes the lock and never calls the target guard, so it can only end with `0`, `1`, `2`, `3`, `6` or `8`; `4`, `5` and `7` belong to `APPLY`. A dry run evaluates **each migration independently against the current state** (it cannot simulate earlier migrations having run), whereas `apply` stops at the first problem; so a dry run can show `WOULD_APPLY` for a step that `apply` would report `NOT_RUN`. When several problems exist the dry-run outcome is `CHECKSUM_MISMATCH` over `BLOCKED`. A migration caught mid-flight by a lost lock is reported `INTERRUPTED` (left `APPLYING`).
 
 **Target guard** — before any mutation, in every mode:
 
 | Rule | Effect |
 |---|---|
-| environment not set, or not one of `local/test/dev/staging/production` | refused (`TARGET_REFUSED`), nothing created |
+| environment not set, or not one of `local/test/dev/uat/staging/production` | refused (`TARGET_REFUSED`), nothing created |
 | database name unknown | refused |
-| `APPLY_ON_STARTUP` or `LEGACY` mutation in `staging`/`production` | refused — use the job |
-| `APPLY` in `staging`/`production` | two-key confirmation: `confirm-database` **and** `confirm-environment` must equal the actual target exactly |
+| `APPLY_ON_STARTUP` or `LEGACY` mutation in `uat`/`staging`/`production` (any host, loopback included) | refused — use the job |
+| `APPLY` in `uat`/`staging`/`production` | two-key confirmation: `confirm-database` **and** `confirm-environment` must equal the actual target exactly (case-sensitive, untrimmed; a `staging` confirmation never unlocks `uat`) |
 
-The target is derived from the live client: database name from the connection, hosts from the cluster settings (host:port only).
+The target is derived from the live client: the database name from `spring.mongodb.database` (`MONGODB_DATABASE`, default `tazzzo`; the database path in the connection string does not select the database), hosts from the cluster settings (host:port, or the SRV name of a `mongodb+srv://` string).
 
 ## 9. Index migration rules
 
@@ -269,7 +269,62 @@ java -jar catalog-service.jar --spring.main.web-application-type=none \
   --tazzzo.migration.approved-data-migrations=V0004__seed_schemas_pack_fields_not_required   # only when approved
 ```
 
-**The job is the application, so it needs the same mandatory configuration as the service** — notably `TAZZZO_CONSUMER_RATE_LIMIT_MODE`, which has no default and makes startup fail if unset (`DISABLED` is the fail-closed value for a job that serves nothing) — plus any other mandatory property the service requires at startup. A committed test (`MigrationJobContextIT`) starts the real application in exactly this shape (non-web, `DRY_RUN`, `exit-after-run=true`, only the configuration listed above) and checks that it exits with code 0 and creates nothing. Credentials come from the secret store (`MONGODB_URI`), never from this repository or the command line history. The migration identity should hold only the privileges it needs (`createCollection`, `createIndex`, `dropIndex`, `collMod`, read/write on the bookkeeping collections and, for data migrations, update on the target); the runtime application identity needs none of them in `VERIFY` mode. **Separate runtime / migrator / read-only identities, their exact role definitions (`docs/database/roles/`), the explicit connection contract and the startup verification that enforces both are DB-4: see `DATABASE_STAGING_RUNBOOK.md` (the verifier runs before the migration runner, and refuses to start a staging/production process whose connection string or privileges do not match).**
+**The job is the application, so it needs the same mandatory configuration as the service** — notably `TAZZZO_CONSUMER_RATE_LIMIT_MODE`, which has no default and makes startup fail if unset (`DISABLED` is the fail-closed value for a job that serves nothing) — plus any other mandatory property the service requires at startup. A committed test (`MigrationJobContextIT`) starts the real application in exactly this shape (non-web, `DRY_RUN`, `exit-after-run=true`, only the configuration listed above, environment `dev` against a throw-away server) and checks that it exits with code 0 and creates nothing; `UatJobWiringIT` starts the same shape with environment `uat` and proves the verifier refuses a non-compliant or unreachable target before the runner. Credentials come from the secret store (`MONGODB_URI`), never from this repository or the command line history. The migration identity should hold only the privileges it needs (`createCollection`, `createIndex`, `dropIndex`, `collMod`, read/write on the bookkeeping collections and, for data migrations, update on the target); the runtime application identity needs none of them in `VERIFY` mode. **Separate runtime / migrator / read-only identities, their exact role definitions (`docs/database/roles/`), the explicit connection contract and the startup verification that enforces both are DB-4: see `DATABASE_STAGING_RUNBOOK.md` (the verifier runs before the migration runner, and refuses to start a uat/staging/production process whose connection string or privileges do not match).**
+
+### 12.3 UAT (`uat`, database `tazzzo_uat`)
+
+UAT is its own environment: `TAZZZO_MIGRATION_ENVIRONMENT=uat`, database `tazzzo_uat`, its own runtime and migrator users. Do
+**not** label it `staging`. `uat` is recognised by `TargetGuard` but is **not** self-serve: like staging/production it is always
+enforced by the datastore verifier (whatever the host), `APPLY_ON_STARTUP` and `LEGACY` mutation (the legacy bootstrap/seed flags)
+are refused, and `APPLY` needs `TAZZZO_MIGRATION_CONFIRM_DATABASE=tazzzo_uat` **and** `TAZZZO_MIGRATION_CONFIRM_ENVIRONMENT=uat`,
+matched exactly.
+
+**Roles.** Before the first run, the Atlas custom roles must equal the role files of the commit being deployed with
+`tazzzo_staging` replaced by `tazzzo_uat` (`DATABASE_STAGING_RUNBOOK.md` §4.1): the runtime role has one privilege group per
+application collection plus two (database-level `listCollections`, `find` on `schema_migrations`), the migrator role exactly 7
+groups and 19 action-resource pairs. Group counts are the `privileges` documents (mongosh `connectionStatus`/`rolesInfo`, the role
+files); the Atlas Administration API groups the same role by action, so compare the action-resource pair counts there. A runtime
+role built from an older role file is missing collections and the service refuses to start in `VERIFY` (`MISSING_PRIVILEGE`).
+
+**Artifact.** The job and every UAT image must be built from a commit that contains the `uat` environment; an older build refuses
+`uat` (`ENVIRONMENT_UNKNOWN`, exit `1`). Build with Java 21 from a clean checkout of that commit:
+`cd services/catalog-service && ./mvnw -B -DskipTests package`, which produces `target/catalog-service-0.1.0-SNAPSHOT.jar`; set
+`TAZZZO_BUILD_VERSION` to the commit's full SHA.
+
+**Connection string and database.** The migrator's string must state the whole contract (`DATABASE_STAGING_RUNBOOK.md` §5); the
+string Atlas offers by default is refused (exit `1`). Template, placeholders only:
+`mongodb+srv://tazzzo_uat_migrator:<password>@<cluster-host>/tazzzo_uat?authSource=admin&retryWrites=true&retryReads=true&w=majority&readConcernLevel=majority&readPreference=primary&connectTimeoutMS=10000&serverSelectionTimeoutMS=15000&maxPoolSize=20`.
+`MONGODB_DATABASE=tazzzo_uat` is **mandatory**: it, not the path in the string, selects the database (the default `tazzzo` is
+then refused by the verifier, because the roles are scoped to `tazzzo_uat`). A `URI_INVALID` finding on an otherwise correct
+`mongodb+srv://` string can mean the DNS lookup of the SRV/TXT records failed on that machine.
+
+Run one block at a time, with Java 21, from a fresh shell (stray `TAZZZO_*`, `MONGODB_*`, `SPRING_*`, `LOGGING_*` or `JAVA_TOOL_OPTIONS` variables would be inherited) and an empty working directory (Spring Boot also reads `./application.*` and `./config/`). Each block is
+one subshell: the whole block is parsed before it runs, so the hidden prompt waits for the string you type or paste next, and the
+string never outlives the command.
+
+```bash
+# read-only report against UAT, migrator identity: no lock, no history, nothing created
+( printf 'UAT migrator connection string (not shown): ' >&2; IFS= read -rs MONGODB_URI; echo >&2; export MONGODB_URI
+  export MONGODB_DATABASE=tazzzo_uat TAZZZO_MIGRATION_MODE=DRY_RUN TAZZZO_MIGRATION_ENVIRONMENT=uat \
+         TAZZZO_MIGRATION_EXIT_AFTER_RUN=true TAZZZO_BUILD_VERSION=<40-hex sha> \
+         TAZZZO_SCHEDULER_ENABLED=false TAZZZO_CONSUMER_RATE_LIMIT_MODE=DISABLED
+  exec java -jar <path>/catalog-service-0.1.0-SNAPSHOT.jar --spring.main.web-application-type=none ); echo "exit=$?"
+
+# controlled apply: ONLY after the DRY_RUN report is reviewed and the owner has authorised it in writing; same jar, same SHA
+( printf 'UAT migrator connection string (not shown): ' >&2; IFS= read -rs MONGODB_URI; echo >&2; export MONGODB_URI
+  export MONGODB_DATABASE=tazzzo_uat TAZZZO_MIGRATION_MODE=APPLY TAZZZO_MIGRATION_ENVIRONMENT=uat \
+         TAZZZO_MIGRATION_EXIT_AFTER_RUN=true TAZZZO_MIGRATION_CONFIRM_DATABASE=tazzzo_uat \
+         TAZZZO_MIGRATION_CONFIRM_ENVIRONMENT=uat TAZZZO_MIGRATION_OPERATOR=<operator> TAZZZO_BUILD_VERSION=<the same sha> \
+         TAZZZO_SCHEDULER_ENABLED=false TAZZZO_CONSUMER_RATE_LIMIT_MODE=DISABLED
+  exec java -jar <path>/catalog-service-0.1.0-SNAPSHOT.jar --spring.main.web-application-type=none ); echo "exit=$?"
+```
+
+Before reading the steps, check that the verifier line says `datastore verified: environment=uat database=tazzzo_uat
+profile=MIGRATION_READ` and that the report's target says `database=tazzzo_uat`. On an **empty** `tazzzo_uat` expect `DRY-RUN OK`
+(exit `0`) with 19 steps: `V0004` and `V0017` report `WOULD_ADOPT` (nothing to change on an empty database) and the other 17
+`WOULD_APPLY`; the two disabled drop candidates (`V0101`, `V0102`) do not appear in the report. Anything else (`BLOCKED`,
+`CHECKSUM_MISMATCH`, another `WOULD_ADOPT`) means the database is not empty or not what we think: stop and investigate. Then the service on the UAT host runs
+with `TAZZZO_MIGRATION_ENVIRONMENT=uat`, `MONGODB_DATABASE=tazzzo_uat` and the **runtime** user's string (default `VERIFY`).
 
 ## 13. Rollback and roll-forward
 
@@ -304,7 +359,7 @@ Actual drops happen only through the disabled drop migrations after explicit app
 
 ## 15. Production restrictions
 
-- The application never mutates the schema on startup in `staging`/`production` (the guard refuses it).
+- The application never mutates the schema on startup in `uat`/`staging`/`production` (the guard refuses it).
 - `APPLY` there requires the two-key confirmation and an identified environment; always `DRY_RUN` first and review.
 - Run the §9 preflight queries before the first rollout of any new index; evaluate index build time and load on production-sized data first.
 - Take a backup / confirm point-in-time recovery before any DATA migration or index drop (DB-6).

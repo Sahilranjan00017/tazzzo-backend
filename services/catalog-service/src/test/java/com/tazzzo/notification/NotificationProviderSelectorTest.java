@@ -23,7 +23,7 @@ class NotificationProviderSelectorTest {
             assertThat(s).isInstanceOf(SandboxNotificationSender.class);
             assertThat(s.delivers()).isTrue();
         }
-        for (String env : new String[]{"staging", "production", "prod", "Production", "unknown"}) {
+        for (String env : new String[]{"uat", "staging", "production", "prod", "Production", "unknown"}) {
             assertThatThrownBy(() -> NotificationProviderSelector.select("sandbox", env))
                     .isInstanceOf(IllegalStateException.class).hasMessageContaining("refused");
         }

@@ -4,9 +4,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
  * Prefix {@code tazzzo.datastore}. {@code privilege-verification}: {@code AUTO} (default) enforces the datastore
- * contract and privilege profile for {@code staging}/{@code production} (and for an unidentified environment that
+ * contract and privilege profile for {@code uat}/{@code staging}/{@code production} (and for an unidentified environment that
  * points at a non-loopback server); {@code ENFORCE} enforces it everywhere. There is deliberately NO setting that
- * switches enforcement off for staging or production.
+ * switches enforcement off for uat, staging or production.
  */
 @ConfigurationProperties(prefix = "tazzzo.datastore")
 public class DatastoreProperties {

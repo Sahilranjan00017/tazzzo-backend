@@ -57,7 +57,16 @@ The previous SHA is the value of `/tazzzo/uat/backend/deployed-sha` read **befor
 ## Migration authorisation boundary
 The pipeline never touches the database. The API starts in `VERIFY` mode and **refuses an unmigrated or drifted schema** (`docs/ops/DEPLOYMENT.md`, `docs/database/DATABASE_MIGRATION_RUNBOOK.md`). Migration `DRY_RUN` and `APPLY` need database access the pipeline does not have, and `APPLY` is a **separate, human-authorised, two-key operation** (`TAZZZO_MIGRATION_CONFIRM_DATABASE` and `TAZZZO_MIGRATION_CONFIRM_ENVIRONMENT`) done before the first deploy and before any deploy that adds a migration.
 
-The deploy fails fast instead: if `/health/ready` reports `components.datastore=REFUSED` twice in a row, `scripts/uat-wait-healthy.sh` exits 3 with a message that the schema is not migrated, instead of waiting out the 5 minutes. Then the environment is left on the new (refusing) container: roll back with `rollback-uat` unless the migration is applied.
+The deploy fails fast instead: if `/health/ready` reports `components.datastore=REFUSED` twice in a row, `scripts/uat-wait-healthy.sh` exits 3 with a message that the schema is not migrated, instead of waiting out the 5 minutes. Note that `REFUSED` is set only by the datastore verifier (connection contract, environment label, privileges or connectivity); an unmigrated schema stops startup separately (`database schema verification failed`). Read the container log before acting on the hint. Then the environment is left on the new (refusing) container: roll back with `rollback-uat` unless the migration is applied.
+
+## Environment label (`uat`) and the order of rollout
+UAT runs with `TAZZZO_MIGRATION_ENVIRONMENT=uat` (SSM `/tazzzo/uat/backend/TAZZZO_MIGRATION_ENVIRONMENT`, and the migration job's environment). `uat` is enforced exactly like `staging`/`production` (connection contract and privilege profile, no startup or legacy mutation, two-key `APPLY` with `confirm-environment=uat`), and it never gets the dev-only conveniences (OTP `LOGGING`, the notification sandbox, storage-less media). **An image built before `uat` existed refuses it** (`ENVIRONMENT_UNKNOWN`, startup refused), and the host's automatic rollback re-reads the same SSM values, so:
+
+- build the migration job and every image deployed with `uat` from a commit that contains the `uat` environment;
+- set the SSM value to `uat` only when the SHA being deployed and the rollback target (`deployed-sha`/`previous-sha`) both contain it. Before the first deploy (`deployed-sha` = `none`) there is no rollback target, so the first `uat`-capable deploy may use `uat` directly;
+- never label UAT `dev`, `local` or `test`: those labels switch on the dev-only behaviours.
+
+A refusal for this reason surfaces as a startup failure of the container, not as an unmigrated schema; read the container log for `ENVIRONMENT_UNKNOWN` before following the "schema not migrated" hint of `scripts/uat-wait-healthy.sh`.
 
 ## Smoke test
 `scripts/uat-smoke-test.sh <base-url>` (needs `curl` and `jq`; sends no credentials; prints no bodies). Routes were checked against `docs/api/v1/openapi.yaml`:
