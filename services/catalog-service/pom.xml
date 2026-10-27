@@ -23,7 +23,7 @@
         -->
         <jackson-2-bom.version>2.21.7</jackson-2-bom.version>
         <!-- Media object storage (S3-compatible): presigned direct-to-storage uploads and object inspection only. -->
-        <awssdk.version>2.55.11</awssdk.version>
+        <awssdk.version>2.57.3</awssdk.version>
     </properties>
     <dependencyManagement>
         <dependencies>
